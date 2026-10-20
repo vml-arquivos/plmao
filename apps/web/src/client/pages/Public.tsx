@@ -7,7 +7,7 @@ import { dateTime, isValidPlate, normalizePlate } from '../../shared/format';
 import { api } from '../api';
 import { BRAND } from '../config';
 import { useSession } from '../session';
-import Pricing, { useCatalog } from '../components/Pricing';
+import { CompareMatrix, PackageCards, ProductCards, SmartPicker, useCatalog } from '../components/Catalog';
 import Faq from '../components/Faq';
 import { money } from '../../shared/format';
 
@@ -47,12 +47,18 @@ export function GuestQuery() {
 
 /* ---------- /planos ---------- */
 export function PlansPage() {
-  usePageTitle('Planos e preços');
+  usePageTitle('Consultas e preços');
   return (
     <>
-      <section className="page-hero"><div className="container"><span className="eyebrow">Preços</span><h1>Pague só pelo que consultar.</h1><p className="lead">Sem mensalidade obrigatória. Escolha a consulta avulsa ou um pacote de saldo com bônus e economize em várias consultas.</p></div></section>
-      <section className="section" style={{ paddingTop: 12 }}><div className="container"><Pricing /></div></section>
-      <section className="section alt"><div className="container"><div className="section-head center"><h2>Dúvidas frequentes</h2></div><Faq /></div></section>
+      <section className="page-hero"><div className="container"><span className="eyebrow">Consultas e preços</span><h1>Pague só pelo que consultar.</h1><p className="lead">Sem mensalidade obrigatória. Compare o que cada consulta entrega, descubra a combinação mais barata para o seu caso ou recarregue saldo em pacotes.</p></div></section>
+      <section className="section" style={{ paddingTop: 12 }}><div className="container stack-lg">
+        <ProductCards />
+        <div className="stack"><h2 style={{ fontSize: 26 }}>Compare lado a lado</h2><CompareMatrix /></div>
+        <SmartPicker />
+        <div className="stack"><h2 style={{ fontSize: 26 }}>Pacotes de saldo</h2><PackageCards /></div>
+        <p className="muted" style={{ fontSize: 13 }}>Preço final exibido antes do pagamento. Pix e cartão conforme a disponibilidade do checkout. <Link to="/termos">Termos de Uso</Link>.</p>
+      </div></section>
+      <section className="section alt"><div className="container"><div className="section-head center"><h2>Dúvidas frequentes</h2></div><Faq limit={6} /></div></section>
     </>
   );
 }
@@ -99,56 +105,6 @@ export function ValidatePage() {
         </form>
       </div>
     </section>
-  );
-}
-
-/* ---------- /desenvolvedores ---------- */
-export function ApiDocs() {
-  usePageTitle('API para desenvolvedores');
-  const base = typeof window !== 'undefined' ? window.location.origin : 'https://placanamao.com.br';
-  return (
-    <>
-      <section className="page-hero"><div className="container"><span className="eyebrow">API Placa na Mão</span><h1>Integre consultas veiculares ao seu sistema.</h1><p className="lead">Uma API REST simples: envie a placa, receba o relatório estruturado em JSON. Mesma cobrança e mesmos dados da plataforma.</p><div className="row" style={{ marginTop: 22 }}><LinkButton to="/app/api" variant="primary" iconRight="arrow-right">Gerar minha chave</LinkButton></div></div></section>
-      <section className="section" style={{ paddingTop: 12 }}>
-        <div className="container api-doc prose" style={{ maxWidth: 860 }}>
-          <h2>Autenticação</h2>
-          <p>Gere uma chave em <Link to="/app/api">Minha área → API</Link> e envie no cabeçalho <span className="kbd">Authorization: Bearer pnm_live_…</span> (ou <span className="kbd">X-API-Key</span>). Cada consulta é debitada do saldo da sua carteira.</p>
-          <div className="endpoint"><span className="verb">GET</span> /api/v1/products</div>
-          <p>Lista as consultas disponíveis e seus preços (em centavos).</p>
-          <div className="endpoint"><span className="verb">GET</span> /api/v1/balance</div>
-          <p>Retorna o saldo atual em centavos.</p>
-          <div className="endpoint"><span className="verb post">POST</span> /api/v1/vehicles</div>
-          <p>Executa uma consulta. Corpo: <span className="kbd">{`{ "plate": "ABC1D23", "product": "COMPLETE" }`}</span>. Use o cabeçalho <span className="kbd">Idempotency-Key</span> (12–128 caracteres) para evitar cobrança dupla em reenvios.</p>
-          <pre className="code-box"><code>{`curl -X POST ${base}/api/v1/vehicles \\
-  -H "Authorization: Bearer pnm_live_SUACHAVE" \\
-  -H "Idempotency-Key: 6c1d0c9e-3e7a-4b7c-9f10-2a8e5d0b1f11" \\
-  -H "Content-Type: application/json" \\
-  -d '{"plate":"ABC1D23","product":"COMPLETE"}'`}</code></pre>
-          <pre className="code-box"><code>{`{
-  "object": "vehicle_query",
-  "id": "9f1c2a7b-…",
-  "plate": "ABC1D23",
-  "status": "SUCCESS",
-  "priceCents": 2490,
-  "verificationCode": "9F1C2A7B",
-  "result": {
-    "v2": {
-      "verdict": { "level": "CLEAR", "title": "Sem alertas relevantes" },
-      "headline": { "brand": "…", "model": "…" },
-      "debts": { "totalCents": 0, "hasDebt": false },
-      "sections": [ … ]
-    }
-  }
-}`}</code></pre>
-          <div className="endpoint"><span className="verb">GET</span> /api/v1/vehicles/:id</div>
-          <p>Recupera uma consulta feita por API.</p>
-          <h2>Dados e privacidade</h2>
-          <ul><li>Campos que a fonte não retornou vêm com <span className="kbd">state: "NOT_PROVIDED"</span>.</li><li>Nome e documentos do proprietário não são expostos; identificadores aparecem mascarados.</li><li><span className="kbd">verdict.level</span>: CLEAR, ATTENTION, HIGH_RISK ou INCONCLUSIVE.</li></ul>
-          <h2>Erros e limites</h2>
-          <ul><li><span className="kbd">401</span> chave inválida · <span className="kbd">402</span> saldo insuficiente · <span className="kbd">400</span> placa inválida · <span className="kbd">429</span> limite de requisições por minuto.</li><li>Se a fonte falhar, o valor é estornado automaticamente e a resposta traz <span className="kbd">refunded: true</span>.</li></ul>
-        </div>
-      </section>
-    </>
   );
 }
 
@@ -215,7 +171,7 @@ const LEGAL = {
     ['2. Limites da consulta', 'Cada consulta informa sua cobertura antes da confirmação. Informação não retornada pela fonte é exibida como “não informada” e não equivale a “nada consta”. O relatório apoia a decisão, mas não substitui vistoria, certidões ou consulta aos órgãos competentes.'],
     ['3. Preços, saldo e pagamentos', 'O preço de cada consulta é exibido em reais antes do pagamento. O saldo pré-pago e as consultas pagas diretamente são disponibilizados somente após a confirmação do pagamento pelo parceiro de pagamento. Em falha técnica da consulta, o valor debitado é estornado conforme as regras do serviço. Estornos, cancelamentos e contestações de pagamento podem gerar reversões de saldo e de comissões.'],
     ['4. Uso responsável', 'As informações devem ser usadas para finalidade legítima, respeitando a legislação aplicável. É proibido compartilhar credenciais, revender consultas sem autorização, usar automações abusivas ou tentar acessar dados fora das permissões da sua conta.'],
-    ['5. API e parceiros', 'O acesso por API exige chave pessoal e sujeita-se a limites de uso. O programa de parceiros paga comissão apenas sobre pagamentos confirmados e não estornados, após o prazo de segurança informado na plataforma.'],
+    ['5. Programa de parceiros', 'O programa de parceiros paga comissão apenas sobre pagamentos confirmados e não estornados, após o prazo de segurança informado na plataforma.'],
     ['6. Disponibilidade', 'Fontes externas podem sofrer indisponibilidade ou alteração de cobertura. Consultas sem fonte ativa permanecem marcadas como “em breve” e não são cobradas.'],
     ['7. Contato', `Dúvidas sobre estes termos: ${BRAND.supportEmail}.`]
   ] },

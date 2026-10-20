@@ -163,7 +163,7 @@ export async function ensureSchema() {
   ];
   for (const p of products) {
     await pool.query(`INSERT INTO query_products(id,name,description,credit_cost) VALUES($1,$2,$3,$4)
-      ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description, credit_cost=EXCLUDED.credit_cost`, p.slice(0, 4));
+      ON CONFLICT (id) DO NOTHING`, p.slice(0, 4));
   }
 
   await runMigrations();
@@ -195,7 +195,7 @@ export async function ensureSchema() {
 
   for (const p of products) {
     await pool.query(`INSERT INTO query_products(id,name,description,credit_cost,price_cents) VALUES($1,$2,$3,$4,$5)
-      ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description, credit_cost=EXCLUDED.credit_cost, price_cents=EXCLUDED.price_cents`, p);
+      ON CONFLICT (id) DO NOTHING`, p);
   }
 
   if (!env.SANDBOX_SEED_ENABLED) return;

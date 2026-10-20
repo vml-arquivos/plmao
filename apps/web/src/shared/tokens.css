@@ -1,35 +1,34 @@
-/* Placa na Mão — design tokens, fontes e base. Fontes hospedadas localmente (sem CDN). */
-@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 500; font-style: normal; font-display: swap; src: url('/fonts/plus-jakarta-sans-latin-500-normal.woff2') format('woff2'); }
-@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 600; font-style: normal; font-display: swap; src: url('/fonts/plus-jakarta-sans-latin-600-normal.woff2') format('woff2'); }
-@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 700; font-style: normal; font-display: swap; src: url('/fonts/plus-jakarta-sans-latin-700-normal.woff2') format('woff2'); }
-@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 800; font-style: normal; font-display: swap; src: url('/fonts/plus-jakarta-sans-latin-800-normal.woff2') format('woff2'); }
-@font-face { font-family: 'DM Sans'; font-weight: 400; font-style: normal; font-display: swap; src: url('/fonts/dm-sans-latin-400-normal.woff2') format('woff2'); }
-@font-face { font-family: 'DM Sans'; font-weight: 500; font-style: normal; font-display: swap; src: url('/fonts/dm-sans-latin-500-normal.woff2') format('woff2'); }
-@font-face { font-family: 'DM Sans'; font-weight: 700; font-style: normal; font-display: swap; src: url('/fonts/dm-sans-latin-700-normal.woff2') format('woff2'); }
+/* Placa na Mão — design tokens, fontes e base. Fontes hospedadas localmente (sem CDN). Paleta derivada do logo (azul). */
+@font-face { font-family: 'Nunito'; font-weight: 400; font-style: normal; font-display: swap; src: url('/fonts/nunito-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Nunito'; font-weight: 500; font-style: normal; font-display: swap; src: url('/fonts/nunito-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Nunito'; font-weight: 600; font-style: normal; font-display: swap; src: url('/fonts/nunito-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Nunito'; font-weight: 700; font-style: normal; font-display: swap; src: url('/fonts/nunito-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Nunito'; font-weight: 800; font-style: normal; font-display: swap; src: url('/fonts/nunito-latin-800-normal.woff2') format('woff2'); }
 
 :root {
-  --violet: #8B5CF6;
-  --violet-600: #7C3AED;
-  --violet-700: #6D28D9;
-  --lilac: #C084FC;
-  --blue: #3B82F6;
-  --ink: #0F0F14;
+  /* marca (nomes --violet/--lilac mantidos por compatibilidade; hoje são tons de azul) */
+  --violet: #2F6FE4;
+  --violet-600: #1F5FE0;
+  --violet-700: #174FC4;
+  --lilac: #7CB9FF;
+  --blue: #5CAEF0;
+  --ink: #040B1B;
 
-  --bg: #F6F6FB;
-  --bg-soft: #EFEFF7;
+  --bg: #F4F7FD;
+  --bg-soft: #EAF0FB;
   --surface: #FFFFFF;
-  --surface-2: #F9F9FD;
-  --border: #E5E7EB;
-  --border-strong: #D4D6DE;
-  --text: #14141C;
-  --text-2: #3F4150;
-  --muted: #6B6E80;
-  --primary: #7C3AED;
-  --primary-hover: #6D28D9;
-  --primary-soft: #F1EAFE;
-  --primary-ink: #5B21B6;
+  --surface-2: #F8FAFE;
+  --border: #E0E7F3;
+  --border-strong: #CBD6EA;
+  --text: #0B1633;
+  --text-2: #33415F;
+  --muted: #5F6E8C;
+  --primary: #1F5FE0;
+  --primary-hover: #174FC4;
+  --primary-soft: #E7EFFE;
+  --primary-ink: #1646B0;
   --on-primary: #FFFFFF;
-  --accent: #3B82F6;
+  --accent: #5CAEF0;
   --ok: #0E9F6E;
   --ok-soft: #E3F8EF;
   --ok-ink: #046C4E;
@@ -41,23 +40,24 @@
   --danger-ink: #991B1B;
   --info-soft: #E6F0FF;
   --info-ink: #1D4ED8;
-  --focus: #8B5CF6;
+  --focus: #2F6FE4;
 
-  --night: #0F0F14;
-  --night-2: #17171F;
-  --night-3: #1F1F2B;
+  --night: #040B1B;
+  --night-2: #0A1530;
+  --night-3: #111F42;
 
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 26px;
-  --shadow-sm: 0 1px 2px rgba(20, 20, 40, .06), 0 1px 1px rgba(20, 20, 40, .04);
-  --shadow: 0 8px 24px -8px rgba(30, 20, 70, .14), 0 2px 6px rgba(20, 20, 40, .05);
-  --shadow-lg: 0 28px 60px -20px rgba(50, 20, 120, .28), 0 8px 20px -8px rgba(20, 20, 40, .1);
-  --ring: 0 0 0 3px rgba(139, 92, 246, .32);
+  --radius-sm: 10px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --shadow-sm: 0 1px 2px rgba(11, 22, 51, .06), 0 1px 1px rgba(11, 22, 51, .04);
+  --shadow: 0 10px 28px -10px rgba(20, 50, 120, .16), 0 2px 6px rgba(11, 22, 51, .05);
+  --shadow-lg: 0 30px 64px -24px rgba(20, 60, 160, .30), 0 8px 20px -8px rgba(11, 22, 51, .10);
+  --ring: 0 0 0 3px rgba(47, 111, 228, .30);
+  --grad-brand: linear-gradient(135deg, #2F6FE4, #5CAEF0);
 
-  --font-display: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-body: 'DM Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-body: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
 
   --gutter: clamp(16px, 4vw, 32px);
@@ -67,19 +67,19 @@
 }
 
 :root[data-theme='dark'] {
-  --bg: #0B0B10;
-  --bg-soft: #12121A;
-  --surface: #15151D;
-  --surface-2: #1A1A24;
-  --border: #272735;
-  --border-strong: #35354A;
-  --text: #F2F2F7;
-  --text-2: #C9C9D6;
-  --muted: #9A9BB0;
-  --primary: #8B5CF6;
-  --primary-hover: #9D74F8;
-  --primary-soft: #231B3D;
-  --primary-ink: #D8C5FF;
+  --bg: #060D1F;
+  --bg-soft: #0A1429;
+  --surface: #0E1932;
+  --surface-2: #122040;
+  --border: #1E2E52;
+  --border-strong: #2C3F6C;
+  --text: #EEF3FF;
+  --text-2: #C3CFE8;
+  --muted: #8E9DC0;
+  --primary: #4A8BF0;
+  --primary-hover: #6AA0F5;
+  --primary-soft: #11264F;
+  --primary-ink: #A9CBFF;
   --ok: #34D399;
   --ok-soft: #0F2A22;
   --ok-ink: #7FE3BC;
@@ -94,16 +94,18 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
   --shadow: 0 10px 30px -10px rgba(0, 0, 0, .6);
   --shadow-lg: 0 30px 70px -20px rgba(0, 0, 0, .7);
+  --ring: 0 0 0 3px rgba(92, 174, 240, .38);
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']):not([data-theme='dark']) {
-    --bg: #0B0B10; --bg-soft: #12121A; --surface: #15151D; --surface-2: #1A1A24; --border: #272735; --border-strong: #35354A;
-    --text: #F2F2F7; --text-2: #C9C9D6; --muted: #9A9BB0; --primary: #8B5CF6; --primary-hover: #9D74F8; --primary-soft: #231B3D; --primary-ink: #D8C5FF;
+    --bg: #060D1F; --bg-soft: #0A1429; --surface: #0E1932; --surface-2: #122040; --border: #1E2E52; --border-strong: #2C3F6C;
+    --text: #EEF3FF; --text-2: #C3CFE8; --muted: #8E9DC0; --primary: #4A8BF0; --primary-hover: #6AA0F5; --primary-soft: #11264F; --primary-ink: #A9CBFF;
     --ok: #34D399; --ok-soft: #0F2A22; --ok-ink: #7FE3BC; --warn: #FBBF24; --warn-soft: #2D2410; --warn-ink: #FCD679;
     --danger: #F87171; --danger-soft: #2E1618; --danger-ink: #FCA5A5; --info-soft: #14233F; --info-ink: #93C5FD;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow: 0 10px 30px -10px rgba(0, 0, 0, .6); --shadow-lg: 0 30px 70px -20px rgba(0, 0, 0, .7);
+    --ring: 0 0 0 3px rgba(92, 174, 240, .38);
     color-scheme: dark;
   }
 }

@@ -1,13 +1,13 @@
 /* Painel administrativo — Placa na Mão */
 .adm { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; background: var(--bg); }
-.adm-side { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 6px; padding: 18px 14px; background: var(--night); color: #D9D6EE; border-right: 1px solid rgba(255, 255, 255, .06); overflow-y: auto; }
+.adm-side { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 6px; padding: 18px 14px; background: var(--night); color: #D2DEF5; border-right: 1px solid rgba(255, 255, 255, .06); overflow-y: auto; }
 .adm-side .logo img { height: 34px; }
 .adm-badge { margin: 4px 6px 10px; font: 700 11px var(--font-display); letter-spacing: .14em; text-transform: uppercase; color: var(--lilac); }
 .adm-nav { display: grid; gap: 2px; }
 .adm-nav .group { margin: 14px 8px 4px; font: 700 11px var(--font-display); letter-spacing: .12em; text-transform: uppercase; color: #7C7A99; }
 .adm-nav a { display: flex; align-items: center; gap: 11px; padding: 9px 12px; border-radius: 10px; color: #CFCBE8; font: 600 14.5px var(--font-display); text-decoration: none; }
 .adm-nav a:hover { background: rgba(255, 255, 255, .06); color: #fff; }
-.adm-nav a.active { background: rgba(139, 92, 246, .22); color: #fff; box-shadow: inset 3px 0 0 var(--violet); }
+.adm-nav a.active { background: rgba(47, 111, 228, .22); color: #fff; box-shadow: inset 3px 0 0 var(--violet); }
 .adm-side-foot { margin-top: auto; padding: 12px 8px 4px; display: grid; gap: 10px; border-top: 1px solid rgba(255, 255, 255, .08); }
 .adm-me { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .adm-me .av { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: linear-gradient(135deg, var(--violet), var(--blue)); color: #fff; font: 800 13px var(--font-display); }
@@ -51,7 +51,7 @@
 .margin-bar { height: 8px; border-radius: 99px; background: var(--bg-soft); overflow: hidden; min-width: 90px; }
 .margin-bar > i { display: block; height: 100%; border-radius: 99px; background: var(--ok); }
 .margin-bar.low > i { background: var(--danger); } .margin-bar.mid > i { background: var(--warn); }
-.login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(900px 500px at 15% -10%, rgba(139, 92, 246, .28), transparent 60%), radial-gradient(700px 420px at 100% 100%, rgba(59, 130, 246, .2), transparent 60%), var(--night); }
+.login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(900px 500px at 15% -10%, rgba(47, 111, 228, .28), transparent 60%), radial-gradient(700px 420px at 100% 100%, rgba(59, 130, 246, .2), transparent 60%), var(--night); }
 .login-card { width: min(440px, 100%); display: grid; gap: 18px; padding: 30px; border-radius: var(--radius-xl); background: var(--surface); box-shadow: var(--shadow-lg); border: 1px solid var(--border); }
 .login-card .logo img { height: 40px; }
 .qr-box { display: grid; place-items: center; padding: 14px; border-radius: var(--radius); background: #fff; border: 1px solid var(--border); }

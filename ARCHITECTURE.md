@@ -18,7 +18,7 @@ Um único processo serve o site, o app do cliente, o painel da equipe e a API. O
 | `routes/adminAuth.ts` | Login da equipe: senha → desafio TOTP → sessão `admin` |
 | `routes/adminQueries.ts` | Consulta vista pela equipe, revelação LGPD auditada |
 | `routes/finance.ts`, `routes/partners.ts` | Financeiro, ajustes de pagamento, parceiros, comissões, repasses |
-| `routes/apiKeys.ts` | Chaves da API pública (`pnm_live_…`) |
+| `routes/content.ts` | Catálogo público (produtos, matriz, pacotes), FAQ e artigos; CRUD do painel (`MANAGE_CONTENT`) |
 | `pricing/` | Motor de preço (centavos/bps), trava de margem, preço de referência, histórico |
 | `payments/` | Asaas, Mercado Pago, liquidação idempotente, comissões (carência/hold), estorno/chargeback |
 | `providers/` | `mock` (somente dev), `ContractedVehicleProvider` (real), FIPE |

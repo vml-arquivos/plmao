@@ -21,6 +21,11 @@ const GROUPS: Array<{ title: string; items: NavItem[] }> = [
     { to: '/cupons', label: 'Cupons', icon: 'percent', perm: 'MANAGE_BILLING' },
     { to: '/parceiros', label: 'Parceiros e repasses', icon: 'wallet', perm: 'MANAGE_BILLING' }
   ] },
+  { title: 'Site e conteúdo', items: [
+    { to: '/catalogo', label: 'Produtos do site', icon: 'sparkles', perm: 'MANAGE_CONTENT' },
+    { to: '/faq', label: 'Perguntas frequentes', icon: 'info', perm: 'MANAGE_CONTENT' },
+    { to: '/artigos', label: 'Artigos e blog', icon: 'file-text', perm: 'MANAGE_CONTENT' }
+  ] },
   { title: 'Sistema', items: [
     { to: '/auditoria', label: 'Auditoria', icon: 'shield-check', perm: 'VIEW_AUDIT' },
     { to: '/sistema', label: 'Sistema', icon: 'settings', perm: 'VIEW_AUDIT' }

@@ -103,7 +103,7 @@ echo '✓ provedores sociais expostos com ativação controlada por runtime'
 
 curl -fsS "$BASE_URL/api/credit-packages" "${AUTH[@]}" >"$TMP_DIR/packages.json"
 assert_contains "$TMP_DIR/packages.json" '"slug":"essencial"'
-assert_contains "$TMP_DIR/packages.json" '"credits":25'
+assert_contains "$TMP_DIR/packages.json" '"credits":60'
 echo '✓ migrations de pacotes de crédito aplicadas'
 
 CHECKOUT_STATUS="$(curl -sS -o "$TMP_DIR/checkout.json" -w '%{http_code}' -X POST "$BASE_URL/api/payments/checkout" "${AUTH[@]}" \
@@ -114,8 +114,19 @@ echo '✓ checkout bloqueado com segurança enquanto faltam credenciais externas
 
 curl -fsS "$BASE_URL/api/catalog" >"$TMP_DIR/catalog.json"
 assert_contains "$TMP_DIR/catalog.json" '"id":"COMPLETE"'
-assert_contains "$TMP_DIR/catalog.json" '"priceCents":1200'
-echo '✓ catálogo público com preços em centavos'
+assert_contains "$TMP_DIR/catalog.json" '"priceCents":6160'
+assert_contains "$TMP_DIR/catalog.json" '"features":'
+assert_contains "$TMP_DIR/catalog.json" '"matrix":'
+if grep -q 'referencePrice\|reference_price\|costCents' "$TMP_DIR/catalog.json"; then fail 'catálogo público vazou preço de referência/custo'; fi
+echo '✓ catálogo público com preços em centavos, matriz e sem dados internos'
+
+curl -fsS "$BASE_URL/api/faqs" >"$TMP_DIR/faqs.json"
+assert_contains "$TMP_DIR/faqs.json" '"question"'
+curl -fsS "$BASE_URL/api/articles" >"$TMP_DIR/articles.json"
+assert_contains "$TMP_DIR/articles.json" '"slug"'
+API_V1_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/products")"
+[ "$API_V1_STATUS" = '404' ] || fail "API pública deveria estar removida (HTTP $API_V1_STATUS)"
+echo '✓ FAQ e artigos públicos; API pública removida'
 
 curl -fsS "$BASE_URL/robots.txt" >"$TMP_DIR/robots.txt"
 assert_contains "$TMP_DIR/robots.txt" 'Sitemap:'

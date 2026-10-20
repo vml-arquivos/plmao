@@ -8,7 +8,7 @@ export const api = createApi({
   onUnauthorized: () => window.dispatchEvent(new CustomEvent('pnm:admin-unauthorized'))
 });
 
-export type Permission = 'QUERY_VEHICLE' | 'VIEW_HISTORY' | 'BUY_CREDITS' | 'VIEW_SENSITIVE_DATA' | 'MANAGE_USERS' | 'MANAGE_PRICING' | 'MANAGE_PROVIDERS' | 'MANAGE_BILLING' | 'MANAGE_SUPPORT' | 'VIEW_AUDIT' | 'REVEAL_PII' | 'ADMIN_SYSTEM';
+export type Permission = 'QUERY_VEHICLE' | 'VIEW_HISTORY' | 'BUY_CREDITS' | 'VIEW_SENSITIVE_DATA' | 'MANAGE_USERS' | 'MANAGE_PRICING' | 'MANAGE_CONTENT' | 'MANAGE_PROVIDERS' | 'MANAGE_BILLING' | 'MANAGE_SUPPORT' | 'VIEW_AUDIT' | 'REVEAL_PII' | 'ADMIN_SYSTEM';
 export interface TeamUser { id?: string; name: string; email: string; role?: string }
 
 export const ROLE_LABEL: Record<string, string> = { CLIENTE: 'Cliente', OPERADOR: 'Operador', ADMIN: 'Administrador', SUPER_ADMIN: 'Super admin' };

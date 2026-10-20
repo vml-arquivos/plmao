@@ -20,8 +20,8 @@ describe('consulta → relatório v2: LGPD, planos, PDF/HTML e revelação audit
   });
   after(async () => { await server.stop(); await pool.end(); });
 
-  it('consulta Premium devolve relatório v2 sem dados do proprietário', async () => {
-    const r = await call('/api/queries', { method: 'POST', body: { plate: 'DEV1B11', productId: 'PREMIUM' } });
+  it('consulta Completa devolve relatório v2 sem dados do proprietário', async () => {
+    const r = await call('/api/queries', { method: 'POST', body: { plate: 'DEV1B11', productId: 'COMPLETE' } });
     assert.equal(r.status, 201, r.text);
     premiumQuery = r.json.id;
     const v2 = r.json.result.v2;
@@ -46,8 +46,8 @@ describe('consulta → relatório v2: LGPD, planos, PDF/HTML e revelação audit
     assert.match(JSON.stringify(decryptRaw(row.raw_enc)), /PROPRIETARIO FICTICIO SANDBOX/);
   });
 
-  it('plano Básico não expõe débitos/restrições e sinaliza pontos fora do plano', async () => {
-    const r = await call('/api/queries', { method: 'POST', body: { plate: 'DEV1B11', productId: 'BASIC' } });
+  it('plano Cadastral não expõe débitos/restrições e sinaliza pontos fora do plano', async () => {
+    const r = await call('/api/queries', { method: 'POST', body: { plate: 'DEV1B11', productId: 'CADASTRAL' } });
     assert.equal(r.status, 201, r.text);
     basicQuery = r.json.id;
     const v2 = r.json.result.v2;

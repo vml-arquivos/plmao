@@ -1,133 +1,118 @@
 #!/usr/bin/env python3
-"""Gera o kit de logos SVG do Placa na Mão (textos convertidos em curvas com Plus Jakarta Sans / DM Sans).
-Uso: python3 scripts/brand/build-logos.py  → apps/web/public/brand/*.svg
+"""Gera os SVGs da marca Placa na Mão (carro em linhas + lupa com placa + marca-nome).
+
+O nome é desenhado como contornos (Plus Jakarta Sans 800, inclinação -12°) guardados em wordmark.json,
+para o logo não depender de fonte instalada.
+Uso: python3 scripts/brand/build-logos.py  → apps/web/public/brand/*.svg e apps/web/public/favicon.svg
 Depois: node scripts/brand/rasterize.mjs gera os PNGs (ícones PWA, apple-touch, OG)."""
-import os
-from fontTools.ttLib import TTFont
-from fontTools.pens.svgPathPen import SVGPathPen
-from fontTools.pens.transformPen import TransformPen
+import json, os
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-FONTS = os.path.join(ROOT, 'apps', 'api', 'assets', 'fonts')
-OUT = os.path.join(ROOT, 'apps', 'web', 'public', 'brand')
+HERE = os.path.dirname(os.path.abspath(__file__))
+PUB = os.path.join(HERE, '../../apps/web/public')
+OUT = os.path.join(PUB, 'brand')
 os.makedirs(OUT, exist_ok=True)
-
-VIOLET, LILAC, BLUE, INK, WHITE = '#8B5CF6', '#C084FC', '#3B82F6', '#0F0F14', '#FFFFFF'
-JAK800 = TTFont(os.path.join(FONTS, 'plus-jakarta-sans-latin-800-normal.woff'))
-JAK700 = TTFont(os.path.join(FONTS, 'plus-jakarta-sans-latin-700-normal.woff'))
-DM700 = TTFont(os.path.join(FONTS, 'dm-sans-latin-700-normal.woff'))
+W = json.load(open(os.path.join(HERE, 'wordmark.json')))
+NAVY = '#040B1B'
 
 
-def text_path(font, text, size, x=0.0, y=0.0, tracking=0.0):
-    """Converte texto em um único path SVG. y = linha de base. Devolve (d, largura)."""
-    gs = font.getGlyphSet(); cmap = font.getBestCmap(); upm = font['head'].unitsPerEm
-    scale = size / upm; cursor = x; parts = []
-    hmtx = font['hmtx']
-    for ch in text:
-        name = cmap.get(ord(ch))
-        if name is None:
-            cursor += size * 0.3; continue
-        pen = SVGPathPen(gs)
-        tp = TransformPen(pen, (scale, 0, 0, -scale, cursor, y))
-        gs[name].draw(tp)
-        d = pen.getCommands()
-        if d: parts.append(d)
-        cursor += hmtx[name][0] * scale + tracking
-    return ' '.join(parts), cursor - x - tracking
+def grad(gid, dark):
+    a, b = ('#2F6FE4', '#5CAEF0') if dark else ('#1D58D8', '#3C8FE8')
+    return f'<linearGradient id="{gid}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{a}"/><stop offset="1" stop-color="{b}"/></linearGradient>'
 
 
-def mark(grad_id='g', stroke=None, accent=None, w=11):
-    """P estilizado com 'mão' (curva inferior). viewBox 64x64."""
-    s = stroke or f'url(#{grad_id})'
-    a = accent or LILAC
-    return (f'<path d="M20 51V22C20 15.4 25.2 11 32 11H38.5C47 11 52.5 17 52.5 25.5C52.5 34 46.5 40 38.5 40H20" fill="none" stroke="{s}" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round"/>'
-            f'<path d="M11 57.5C21 62.5 36 61 46 50" fill="none" stroke="{a}" stroke-width="5.5" stroke-linecap="round"/>')
+def mark(ink, gid, mid):
+    """Marca 244x164: frente do carro em linhas, vazada ao redor da lupa; placa azul dentro da lupa."""
+    return f'''<g>
+<mask id="{mid}"><rect width="244" height="170" fill="#fff"/><circle cx="122" cy="92" r="47" fill="#000"/><path d="M155 126 L190 160" stroke="#000" stroke-width="28" stroke-linecap="round"/></mask>
+<g mask="url(#{mid})" fill="none" stroke="{ink}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+<path d="M42 62 L62 28 C68 20 78 15 92 14 H152 C166 15 176 20 182 28 L202 62"/>
+<path d="M10 52 C10 46 16 45 24 45 L44 47"/><path d="M234 52 C234 46 228 45 220 45 L200 47"/>
+<path d="M30 72 C48 68 70 66 100 68"/><path d="M214 72 C196 68 174 66 144 68"/>
+<path d="M18 80 C30 84 42 88 52 98"/><path d="M226 80 C214 84 202 88 192 98"/>
+<path d="M12 90 C8 105 8 122 12 138"/><path d="M232 90 C236 105 236 122 232 138"/>
+<path d="M12 140 H66"/><path d="M232 140 H178"/>
+</g></g>
+<circle cx="122" cy="92" r="36" fill="none" stroke="url(#{gid})" stroke-width="10"/>
+<path d="M148 118 L180 152" stroke="url(#{gid})" stroke-width="14" stroke-linecap="round"/>
+<rect x="97" y="78" width="50" height="29" rx="5" fill="url(#{gid})"/>
+<rect x="97.5" y="78.5" width="49" height="28" rx="4.5" fill="none" stroke="#fff" stroke-opacity=".4" stroke-width="1"/>
+<g fill="#0A1A3F"><ellipse cx="112" cy="92.5" rx="3.2" ry="3.6"/><ellipse cx="122" cy="92.5" rx="3.2" ry="3.6"/><ellipse cx="132" cy="92.5" rx="3.2" ry="3.6"/></g>
+<g fill="#fff" fill-opacity=".9"><circle cx="102" cy="83" r="1.5"/><circle cx="142" cy="83" r="1.5"/><circle cx="102" cy="102" r="1.5"/><circle cx="142" cy="102" r="1.5"/></g>'''
 
 
-def defs(grad_id='g'):
-    return f'<defs><linearGradient id="{grad_id}" x1="14" y1="8" x2="54" y2="58" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="{LILAC}"/><stop offset=".45" stop-color="{VIOLET}"/><stop offset="1" stop-color="{BLUE}"/></linearGradient></defs>'
+def word(ink, gid, sc):
+    return (f'<g transform="scale({sc}) skewX(-12)"><path d="{W["Placa"]}" fill="{ink}"/>'
+            f'<path d="{W["na"]}" fill="url(#{gid})"/><path d="{W["Mao"]}" fill="url(#{gid})"/></g>')
 
 
-def svg(w, h, body, title='Placa na Mão'):
-    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" role="img" aria-label="{title}"><title>{title}</title>{body}</svg>\n'
+def svg(vb, body, defs, label='Placa na Mão'):
+    w, h = vb.split()[2:]
+    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb}" width="{float(w):.0f}" height="{float(h):.0f}" role="img" aria-label="{label}"><title>{label}</title><defs>{defs}</defs>{body}</svg>\n'
 
 
-def write(name, content):
-    with open(os.path.join(OUT, name), 'w', encoding='utf-8') as f:
-        f.write(content)
-    print('ok', name)
+def variant(kind, dark):
+    ink = '#FFFFFF' if dark else '#0B1633'
+    t = 'd' if dark else 'l'
+    gid, mid = f'g{t}', f'm{t}'
+    defs = grad(gid, dark)
+    if kind == 'mark':
+        return svg('0 0 244 164', mark(ink, gid, mid), defs)
+    if kind == 'horizontal':
+        ms, sc = 0.78, 0.062
+        x0 = 244 * ms + 14
+        body = (f'<g transform="scale({ms})">{mark(ink, gid, mid)}</g>'
+                f'<g transform="translate({x0:.1f},{164 * ms * 0.5 + 14:.1f})">{word(ink, gid, sc)}'
+                f'<text x="{W["width"] * sc + 4:.1f}" y="-34" font-family="Arial,sans-serif" font-size="13" fill="{ink}">®</text></g>')
+        return svg(f'0 0 {x0 + W["width"] * sc + 24:.0f} {164 * ms:.0f}', body, defs)
+    if kind == 'vertical':
+        sc = 0.062
+        w = W['width'] * sc
+        body = (f'<g transform="translate({(w - 244) / 2:.1f},0)">{mark(ink, gid, mid)}</g>'
+                f'<g transform="translate(0,{164 + 8 + 745 * sc:.1f})">{word(ink, gid, sc)}</g>')
+        return svg(f'0 0 {w + 14:.0f} {164 + 8 + 745 * sc + 14:.0f}', body, defs)
+    raise ValueError(kind)
 
-# --- Marca e ícone ---
-write('logo-mark.svg', svg(64, 64, defs() + mark()))
-app_bg = f'<defs><linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#A78BFA"/><stop offset=".55" stop-color="{VIOLET}"/><stop offset="1" stop-color="#5B3FD6"/></linearGradient></defs>'
-app_icon = app_bg + '<rect width="64" height="64" rx="15" fill="url(#bg)"/><g transform="translate(5.6 3.2) scale(.82)">' + mark(stroke=WHITE, accent='#E9D5FF') + '</g>'
-write('logo-app-icon.svg', svg(64, 64, app_icon))
-write('favicon.svg', svg(64, 64, app_icon).replace('width="64" height="64" ', ''))
-# ícone escuro (como a referência "ícone/app")
-dark_icon = '<rect width="64" height="64" rx="15" fill="#0F0F14"/>' + defs() + '<g transform="translate(5.6 3.2) scale(.82)">' + mark() + '</g>'
-write('logo-app-icon-dark.svg', svg(64, 64, dark_icon))
 
-# --- Wordmark ---
-def wordmark_two_lines(color_main, color_accent_fill, tag_color, size=30):
-    d1, w1 = text_path(JAK800, 'Placa', size, 0, size * 0.86)
-    d2a, w2a = text_path(JAK800, 'na ', size, 0, size * 1.86)
-    d2b, w2b = text_path(JAK800, 'Mão', size, w2a, size * 1.86)
-    dt, wt = text_path(DM700, 'CONSULTA VEICULAR COMPLETA', size * 0.255, 0, size * 2.5, tracking=size * 0.075)
-    width = max(w1, w2a + w2b, wt)
-    body = (f'<path d="{d1}" fill="{color_main}"/><path d="{d2a}" fill="{color_accent_fill}"/><path d="{d2b}" fill="{color_accent_fill}"/>'
-            f'<path d="{dt}" fill="{tag_color}"/>')
-    return body, width, size * 2.62
+def app_icon(pad=0.0, radius=56):
+    """Ícone quadrado 256: fundo azul-marinho + marca centralizada (pad = recuo extra para ícone maskable)."""
+    gid, mid = 'gi', 'mi'
+    s = (176 - pad * 2) / 244
+    tx, ty = (256 - 244 * s) / 2, (256 - 164 * s) / 2 + 2
+    body = (f'<rect width="256" height="256" rx="{radius}" fill="{NAVY}"/>'
+            f'<rect width="256" height="256" rx="{radius}" fill="url(#bg)"/>'
+            f'<g transform="translate({tx:.1f},{ty:.1f}) scale({s:.4f})">{mark("#FFFFFF", gid, mid)}</g>')
+    defs = grad(gid, True) + '<radialGradient id="bg" cx=".75" cy=".1" r=".9"><stop offset="0" stop-color="#2F6FE4" stop-opacity=".45"/><stop offset="1" stop-color="#2F6FE4" stop-opacity="0"/></radialGradient>'
+    return svg('0 0 256 256', body, defs)
 
-def build_primary(name, main, accent, tag, dark=False):
-    body, ww, wh = wordmark_two_lines(main, 'url(#gt)', tag)
-    mark_size = 78
-    total_w = mark_size + 18 + ww
-    height = max(mark_size, wh)
-    my = (height - mark_size) / 2
-    grad_text = f'<linearGradient id="gt" x1="0" y1="0" x2="{ww}" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="{LILAC if dark else VIOLET}"/><stop offset="1" stop-color="{BLUE}"/></linearGradient>'
-    content = (defs() + f'<defs>{grad_text}</defs>' +
-               f'<g transform="translate(0 {my:.2f}) scale({mark_size/64:.4f})">{mark()}</g>' +
-               f'<g transform="translate({mark_size+18} {max((height-wh)/2,0):.2f})">{body}</g>')
-    write(name, svg(round(total_w), round(height), content))
 
-build_primary('logo-primary.svg', INK, VIOLET, '#6B7280')
-build_primary('logo-primary-dark.svg', WHITE, LILAC, '#C9C9D6', dark=True)
+def mono(color):
+    gid, mid = 'gm', 'mm'
+    body = mark(color, gid, mid)
+    defs = f'<linearGradient id="{gid}"><stop offset="0" stop-color="{color}"/><stop offset="1" stop-color="{color}"/></linearGradient>'
+    return svg('0 0 244 164', body, defs)
 
-def build_horizontal(name, main, dark=False, mono=None):
-    size = 34
-    da, wa = text_path(JAK800, 'Placa ', size, 0, size * 0.78)
-    db, wb = text_path(JAK800, 'na Mão', size, wa, size * 0.78)
-    mark_size = 46
-    total_w = mark_size + 12 + wa + wb
-    height = mark_size
-    ty = (height - size) / 2 + 3
-    grad_text = f'<linearGradient id="gh" x1="{wa}" y1="0" x2="{wa+wb}" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="{LILAC if dark else VIOLET}"/><stop offset="1" stop-color="{BLUE}"/></linearGradient>'
-    accent_fill = mono or 'url(#gh)'
-    m = mark(stroke=mono, accent=mono) if mono else mark()
-    content = ((defs() if not mono else '') + f'<defs>{grad_text}</defs>' +
-               f'<g transform="scale({mark_size/64:.4f})">{m}</g>' +
-               f'<g transform="translate({mark_size+12} {ty:.2f})"><path d="{da}" fill="{mono or main}"/><path d="{db}" fill="{accent_fill}"/></g>')
-    write(name, svg(round(total_w), height, content))
 
-build_horizontal('logo-horizontal.svg', INK)
-build_horizontal('logo-horizontal-dark.svg', WHITE, dark=True)
-build_horizontal('logo-mono.svg', '#1F2937', mono='#1F2937')
-build_horizontal('logo-mono-white.svg', WHITE, mono=WHITE)
+def favicon():
+    """Favicon legível em 16px: só a lupa com a placa, sobre fundo azul-marinho."""
+    gid = 'gf'
+    defs = grad(gid, True)
+    body = (f'<rect width="64" height="64" rx="14" fill="{NAVY}"/>'
+            f'<circle cx="28" cy="28" r="15" fill="none" stroke="url(#{gid})" stroke-width="6.5"/>'
+            f'<path d="M39 39 L52 52" stroke="url(#{gid})" stroke-width="8" stroke-linecap="round"/>'
+            f'<rect x="19" y="21" width="18" height="14" rx="3" fill="#fff"/><g fill="{NAVY}"><circle cx="24" cy="28" r="1.8"/><circle cx="28" cy="28" r="1.8"/><circle cx="32" cy="28" r="1.8"/></g>')
+    return svg('0 0 64 64', body, defs)
 
-# --- Vertical ---
-def build_vertical(name, main, dark=False):
-    size = 36
-    d1, w1 = text_path(JAK800, 'Placa na Mão', size, 0, size * 0.8)
-    dt, wt = text_path(DM700, 'CONSULTA VEICULAR COMPLETA', size * 0.24, 0, size * 1.55, tracking=size * 0.06)
-    width = max(w1, wt) + 8
-    mark_size = 92
-    grad_text = f'<linearGradient id="gv" x1="0" y1="0" x2="{w1}" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="{main}"/><stop offset=".5" stop-color="{main}"/><stop offset="1" stop-color="{main}"/></linearGradient>'
-    cx = width / 2
-    content = (defs() +
-               f'<g transform="translate({cx-mark_size/2:.2f} 0) scale({mark_size/64:.4f})">{mark()}</g>' +
-               f'<g transform="translate({(width-w1)/2:.2f} {mark_size+14})"><path d="{d1}" fill="{main}"/></g>' +
-               f'<g transform="translate({(width-wt)/2:.2f} {mark_size+14})"><path d="{dt}" fill="{"#C9C9D6" if dark else "#6B7280"}"/></g>')
-    write(name, svg(round(width), round(mark_size + 14 + size * 1.7), content))
 
-build_vertical('logo-vertical.svg', INK)
-build_vertical('logo-vertical-dark.svg', WHITE, dark=True)
+files = {}
+for k in ['horizontal', 'vertical', 'mark']:
+    files[f'logo-{k}.svg'] = variant(k, False)
+    files[f'logo-{k}-dark.svg'] = variant(k, True)
+files['logo-app-icon.svg'] = app_icon()
+files['logo-app-icon-dark.svg'] = app_icon()
+files['logo-mono.svg'] = mono('#0B1633')
+files['logo-mono-white.svg'] = mono('#FFFFFF')
+for name, content in files.items():
+    open(os.path.join(OUT, name), 'w').write(content)
+open(os.path.join(PUB, 'favicon.svg'), 'w').write(favicon())
+open(os.path.join(HERE, '_icon-maskable.svg'), 'w').write(app_icon(pad=14, radius=0))
+print('ok', len(files) + 1, 'svgs')

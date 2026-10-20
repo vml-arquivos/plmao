@@ -12,7 +12,7 @@ Segredos existem **somente no ambiente de execução** (Coolify): nunca no repos
 | Autorização | Papéis e permissões granulares (ex.: `REVEAL_PII`, `VIEW_AUDIT`); ações financeiras sensíveis exigem `ADMIN_SYSTEM` |
 | Dinheiro | Centavos inteiros, transações com `FOR UPDATE`, saldo ≥ 0, ledger, estorno automático, webhooks idempotentes, trava de margem |
 | API | Helmet, limite de payload, rate limit, zod, SQL parametrizado, `Cache-Control: no-store` em dados sensíveis |
-| API pública | Chaves `pnm_live_…` armazenadas com hash, limite por chave, desligada por padrão |
+| Conteúdo editável | Artigos em markdown restrito (sem HTML cru), links só http(s)/mailto/relativos, capa só https; permissão `MANAGE_CONTENT` |
 | Rastreamento | Request ID, trilha de auditoria, logs sem dados sensíveis (`LOG_SENSITIVE_DATA=false`) |
 
 ## LGPD

@@ -6,14 +6,15 @@ import { trackFunnel } from '../funnel';
 import { SEO_BY_PATH } from '../content/seoPages';
 import { useSession } from '../session';
 import PlateSearch from '../components/PlateSearch';
-import { FAQ_ITEMS } from '../components/Faq';
+import { useFaqs } from '../components/Faq';
 
 export default function SeoPage({ path }: { path: string }) {
   const page = SEO_BY_PATH.get(path)!;
   const { status } = useSession();
   usePageTitle(page.title);
+  const { data: faqs } = useFaqs();
   useEffect(() => { trackFunnel('SEO_PAGE_VIEW', { landing: path, intent: page.intent }); }, [path, page.intent]);
-  const faq = [...(page.faq ?? []), ...FAQ_ITEMS.slice(0, 3)];
+  const faq = [...(page.faq ?? []), ...(faqs ?? []).slice(0, 3).map((f) => ({ q: f.question, a: f.answer }))];
   return (
     <>
       <section className="page-hero">

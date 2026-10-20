@@ -7,20 +7,26 @@ import { PublicHeader } from '../layouts';
 import { useSession } from '../session';
 import { trackFunnel } from '../funnel';
 import PlateSearch from '../components/PlateSearch';
-import Pricing from '../components/Pricing';
+import { PackageCards, ProductCards, SmartPicker } from '../components/Catalog';
 import Faq from '../components/Faq';
+import { LatestPosts } from './Content';
 
 const STRIP: Array<{ icon: IconName; t: string; s: string }> = [
-  { icon: 'car', t: 'Dados cadastrais', s: 'do veículo, ano, cor e município' },
-  { icon: 'dollar', t: 'Débitos e multas', s: 'IPVA, licenciamento, DPVAT e mais' },
-  { icon: 'shield-alert', t: 'Restrições e gravames', s: 'roubo, furto e financiamento' },
-  { icon: 'file-text', t: 'Relatório em PDF', s: 'para imprimir e compartilhar' }
+  { icon: 'car', t: 'Dados do veículo', s: 'marca, modelo, ano, cor e município' },
+  { icon: 'dollar', t: 'Débitos e multas', s: 'IPVA, licenciamento e mais' },
+  { icon: 'shield-alert', t: 'Restrições e gravame', s: 'roubo, furto e financiamento' },
+  { icon: 'file-text', t: 'Relatório em PDF', s: 'para guardar e compartilhar' }
+];
+const STEPS = [
+  { t: 'Digite a placa', s: 'Aceita placa antiga e Mercosul. Sem cadastro de documentos.' },
+  { t: 'Escolha a consulta', s: 'Do essencial à checagem completa. O preço aparece antes de pagar.' },
+  { t: 'Receba o relatório', s: 'Resumo claro no topo, detalhes por seção e PDF com código de validação.' }
 ];
 const WHY: Array<{ icon: IconName; t: string; s: string }> = [
-  { icon: 'file-text', t: 'Dados completos', s: 'Veículo, débitos, restrições e financiamento reunidos em um relatório.' },
-  { icon: 'zap', t: '100% online', s: 'Digite a placa e receba o resultado em segundos, no celular ou no computador.' },
-  { icon: 'shield-check', t: 'Fontes contratadas e atualizadas', s: 'Dados consultados na hora, com a data e a fonte registradas no relatório.' },
-  { icon: 'printer', t: 'Relatórios detalhados', s: 'Resumo claro, alertas em destaque, PDF para imprimir e código de validação.' }
+  { icon: 'file-text', t: 'Dados reunidos', s: 'Veículo, débitos, restrições e financiamento em um só relatório.' },
+  { icon: 'zap', t: '100% online', s: 'Resultado em segundos, no celular ou no computador.' },
+  { icon: 'shield-check', t: 'Transparência', s: 'Data e fonte registradas. O que a fonte não retornar aparece como “Não informado”.' },
+  { icon: 'lock', t: 'Privacidade', s: 'Dados pessoais protegidos conforme a LGPD, sempre mascarados.' }
 ];
 
 function SamplePhones() {
@@ -57,10 +63,10 @@ export default function Landing() {
         <div className="container">
           <div className="hero-copy">
             <span className="kicker">Consulta veicular completa</span>
-            <h1 id="hero-title">Tudo o que você precisa saber sobre o veículo, <span className="grad-text">em um só lugar.</span></h1>
-            <p className="hero-lead">Dados cadastrais, débitos, multas, restrições e gravame. Consulte com rapidez, segurança e total clareza.</p>
+            <h1 id="hero-title">Conheça a história do carro <span className="grad-text">antes de decidir.</span></h1>
+            <p className="hero-lead">Dados do veículo, débitos, multas, restrições e gravame em um relatório fácil de ler. Sem mensalidade: você paga só pela consulta que fizer.</p>
             <PlateSearch authed={status === 'authed'} placement="hero" />
-            <p className="hero-note">Sem mensalidade. Pague apenas pela consulta que fizer.</p>
+            <div className="trust-row"><span><Icon name="shield-check" size={16} />Pagamento seguro</span><span><Icon name="zap" size={16} />Resultado em segundos</span><span><Icon name="printer" size={16} />PDF para imprimir</span></div>
           </div>
         </div>
         <div className="benefit-strip"><div className="container" style={{ display: 'contents' }}>
@@ -68,21 +74,30 @@ export default function Landing() {
         </div></div>
       </section>
 
-      <section className="section" id="consultas">
+      <section className="section" id="como-funciona">
         <div className="container">
-          <div className="section-head"><span className="eyebrow">Por que a Placa na Mão</span><h2>Por que consultar com a Placa na Mão?</h2><p>Mais segurança para você decidir, com a praticidade de uma consulta que cabe na palma da mão.</p></div>
-          <div className="why-grid">{WHY.map((w) => <div className="why-card" key={w.t}><span className="wi"><Icon name={w.icon} size={24} /></span><h3>{w.t}</h3><p>{w.s}</p></div>)}</div>
+          <div className="section-head"><span className="eyebrow">Como funciona</span><h2>Três passos, menos de um minuto.</h2></div>
+          <div className="steps">{STEPS.map((s) => <div className="step" key={s.t}><h3>{s.t}</h3><p>{s.s}</p></div>)}</div>
         </div>
       </section>
 
-      <section className="section alt">
+      <section className="section alt" id="consultas">
+        <div className="container stack-lg">
+          <div className="section-head" style={{ marginBottom: 0 }}><span className="eyebrow">Consultas</span><h2>Escolha o nível de segurança que você precisa.</h2><p>Cada consulta mostra exatamente o que entrega. O valor final aparece antes do pagamento.</p></div>
+          <ProductCards homeOnly />
+          <SmartPicker />
+          <div className="row"><LinkButton to="/planos" iconRight="arrow-right">Comparar todas as consultas</LinkButton></div>
+        </div>
+      </section>
+
+      <section className="section">
         <div className="container showcase">
           <div>
             <span className="eyebrow">Resultado fácil de ler</span>
             <h2 style={{ fontSize: 'clamp(26px,3.6vw,40px)', marginTop: 10 }}>Um relatório que você entende em segundos.</h2>
-            <p className="muted" style={{ marginTop: 14, fontSize: 17 }}>Um veredito claro no topo, valores em aberto em destaque e todos os detalhes organizados por seção — no celular ou impresso.</p>
+            <p className="muted" style={{ marginTop: 14, fontSize: 17 }}>Veredito claro no topo, valores em aberto em destaque e todos os detalhes organizados por seção, no celular ou impresso.</p>
             <ul className="checklist">
-              {['Situação do veículo resumida em um só lugar', 'Débitos e multas com valores, sem somar em duplicidade', 'Campos que a fonte não retornou aparecem como “Não informado”', 'PDF com código de validação para compartilhar'].map((t) => <li key={t}><span className="ck"><Icon name="check" size={14} strokeWidth={3} /></span>{t}</li>)}
+              {['Situação do veículo resumida em um só lugar', 'Débitos e multas com valores, sem somar em duplicidade', 'Campos que a fonte não retornou aparecem como “Não informado”', 'PDF com código de validação para compartilhar'].map((t) => <li key={t}><span className="ck"><Icon name="check" size={14} /></span>{t}</li>)}
             </ul>
             <div className="row" style={{ marginTop: 26 }}><LinkButton to="/consultar" variant="primary" size="lg" iconRight="arrow-right">Fazer uma consulta</LinkButton></div>
             <span className="sample-tag">Imagens ilustrativas, com dados fictícios.</span>
@@ -91,50 +106,43 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="section">
-        <div className="container"><Pricing /></div>
+      <section className="section alt">
+        <div className="container">
+          <div className="section-head center"><span className="eyebrow">Por que a Placa na Mão</span><h2>Clareza para decidir com tranquilidade.</h2></div>
+          <div className="why-grid">{WHY.map((w) => <div className="why-card" key={w.t}><span className="wi"><Icon name={w.icon} size={24} /></span><h3>{w.t}</h3><p>{w.s}</p></div>)}</div>
+        </div>
+      </section>
+
+      <section className="section" id="pacotes">
+        <div className="container stack-lg">
+          <div className="section-head" style={{ marginBottom: 0 }}><span className="eyebrow">Pacotes de saldo</span><h2>Consulte mais e pague menos por consulta.</h2><p>Recarregue o saldo uma vez e use em qualquer consulta. Sem mensalidade e sem validade curta.</p></div>
+          <PackageCards />
+        </div>
+      </section>
+
+      <section className="section alt" id="blog">
+        <div className="container stack-lg">
+          <div className="row-between"><div className="section-head" style={{ marginBottom: 0 }}><span className="eyebrow">Blog</span><h2>Guias para comprar e vender com segurança.</h2></div><LinkButton to="/blog" iconRight="arrow-right">Ver todos</LinkButton></div>
+          <LatestPosts n={3} />
+        </div>
+      </section>
+
+      <section className="section" id="duvidas">
+        <div className="container">
+          <div className="section-head center"><span className="eyebrow">Dúvidas frequentes</span><h2>Transparência antes de cada consulta.</h2></div>
+          <Faq limit={6} />
+          <div className="row" style={{ justifyContent: 'center', marginTop: 22 }}><Link to="/perguntas-frequentes" className="btn">Ver todas as perguntas</Link></div>
+        </div>
       </section>
 
       <section className="section" style={{ paddingTop: 0 }}>
-        <div className="container">
-          <div className="api-block">
-            <div>
-              <span className="eyebrow">Para desenvolvedores</span>
-              <h3 style={{ marginTop: 8 }}>API Placa na Mão</h3>
-              <p style={{ fontWeight: 600, color: 'var(--text)' }}>Integre nossas consultas ao seu sistema.</p>
-              <p>Gere uma chave, envie a placa e receba o relatório estruturado em JSON, com a mesma cobrança e os mesmos dados da plataforma.</p>
-              <div className="api-checks">{['Documentação completa', 'Chaves com limite de uso', 'Resposta em JSON padronizado', 'Suporte técnico'].map((t) => <span key={t}><Icon name="check-circle" size={18} />{t}</span>)}</div>
-              <LinkButton to="/desenvolvedores" variant="primary" iconRight="arrow-right">Saiba mais</LinkButton>
-            </div>
-            <pre className="code-box" aria-label="Exemplo de chamada da API"><code>{`curl -X POST https://placanamao.com.br/api/v1/vehicles \\
-  -H "Authorization: Bearer pnm_live_…" \\
-  -H "Content-Type: application/json" \\
-  -d '{ "plate": "ABC1D23", "product": "COMPLETE" }'
-
-{
-  "id": "9f1c…",
-  "status": "SUCCESS",
-  "result": { "v2": { "verdict": { "level": "CLEAR" } } }
-}`}</code></pre>
-          </div>
-        </div>
-      </section>
-
-      <section className="section alt">
-        <div className="container">
-          <div className="section-head center"><span className="eyebrow">Dúvidas frequentes</span><h2>Transparência antes de cada consulta.</h2></div>
-          <Faq />
-        </div>
-      </section>
-
-      <section className="section">
         <div className="container">
           <div className="final-banner">
             <div className="art" aria-hidden="true"><HeroArt /></div>
             <div className="fb-logo"><Logo forceDark height={56} /></div>
             <div>
-              <h2>Seu veículo em boas mãos.</h2>
-              <p>Informação é poder. Consulte a placa agora e decida com segurança.</p>
+              <h2>Seu próximo carro merece uma checagem.</h2>
+              <p>Consulte a placa agora e decida com segurança.</p>
               <div className="fb-cta"><LinkButton to="/consultar" variant="primary" size="lg" iconRight="arrow-right">Consultar agora</LinkButton><Link to="/fipe" className="btn btn-lg btn-outline-light">Ver FIPE grátis</Link></div>
             </div>
           </div>

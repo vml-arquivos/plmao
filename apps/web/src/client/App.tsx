@@ -18,10 +18,12 @@ const History = lazy(() => import('./pages/History'));
 const QueryDetail = lazy(() => import('./pages/QueryDetail'));
 const Wallet = lazy(() => import('./pages/Wallet'));
 const Partner = lazy(() => import('./pages/Partner'));
-const ApiKeys = lazy(() => import('./pages/ApiKeys'));
+const FaqPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.FaqPage })));
+const BlogPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.BlogPage })));
+const BlogPostPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.BlogPostPage })));
 const Account = lazy(() => import('./pages/Account'));
 const named = (key: string) => lazy(() => import('./pages/Public').then((m) => ({ default: (m as unknown as Record<string, React.ComponentType>)[key] })));
-const GuestQuery = named('GuestQuery'); const PlansPage = named('PlansPage'); const ValidatePage = named('ValidatePage'); const ApiDocs = named('ApiDocs'); const About = named('About'); const Contact = named('Contact'); const NotFound = named('NotFound');
+const GuestQuery = named('GuestQuery'); const PlansPage = named('PlansPage'); const ValidatePage = named('ValidatePage'); const About = named('About'); const Contact = named('Contact'); const NotFound = named('NotFound');
 const Legal = lazy(() => import('./pages/Public').then((m) => ({ default: m.Legal })));
 
 /** Trata retornos que chegam na raiz: login social, redefinição de senha e retorno do checkout. */
@@ -57,7 +59,10 @@ export default function App() {
             <Route path="/consultar" element={<GuestQuery />} />
             <Route path="/fipe" element={<Fipe />} />
             <Route path="/planos" element={<PlansPage />} />
-            <Route path="/desenvolvedores" element={<ApiDocs />} />
+            <Route path="/desenvolvedores" element={<Navigate to="/" replace />} />
+            <Route path="/perguntas-frequentes" element={<FaqPage />} />
+            <Route path="/blog" element={<BlogPage />} />
+            <Route path="/blog/:slug" element={<BlogPostPage />} />
             <Route path="/sobre" element={<About />} />
             <Route path="/contato" element={<Contact />} />
             <Route path="/termos" element={<Legal kind="terms" />} />
@@ -75,7 +80,7 @@ export default function App() {
             <Route path="consulta/:id" element={<QueryDetail />} />
             <Route path="carteira" element={<Wallet />} />
             <Route path="parceiro" element={<Partner />} />
-            <Route path="api" element={<ApiKeys />} />
+            <Route path="api" element={<Navigate to="/app" replace />} />
             <Route path="conta" element={<Account />} />
           </Route>
         </Routes>

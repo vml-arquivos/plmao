@@ -280,14 +280,17 @@ export type Audience = 'client' | 'team';
  * Filtra o relatório para exibição: o cliente nunca vê dados do proprietário (apenas o tipo),
  * campos internos ficam ocultos e campos acima do nível do produto contratado são omitidos.
  */
-export function viewReport(report: ReportV2, opts: { audience: Audience; tier: Tier }): ReportV2 {
+export function viewReport(report: ReportV2, opts: { audience: Audience; tier: Tier; /** lista de seções liberadas pelo produto (configurada no painel); vazia/ausente = regra por nível */ sections?: string[] | null }): ReportV2 {
+  const allow = opts.sections && opts.sections.length ? new Set(opts.sections) : null;
+  const effectiveTier: Tier = allow ? 3 : opts.tier;
   const sections = report.sections
     .filter((s) => s.key !== 'INTERNO' || opts.audience === 'team')
+    .filter((s) => opts.audience === 'team' || !allow || allow.has(s.key))
     .map((s) => {
       const items = s.items.filter((i) => {
         if (i.sensitivity === 'INTERNAL') return opts.audience === 'team';
         if (i.sensitivity === 'OWNER' && opts.audience === 'client') return false;
-        return i.tier <= opts.tier;
+        return i.tier <= effectiveTier;
       });
       const providedCount = items.filter((i) => i.state !== 'NOT_PROVIDED').length;
       return { ...s, items, providedCount, notProvidedCount: items.length - providedCount, status: sectionStatus(items) };
@@ -296,7 +299,8 @@ export function viewReport(report: ReportV2, opts: { audience: Audience; tier: T
   const visible = new Set(sections.flatMap((s) => s.items.map((i) => i.key)));
   const visibleAlerts = report.verdict.alerts.filter((a) => visible.has(a.key));
   const lockedAlertCount = report.verdict.alerts.length - visibleAlerts.length;
-  const debtsHidden = opts.tier < 2 && (report.debts.hasDebt || report.debts.totalCents > 0);
+  const debtsAllowed = allow ? allow.has('DEBITOS') : opts.tier >= 2;
+  const debtsHidden = !debtsAllowed && (report.debts.hasDebt || report.debts.totalCents > 0);
   let verdict = { ...report.verdict, alerts: visibleAlerts };
   if (lockedAlertCount > 0 && !visibleAlerts.length) {
     verdict = { level: 'ATTENTION', title: 'Há pontos de atenção fora deste plano', reason: `O provedor retornou ${lockedAlertCount === 1 ? 'um ponto de atenção' : `${lockedAlertCount} pontos de atenção`} que não são exibidos no plano contratado.`, alerts: [] };

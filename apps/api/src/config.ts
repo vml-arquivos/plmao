@@ -127,8 +127,6 @@ const envSchema = z.object({
   DATA_ENCRYPTION_KEY: optionalString,
   // Mascaramento LGPD: documentos e nomes mascarados por padrão.
   PII_REVEAL_ENABLED: booleanFromEnv.default(true),
-  PUBLIC_API_ENABLED: booleanFromEnv.default(false),
-  PUBLIC_API_RATE_LIMIT_MAX: z.coerce.number().int().positive().max(10000).default(60),
 
   // Dados veiculares: o modo real só pode operar com contrato e credenciais válidos.
   DATA_PROVIDER: z.enum(['mock', 'real', 'disabled']).default('mock'),

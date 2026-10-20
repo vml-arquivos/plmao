@@ -5,6 +5,7 @@ import { Button, LinkButton, Logo, PageLoading, ThemeSwitch } from '../shared/ui
 import { initials, money } from '../shared/format';
 import { BRAND } from './config';
 import { useSession } from './session';
+import { InstallPrompt, OfflineBanner } from './components/PwaBits';
 
 /* ---------- Rolagem ao navegar ---------- */
 export function ScrollManager() {
@@ -22,10 +23,10 @@ export function ScrollManager() {
 /* ---------- Site público ---------- */
 const NAV: Array<{ to: string; label: string }> = [
   { to: '/', label: 'Início' },
-  { to: '/#consultas', label: 'Consultas' },
-  { to: '/#planos', label: 'Planos' },
-  { to: '/desenvolvedores', label: 'API' },
-  { to: '/sobre', label: 'Sobre' }
+  { to: '/planos', label: 'Consultas e preços' },
+  { to: '/blog', label: 'Blog' },
+  { to: '/perguntas-frequentes', label: 'Perguntas' },
+  { to: '/fipe', label: 'FIPE grátis' }
 ];
 
 export function PublicHeader({ overHero = false }: { overHero?: boolean }) {
@@ -61,7 +62,7 @@ export function PublicHeader({ overHero = false }: { overHero?: boolean }) {
           <div className="drawer-panel" role="dialog" aria-modal="true" aria-label="Menu">
             <div className="row-between" style={{ marginBottom: 10 }}><Logo /><button type="button" className="icon-btn" aria-label="Fechar menu" onClick={() => setOpen(false)}><Icon name="x" /></button></div>
             {NAV.map((n) => <Link key={n.to} to={n.to} className="dl">{n.label}</Link>)}
-            <Link to="/fipe" className="dl">FIPE grátis</Link>
+            <Link to="/sobre" className="dl">Sobre</Link>
             <hr className="divider" style={{ margin: '10px 0' }} />
             {status === 'authed' ? <LinkButton to="/app" variant="primary" block>Minha área</LinkButton> : <><LinkButton to="/criar-conta" variant="primary" block>Criar conta</LinkButton><LinkButton to="/entrar" block>Entrar</LinkButton></>}
           </div>
@@ -82,7 +83,7 @@ export function PublicFooter() {
             <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>
           </div>
           <div><h5>Consultas</h5><ul><li><Link to="/consulta-placa">Consulta de placa</Link></li><li><Link to="/consultar-debitos-veiculo">Débitos e multas</Link></li><li><Link to="/consultar-gravame">Gravame</Link></li><li><Link to="/consultar-leilao-veiculo">Leilão</Link></li><li><Link to="/fipe">FIPE grátis</Link></li></ul></div>
-          <div><h5>Empresa</h5><ul><li><Link to="/sobre">Sobre</Link></li><li><Link to="/para-lojistas">Para lojistas</Link></li><li><Link to="/desenvolvedores">API</Link></li><li><Link to="/contato">Contato</Link></li></ul></div>
+          <div><h5>Empresa</h5><ul><li><Link to="/sobre">Sobre</Link></li><li><Link to="/para-lojistas">Para lojistas</Link></li><li><Link to="/blog">Blog</Link></li><li><Link to="/perguntas-frequentes">Perguntas frequentes</Link></li><li><Link to="/contato">Contato</Link></li></ul></div>
           <div><h5>Legal</h5><ul><li><Link to="/termos">Termos de Uso</Link></li><li><Link to="/privacidade">Política de Privacidade</Link></li><li><Link to="/validar">Validar relatório</Link></li></ul></div>
         </div>
         <div className="foot-bottom"><span>© {new Date().getFullYear()} Placa na Mão. Todos os direitos reservados.</span><span>Os relatórios apoiam a decisão e não substituem vistoria ou consulta aos órgãos competentes.</span></div>
@@ -95,6 +96,7 @@ export function PublicLayout() {
   return (
     <>
       <a href="#conteudo" className="skip-link">Pular para o conteúdo</a>
+      <OfflineBanner />
       <PublicHeader />
       <main id="conteudo"><Outlet /></main>
       <PublicFooter />
@@ -108,7 +110,6 @@ const ITEMS: Array<{ to: string; label: string; icon: IconName; end?: boolean }>
   { to: '/app/historico', label: 'Histórico', icon: 'clock' },
   { to: '/app/carteira', label: 'Carteira', icon: 'wallet' },
   { to: '/app/parceiro', label: 'Parceiro', icon: 'users' },
-  { to: '/app/api', label: 'API', icon: 'code' },
   { to: '/app/conta', label: 'Minha conta', icon: 'user' }
 ];
 
@@ -144,7 +145,8 @@ export function AppLayout() {
           <Link to="/app/carteira" className="balance-chip" aria-label={`Saldo ${money(me.balanceCents)}. Abrir carteira`}><Icon name="wallet" size={18} />{money(me.balanceCents)}</Link>
           <span className="hide-d"><ThemeSwitch /></span>
         </div>
-        <main className="app-content" id="conteudo"><Outlet /></main>
+        <OfflineBanner />
+        <main className="app-content" id="conteudo"><InstallPrompt /><Outlet /></main>
       </div>
       <nav className="app-tabbar" aria-label="Navegação">
         <NavLink to="/app" end className={({ isActive }) => (isActive ? 'active' : '')}><Icon name="home" /><span>Início</span></NavLink>

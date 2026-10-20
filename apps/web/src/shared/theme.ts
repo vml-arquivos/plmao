@@ -10,7 +10,7 @@ export function applyTheme(pref: ThemePref): void {
   const root = document.documentElement;
   if (pref === 'system') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', pref);
   const dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0F0F14' : '#FFFFFF');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#040B1B' : '#FFFFFF');
 }
 export function useTheme(): [ThemePref, (p: ThemePref) => void] {
   const [pref, setPref] = useState<ThemePref>(readThemePref);

@@ -94,7 +94,7 @@ export default function Wallet() {
       {checkout === 'cancelled' && <Alert tone="warn" title="Pagamento cancelado.">Nenhuma cobrança foi feita. Você pode tentar novamente quando quiser.</Alert>}
       {checkout === 'expired' && <Alert tone="warn" title="O checkout expirou.">Inicie uma nova compra para continuar.</Alert>}
       <PaidQueries />
-      <section className="wallet-hero"><span className="k">Saldo disponível</span><span className="v num">{money(me?.balanceCents)}</span><div className="row" style={{ marginTop: 8 }}><Button onClick={() => nav('/app/consultar')} icon="search" style={{ background: '#fff', color: '#4C1D95', border: 0 }}>Fazer uma consulta</Button>{me?.sandbox && <Button variant="ghost" loading={sandboxBusy} onClick={sandbox} style={{ color: '#fff' }}>Adicionar saldo de teste</Button>}</div></section>
+      <section className="wallet-hero"><span className="k">Saldo disponível</span><span className="v num">{money(me?.balanceCents)}</span><div className="row" style={{ marginTop: 8 }}><Button onClick={() => nav('/app/consultar')} icon="search" style={{ background: '#fff', color: '#0F3A94', border: 0 }}>Fazer uma consulta</Button>{me?.sandbox && <Button variant="ghost" loading={sandboxBusy} onClick={sandbox} style={{ color: '#fff' }}>Adicionar saldo de teste</Button>}</div></section>
       <section className="stack">
         <h2 style={{ fontSize: 20 }}>Adicionar saldo</h2>
         {packs.loading && <div className="pkg-grid"><Skeleton h={190} r={18} /><Skeleton h={190} r={18} /><Skeleton h={190} r={18} /></div>}

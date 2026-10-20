@@ -2,14 +2,24 @@
 
 Preços iniciais **provisórios** (ajustáveis no painel, sempre em centavos; o motor impede vender abaixo do piso de margem).
 
-| Produto | Preço inicial | Conteúdo |
+| Produto | Preço inicial | Conteúdo (seções do relatório) |
 | --- | --- | --- |
 | FIPE por placa (grátis) | R$ 0 | Valor FIPE e dados básicos; consome o provedor, por isso tem limite diário (`FIPE_GUEST_DAILY_LIMIT`, `FIPE_AUTH_DAILY_LIMIT`) |
-| Básica | R$ 5,00 | Identificação, marca/modelo, ano, cor, combustível, município/UF, situação |
-| Completa | R$ 12,00 | Básica + débitos, restrições, dados técnicos e situação documental |
-| Premium | R$ 18,00 | Módulos adicionais efetivamente contratados (ex.: leilão, sinistro, histórico) |
+| Completa | R$ 61,60 | Identificação, débitos e multas, restrições, financiamento/gravame, recall e inspeção |
+| Básica | R$ 43,60 | Identificação, débitos e multas, restrições |
+| Leilão | R$ 33,10 | Histórico de leilão ("em breve" até existir fonte) |
+| Gravame | R$ 14,10 | Identificação e financiamento/gravame |
+| Cadastral | R$ 13,20 | Identificação, características e registro |
 
-Os produtos legados (Débitos, Cadastral, Restrições) ficam inativos com selo "em breve".
+Pacotes de saldo: Inicial (R$ 60 por R$ 60), Plus (R$ 130 por R$ 120) e Pro (R$ 350 por R$ 300). Tudo isso é **ponto de partida**: preço, preço "de", desconto, selo, descrição, o que cada consulta inclui, ordem e presença na home são editados em *Painel → Catálogo* (migration 016 grava os valores uma única vez; reinícios nunca sobrescrevem edições). Os preços de referência de mercado são manuais, internos e jamais aparecem no site.
+
+## Conteúdo editável
+
+- **Catálogo:** produtos (descrição curta/longa, cobertura, selo, desconto, seções do relatório), matriz de características (incluso / não incluso / em breve) e pacotes (selo, destaques).
+- **Perguntas frequentes:** categorias, ordem e publicação (`/perguntas-frequentes`, trecho na home e nas páginas de SEO).
+- **Artigos/blog:** rascunho e publicação, capa (https), SEO próprio, tempo de leitura, relacionados, sitemap e JSON-LD. Permissão `MANAGE_CONTENT`.
+- **Comparativo inteligente:** o visitante marca o que quer checar (ou escolhe uma situação, como "vou comprar um usado") e o site calcula a combinação de consultas ativas mais barata que cobre tudo, comparando com a melhor consulta única.
+- O produto **não oferece API** para integração em sistemas de terceiros.
 
 ## Regras de honestidade
 

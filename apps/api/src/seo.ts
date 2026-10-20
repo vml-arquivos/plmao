@@ -17,7 +17,8 @@ const pageMeta: Record<string, SeoMeta> = {
   '/para-concessionarias': { title: 'Consulta veicular para concessionárias | Placa na Mão', description: 'Apoie a avaliação de usados com consultas, relatórios e controle operacional para equipes.' },
   '/sobre': { title: 'Sobre a Placa na Mão | Consulta veicular', description: 'Conheça a Placa na Mão: consulta veicular por placa com transparência sobre fonte, data e cobertura de cada informação.' },
   '/contato': { title: 'Contato e suporte | Placa na Mão', description: 'Fale com a equipe Placa na Mão sobre suporte, privacidade (LGPD) e parcerias comerciais.' },
-  '/desenvolvedores': { title: 'API de consulta veicular para desenvolvedores | Placa na Mão', description: 'Integre consultas veiculares ao seu sistema com a API Placa na Mão: chaves, limites de uso e resposta JSON padronizada.' },
+  '/perguntas-frequentes': { title: 'Perguntas frequentes sobre consulta veicular | Placa na Mão', description: 'Tire dúvidas sobre consulta de placa, pagamento, estorno, privacidade e o que cada relatório mostra.' },
+  '/blog': { title: 'Blog: guias para comprar e vender veículo com segurança | Placa na Mão', description: 'Guias práticos sobre gravame, débitos, restrições, Tabela FIPE, recall e vistoria para decidir com segurança.' },
   '/entrar': { title: 'Entrar | Placa na Mão', description: 'Acesse sua conta Placa na Mão.' },
   '/criar-conta': { title: 'Criar conta | Placa na Mão', description: 'Crie sua conta Placa na Mão e faça sua primeira consulta veicular.' },
   '/termos': { title: 'Termos de Uso | Placa na Mão', description: 'Conheça as regras de uso, limites e responsabilidades da plataforma Placa na Mão.' },
@@ -28,15 +29,18 @@ const pageMeta: Record<string, SeoMeta> = {
 export const SITEMAP_PATHS: string[] = Object.keys(pageMeta).filter((p) => !['/entrar', '/criar-conta'].includes(p));
 const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|validar|validar-relatorio|consultar)(\/|$)/;
 
+export interface SeoOverride { title?: string; description?: string; jsonLd?: unknown[] }
+
 export function renderRobotsTxt(appUrl: string, adminHost: boolean): string {
   if (adminHost) return 'User-agent: *\nDisallow: /\n';
   const base = appUrl.replace(/\/$/, '');
   return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\n\nSitemap: ${base}/sitemap.xml\n`;
 }
 
-export function renderSitemapXml(appUrl: string): string {
+export function renderSitemapXml(appUrl: string, extra: Array<{ path: string; lastmod?: Date }> = []): string {
   const base = appUrl.replace(/\/$/, '');
-  const urls = SITEMAP_PATHS.map((p) => `  <url><loc>${base}${p === '/' ? '/' : p}</loc><changefreq>${p === '/' || p === '/planos' ? 'weekly' : 'monthly'}</changefreq><priority>${p === '/' ? '1.0' : p === '/planos' || p === '/fipe' ? '0.9' : '0.7'}</priority></url>`).join('\n');
+  const articleUrls = extra.map((e) => `  <url><loc>${base}${e.path}</loc>${e.lastmod ? `<lastmod>${e.lastmod.toISOString().slice(0, 10)}</lastmod>` : ''}<changefreq>monthly</changefreq><priority>0.6</priority></url>`);
+  const urls = [...SITEMAP_PATHS.map((p) => `  <url><loc>${base}${p === '/' ? '/' : p}</loc><changefreq>${p === '/' || p === '/planos' ? 'weekly' : 'monthly'}</changefreq><priority>${p === '/' ? '1.0' : p === '/planos' || p === '/fipe' ? '0.9' : '0.7'}</priority></url>`), ...articleUrls].join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 }
 
@@ -44,9 +48,10 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? char);
 }
 
-export function renderSeoHtml(template: string, pathname: string, appUrl: string): string {
+export function renderSeoHtml(template: string, pathname: string, appUrl: string, override: SeoOverride = {}): string {
   const normalized = pathname.length > 1 ? pathname.replace(/\/$/, '') : pathname;
-  const meta = pageMeta[normalized] ?? pageMeta['/'];
+  const base0 = pageMeta[normalized] ?? pageMeta['/'];
+  const meta = { title: override.title ?? base0.title, description: override.description ?? base0.description };
   const baseUrl = appUrl.replace(/\/$/, '');
   const canonical = `${baseUrl}${normalized === '/' ? '/' : normalized}`;
   const title = escapeHtml(meta.title);
@@ -61,6 +66,7 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
     isPartOf: { '@type': 'WebSite', name: 'Placa na Mão', url: `${baseUrl}/` },
     publisher: { '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/` }
   }).replace(/</g, '\\u003c');
+  const extraLd = (override.jsonLd ?? []).map((o) => `<script type="application/ld+json">${JSON.stringify(o).replace(/</g, '\\u003c')}</script>`).join('\n  ');
   const noindex = NOINDEX.test(normalized);
   return template
     .replace(/https:\/\/placanamao\.com\.br(?=\/brand\/)/g, baseUrl)
@@ -73,5 +79,5 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
     .replace(/<meta property="og:url" content="[^"]*"\s*\/>/, `<meta property="og:url" content="${escapeHtml(canonical)}" />`)
     .replace(/<meta name="twitter:title" content="[^"]*"\s*\/>/, `<meta name="twitter:title" content="${title}" />`)
     .replace(/<meta name="twitter:description" content="[^"]*"\s*\/>/, `<meta name="twitter:description" content="${description}" />`)
-    .replace('</head>', `<script id="pnm-route-schema" type="application/ld+json">${routeSchema}</script>\n  </head>`);
+    .replace('</head>', `<script id="pnm-route-schema" type="application/ld+json">${routeSchema}</script>${extraLd ? `\n  ${extraLd}` : ''}\n  </head>`);
 }

@@ -8,11 +8,10 @@ Plataforma brasileira de consulta veicular por placa: o cliente digita a placa, 
 
 | Superfície | Onde | Para quê |
 | --- | --- | --- |
-| Site público | `/`, `/consultar`, `/planos`, `/fipe`, `/desenvolvedores`, páginas de SEO por intenção, `/validar-relatorio/:código` | Aquisição, SEO, FIPE grátis, validação de relatório por código |
-| App do cliente (PWA) | `/app/*` | Nova consulta, histórico, relatório, carteira, parceiro, chaves de API, conta |
+| Site público | `/`, `/consultar`, `/planos`, `/blog`, `/perguntas-frequentes`, `/fipe`, páginas de SEO por intenção, `/validar-relatorio/:código` | Aquisição, SEO, consultas como produtos, comparativo inteligente, pacotes, blog, FAQ, FIPE grátis, validação de relatório |
+| App do cliente (PWA) | `/app/*` | Nova consulta, histórico, relatório, carteira, parceiro, conta; instalável como aplicativo (PWA) |
 | Relatório | `/app/consulta/:id` | Veredito, módulos, alertas, impressão e PDF |
-| Painel da equipe | `ADMIN_HOSTS` (ou `/painel` em desenvolvimento) | Dashboard, consultas, usuários, suporte, financeiro, preços/margens, pagamentos, cupons, parceiros/repasses, auditoria, sistema, conta/2FA |
-| API pública v1 | `/api/v1/*` | Integradores com chave `pnm_live_…` (desligada por padrão) |
+| Painel da equipe | `ADMIN_HOSTS` (ou `/painel` em desenvolvimento) | Dashboard, consultas, usuários, suporte, financeiro, preços/margens, **catálogo (produtos, comparativo, pacotes), FAQ, artigos**, pagamentos, cupons, parceiros/repasses, auditoria, sistema, conta/2FA |
 
 ## Princípios do produto
 
@@ -54,7 +53,7 @@ npm run admin:reset-2fa -- voce@empresa.com.br           # recuperação do 2FA 
 
 ## Documentação
 
-[ARCHITECTURE](ARCHITECTURE.md) · [PRODUCT](PRODUCT.md) · [DATABASE](DATABASE.md) · [SECURITY](SECURITY.md) · [TESTING](TESTING.md) · [DEPLOY-COOLIFY](DEPLOY-COOLIFY.md) · [API-INTEGRATION](API-INTEGRATION.md) · [OAUTH-SETUP](OAUTH-SETUP.md) · [CHANGELOG](CHANGELOG.md)
+[ARCHITECTURE](ARCHITECTURE.md) · [PRODUCT](PRODUCT.md) · [DATABASE](DATABASE.md) · [SECURITY](SECURITY.md) · [TESTING](TESTING.md) · [DEPLOY-COOLIFY](DEPLOY-COOLIFY.md) · [OAUTH-SETUP](OAUTH-SETUP.md) · [CHANGELOG](CHANGELOG.md)
 
 ## Antes de vender (responsabilidade do dono)
 

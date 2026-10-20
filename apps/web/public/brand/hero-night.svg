@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+<defs>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#030816"/><stop offset=".45" stop-color="#0a1a52"/><stop offset=".68" stop-color="#2a3fb0"/><stop offset=".78" stop-color="#6a4be0"/><stop offset="1" stop-color="#0a1030"/></linearGradient>
+<linearGradient id="road" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2564"/><stop offset=".25" stop-color="#0a1038"/><stop offset="1" stop-color="#03060f"/></linearGradient>
+<linearGradient id="body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#26357d"/><stop offset=".25" stop-color="#101a4a"/><stop offset=".7" stop-color="#070d28"/><stop offset="1" stop-color="#03060f"/></linearGradient>
+<linearGradient id="hood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34459a"/><stop offset=".35" stop-color="#17235e"/><stop offset="1" stop-color="#0a1235"/></linearGradient>
+<linearGradient id="glass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b52c4" stop-opacity=".85"/><stop offset=".4" stop-color="#0b1442"/><stop offset="1" stop-color="#1b2a7a"/></linearGradient>
+<linearGradient id="edge" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7CB9FF" stop-opacity="0"/><stop offset=".5" stop-color="#B7D8FF"/><stop offset="1" stop-color="#7CB9FF" stop-opacity="0"/></linearGradient>
+<radialGradient id="hl" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#EAF4FF"/><stop offset=".25" stop-color="#9FD0FF" stop-opacity=".9"/><stop offset="1" stop-color="#2F6FE4" stop-opacity="0"/></radialGradient>
+<radialGradient id="glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#8a6bff" stop-opacity=".55"/><stop offset="1" stop-color="#8a6bff" stop-opacity="0"/></radialGradient>
+<linearGradient id="beam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#BFE0FF" stop-opacity=".55"/><stop offset="1" stop-color="#2F6FE4" stop-opacity="0"/></linearGradient>
+<linearGradient id="plate" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2F6FE4"/><stop offset=".22" stop-color="#2F6FE4"/><stop offset=".23" stop-color="#EEF3FF"/><stop offset="1" stop-color="#C9D6F0"/></linearGradient>
+<filter id="b8" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="8"/></filter>
+<filter id="b3" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
+<filter id="b20" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="20"/></filter>
+</defs>
+<rect width="1600" height="900" fill="url(#sky)"/>
+<ellipse cx="900" cy="560" rx="900" ry="220" fill="url(#glow)"/><ellipse cx="1350" cy="520" rx="420" ry="120" fill="#5CAEF0" opacity=".12" filter="url(#b20)"/>
+<!-- skyline blur -->
+<g filter="url(#b3)" fill="#0a1238" opacity=".9">
+<rect x="0" y="420" width="70" height="150"/><rect x="80" y="380" width="54" height="190"/><rect x="150" y="440" width="90" height="130"/><rect x="260" y="360" width="60" height="210"/><rect x="340" y="410" width="80" height="160"/><rect x="440" y="450" width="70" height="120"/><rect x="530" y="390" width="64" height="180"/><rect x="620" y="430" width="90" height="140"/>
+</g>
+<!-- bokeh -->
+<g filter="url(#b8)">
+<circle cx="120" cy="470" r="26" fill="#5CAEF0" opacity=".7"/><circle cx="230" cy="520" r="34" fill="#8a6bff" opacity=".6"/><circle cx="340" cy="480" r="20" fill="#7CB9FF" opacity=".8"/><circle cx="430" cy="530" r="30" fill="#ff6bd6" opacity=".45"/><circle cx="520" cy="490" r="24" fill="#5CAEF0" opacity=".75"/>
+<circle cx="610" cy="520" r="38" fill="#8a6bff" opacity=".55"/><circle cx="700" cy="470" r="22" fill="#9fe0ff" opacity=".7"/><circle cx="780" cy="515" r="30" fill="#ffd27a" opacity=".5"/><circle cx="260" cy="440" r="16" fill="#ffd27a" opacity=".55"/><circle cx="60" cy="540" r="30" fill="#8a6bff" opacity=".5"/>
+<circle cx="880" cy="470" r="18" fill="#7CB9FF" opacity=".7"/><circle cx="1480" cy="480" r="28" fill="#8a6bff" opacity=".55"/><circle cx="1550" cy="520" r="34" fill="#5CAEF0" opacity=".6"/>
+</g>
+<!-- road -->
+<rect y="560" width="1600" height="340" fill="url(#road)"/>
+<g filter="url(#b8)" opacity=".7">
+<rect x="108" y="570" width="26" height="150" fill="#5CAEF0"/><rect x="218" y="570" width="34" height="190" fill="#8a6bff"/><rect x="332" y="570" width="18" height="140" fill="#7CB9FF"/><rect x="418" y="570" width="30" height="170" fill="#ff6bd6" opacity=".6"/><rect x="510" y="570" width="24" height="160" fill="#5CAEF0"/><rect x="596" y="570" width="38" height="200" fill="#8a6bff"/><rect x="690" y="570" width="22" height="150" fill="#9fe0ff"/><rect x="766" y="570" width="30" height="180" fill="#ffd27a" opacity=".6"/>
+</g>
+<path d="M0 640 C400 600 900 610 1600 640" stroke="#7CB9FF" stroke-opacity=".12" stroke-width="2" fill="none"/>
+<!-- headlight beams on road -->
+<g filter="url(#b20)"><path d="M820 700 L560 900 L980 900 Z" fill="url(#beam)" opacity=".55"/><path d="M1380 700 L1240 900 L1600 900 Z" fill="url(#beam)" opacity=".45"/></g>
+<!-- car -->
+<g transform="translate(60,0) scale(1)">
+<!-- shadow -->
+<ellipse cx="1100" cy="880" rx="560" ry="40" fill="#000" opacity=".6" filter="url(#b8)"/>
+<!-- tires -->
+<path d="M722 700 L790 690 L800 870 L716 880 Z" fill="#05070f"/><path d="M1410 690 L1478 700 L1484 880 L1400 870 Z" fill="#05070f"/>
+<!-- lower body -->
+<path d="M740 640 C760 600 800 590 860 586 L1340 586 C1400 590 1440 600 1460 640 L1480 760 C1482 800 1470 840 1440 870 L760 870 C730 840 718 800 720 760 Z" fill="url(#body)"/>
+<!-- hood -->
+<path d="M850 470 C940 462 1260 462 1350 470 L1450 596 C1360 584 840 584 750 596 Z" fill="url(#hood)"/>
+<path d="M850 470 L750 596" stroke="#9FD0FF" stroke-opacity=".55" stroke-width="2" fill="none"/><path d="M1350 470 L1450 596" stroke="#9FD0FF" stroke-opacity=".55" stroke-width="2" fill="none"/>
+<path d="M960 468 C1040 462 1160 462 1240 468 L1270 592 L930 592 Z" fill="#9FD0FF" opacity=".07"/>
+<path d="M880 486 C1000 476 1200 476 1320 486" stroke="url(#edge)" stroke-width="3" fill="none"/>
+<!-- cabin and windshield -->
+<path d="M862 472 L926 352 C948 322 1010 310 1100 310 C1190 310 1252 322 1274 352 L1338 472 Z" fill="#0b1236"/>
+<path d="M884 466 L940 360 C958 336 1012 326 1100 326 C1188 326 1242 336 1260 360 L1316 466 Z" fill="url(#glass)"/>
+<path d="M950 466 L1010 330 L1062 330 L1008 466 Z" fill="#fff" opacity=".08"/>
+<path d="M1150 466 L1190 332 L1206 332 L1176 466 Z" fill="#fff" opacity=".05"/>
+<path d="M940 360 C958 336 1012 326 1100 326 C1188 326 1242 336 1260 360" stroke="#BFE0FF" stroke-opacity=".55" stroke-width="2" fill="none"/>
+<path d="M926 352 C948 322 1010 310 1100 310 C1190 310 1252 322 1274 352" stroke="#7CB9FF" stroke-opacity=".35" stroke-width="2" fill="none"/>
+<!-- mirrors -->
+<path d="M840 470 C810 466 786 478 790 498 L850 500 Z" fill="#0d1642"/><path d="M1360 470 C1390 466 1414 478 1410 498 L1350 500 Z" fill="#0d1642"/>
+<path d="M792 480 C806 470 826 470 842 474" stroke="#9FD0FF" stroke-opacity=".6" stroke-width="2" fill="none"/><path d="M1408 480 C1394 470 1374 470 1358 474" stroke="#9FD0FF" stroke-opacity=".6" stroke-width="2" fill="none"/>
+<!-- headlight units -->
+<path d="M764 608 C830 594 912 592 976 598 L994 630 C930 650 846 656 782 650 Z" fill="#040820"/>
+<path d="M1436 608 C1370 594 1288 592 1224 598 L1206 630 C1270 650 1354 656 1418 650 Z" fill="#040820"/>
+<path d="M784 614 C850 604 920 600 972 606" stroke="#F2F8FF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+<path d="M1416 614 C1350 604 1280 600 1228 606" stroke="#F2F8FF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+<path d="M800 634 C850 628 920 624 978 624" stroke="#9FD0FF" stroke-width="3" stroke-linecap="round" fill="none"/>
+<path d="M1400 634 C1350 628 1280 624 1222 624" stroke="#9FD0FF" stroke-width="3" stroke-linecap="round" fill="none"/>
+<ellipse cx="940" cy="620" rx="70" ry="22" fill="url(#hl)" opacity=".9"/><ellipse cx="1260" cy="620" rx="70" ry="22" fill="url(#hl)" opacity=".9"/>
+<ellipse cx="905" cy="622" rx="150" ry="46" fill="url(#hl)" opacity=".35"/><ellipse cx="1295" cy="622" rx="150" ry="46" fill="url(#hl)" opacity=".35"/>
+<circle cx="948" cy="620" r="9" fill="#fff" filter="url(#b3)"/><circle cx="1252" cy="620" r="9" fill="#fff" filter="url(#b3)"/>
+<!-- grille -->
+<path d="M994 612 L1206 612 L1190 716 C1150 724 1050 724 1010 716 Z" fill="#04071a"/>
+<g stroke="#2a3a8a" stroke-width="3" opacity=".9"><path d="M1004 640 H1196"/><path d="M1007 662 H1193"/><path d="M1010 684 H1190"/><path d="M1013 704 H1187"/></g>
+<path d="M994 612 L1206 612" stroke="#BFE0FF" stroke-opacity=".5" stroke-width="2"/>
+<!-- emblem -->
+<circle cx="1100" cy="660" r="15" fill="#0d1642" stroke="#9FD0FF" stroke-width="2"/><path d="M1092 666 L1100 652 L1108 666 Z" fill="none" stroke="#9FD0FF" stroke-width="2"/>
+<!-- plate -->
+<g transform="translate(1030,736)"><rect width="140" height="48" rx="6" fill="url(#plate)" stroke="#0a1238" stroke-width="3"/><text x="70" y="38" text-anchor="middle" font-family="Nunito,Arial" font-weight="800" font-size="24" fill="#0a1238" letter-spacing="2">PLM 1A23</text><text x="70" y="12" text-anchor="middle" font-family="Nunito,Arial" font-weight="800" font-size="8" fill="#fff" letter-spacing="3">BRASIL</text></g>
+<!-- bumper intakes + fog lights -->
+<path d="M790 700 C830 690 920 690 960 700 L950 780 C900 790 840 790 800 780 Z" fill="#03060f"/>
+<path d="M1410 700 C1370 690 1280 690 1240 700 L1250 780 C1300 790 1360 790 1400 780 Z" fill="#03060f"/>
+<g stroke="#17235e" stroke-width="3"><path d="M806 722 H948"/><path d="M806 744 H946"/><path d="M808 766 H944"/><path d="M1394 722 H1252"/><path d="M1394 744 H1254"/><path d="M1392 766 H1256"/></g>
+<path d="M742 700 C740 740 740 780 752 820" stroke="#7CB9FF" stroke-opacity=".5" stroke-width="2" fill="none"/><path d="M1458 700 C1460 740 1460 780 1448 820" stroke="#7CB9FF" stroke-opacity=".5" stroke-width="2" fill="none"/>
+<path d="M980 790 C1040 800 1160 800 1220 790" stroke="#7CB9FF" stroke-opacity=".35" stroke-width="2" fill="none"/>
+<ellipse cx="1100" cy="610" rx="420" ry="30" fill="#7CB9FF" opacity=".05" filter="url(#b8)"/>
+</g>
+<!-- vignette -->
+<rect width="1600" height="900" fill="#000" opacity=".1"/>
+</svg>

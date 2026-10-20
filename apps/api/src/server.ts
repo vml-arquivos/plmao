@@ -19,7 +19,6 @@ import { financeRouter } from './routes/finance.js';
 import { enforceMarginFloor } from './pricing/guard.js';
 import { partnersRouter, releaseCommissions } from './routes/partners.js';
 import { adminQueriesRouter } from './routes/adminQueries.js';
-import { apiKeyAuth, apiKeyRateLimit, apiKeysRouter, requirePublicApiEnabled } from './routes/apiKeys.js';
 import { completeAuthorization, consumeLoginTicket, createAuthorizationRequest, oauthErrorUrl, oauthSuccessUrl, socialProviderStatus, type OAuthProvider } from './oauth.js';
 import { adminHosts, env } from './config.js';
 import { sendContactConfirmationEmail, sendContactMessageEmail, sendPasswordResetEmail, isEmailConfigured } from './email.js';
@@ -42,11 +41,15 @@ import { renderVehiclePdf, type ReportMeta } from './report/pdf.js';
 import { renderVehicleHtml } from './report/printHtml.js';
 import { encryptRaw } from './lib/rawStore.js';
 import { refundProcessingQuery, sweepStuckQueries } from './lib/queryRefund.js';
-import { renderRobotsTxt, renderSeoHtml, renderSitemapXml } from './seo.js';
+import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
+import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
+import { renderRobotsTxt, renderSeoHtml, renderSitemapXml, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle } from './types.js';
 
 await ensureSchema();
+await refreshProductSections();
+startProductSectionsRefresh();
 
 const app = express();
 const api = express.Router();
@@ -56,7 +59,7 @@ api.use('/admin/auth', adminAuthRouter);
 api.use('/admin/finance', financeRouter);
 api.use('/admin/finance', partnersRouter);
 api.use('/admin/queries', adminQueriesRouter);
-api.use('/account/api-keys', apiKeysRouter);
+api.use('/admin/content', adminContentRouter);
 api.use((_req, res, next) => {
   // API responses are not cacheable: authenticated clients must never receive a conditional 304 without a body.
   res.setHeader('Cache-Control', 'no-store, private');
@@ -117,6 +120,12 @@ const forgotPasswordSchema = z.object({ email: z.string().trim().email().max(254
     source: z.string().trim().max(240).nullable().optional(),
     coverage: z.string().trim().max(500).nullable().optional(),
     commercialStatus: z.enum(['ACTIVE', 'SOON', 'FREE', 'HIDDEN']).optional(),
+    tagline: z.string().trim().max(160).optional(),
+    longDescription: z.string().trim().max(2000).optional(),
+    badge: z.string().trim().max(30).nullable().optional(),
+    listPriceCents: z.number().int().min(0).max(100000000).nullable().optional(),
+    showOnHome: z.boolean().optional(),
+    reportSections: z.array(z.string()).max(12).nullable().optional(),
     featured: z.boolean().optional(),
     displayOrder: z.number().int().min(-10000).max(10000).optional(),
     isFree: z.boolean().optional(),
@@ -142,6 +151,12 @@ const forgotPasswordSchema = z.object({ email: z.string().trim().email().max(254
     source: z.string().trim().max(240).nullable().optional(),
     coverage: z.string().trim().max(500).nullable().optional(),
     commercialStatus: z.enum(['ACTIVE', 'SOON', 'FREE', 'HIDDEN']).default('SOON'),
+    tagline: z.string().trim().max(160).default(''),
+    longDescription: z.string().trim().max(2000).default(''),
+    badge: z.string().trim().max(30).nullable().optional(),
+    listPriceCents: z.number().int().min(0).max(100000000).nullable().optional(),
+    showOnHome: z.boolean().default(true),
+    reportSections: z.array(z.string()).max(12).nullable().optional(),
     featured: z.boolean().default(false),
     displayOrder: z.number().int().min(-10000).max(10000).default(100),
     isFree: z.boolean().default(false),
@@ -244,7 +259,7 @@ function serializeQuery(row: QueryRow & Record<string, unknown>): Record<string,
   const vehicle = !isFipe && normalized ? normalized as NormalizedVehicle : null;
   const result = isFipe
     ? { fipe: publicFipeQuote((normalized as FipeStoredResult).quote), blocks: (normalized as FipeStoredResult).quote.blocks, diagnostic: { level: 'CLEAR', title: 'Valor FIPE consultado', reason: 'A Tabela FIPE foi consultada; a situação documental não está incluída nesta modalidade.' } }
-    : vehicle ? { ...publicVehicleResult(vehicle, tierForProductCode(String(row.product_id ?? ''))), coverage: vehicle.coverage ?? { identification: vehicle.identification ? 'FOUND' : 'NOT_QUERIED', debts: vehicle.debts.length ? 'FOUND' : 'NOT_QUERIED', restrictions: vehicle.restrictions.length ? 'FOUND' : 'NOT_QUERIED', recall: vehicle.recall ? 'FOUND' : 'NOT_QUERIED' }, diagnostic: diagnostic(vehicle) } : null;
+    : vehicle ? { ...publicVehicleResult(vehicle, tierForProductCode(String(row.product_id ?? '')), sectionsForProduct(String(row.product_id ?? ''))), coverage: vehicle.coverage ?? { identification: vehicle.identification ? 'FOUND' : 'NOT_QUERIED', debts: vehicle.debts.length ? 'FOUND' : 'NOT_QUERIED', restrictions: vehicle.restrictions.length ? 'FOUND' : 'NOT_QUERIED', recall: vehicle.recall ? 'FOUND' : 'NOT_QUERIED' }, diagnostic: diagnostic(vehicle) } : null;
   return {
     id: row.id,
     plate: row.plate,
@@ -709,18 +724,8 @@ async function createContactTicket(userId: string | null, input: { name: string;
   }
 }
 
-const publicOfferDescriptions: Record<string, string> = {
-  FIPE_FREE: 'Veja o valor médio FIPE e a referência vigente para orientar sua negociação.',
-  BASIC: 'Confirme marca, modelo, ano e características principais e compare com o anúncio.',
-  CADASTRAL: 'Confirme as características principais do veículo e compare com o anúncio.',
-  RESTRICTIONS: 'Verifique impedimentos que podem afetar a negociação ou a transferência.',
-  DEBTS: 'Consulte débitos e pendências relevantes antes de avançar na compra.',
-  COMPLETE: 'Reúna identificação, características, débitos, restrições e situação em uma única análise.',
-  PREMIUM: 'Acesse a análise mais completa disponível para tomar uma decisão com mais segurança.'
-};
-
-function publicOfferDescription(id: string, fallback: string): string {
-  return publicOfferDescriptions[id] ?? fallback.replace(/\b(provedor|provider|fonte|source|API)\b/gi, 'consulta');
+function publicOfferDescription(_id: string, fallback: string): string {
+  return fallback.replace(/\b(provedor|provider|fonte|source|API)\b/gi, 'consulta');
 }
 
 function normalizeMatchText(value: string): string {
@@ -1047,22 +1052,7 @@ api.get('/query-products', auth, asyncRoute(async (req, res) => {
   res.json(products.rows.map((product) => ({ id: product.id, name: product.name, description: product.description, basePriceCents: Number(product.price_cents ?? 0), priceCents: Number(product.effective_price_cents ?? 0), negotiated: Boolean(product.negotiated), slug: product.slug, features: product.features, isFree: Boolean(product.is_free), commercialStatus: product.commercial_status, featured: Boolean(product.featured) })));
 }));
 
-/** Catálogo público (landing): só o que está ativo; nunca expõe custo, preço de referência nem margens. */
-api.get('/catalog', asyncRoute(async (_req, res) => {
-  const [products, packages, settings] = await Promise.all([
-    pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,p.coverage,p.slug,p.featured,
-        CASE WHEN p.is_free OR ($1::boolean AND EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true)) THEN p.commercial_status ELSE 'SOON' END AS commercial_status
-      FROM query_products p WHERE p.active=true ORDER BY p.display_order,p.price_cents`, [env.DATA_PROVIDER !== 'disabled']),
-    pool.query('SELECT slug,name,description,credits,price_cents FROM credit_packages WHERE active=true ORDER BY display_order,price_cents'),
-    pool.query('SELECT enabled_methods FROM payment_settings WHERE id=1')
-  ]);
-  res.setHeader('Cache-Control', 'public, max-age=60');
-  res.json({
-    products: products.rows.map((p) => ({ id: p.id, slug: p.slug, name: p.name, description: publicOfferDescription(String(p.id), String(p.description)), coverage: p.coverage, priceCents: p.is_free ? 0 : Number(p.price_cents ?? 0), isFree: Boolean(p.is_free), features: p.features, commercialStatus: p.commercial_status, featured: Boolean(p.featured) })),
-    packages: packages.rows.map((p) => ({ slug: p.slug, name: p.name, description: p.description, credits: Number(p.credits), priceCents: Number(p.price_cents), bonusCents: Math.max(Number(p.credits) * 100 - Number(p.price_cents), 0) })),
-    paymentMethods: (settings.rows[0]?.enabled_methods as string[] | undefined) ?? []
-  });
-}));
+api.use(publicContentRouter);
 
 api.get('/fipe/offers', asyncRoute(async (_req, res) => {
   const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,
@@ -1160,34 +1150,6 @@ api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async 
   res.status(out.status).json(out.body);
 }));
 
-// ---- API pública v1 (chave de API; habilitada por PUBLIC_API_ENABLED) ----
-const v1QuerySchema = z.object({ plate: plateSchema, product: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/).default('COMPLETE') }).strict();
-const v1 = express.Router();
-v1.use(requirePublicApiEnabled, apiKeyAuth, apiKeyRateLimit);
-v1.get('/products', asyncRoute(async (_req, res) => {
-  const products = await pool.query(`SELECT id,name,description,price_cents FROM query_products WHERE active=true AND is_free=false AND id IN (SELECT product_id FROM query_source_rules WHERE active=true) ORDER BY display_order`);
-  res.json({ object: 'list', data: products.rows.map((p) => ({ id: p.id, name: p.name, description: p.description, priceCents: Number(p.price_cents) })) });
-}));
-v1.get('/balance', asyncRoute(async (req, res) => {
-  const w = await pool.query('SELECT balance_cents FROM wallets WHERE user_id=$1', [req.user!.id]);
-  res.json({ balanceCents: Number(w.rows[0]?.balance_cents ?? 0) });
-}));
-v1.post('/vehicles', asyncRoute(async (req, res) => {
-  const parsed = v1QuerySchema.safeParse(req.body);
-  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const key = req.headers['idempotency-key'];
-  const idempotencyKey = typeof key === 'string' && /^[a-zA-Z0-9_-]{12,128}$/.test(key) ? key : null;
-  const out = await runVehicleQuery({ userId: req.user!.id, plate: parsed.data.plate, productId: parsed.data.product, idempotencyKey, reqId: requestId(req), source: 'API' });
-  res.status(out.status).json({ object: 'vehicle_query', ...out.body });
-}));
-v1.get('/vehicles/:id', asyncRoute(async (req, res) => {
-  const q = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
-    FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.id=$1 AND q.user_id=$2 AND q.source='API'`, [req.params.id, req.user!.id]);
-  if (!q.rowCount) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
-  res.json({ object: 'vehicle_query', ...serializeQuery(q.rows[0] as QueryRow & Record<string, unknown>) });
-}));
-api.use('/v1', v1);
-
 api.get('/queries', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
   const plate = typeof req.query.plate === 'string' ? req.query.plate.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7) : '';
   const status = typeof req.query.status === 'string' && ['PROCESSING', 'SUCCESS', 'FAILED', 'REFUNDED'].includes(req.query.status) ? req.query.status : null;
@@ -1225,7 +1187,7 @@ async function vehicleReportForQuery(queryId: string, userId: string) {
   const row = query.rows[0] as Record<string, unknown>;
   const vehicle = row.normalized as NormalizedVehicle | null;
   if (!vehicle?.v2) throw appError('REPORT_UNAVAILABLE', { code: 'REPORT_UNAVAILABLE', http: 409, expose: true });
-  const report = viewReport(vehicle.v2, { audience: 'client', tier: tierForProductCode(String(row.product_id)) });
+  const report = viewReport(vehicle.v2, { audience: 'client', tier: tierForProductCode(String(row.product_id)), sections: sectionsForProduct(String(row.product_id)) });
   const code = String(row.id).slice(0, 8).toUpperCase();
   const base = (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '');
   const meta: ReportMeta = { productName: String(row.product_name), verificationCode: code, verificationUrl: `${base}/validar/${code}`, consultedAt: new Date(String(row.completed_at ?? row.created_at)), resultHash: row.result_hash ? String(row.result_hash) : null, audience: 'client' };
@@ -1847,11 +1809,25 @@ api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), 
   }
 }));
 
+const ADMIN_PRODUCT_COLS = 'p.id,p.name,p.description,p.price_cents,p.reference_price_cents,p.active,p.slug,p.features,p.is_free,p.commercial_status,p.featured,p.display_order,p.source,p.coverage,p.tagline,p.long_description,p.badge,p.list_price_cents,p.show_on_home,p.report_sections';
+const SELLABLE_REPORT_SECTIONS = new Set(['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO', 'DEBITOS', 'RESTRICOES', 'GRAVAME', 'INSPECAO_RECALL']);
+function presentAdminProduct(row: Record<string, unknown>) {
+  return {
+    id: row.id, name: row.name, description: row.description, priceCents: Number(row.price_cents ?? 0), referencePriceCents: row.reference_price_cents == null ? null : Number(row.reference_price_cents),
+    active: Boolean(row.active), slug: row.slug, features: row.features ?? [], isFree: Boolean(row.is_free), commercialStatus: row.commercial_status, featured: Boolean(row.featured),
+    displayOrder: Number(row.display_order ?? 100), source: row.source, coverage: row.coverage, tagline: row.tagline ?? '', longDescription: row.long_description ?? '', badge: row.badge ?? null,
+    listPriceCents: row.list_price_cents == null ? null : Number(row.list_price_cents), showOnHome: Boolean(row.show_on_home), reportSections: Array.isArray(row.report_sections) ? row.report_sections : null
+  };
+}
+function checkReportSections(sections: string[] | null | undefined): void {
+  if (sections && !sections.every((k) => SELLABLE_REPORT_SECTIONS.has(k))) throw appError('INVALID_REPORT_SECTIONS', { code: 'INVALID_REPORT_SECTIONS', http: 400, expose: true });
+}
+
 api.get('/admin/products', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (_req, res) => {
-  const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.reference_price_cents,p.active,p.slug,p.features,p.is_free,p.commercial_status,p.featured,p.display_order,p.source,p.coverage,
+  const products = await pool.query(`SELECT ${ADMIN_PRODUCT_COLS},
       t.id AS template_id,t.version AS template_version,t.name AS template_name,t.status AS template_status
     FROM query_products p LEFT JOIN product_report_configs c ON c.product_id=p.id LEFT JOIN report_templates t ON t.id=c.template_id ORDER BY p.display_order,p.price_cents`);
-  res.json(products.rows.map((product) => ({ id: product.id, name: product.name, description: product.description, priceCents: Number(product.price_cents ?? 0), referencePriceCents: product.reference_price_cents == null ? null : Number(product.reference_price_cents), active: Boolean(product.active), slug: product.slug, features: product.features ?? [], isFree: Boolean(product.is_free), commercialStatus: product.commercial_status, featured: Boolean(product.featured), displayOrder: Number(product.display_order ?? 100), source: product.source, coverage: product.coverage, reportTemplate: product.template_id ? { id: product.template_id, version: Number(product.template_version), name: product.template_name, status: product.template_status } : null })));
+  res.json(products.rows.map((product) => ({ ...presentAdminProduct(product), reportTemplate: product.template_id ? { id: product.template_id, version: Number(product.template_version), name: product.template_name, status: product.template_status } : null })));
 }));
 
 api.post('/admin/products', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
@@ -1866,15 +1842,15 @@ api.post('/admin/products', adminAuth, requirePermission('MANAGE_PRICING'), asyn
     const legacyCreditCost = Math.ceil(priceCents / 100);
     const guard = await enforceMarginFloor(client, { name: value.name, providerCostCents: value.providerCostCents, supplierCostCents: value.supplierCostCents, priceCents, isFree: value.isFree }, req.user!.role, value.overrideMarginLock);
     if (guard.overridden) await audit(req.user!.id, 'MARGIN_LOCK_OVERRIDE', 'QUERY_PRODUCT', value.id, { requestId: requestId(req), floorCents: guard.floorCents, priceCents, reason: value.overrideMarginLock?.reason });
-    const product = await client.query(`INSERT INTO query_products(id,name,description,credit_cost,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,provider_cost_cents,supplier_cost_cents,floor_price_cents)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free`, [value.id, value.name, value.description, legacyCreditCost, priceCents, value.referencePriceCents ?? null, value.active, value.slug, JSON.stringify(value.features), value.displayOrder, value.source ?? null, value.coverage ?? null, value.commercialStatus, value.featured, value.isFree, value.providerCostCents, value.supplierCostCents, guard.floorCents || null]);
+    checkReportSections(value.reportSections);
+    const product = await client.query(`INSERT INTO query_products(id,name,description,credit_cost,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,provider_cost_cents,supplier_cost_cents,floor_price_cents,tagline,long_description,badge,list_price_cents,show_on_home,report_sections)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::text[]) RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,tagline,long_description,badge,list_price_cents,show_on_home,report_sections`, [value.id, value.name, value.description, legacyCreditCost, priceCents, value.referencePriceCents ?? null, value.active, value.slug, JSON.stringify(value.features), value.displayOrder, value.source ?? null, value.coverage ?? null, value.commercialStatus, value.featured, value.isFree, value.providerCostCents, value.supplierCostCents, guard.floorCents || null, value.tagline, value.longDescription, value.badge ?? null, value.listPriceCents ?? null, value.showOnHome, value.reportSections ?? null]);
     const insertedTemplate = await client.query(`INSERT INTO report_templates(product_id,version,name,status,config,created_by) VALUES($1,1,$2,'PUBLISHED',$3::jsonb,$4) RETURNING id,version,name,status`, [value.id, templateName, JSON.stringify(templateConfig), req.user!.id]);
     await client.query(`INSERT INTO product_report_configs(product_id,template_id,mode,formats,updated_by) VALUES($1,$2,'SNAPSHOT',ARRAY['JSON','HTML','PDF'],$3)`, [value.id, insertedTemplate.rows[0].id, req.user!.id]);
     return { product: product.rows[0], template: insertedTemplate.rows[0] };
   });
   await audit(req.user!.id, 'CREATE_QUERY_PRODUCT', 'QUERY_PRODUCT', value.id, { requestId: requestId(req) });
-  const row = created.product as Record<string, unknown>;
-  res.status(201).json({ id: row.id, name: row.name, description: row.description, priceCents: Number(row.price_cents ?? 0), referencePriceCents: row.reference_price_cents == null ? null : Number(row.reference_price_cents), active: Boolean(row.active), slug: row.slug, features: row.features, displayOrder: Number(row.display_order), source: row.source, coverage: row.coverage, commercialStatus: row.commercial_status, featured: Boolean(row.featured), isFree: Boolean(row.is_free), reportTemplate: created.template });
+  res.status(201).json({ ...presentAdminProduct(created.product as Record<string, unknown>), reportTemplate: created.template });
 }));
 
 api.patch('/admin/products/:id', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
@@ -1906,15 +1882,21 @@ api.patch('/admin/products/:id', adminAuth, requirePermission('MANAGE_PRICING'),
   if (parsed.data.commercialStatus !== undefined) { values.push(parsed.data.commercialStatus); assignments.push(`commercial_status=$${values.length}`); }
   if (parsed.data.featured !== undefined) { values.push(parsed.data.featured); assignments.push(`featured=$${values.length}`); }
   if (parsed.data.displayOrder !== undefined) { values.push(parsed.data.displayOrder); assignments.push(`display_order=$${values.length}`); }
+  if (parsed.data.tagline !== undefined) { values.push(parsed.data.tagline); assignments.push(`tagline=$${values.length}`); }
+  if (parsed.data.longDescription !== undefined) { values.push(parsed.data.longDescription); assignments.push(`long_description=$${values.length}`); }
+  if (parsed.data.badge !== undefined) { values.push(parsed.data.badge || null); assignments.push(`badge=$${values.length}`); }
+  if (parsed.data.listPriceCents !== undefined) { values.push(parsed.data.listPriceCents); assignments.push(`list_price_cents=$${values.length}`); }
+  if (parsed.data.showOnHome !== undefined) { values.push(parsed.data.showOnHome); assignments.push(`show_on_home=$${values.length}`); }
+  if (parsed.data.reportSections !== undefined) { checkReportSections(parsed.data.reportSections); values.push(parsed.data.reportSections && parsed.data.reportSections.length ? parsed.data.reportSections : null); assignments.push(`report_sections=$${values.length}::text[]`); }
   if (parsed.data.isFree !== undefined) { values.push(parsed.data.isFree); assignments.push(`is_free=$${values.length}`); }
   if (parsed.data.active !== undefined) { values.push(parsed.data.active); assignments.push(`active=$${values.length}`); }
   assignments.push('updated_at=now()');
   values.push(req.params.id);
-  const product = await pool.query(`UPDATE query_products SET ${assignments.join(', ')} WHERE id=$${values.length} RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free`, values);
+  const product = await pool.query(`UPDATE query_products SET ${assignments.join(', ')} WHERE id=$${values.length} RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,tagline,long_description,badge,list_price_cents,show_on_home,report_sections`, values);
   if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
   await audit(req.user!.id, 'UPDATE_QUERY_PRODUCT', 'QUERY_PRODUCT', String(req.params.id), { fields: Object.keys(parsed.data), requestId: requestId(req) });
-  const row = product.rows[0];
-  res.json({ id: row.id, name: row.name, description: row.description, priceCents: Number(row.price_cents ?? 0), referencePriceCents: row.reference_price_cents == null ? null : Number(row.reference_price_cents), active: Boolean(row.active), slug: row.slug, features: row.features ?? [], displayOrder: Number(row.display_order ?? 100), source: row.source, coverage: row.coverage, commercialStatus: row.commercial_status, featured: Boolean(row.featured), isFree: Boolean(row.is_free) });
+  if (parsed.data.reportSections !== undefined) await refreshProductSections();
+  res.json(presentAdminProduct(product.rows[0]));
 }));
 
 api.get('/admin/products/:id/report-templates', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
@@ -2186,11 +2168,12 @@ const adminHtmlTemplate = existsSync(adminHtmlPath) ? readFileSync(adminHtmlPath
 const staticOptions = { index: false, maxAge: env.NODE_ENV === 'production' ? '1h' : 0, etag: true } as const;
 const serveStatic = express.static(webDist, staticOptions);
 app.get('/robots.txt', (req, res) => { res.type('text/plain').setHeader('Cache-Control', 'public, max-age=3600'); res.send(renderRobotsTxt(env.APP_URL ?? env.WEB_ORIGIN, isAdminHost(req))); });
-app.get('/sitemap.xml', (req, res) => {
+app.get('/sitemap.xml', asyncRoute(async (req, res) => {
   if (isAdminHost(req)) return res.status(404).end();
+  const articles = await publishedArticleSlugs();
   res.type('application/xml').setHeader('Cache-Control', 'public, max-age=3600');
-  return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN));
-});
+  return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN, articles.map((a) => ({ path: `/blog/${a.slug}`, lastmod: a.updatedAt }))));
+}));
 const hasAdminHosts = adminHosts().length > 0;
 // Duas frentes: bundle admin (admin.html + assets/admin-*) só é entregue no host do painel (ou em /painel quando não há host dedicado, apenas dev).
 const isAdminAsset = (p: string) => p === '/admin.html' || p.startsWith('/assets/admin-');
@@ -2205,7 +2188,7 @@ function sendAdminShell(res: Response): void {
   res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
   res.type('html').send(adminHtmlTemplate);
 }
-app.get('*', (req, res, next) => {
+app.get('*', asyncRoute(async (req, res, next) => {
   if (req.path.startsWith('/api/') || req.path === '/health') return next();
   if (isAdminHost(req)) {
     if (!adminHtmlTemplate) return next();
@@ -2214,8 +2197,19 @@ app.get('*', (req, res, next) => {
   if (!hasAdminHosts && adminHtmlTemplate && (req.path === '/painel' || req.path.startsWith('/painel/'))) return sendAdminShell(res);
   if (!indexHtmlTemplate) return next();
   res.setHeader('Cache-Control', 'no-store');
-  res.type('html').send(renderSeoHtml(indexHtmlTemplate, req.path, env.APP_URL ?? env.WEB_ORIGIN));
-});
+  const baseUrl = (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '');
+  let override: SeoOverride = {};
+  const article = /^\/blog\/([a-z0-9-]+)\/?$/.exec(req.path);
+  if (article) {
+    const meta = await articleSeo(article[1]);
+    if (!meta) res.status(404);
+    else override = { title: `${meta.title} | Placa na Mão`, description: meta.description, jsonLd: [{ '@context': 'https://schema.org', '@type': 'Article', headline: meta.title, description: meta.description, datePublished: meta.publishedAt, dateModified: meta.updatedAt, inLanguage: 'pt-BR', author: { '@type': 'Organization', name: meta.author }, publisher: { '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/` }, mainEntityOfPage: `${baseUrl}/blog/${article[1]}` }] };
+  } else if (req.path.replace(/\/$/, '') === '/perguntas-frequentes') {
+    const faqs = await pool.query('SELECT question,answer FROM faqs WHERE active=true ORDER BY display_order,created_at LIMIT 60');
+    if (faqs.rowCount) override = { jsonLd: [{ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.rows.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })) }] };
+  }
+  res.type('html').send(renderSeoHtml(indexHtmlTemplate, req.path, env.APP_URL ?? env.WEB_ORIGIN, override));
+}));
 
 setInterval(() => { sweepStuckQueries(env.QUERY_STUCK_MINUTES).catch((error) => log('error', 'query_sweeper_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 2 * 60 * 1000).unref();
 setInterval(() => { releaseCommissions().catch((error) => log('error', 'commission_release_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 60 * 60 * 1000).unref();

@@ -1,12 +1,38 @@
-export const FAQ_ITEMS: Array<{ q: string; a: string }> = [
-  { q: 'O que eu recebo ao consultar uma placa?', a: 'Um relatório organizado em seções (identificação, características, registro, débitos, restrições e financiamento), com um resumo de situação, valores em aberto quando informados e opção de baixar em PDF ou imprimir.' },
-  { q: 'Os dados são sempre completos?', a: 'Cada campo depende do que a fonte contratada retorna para aquela placa. Quando um dado não vem, o relatório mostra “Não informado pela fonte”, sem confundir com “nada consta”.' },
-  { q: 'Como funciona o pagamento?', a: 'Você paga por consulta avulsa (Pix ou cartão, conforme o checkout) ou recarrega saldo em pacotes. O preço final aparece antes de você confirmar. Se a consulta falhar por problema técnico, o valor é estornado automaticamente.' },
-  { q: 'Meus relatórios ficam salvos?', a: 'Sim. Todas as consultas concluídas ficam no seu histórico, com PDF e código de verificação, para você abrir de novo quando precisar.' },
-  { q: 'Dados pessoais do proprietário aparecem?', a: 'Não de forma aberta. Nome e documentos são protegidos conforme a LGPD, e dados sensíveis aparecem mascarados no relatório.' },
-  { q: 'O relatório substitui a vistoria?', a: 'Não. Ele apoia a decisão com os dados disponíveis, mas não substitui vistoria, certidões ou consulta aos órgãos competentes antes de fechar negócio.' }
-];
+import { useMemo, useState } from 'react';
+import { ErrorState, Input, Skeleton, useAsync } from '../../shared/ui';
+import { api, type FaqItem } from '../api';
 
-export default function Faq() {
-  return <div className="faq">{FAQ_ITEMS.map((i) => <details key={i.q}><summary>{i.q}</summary><p>{i.a}</p></details>)}</div>;
+export function useFaqs() {
+  return useAsync(() => api.get<{ faqs: FaqItem[] }>('/faqs').then((r) => r.faqs), []);
+}
+
+/** Perguntas e respostas editadas no painel. `limit` mostra só as primeiras (home); `searchable` ativa busca e agrupamento. */
+export default function Faq({ limit, searchable = false }: { limit?: number; searchable?: boolean }) {
+  const { data, error, loading, reload } = useFaqs();
+  const [q, setQ] = useState('');
+  const items = useMemo(() => {
+    const all = data ?? [];
+    const term = q.trim().toLowerCase();
+    const filtered = term ? all.filter((i) => `${i.question} ${i.answer}`.toLowerCase().includes(term)) : all;
+    return limit ? filtered.slice(0, limit) : filtered;
+  }, [data, q, limit]);
+  if (loading) return <div className="faq"><Skeleton h={58} r={16} /><Skeleton h={58} r={16} /><Skeleton h={58} r={16} /></div>;
+  if (error != null) return <ErrorState error={error} onRetry={reload} />;
+  const groups = searchable ? [...new Set(items.map((i) => i.category))] : [''];
+  return (
+    <>
+      {searchable && (
+        <div className="faq-tools"><Input icon="search" aria-label="Buscar nas perguntas" placeholder="Buscar uma dúvida…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      )}
+      <div className="faq">
+        {!items.length && <p className="muted" style={{ textAlign: 'center' }}>Nenhuma pergunta encontrada. Fale com a gente pelo contato.</p>}
+        {groups.map((g) => (
+          <div key={g || 'all'} style={{ display: 'grid', gap: 10 }}>
+            {g && <h4>{g}</h4>}
+            {items.filter((i) => !g || i.category === g).map((i) => <details key={i.id}><summary>{i.question}</summary><p>{i.answer}</p></details>)}
+          </div>
+        ))}
+      </div>
+    </>
+  );
 }

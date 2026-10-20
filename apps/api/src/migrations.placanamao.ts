@@ -1,4 +1,5 @@
 import type { Migration } from './migrations.js';
+import { SEED_ARTICLES, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
 
 /**
  * Migrações do produto Placa na Mão (010+): configurações de pagamento, comissões/repasses,
@@ -245,6 +246,137 @@ export const placaMigrations: Migration[] = [
         UPDATE credit_packages SET name='Pacote Plus', description='Mais saldo, com bônus, para quem consulta com frequência.', credits=105, price_cents=9990, display_order=20, active=true WHERE slug='completo';
         UPDATE credit_packages SET name='Pacote Pro', description='Para lojistas, despachantes e operações recorrentes. Melhor custo por consulta.', credits=320, price_cents=29990, display_order=30, active=true WHERE slug='profissional';
       `);
+    }
+  },
+  {
+    id: '016_catalog_cms',
+    name: 'Catálogo editável: produtos com conteúdo, matriz de comparação, pacotes, FAQ e artigos',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE query_products
+          ADD COLUMN IF NOT EXISTS list_price_cents integer,
+          ADD COLUMN IF NOT EXISTS badge text,
+          ADD COLUMN IF NOT EXISTS tagline text,
+          ADD COLUMN IF NOT EXISTS long_description text,
+          ADD COLUMN IF NOT EXISTS report_sections text[],
+          ADD COLUMN IF NOT EXISTS show_on_home boolean NOT NULL DEFAULT true;
+        ALTER TABLE query_products DROP CONSTRAINT IF EXISTS query_products_list_price_check;
+        ALTER TABLE query_products ADD CONSTRAINT query_products_list_price_check CHECK (list_price_cents IS NULL OR list_price_cents >= 0);
+        ALTER TABLE credit_packages
+          ADD COLUMN IF NOT EXISTS badge text,
+          ADD COLUMN IF NOT EXISTS tagline text,
+          ADD COLUMN IF NOT EXISTS highlights jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+        CREATE TABLE IF NOT EXISTS catalog_features (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          key text NOT NULL UNIQUE,
+          label text NOT NULL,
+          description text NOT NULL DEFAULT '',
+          display_order integer NOT NULL DEFAULT 100,
+          active boolean NOT NULL DEFAULT true,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE TABLE IF NOT EXISTS product_catalog_features (
+          product_id text NOT NULL REFERENCES query_products(id) ON DELETE CASCADE,
+          feature_id uuid NOT NULL REFERENCES catalog_features(id) ON DELETE CASCADE,
+          status text NOT NULL DEFAULT 'INCLUDED' CHECK (status IN ('INCLUDED','NOT_INCLUDED','SOON')),
+          note text,
+          PRIMARY KEY (product_id, feature_id)
+        );
+        CREATE TABLE IF NOT EXISTS faqs (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          category text NOT NULL DEFAULT 'Geral',
+          question text NOT NULL,
+          answer text NOT NULL,
+          display_order integer NOT NULL DEFAULT 100,
+          active boolean NOT NULL DEFAULT true,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_faqs_active_order ON faqs(active, display_order);
+        CREATE TABLE IF NOT EXISTS articles (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          slug text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+          title text NOT NULL,
+          excerpt text NOT NULL DEFAULT '',
+          body text NOT NULL DEFAULT '',
+          category text NOT NULL DEFAULT 'Geral',
+          tags text[] NOT NULL DEFAULT ARRAY[]::text[],
+          cover_image_url text,
+          author text NOT NULL DEFAULT 'Equipe Placa na Mão',
+          seo_title text,
+          seo_description text,
+          status text NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','PUBLISHED')),
+          published_at timestamptz,
+          created_by uuid REFERENCES users(id),
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(status, published_at DESC);
+      `);
+
+      // Catálogo final. O preço público é cerca de 5% abaixo da referência interna (manual, nunca exibida ao público).
+      type P = { id: string; name: string; tagline: string; description: string; long: string; price: number; ref: number; order: number; featured: boolean; badge: string | null; features: string[]; sections: string[] | null; coverage: string; rule: string | null };
+      const ident = ['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO'];
+      const products: P[] = [
+        { id: 'COMPLETE', name: 'Consulta Completa', tagline: 'A checagem inteira, em um só relatório.', description: 'Identificação, débitos, multas, restrições, gravame, recall e inspeção em um único relatório.', long: 'A checagem mais completa antes de comprar, vender ou financiar. Reúne tudo da Básica e acrescenta financiamento (gravame), recall e inspeção, e costuma sair mais barata do que somar consultas avulsas.', price: 6160, ref: 6490, order: 10, featured: true, badge: 'Mais completa', features: ['Tudo da Consulta Básica', 'Financiamento e gravame', 'Recall e inspeção veicular', 'Relatório em PDF com código de validação'], sections: [...ident, 'DEBITOS', 'RESTRICOES', 'GRAVAME', 'INSPECAO_RECALL'], coverage: 'Identificação, débitos, restrições, gravame, recall e inspeção', rule: 'Identificação, débitos, restrições, gravame, recall e inspeção (fonte contratada)' },
+        { id: 'BASIC', name: 'Consulta Básica', tagline: 'Cadastro, débitos, multas e restrições.', description: 'Dados do veículo, débitos, multas e restrições para uma compra com mais segurança.', long: 'O essencial para fechar uma compra com tranquilidade: confere se o veículo é o do anúncio e se há débitos, multas ou restrições registradas.', price: 4360, ref: 4590, order: 20, featured: false, badge: 'Custo-benefício', features: ['Dados do veículo e situação', 'Débitos e multas', 'Restrições (furto/roubo, judicial e outras)', 'Relatório em PDF'], sections: [...ident, 'DEBITOS', 'RESTRICOES'], coverage: 'Identificação, débitos e restrições', rule: 'Identificação, débitos e restrições (fonte contratada)' },
+        { id: 'AUCTION', name: 'Consulta Leilão', tagline: 'Passagem do veículo por leilão.', description: 'Histórico de passagem por leilão. Disponível assim que a fonte de dados for ativada.', long: 'Saiba se o veículo já passou por leilão, informação importante para avaliação, seguro e revenda. Ainda não está disponível: não vendemos o que não podemos entregar.', price: 3310, ref: 3490, order: 30, featured: false, badge: null, features: ['Histórico de passagem por leilão', 'Relatório em PDF'], sections: null, coverage: 'Histórico de leilão (em breve)', rule: null },
+        { id: 'LIEN', name: 'Consulta Gravame', tagline: 'Financiamento e restrição financeira.', description: 'Veja se o veículo tem gravame ou restrição financeira antes da transferência.', long: 'Verifica sinais de financiamento ativo: gravame e intenção de gravame informados pela fonte. Ideal para quem já conferiu o resto e quer fechar essa dúvida.', price: 1410, ref: 1490, order: 40, featured: false, badge: null, features: ['Gravame e restrição financeira', 'Intenção de gravame', 'Relatório em PDF'], sections: ['IDENTIFICACAO', 'GRAVAME'], coverage: 'Gravame e restrição financeira', rule: 'Gravame e restrição financeira (fonte contratada)' },
+        { id: 'CADASTRAL', name: 'Consulta Cadastral', tagline: 'Confirme se o veículo é o do anúncio.', description: 'Marca, modelo, ano, cor, combustível, município e situação do veículo pela placa.', long: 'A forma mais rápida e barata de conferir se o veículo corresponde ao anúncio e ao documento: identificação, características e situação cadastral.', price: 1320, ref: 1390, order: 50, featured: false, badge: null, features: ['Marca, modelo, ano e cor', 'Combustível e categoria', 'Município, UF e situação', 'Relatório em PDF'], sections: ident, coverage: 'Identificação, características e situação cadastral', rule: 'Identificação e características (fonte contratada)' }
+      ];
+      for (const p of products) {
+        await client.query(
+          `INSERT INTO query_products(id,name,description,credit_cost,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,price_cents,reference_price_cents,pricing_mode,tagline,long_description,badge,report_sections,show_on_home,list_price_cents)
+           VALUES($1,$2,$3,$4,true,$5,$6::jsonb,$7,'Fonte de dados contratada',$8,$9,$10,false,$11,$12,'MANUAL',$13,$14,$15,$16::text[],true,NULL)
+           ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description, credit_cost=EXCLUDED.credit_cost, active=true, slug=EXCLUDED.slug, features=EXCLUDED.features,
+             display_order=EXCLUDED.display_order, coverage=EXCLUDED.coverage, commercial_status=EXCLUDED.commercial_status, featured=EXCLUDED.featured, is_free=false,
+             price_cents=EXCLUDED.price_cents, reference_price_cents=EXCLUDED.reference_price_cents, pricing_mode='MANUAL', tagline=EXCLUDED.tagline, long_description=EXCLUDED.long_description,
+             badge=EXCLUDED.badge, report_sections=EXCLUDED.report_sections, show_on_home=true, updated_at=now()`,
+          [p.id, p.name, p.description, Math.ceil(p.price / 100), p.id.toLowerCase(), JSON.stringify(p.features), p.order, p.coverage, p.rule ? 'ACTIVE' : 'SOON', p.featured, p.price, p.ref, p.tagline, p.long, p.badge, p.sections]
+        );
+        await client.query('DELETE FROM query_source_rules WHERE product_id=$1', [p.id]);
+        if (p.rule) await client.query(`INSERT INTO query_source_rules(product_id,source_type,provider,active,priority,coverage) VALUES($1,'IDENTITY','contracted',true,10,$2)`, [p.id, p.rule]);
+        await client.query(
+          `INSERT INTO report_templates(product_id,version,name,status,config)
+           SELECT $1::text,1,$2::text,'PUBLISHED',COALESCE((SELECT config FROM report_templates WHERE product_id='BASIC' AND version=1), '{"title":"Relatório","subtitle":"Relatório veicular Placa na Mão","sections":[]}'::jsonb)
+           WHERE NOT EXISTS (SELECT 1 FROM report_templates WHERE product_id=$1 AND version=1)`, [p.id, `${p.name} — relatório padrão`]);
+        await client.query(
+          `INSERT INTO product_report_configs(product_id,template_id,mode,formats)
+           SELECT $1::text,t.id,'SNAPSHOT',ARRAY['JSON','HTML','PDF'] FROM report_templates t WHERE t.product_id=$1 AND t.version=1 AND t.status='PUBLISHED'
+           ON CONFLICT (product_id) DO NOTHING`, [p.id]);
+      }
+      // Planos antigos fora da vitrine (continuam no histórico dos clientes que já usaram).
+      await client.query(`UPDATE query_products SET active=false, featured=false, show_on_home=false WHERE id IN ('PREMIUM','DEBTS','RESTRICTIONS')`);
+      await client.query(`UPDATE query_products SET show_on_home=false, features='["Valor médio FIPE do mês","Sem cadastro, sem custo"]'::jsonb, tagline='Valor médio de mercado, grátis.', long_description='Consulte o valor médio da Tabela FIPE por marca, modelo e ano. Gratuito, sem cadastro.' WHERE id='FIPE_FREE'`);
+
+      await client.query(`UPDATE credit_packages SET name='Pacote Inicial', description='Saldo pré-pago para consultas pontuais.', tagline='Para começar', credits=60, price_cents=6000, display_order=10, active=true WHERE slug='essencial'`);
+      await client.query(`UPDATE credit_packages SET name='Pacote Plus', description='Mais saldo, com bônus, para quem consulta com frequência.', tagline='Para quem compra e vende com frequência', credits=130, price_cents=12000, display_order=20, active=true WHERE slug='completo'`);
+      await client.query(`UPDATE credit_packages SET name='Pacote Pro', description='Para lojistas, despachantes e operações recorrentes. Melhor custo por consulta.', tagline='Para lojistas e despachantes', credits=350, price_cents=30000, display_order=30, active=true WHERE slug='profissional'`);
+
+      const features = await client.query('SELECT 1 FROM catalog_features LIMIT 1');
+      if (!features.rowCount) {
+        for (const f of SEED_FEATURES) await client.query('INSERT INTO catalog_features(key,label,description,display_order) VALUES($1,$2,$3,$4) ON CONFLICT (key) DO NOTHING', [f.key, f.label, f.description, f.order]);
+        for (const [productId, map] of Object.entries(SEED_MATRIX)) {
+          for (const [key, status] of Object.entries(map)) {
+            await client.query(`INSERT INTO product_catalog_features(product_id,feature_id,status) SELECT $1,id,$3 FROM catalog_features WHERE key=$2 ON CONFLICT DO NOTHING`, [productId, key, status]);
+          }
+        }
+      }
+      const faqs = await client.query('SELECT 1 FROM faqs LIMIT 1');
+      if (!faqs.rowCount) {
+        let order = 10;
+        for (const f of SEED_FAQS) { await client.query('INSERT INTO faqs(category,question,answer,display_order) VALUES($1,$2,$3,$4)', [f.category, f.question, f.answer, order]); order += 10; }
+      }
+      const articles = await client.query('SELECT 1 FROM articles LIMIT 1');
+      if (!articles.rowCount) {
+        let day = 0;
+        for (const a of SEED_ARTICLES) {
+          await client.query(`INSERT INTO articles(slug,title,excerpt,body,category,tags,status,published_at,seo_description) VALUES($1,$2,$3,$4,$5,$6::text[],'PUBLISHED',now() - ($7 || ' days')::interval,$3) ON CONFLICT (slug) DO NOTHING`, [a.slug, a.title, a.excerpt, a.body, a.category, a.tags, String(day)]);
+          day += 3;
+        }
+      }
     }
   }
 ];

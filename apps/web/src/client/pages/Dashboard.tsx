@@ -47,7 +47,7 @@ export default function Dashboard() {
       </section>
       <section className="grid-2">
         <div className="card card-pad"><div className="row"><Icon name="users" size={22} /><h3>Indique e ganhe</h3></div><p className="muted" style={{ margin: '10px 0 14px' }}>Vire parceiro, compartilhe seu link e receba comissão sobre as consultas dos seus indicados.</p><LinkButton to="/app/parceiro">Conhecer o programa</LinkButton></div>
-        <div className="card card-pad"><div className="row"><Icon name="code" size={22} /><h3>Integre via API</h3></div><p className="muted" style={{ margin: '10px 0 14px' }}>Gere uma chave e consulte placas direto do seu sistema.</p><LinkButton to="/app/api">Gerenciar chaves</LinkButton></div>
+        <div className="card card-pad"><div className="row"><Icon name="file-text" size={22} /><h3>Guias do blog</h3></div><p className="muted" style={{ margin: '10px 0 14px' }}>Aprenda a ler débitos, gravame e restrições antes de fechar negócio.</p><LinkButton to="/blog">Ler artigos</LinkButton></div>
       </section>
     </div>
   );
