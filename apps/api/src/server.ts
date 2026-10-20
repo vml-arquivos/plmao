@@ -86,7 +86,7 @@ const fipeSelectionSchema = z.object({
   year: fipeItemSchema.optional(),
   plate: z.string().trim().max(16).optional()
 }).refine((input) => Boolean(input.plate) || Boolean(input.vehicleType && input.brand && input.model && input.year), 'FIPE_SELECTION_REQUIRED');
-const sandboxCreditSchema = z.object({ credits: z.number().int().min(10).max(10000) }).strict();
+const sandboxCreditSchema = z.object({ amountCents: z.number().int().min(1000).max(1000000) }).strict();
 const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128).optional(), newPassword: z.string().min(10).max(128) }).strict();
 const profileUpdateSchema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -1258,19 +1258,20 @@ api.post('/payments/sandbox', auth, requirePermission('BUY_CREDITS'), asyncRoute
   if (!env.SANDBOX_CREDIT_PURCHASE_ENABLED) throw appError('SANDBOX_DISABLED', { code: 'SANDBOX_DISABLED', http: 403, expose: true });
   const parsed = sandboxCreditSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const { amountCents } = parsed.data;
   const result = await tx(async (client) => {
     const payment = await client.query(`INSERT INTO payments(user_id,provider,status,amount_cents,credits,paid_at,metadata)
-      VALUES($1,'sandbox','PAID',$2,$3,now(),$4::jsonb) RETURNING id`, [req.user!.id, parsed.data.credits * 100, parsed.data.credits, JSON.stringify({ requestId: requestId(req) })]);
-    const wallet = await client.query('SELECT balance FROM wallets WHERE user_id=$1 FOR UPDATE', [req.user!.id]);
-    const before = Number(wallet.rows[0].balance);
-    const after = before + parsed.data.credits;
-    await client.query('UPDATE wallets SET balance=$2,updated_at=now() WHERE user_id=$1', [req.user!.id, after]);
-    await client.query(`INSERT INTO wallet_transactions(user_id,kind,amount,balance_before,balance_after,payment_id,description,metadata)
-      VALUES($1,'PURCHASE',$2,$3,$4,$5,$6,$7::jsonb)`, [req.user!.id, parsed.data.credits, before, after, payment.rows[0].id, 'Saldo pré-pago de teste', JSON.stringify({ requestId: requestId(req) })]);
-    return { paymentId: payment.rows[0].id, balance: after };
+      VALUES($1,'sandbox','PAID',$2,0,now(),$3::jsonb) RETURNING id`, [req.user!.id, amountCents, JSON.stringify({ requestId: requestId(req), sandbox: true })]);
+    const wallet = await client.query('SELECT balance_cents FROM wallets WHERE user_id=$1 FOR UPDATE', [req.user!.id]);
+    const before = Number(wallet.rows[0]?.balance_cents ?? 0);
+    const after = before + amountCents;
+    await client.query('UPDATE wallets SET balance_cents=$2,updated_at=now() WHERE user_id=$1', [req.user!.id, after]);
+    await client.query(`INSERT INTO wallet_transactions(user_id,kind,amount,balance_before,balance_after,amount_cents,balance_before_cents,balance_after_cents,payment_id,description,metadata)
+      VALUES($1,'PURCHASE',0,0,0,$2,$3,$4,$5,$6,$7::jsonb)`, [req.user!.id, amountCents, before, after, payment.rows[0].id, 'Saldo de teste (sandbox)', JSON.stringify({ requestId: requestId(req), sandbox: true })]);
+    return { paymentId: payment.rows[0].id, balanceCents: after };
   });
-  await audit(req.user!.id, 'SANDBOX_CREDIT_PURCHASE', 'PAYMENT', result.paymentId, { credits: parsed.data.credits, requestId: requestId(req) });
-  res.status(201).json({ status: 'PAID', credits: parsed.data.credits, ...result });
+  await audit(req.user!.id, 'SANDBOX_CREDIT_PURCHASE', 'PAYMENT', result.paymentId, { amountCents, requestId: requestId(req) });
+  res.status(201).json({ status: 'PAID', amountCents, ...result });
 }));
 
 api.get('/credit-packages', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
