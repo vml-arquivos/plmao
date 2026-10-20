@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-placanamao}
+      POSTGRES_USER: ${POSTGRES_USER:-placanamao}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-placanamao_dev_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - placanamao_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-placanamao} -d ${POSTGRES_DB:-placanamao}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  placanamao_pgdata:

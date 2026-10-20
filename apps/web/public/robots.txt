@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /validar-relatorio/
+
+Sitemap: https://carpivara.casadf.com.br/sitemap.xml

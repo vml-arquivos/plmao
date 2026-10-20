@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: vehicle_ci
+          POSTGRES_USER: vehicle
+          POSTGRES_PASSWORD: vehicle_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vehicle -d vehicle_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://vehicle:vehicle_ci_password@127.0.0.1:5432/vehicle_ci
+      DATABASE_SSL: false
+      JWT_SECRET: ci-only-secret-that-is-long-enough-for-tests-and-not-used-in-production
+      APP_URL: http://127.0.0.1:4000
+      WEB_ORIGIN: http://127.0.0.1:4000
+      DATA_PROVIDER: mock
+      PAYMENT_PROVIDER: sandbox
+      SANDBOX_SEED_ENABLED: true
+      SANDBOX_CREDIT_PURCHASE_ENABLED: true
+      STORE_RAW_PROVIDER_RESPONSE: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run release:verify
+      - run: npm run test:unit
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run db:migrate
+      - run: npm run db:verify
+      - run: npm run build
+      - run: docker build --tag placanamao:ci .
+      - name: Start container and verify health
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name placanamao-ci --network host \
+            -e NODE_ENV=test \
+            -e PORT=4000 \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e DATABASE_SSL=false \
+            -e JWT_SECRET="$JWT_SECRET" \
+            -e APP_URL="$APP_URL" \
+            -e WEB_ORIGIN="$WEB_ORIGIN" \
+            -e DATA_PROVIDER=mock \
+            -e PAYMENT_PROVIDER=sandbox \
+            -e SANDBOX_SEED_ENABLED=true \
+            -e SANDBOX_CREDIT_PURCHASE_ENABLED=true \
+            -e STORE_RAW_PROVIDER_RESPONSE=false \
+            placanamao:ci
+          trap 'docker logs placanamao-ci || true; docker stop placanamao-ci || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4000/health; then
+              echo
+              BASE_URL=http://127.0.0.1:4000 npm run test:integration
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
