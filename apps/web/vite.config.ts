@@ -29,6 +29,8 @@ export default defineConfig({
         chunkFileNames: (chunk) => (chunk.name.startsWith('admin') ? 'assets/admin-[name]-[hash].js' : 'assets/[name]-[hash].js'),
         assetFileNames: (asset) => (asset.names?.some((n) => n.startsWith('admin')) ? 'assets/admin-[name]-[hash][extname]' : 'assets/[name]-[hash][extname]'),
         manualChunks(id) {
+          // Código compartilhado fica num chunk público: o chunk do painel (admin-*) só é servido no host do painel.
+          if (id.includes('/src/shared/')) return 'shared';
           if (id.includes('/src/admin/')) return 'admin-app';
           if (id.includes('node_modules/react') || id.includes('node_modules/scheduler') || id.includes('node_modules/react-router') || id.includes('node_modules/@remix-run')) return 'vendor';
           return undefined;
