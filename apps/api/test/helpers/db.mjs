@@ -15,9 +15,9 @@ export function useTestEnv(extra = {}) {
 }
 
 export async function loadCore() {
-  const { runMigrations } = await import('../../dist/migrations.js');
+  const { ensureSchema } = await import('../../dist/schema.js');
   const db = await import('../../dist/db.js');
-  await runMigrations();
+  await ensureSchema();
   return db;
 }
 
