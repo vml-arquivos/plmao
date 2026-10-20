@@ -1,52 +1,44 @@
-# CARPIVARA — arquitetura
+# Placa na Mão — arquitetura
 
-## Princípios aplicados
+```text
+Navegador → TLS / reverse proxy → Placa na Mão (Express: API + front estático) → PostgreSQL
+                                          │
+                                          ├─ provedor veicular (adapter) → normalizador → relatório v2
+                                          ├─ gateway de pagamento (Asaas | Mercado Pago) + webhooks idempotentes
+                                          └─ e-mail (SMTP) · OAuth (Google/Microsoft/Apple)
+```
 
-A aplicação é composta por dois workspaces TypeScript: uma API Express e uma interface React/Vite. O build do frontend é servido pela própria API, permitindo um único domínio para interface, `/api/*` e `/health`.
+Um único processo serve o site, o app do cliente, o painel da equipe e a API. O front React é compilado em `apps/web/dist`; o servidor entrega `index.html` com SEO por rota (`seo.ts`: título, descrição, canonical, `robots`, `sitemap.xml`) e o shell do painel apenas em `ADMIN_HOSTS`/`ADMIN_URL`.
 
-A regra central é que a interface usa somente o **modelo normalizado**. Um adapter recebe a resposta do provider, o normalizador converte os campos técnicos em um relatório estável e o frontend não conhece o contrato externo. A resposta original pode permanecer armazenada para auditoria, mas não é enviada por rotas comuns.
+## Módulos da API (`apps/api/src`)
 
-| Domínio | Responsabilidade |
+| Módulo | Responsabilidade |
 | --- | --- |
-| Identidade | Cadastro, autenticação JWT, senha com bcrypt, bloqueio temporário e eventos de acesso. |
-| Autorização | Papéis e permissões extensíveis, aplicados por middleware de ação. |
-| Carteira | Saldo, ledger imutável, operações transacionais e estornos. |
-| Consulta | Validação, idempotência, reserva de crédito, provider, timeout, normalização e persistência. |
-| Relatórios | Resultado salvo, abertura sem cobrança, exportação JSON autenticada e histórico filtrável. |
-| Operação | Migrations, healthcheck, auditoria, logs estruturados e métricas administrativas básicas. |
+| `server.ts` | Rotas públicas/cliente, middlewares, estáticos, SEO |
+| `routes/adminAuth.ts` | Login da equipe: senha → desafio TOTP → sessão `admin` |
+| `routes/adminQueries.ts` | Consulta vista pela equipe, revelação LGPD auditada |
+| `routes/finance.ts`, `routes/partners.ts` | Financeiro, ajustes de pagamento, parceiros, comissões, repasses |
+| `routes/apiKeys.ts` | Chaves da API pública (`pnm_live_…`) |
+| `pricing/` | Motor de preço (centavos/bps), trava de margem, preço de referência, histórico |
+| `payments/` | Asaas, Mercado Pago, liquidação idempotente, comissões (carência/hold), estorno/chargeback |
+| `providers/` | `mock` (somente dev), `ContractedVehicleProvider` (real), FIPE |
+| `report/` | Normalização v2, catálogo de módulos, máscara LGPD, HTML de impressão e PDF |
+| `lib/` | HTTP/erros/auditoria, dinheiro, estorno de consulta, cifra do bruto, TOTP |
+| `permissions.ts` | Papéis e permissões da equipe |
+| `schema.ts`, `migrations*.ts` | Bootstrap e migrations versionadas (advisory lock) |
 
-## Fluxo crítico de consulta
+## Fluxo de uma consulta
 
-```text
-Usuário autenticado
-  → validação e normalização da placa
-  → verificação do produto e saldo em transação com lock
-  → criação da consulta PROCESSING + débito no ledger
-  → adapter do provider configurado
-  → normalizador do relatório interno
-  → resultado salvo + consulta SUCCESS
-  → relatório e histórico
-```
+1. O cliente informa a placa e escolhe o produto; o preço vem do motor de preço (centavos).
+2. O saldo é debitado de forma transacional, com `Idempotency-Key`.
+3. O provedor é consultado (cache opcional `QUERY_CACHE_*`). Falha/timeout ⇒ estorno automático; consultas presas em `PROCESSING` além de `QUERY_STUCK_MINUTES` também são estornadas.
+4. A resposta é normalizada para o **relatório v2**: cada módulo é `CLEAR`, `ALERT` ou `NOT_PROVIDED` (nunca "nada consta" sem retorno). O bruto é cifrado (`raw_enc`).
+5. `viewReport` filtra por público (cliente/equipe/API) e nível do produto; dados pessoais saem mascarados.
 
-Se o provider expirar, falhar ou retornar um formato inválido, o processo localiza a consulta em `PROCESSING`, bloqueia a carteira, registra a transação `REFUND`, marca a consulta como `REFUNDED` e devolve uma mensagem humana. A chave `Idempotency-Key` é única por usuário, evitando consulta e cobrança duplicadas em reenvios.
+## Pagamentos e repasses
 
-## Banco e migrations
+Recarga de saldo via Pix ou crédito à vista (boleto opcional). O webhook confirma o pagamento de forma idempotente, credita a carteira e gera comissões do parceiro com carência; repasses são lotes auditados, e estornos/chargebacks revertem a comissão (clawback). Configuração em *Pagamentos* e *Preços* do painel; chaves e segredos ficam só no ambiente.
 
-O bootstrap cria apenas a base compatível para instalações novas. Depois, `schema_migrations` controla migrations versionadas e transacionais. A migration de hardening adiciona bloqueio de login, metadados operacionais, índices, idempotência e a estrutura persistente de papéis/permissões.
+## Separação cliente × equipe
 
-> Alterações futuras no banco devem entrar como uma nova migration, nunca como uma modificação destrutiva implícita no bootstrap.
-
-## Provider e pagamento
-
-`MockVehicleProvider` é o adapter ativo em sandbox e trabalha somente com registros fictícios. O adapter real continua uma fronteira intencionalmente inativa até existir documentação oficial. O fluxo de pagamento real também permanece fora da implementação: créditos só poderão ser liberados após webhook assinado, validado e idempotente.
-
-## Produção
-
-```text
-Navegador → TLS / reverse proxy → CARPIVARA (frontend + API) → PostgreSQL
-                                  ├─ provider veicular configurado
-                                  ├─ gateway de pagamento configurado
-                                  └─ futuro storage de exportações/PDF
-```
-
-Os segredos existem apenas no runtime. Não devem aparecer no Dockerfile, argumentos de build, repositório, logs, bundle do frontend ou respostas de erro.
+Dois segredos e duas *audiences* de JWT (`client`/`admin`). O painel exige TOTP, passa pelo `adminEdgeGuard` (host dedicado e, opcionalmente, `ADMIN_ALLOWED_IPS`) e um token de cliente nunca abre rotas `/api/admin/*`.

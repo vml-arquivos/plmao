@@ -1,30 +1,34 @@
 # Segurança e privacidade
 
-## Controles implementados
+Segredos existem **somente no ambiente de execução** (Coolify): nunca no repositório, no front, no Dockerfile ou em argumentos de build. O startup valida a configuração e, com `NODE_ENV=production`, recusa subir se algo estiver inseguro (`PRODUCTION_CONFIGURATION_INVALID:<códigos>`): segredos fracos/de exemplo, URLs sem HTTPS, `mock`/`sandbox`/seed ligados, provedor habilitado sem credenciais, 2FA desligado ou painel sem host dedicado.
 
-A aplicação exige segredos exclusivamente em runtime. `DATABASE_URL`, `JWT_SECRET`, credenciais de provider e chaves de pagamento não fazem parte do frontend, do Dockerfile ou de argumentos de build. A configuração é validada no startup; em produção, o segredo JWT deve ter pelo menos 64 caracteres, URLs públicas devem usar HTTPS, mocks/sandbox/seeds são recusados, providers habilitados precisam de credenciais e webhook completos e `PAYMENT_PROVIDER=disabled` mantém checkout e webhook indisponíveis até a homologação do gateway.
+## Controles
 
 | Controle | Aplicação |
 | --- | --- |
-| Senhas | Hash bcrypt com custo 12. O hash não é exposto nas respostas. |
-| Sessão | JWT com expiração configurável; o cliente mantém somente o token de sessão no `sessionStorage`. |
-| Login | Rate limit específico, auditoria de falha e bloqueio temporário após cinco tentativas consecutivas. |
-| API | Helmet, limite de payload JSON, rate limit configurável, validação Zod e consultas SQL parametrizadas. |
-| Autorização | Middleware de permissões para consultar, comprar créditos, administrar preços e visualizar operação. |
-| Créditos | Transações PostgreSQL, `FOR UPDATE`, saldo não negativo, ledger e estorno automático. |
-| Rastreamento | Request ID, eventos de auditoria e logs estruturados com chaves sensíveis filtradas. |
-| Dados retornados | Interface recebe somente o modelo normalizado; o payload original não possui endpoint público. |
+| Senhas | bcrypt custo 12; bloqueio de 15 min após 5 falhas; rate limit de login |
+| Sessões | JWT com *audience* `client` ou `admin`, segredos distintos (`JWT_SECRET` ≠ `ADMIN_JWT_SECRET`), sessões revogáveis, expiração curta no painel (`ADMIN_JWT_EXPIRES_IN`) |
+| Painel da equipe | Host dedicado (`ADMIN_HOSTS`/`ADMIN_URL`), allowlist opcional de IP (`ADMIN_ALLOWED_IPS`), **2FA TOTP obrigatório** (não pode ser desligado em produção), códigos de recuperação de uso único |
+| Autorização | Papéis e permissões granulares (ex.: `REVEAL_PII`, `VIEW_AUDIT`); ações financeiras sensíveis exigem `ADMIN_SYSTEM` |
+| Dinheiro | Centavos inteiros, transações com `FOR UPDATE`, saldo ≥ 0, ledger, estorno automático, webhooks idempotentes, trava de margem |
+| API | Helmet, limite de payload, rate limit, zod, SQL parametrizado, `Cache-Control: no-store` em dados sensíveis |
+| API pública | Chaves `pnm_live_…` armazenadas com hash, limite por chave, desligada por padrão |
+| Rastreamento | Request ID, trilha de auditoria, logs sem dados sensíveis (`LOG_SENSITIVE_DATA=false`) |
 
-## Privacidade e LGPD
+## LGPD
 
-O sistema foi estruturado para redução de exposição. Informações como renavam, chassi, motor e documento são mascaradas na interface quando apresentadas; relatórios e exportações removem campos pessoais inesperados. O armazenamento bruto do provider fica desativado por padrão e só pode ser habilitado conscientemente por `STORE_RAW_PROVIDER_RESPONSE=true`.
+- **Minimização:** CPF/CNPJ, nomes, chassi, RENAVAM e motor saem mascarados por padrão no cliente, na equipe, na impressão e no PDF.
+- **Bruto cifrado:** o JSON do provedor é guardado com AES‑256‑GCM (`DATA_ENCRYPTION_KEY`, mínimo 32 caracteres; perder a chave torna o bruto ilegível). Não existe endpoint que o devolva.
+- **Revelação auditada:** só com `PII_REVEAL_ENABLED=true`, permissão `REVEAL_PII` e motivo ≥ 10 caracteres; fica registrada em `pii_reveals` e em auditoria **sem** gravar o valor revelado.
+- **Analytics:** eventos de funil não registram placa, e-mail, documento, senha ou token.
 
-A produção precisa definir formalmente finalidade, base legal, prazo de retenção, processos de exclusão e controles para o acesso de administradores a dados pessoais. O repositório não declara conformidade jurídica automática: a operação deve passar por validação jurídica e pelo contrato do fornecedor de dados.
+A operação precisa formalizar finalidade, base legal, retenção e exclusão, e validar o contrato com o fornecedor de dados com assessoria jurídica; o código não declara conformidade automática.
 
-## Configuração de produção
+## Checklist de produção
 
-TLS deve terminar no proxy reverso/Coolify. Use `NODE_ENV=production`, uma URL pública válida, segredo aleatório de alta entropia e `SANDBOX_SEED_ENABLED=false`. A compra sandbox também deve ficar desabilitada fora de demonstração. Se não houver contrato e credenciais completas de Asaas ou Mercado Pago, use `PAYMENT_PROVIDER=disabled`; a interface informa indisponibilidade e a API responde sem criar pedido nem liberar saldo.
-
-## Próximas camadas antes de pagamento real
-
-A implementação de gateway deve aceitar crédito apenas por webhook autenticado, idempotente e conferido contra o status do provedor. Caso dados pessoais retornem do fornecedor, considere criptografia em repouso da resposta bruta, rotação de chave, retenção mínima e alertas de acesso anômalo.
+1. Gere `JWT_SECRET` e `ADMIN_JWT_SECRET` (≥ 64 caracteres, diferentes entre si) e `DATA_ENCRYPTION_KEY` (≥ 32). **Não reaproveite valores de outro sistema.**
+2. `DATA_PROVIDER=real` com credenciais do provedor; `PAYMENT_PROVIDER=asaas|mercadopago` com chave e segredo de webhook (ou `disabled`).
+3. `SANDBOX_SEED_ENABLED=false`, `SANDBOX_CREDIT_PURCHASE_ENABLED=false`.
+4. Defina `ADMIN_HOSTS` e, se possível, `ADMIN_ALLOWED_IPS`.
+5. Crie o primeiro admin com `npm run admin:create` e cadastre o 2FA imediatamente.
+6. Rode `npm audit --omit=dev --audit-level=high` antes de cada release.

@@ -1,6 +1,6 @@
 # Banco de dados
 
-A CARPIVARA utiliza PostgreSQL. A criação inicial permite bootstrap seguro em banco vazio e o histórico de evolução é controlado pela tabela `schema_migrations`. As migrations aplicadas são transacionais e protegidas por advisory lock com `MIGRATION_LOCK_TIMEOUT_MS` e retry controlado, evitando que réplicas concorrentes executem a mesma alteração.
+A Placa na Mão utiliza PostgreSQL. A criação inicial permite bootstrap seguro em banco vazio e o histórico de evolução é controlado pela tabela `schema_migrations`. As migrations aplicadas são transacionais e protegidas por advisory lock com `MIGRATION_LOCK_TIMEOUT_MS` e retry controlado, evitando que réplicas concorrentes executem a mesma alteração.
 
 ## Comandos operacionais
 
@@ -14,6 +14,8 @@ A CARPIVARA utiliza PostgreSQL. A criação inicial permite bootstrap seguro em 
 | Organização | `organizations`, `organization_members` | Preparação para empresas, membros e subcontas. |
 | Carteira | `wallets`, `wallet_transactions`, `payments` | Saldo, ledger e pagamentos/sandbox. |
 | Consulta | `query_products`, `vehicle_queries`, `vehicle_query_results`, `sandbox_vehicles` | Produtos configuráveis, requisições, relatório normalizado e massa de testes. |
+| Financeiro | `payment_settings`, `payment_orders`, `payment_webhook_events`, `affiliates`, `affiliate_commissions`, `payouts`, `price_references`, `product_price_history` | Configuração de pagamento, parceiros, comissões, repasses e histórico de preços. |
+| Equipe e LGPD | `team_totp`, `team_totp_recovery_codes`, `pii_reveals`, `api_keys`, `query_source_rules` | 2FA da equipe, revelações auditadas, chaves da API pública e regras de fonte por produto. |
 | Operação | `data_providers`, `saved_vehicles`, `query_exports`, `audit_logs`, `schema_migrations` | Controle de provider, favoritos, exportação, auditoria e versão de schema. |
 
 ## Integridade das consultas e créditos
@@ -39,3 +41,7 @@ A migration `003_identity_and_social_auth` prepara o banco para cadastro e auten
 ## Evolução futura
 
 Migrations futuras podem introduzir rotação de sessões, eventos de pagamento com webhook, API keys B2B, custos de provider, retenção automatizada, cupons e assinaturas. Cada alteração deve ser adicionada como migration nova e validada em cópia do banco antes de deploy.
+
+## Migrations do produto
+
+`010_payment_settings`, `011_partners_commissions_payouts`, `012_reference_prices_and_price_history`, `013_public_api_pii_and_session_audience`, `014_refunds_chargebacks_and_net_amounts` e `015_placanamao_catalog` (catálogo Básica/Completa/Premium e FIPE, regras de fonte 'contracted'). Valores monetários são sempre `*_cents` (inteiros) e percentuais em bps.

@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.0.0 — Placa na Mão
+
+Produto independente derivado do Carpivara, reconstruído como plataforma de consulta veicular por placa.
+
+### Adicionado
+
+- Novo front (site, app PWA do cliente, relatório) com identidade visual própria, tema claro/escuro/sistema e SEO por rota.
+- Relatório v2 com veredito explicável, módulos `CLEAR`/`ALERT`/`NOT_PROVIDED`, impressão e PDF, validação pública por código.
+- Painel da equipe separado (host dedicado, 2FA obrigatório, sessões `admin`): dashboard, consultas com revelação LGPD auditada, usuários, suporte, financeiro, preços e margens, pagamentos, cupons, parceiros e repasses, auditoria, sistema e conta.
+- Motor de preço em centavos/bps com trava de margem, preços de referência e histórico; comissões com carência, repasses e clawback; estorno e chargeback.
+- API pública v1 com chaves `pnm_live_…`; CLI `admin:create` e `admin:reset-2fa`.
+- Dados brutos do provedor cifrados (AES‑256‑GCM); máscara de CPF/CNPJ/nomes por padrão.
+
+### Corrigido
+
+- Consulta de TOTP herdada usava `FOR UPDATE OF c` indevido.
+- Compra sandbox gravava saldo no formato legado; agora usa centavos e o ledger novo.
+- Padrão de meios de pagamento sem boleto (que elevava o piso de preço).
+
+### Segurança
+
+- Produção recusa subir com mock/sandbox/seed, segredos fracos, painel sem host dedicado ou 2FA desligado.
+
+## Histórico anterior (Carpivara, base do projeto)
+
+Versões 0.1–0.5: consulta com carteira e estorno, autenticação social, FIPE gratuita, funil de aquisição e SEO.
+
 ## 0.5.0 — Funil de aquisição e SEO responsável
 
 ### Adicionado

@@ -1,54 +1,34 @@
 # Testes e validação
 
-A CARPIVARA possui testes unitários para o normalizador do provedor e um roteiro integrado que valida os fluxos críticos contra PostgreSQL real. A validação integrada usa apenas a massa fictícia do sandbox.
+## Suíte automatizada
 
-## Execução rápida
-
-```bash
-npm test
-```
-
-Esse comando compila API e frontend em modo de produção e executa todos os testes em `apps/api/test/`, incluindo segurança, privacidade, providers, pagamentos, migrations e configuração de produção.
-
-O gate completo de release é:
-```bash
-npm run release:verify
-```
-Ele exige build, testes, `npm audit --omit=dev --audit-level=high`, verificação de arquivos e `git diff --check` somente quando o diretório `.git` existe. O mesmo verificador pode ser executado em um pacote ZIP sem falhar por ausência de Git.
-
-Para banco isolado, execute `npm run db:migrate` e depois `npm run db:verify`. A validação integrada usa PostgreSQL real e deve ser executada com `npm run test:integration` após a aplicação estar disponível.
-
-## Roteiro integrado
-
-Com PostgreSQL iniciado e a aplicação em execução com as variáveis de sandbox, execute:
+Usa o runner nativo do Node contra PostgreSQL real (um banco descartável por execução de teste):
 
 ```bash
-./scripts/integration-smoke.sh
+docker run -d --name pnm-pg -e POSTGRES_PASSWORD=test -p 54329:5432 postgres:16-alpine
+export TEST_DATABASE_URL=postgresql://postgres:test@127.0.0.1:54329/plmao_test
+npm test        # build + node --test --test-concurrency=1 apps/api/test/*.test.mjs
 ```
 
-| Cenário | Resultado esperado |
-| --- | --- |
-| `GET /health` | API e banco retornam `ok: true`. |
-| Login sandbox | Token JWT é emitido para credenciais válidas. |
-| Consulta `TST0A00` | Retorno `SUCCESS`, resultado normalizado e débito de `R$ 12,00` para `COMPLETE`. |
-| Idempotência | Reenvio da mesma chave retorna o mesmo relatório sem novo débito. |
-| Abertura de histórico | Consulta salva abre sem consumir saldo. |
-| Timeout `TIM0E00` | HTTP 502 seguro, mensagem humana e estorno automático. |
-| Histórico filtrado | Consulta previamente concluída aparece no filtro de placa. |
-| Administração | Administrador sandbox acessa o resumo protegido por permissão. |
+Cobertura por área: motor de preço e trava de margem, liquidação idempotente e comissões/repasses/estornos, relatório v2 e máscara LGPD, estorno de consultas, 2FA/TOTP e separação cliente×equipe, API pública, migrations, validação de configuração de produção, Asaas/Mercado Pago, SEO e funil, controles de segurança de código-fonte.
 
-## Testes manuais de interface
+## Smoke integrado
 
-A validação visual deve abranger desktop, `390px`, `375px` e `320px`. Em cada largura, verifique ausência de rolagem horizontal, controles acessíveis por teclado, foco visível e leitura adequada no modo claro e escuro.
+Sobe contra um servidor real com `DATA_PROVIDER=mock`, `PAYMENT_PROVIDER=sandbox`, `SANDBOX_SEED_ENABLED=true` e **banco recém-criado** (o script verifica saldo inicial):
 
-| Fluxo | Verificação |
-| --- | --- |
-| Tema | Alterar entre claro, escuro e sistema; recarregar a página e confirmar persistência. |
-| Consulta | Informar placa, confirmar custo, acompanhar o progresso e abrir o relatório. |
-| Relatório | Conferir o diagnóstico, débitos, restrições e exportação autenticada. |
-| Histórico | Abrir relatório salvo e usar “Consultar de novo”, entendendo que o segundo fluxo poderá consumir créditos. |
-| Carteira | Conferir movimentos de débito, crédito e estorno. |
+```bash
+BASE_URL=http://127.0.0.1:4000 npm run test:integration
+```
 
-## Limitações de ambiente
+Valida login, débito em centavos, idempotência, estorno por falha do provedor, histórico, separação do painel (2FA exigido, token de cliente recusado), cadastro/consentimentos, sessão revogável, checkout bloqueado sem credenciais, catálogo, `robots.txt`, `sitemap.xml` e título por rota.
 
-A validação de imagem Docker requer um daemon Docker disponível. A aplicação deve ser construída em ambiente Docker/Coolify antes do primeiro deploy, com `docker build -t carpivara .` e `/health` verificado no container. A indisponibilidade do daemon local não invalida os testes de build, API, banco e fluxos sandbox executados fora do container.
+## Release
+
+`npm run release:verify` executa build, todos os testes, `npm audit --omit=dev --audit-level=high` e a checagem de fontes (`scripts/release-verify.mjs`).
+
+## Imagem Docker
+
+```bash
+docker build -t placanamao .
+docker run --rm -p 4000:4000 --env-file <seu-env> placanamao   # /health deve responder ok:true
+```

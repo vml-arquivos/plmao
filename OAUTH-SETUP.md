@@ -8,9 +8,9 @@ A aplicação já possui rotas de OAuth/OIDC, **PKCE**, estado de curta duraçã
 
 | Provedor | URI de retorno exata |
 |---|---|
-| Google | `https://carpivara.casadf.com.br/api/auth/oauth/google/callback` |
-| Microsoft | `https://carpivara.casadf.com.br/api/auth/oauth/microsoft/callback` |
-| Apple | `https://carpivara.casadf.com.br/api/auth/oauth/apple/callback` |
+| Google | `https://placanamao.com.br/api/auth/oauth/google/callback` |
+| Microsoft | `https://placanamao.com.br/api/auth/oauth/microsoft/callback` |
+| Apple | `https://placanamao.com.br/api/auth/oauth/apple/callback` |
 
 Os provedores validam a URI de retorno. No caso do Google, a URI precisa ser previamente autorizada e corresponder exatamente à URI usada pela aplicação; ela não deve conter segredo algum.[1] Para Microsoft Entra ID, registre uma plataforma Web e informe a URI de retorno; os endpoints OIDC são descobertos no documento OpenID Connect do tenant.[2] O fluxo implementado segue OpenID Connect, que autentica a pessoa usuária por meio de um ID Token emitido pelo provedor.[3]
 
@@ -19,8 +19,8 @@ Os provedores validam a URI de retorno. No caso do Google, a URI precisa ser pre
 Defina os valores abaixo no painel de ambiente do Coolify. Eles devem permanecer **somente em runtime**, com proteção de segredos do build habilitada, e nunca devem ser enviados ao GitHub.
 
 ```dotenv
-APP_URL=https://carpivara.casadf.com.br
-WEB_ORIGIN=https://carpivara.casadf.com.br
+APP_URL=https://placanamao.com.br
+WEB_ORIGIN=https://placanamao.com.br
 
 OAUTH_GOOGLE_CLIENT_ID=
 OAUTH_GOOGLE_CLIENT_SECRET=
@@ -43,7 +43,7 @@ A migration `003_identity_and_social_auth` adiciona as tabelas e os índices nec
 
 | Tabela | Responsabilidade |
 |---|---|
-| `user_identities` | Vínculo único entre a conta CARPIVARA e o identificador imutável de Google, Microsoft ou Apple. |
+| `user_identities` | Vínculo único entre a conta Placa na Mão e o identificador imutável de Google, Microsoft ou Apple. |
 | `user_sessions` | Sessões JWT revogáveis, com expiração e metadados mínimos de auditoria. |
 | `user_consents` | Registro versionado de aceite de Termos, Privacidade e comunicação de marketing. |
 | `oauth_authorization_states` | Estado, nonce e PKCE de uso único para proteção da transação OIDC. |
