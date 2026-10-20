@@ -36,6 +36,7 @@ describe('estorno de consultas: falha do provedor e consultas presas', integrati
   });
 
   it('sweeper estorna consulta presa em PROCESSING uma única vez', async () => {
+    await refund.sweepStuckQueries(10); // esvazia resíduos de execuções anteriores no banco de teste compartilhado
     const before = await balance();
     const q = await pool.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider,created_at)
       VALUES($1,'STK1A11','COMPLETE','PROCESSING',0,2490,'WALLET_MONEY','mock-bdrp', now() - interval '30 minutes') RETURNING id`, [userId]);

@@ -66,6 +66,10 @@ Para colocar o sistema no ar antes de contratar as APIs, use `DATA_PROVIDER=disa
 
 ## Primeiro acesso
 
+**Opção A — por variáveis (sem terminal):** defina `ADMIN_BOOTSTRAP_EMAIL`, `ADMIN_BOOTSTRAP_PASSWORD` (12+ caracteres) e `ADMIN_BOOTSTRAP_NAME`, faça o redeploy e entre no painel. O administrador só é criado se ainda não existir nenhum SUPER_ADMIN ativo (nunca sobrescreve). Depois do primeiro acesso, **remova `ADMIN_BOOTSTRAP_PASSWORD`** do ambiente.
+
+**Opção B — pelo terminal:**
+
 1. Abra o terminal da aplicação no Coolify e rode `node apps/api/dist/cli.js admin:create voce@empresa.com.br "Seu Nome"`. A senha provisória aparece **uma única vez**.
 2. Acesse `https://admin.placanamao.com.br`, entre com a senha e cadastre o 2FA (guarde os códigos de recuperação).
 3. Em **Preços**, informe o custo do provedor e os preços de referência de mercado; confira os preços de venda provisórios.

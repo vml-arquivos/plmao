@@ -82,3 +82,13 @@ test('produção aceita DATA_PROVIDER=disabled (sistema no ar antes de contratar
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /CONFIG_OK/);
 });
+
+test('produção valida o administrador por variáveis (e-mail válido e senha forte)', () => {
+  const bad = spawnSync(process.execPath, [probe], { env: { ...baseEnv, ADMIN_BOOTSTRAP_EMAIL: 'nao-e-email', ADMIN_BOOTSTRAP_PASSWORD: 'curta' }, encoding: 'utf8' });
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stderr, /ADMIN_BOOTSTRAP_EMAIL_INVALID/);
+  assert.match(bad.stderr, /ADMIN_BOOTSTRAP_PASSWORD_MIN_12_CHARS/);
+  assert.doesNotMatch(bad.stderr, /curta/);
+  const ok = spawnSync(process.execPath, [probe], { env: { ...baseEnv, ADMIN_BOOTSTRAP_EMAIL: 'dono@empresa.com.br', ADMIN_BOOTSTRAP_PASSWORD: 'Uma-Senha-Forte-2026' }, encoding: 'utf8' });
+  assert.equal(ok.status, 0, ok.stderr);
+});

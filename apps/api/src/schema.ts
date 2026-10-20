@@ -179,6 +179,20 @@ export async function ensureSchema() {
       VALUES($1::uuid,'BOOTSTRAP_SUPER_ADMIN','USER',$2::text,$3::jsonb)`, [promoted.rows[0].id, promoted.rows[0].id, JSON.stringify({ email: promoted.rows[0].email, source: 'production_bootstrap' })]);
   }
 
+  if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
+    // Só cria o primeiro administrador; se já existir algum SUPER_ADMIN ativo, não toca em nada (nem na senha).
+    const existing = await pool.query(`SELECT 1 FROM users WHERE role='SUPER_ADMIN' AND active=true AND deleted_at IS NULL LIMIT 1`);
+    if (!existing.rowCount) {
+      const email = env.ADMIN_BOOTSTRAP_EMAIL.trim().toLowerCase();
+      const hash = await bcrypt.hash(env.ADMIN_BOOTSTRAP_PASSWORD, 12);
+      const created = await pool.query(`INSERT INTO users(email,password_hash,name,role,active) VALUES($1,$2,$3,'SUPER_ADMIN',true)
+        ON CONFLICT(email) DO UPDATE SET password_hash=EXCLUDED.password_hash,role='SUPER_ADMIN',active=true,password_enabled=true RETURNING id`, [email, hash, (env.ADMIN_BOOTSTRAP_NAME ?? 'Administrador').trim() || 'Administrador']);
+      await pool.query('INSERT INTO wallets(user_id,balance,balance_cents) VALUES($1,0,0) ON CONFLICT(user_id) DO NOTHING', [created.rows[0].id]);
+      await pool.query(`INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES(NULL,'ENV_ADMIN_BOOTSTRAP','USER',$1,$2::jsonb)`, [String(created.rows[0].id), JSON.stringify({ email, source: 'env' })]);
+      console.info(JSON.stringify({ level: 'info', event: 'admin_bootstrap_created', email, next: 'Entre no painel, cadastre o 2FA e remova ADMIN_BOOTSTRAP_PASSWORD do ambiente.' }));
+    }
+  }
+
   for (const p of products) {
     await pool.query(`INSERT INTO query_products(id,name,description,credit_cost,price_cents) VALUES($1,$2,$3,$4,$5)
       ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description, credit_cost=EXCLUDED.credit_cost, price_cents=EXCLUDED.price_cents`, p);

@@ -22,6 +22,15 @@ if (existsSync(join(root, '.git'))) {
   console.info(JSON.stringify({ source: 'artifact', diffCheck: 'skipped_without_git' }));
 }
 
+// O site público nunca pode depender de arquivos do painel (assets/admin-*), que só são servidos no host do painel:
+// se isso acontecer a página inicial fica em branco (404 nos módulos).
+const publicIndex = join(root, 'apps/web/dist/index.html');
+if (existsSync(publicIndex)) {
+  const refs = readFileSync(publicIndex, 'utf8').match(/assets\/admin-[^"']+/g);
+  if (refs) throw new Error(`RELEASE_PUBLIC_INDEX_REFERENCES_ADMIN_ASSETS:${[...new Set(refs)].join(',')}`);
+  console.info(JSON.stringify({ publicIndex: 'sem_dependencia_do_painel' }));
+}
+
 const forbiddenFiles = [];
 function walk(directory) {
   for (const entry of readdirSync(directory)) {

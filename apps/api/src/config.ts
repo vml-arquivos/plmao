@@ -64,6 +64,10 @@ function validateProductionConfig(value: ParsedEnv): void {
   if (value.EMAIL_PROVIDER === 'smtp') {
     requireProduction(Boolean(value.SMTP_HOST && value.SMTP_USER && value.SMTP_PASSWORD), 'SMTP_CREDENTIALS_REQUIRED', issues);
   }
+  if (value.ADMIN_BOOTSTRAP_EMAIL || value.ADMIN_BOOTSTRAP_PASSWORD) {
+    requireProduction(Boolean(value.ADMIN_BOOTSTRAP_EMAIL) && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value.ADMIN_BOOTSTRAP_EMAIL ?? ''), 'ADMIN_BOOTSTRAP_EMAIL_INVALID', issues);
+    requireProduction((value.ADMIN_BOOTSTRAP_PASSWORD?.length ?? 0) >= 12 && !isExampleValue(value.ADMIN_BOOTSTRAP_PASSWORD), 'ADMIN_BOOTSTRAP_PASSWORD_MIN_12_CHARS', issues);
+  }
   if (value.SUPER_ADMIN_BOOTSTRAP_ENABLED) {
     requireProduction(Boolean(value.SUPER_ADMIN_BOOTSTRAP_EMAIL), 'SUPER_ADMIN_BOOTSTRAP_EMAIL_REQUIRED', issues);
   }
@@ -83,7 +87,8 @@ function validateProductionConfig(value: ParsedEnv): void {
     value.MP_WEBHOOK_SECRET,
     value.OAUTH_GOOGLE_CLIENT_SECRET,
     value.OAUTH_MICROSOFT_CLIENT_SECRET,
-    value.OAUTH_APPLE_PRIVATE_KEY
+    value.OAUTH_APPLE_PRIVATE_KEY,
+    value.ADMIN_BOOTSTRAP_PASSWORD
   ];
   requireProduction(!configuredSecrets.some(isExampleValue), 'EXAMPLE_SECRET_FORBIDDEN', issues);
 
@@ -178,6 +183,12 @@ const envSchema = z.object({
   // Bootstrap administrativo: uso pontual, explicitamente habilitado e removido após a promoção auditada.
   SUPER_ADMIN_BOOTSTRAP_ENABLED: booleanFromEnv.default(false),
   SUPER_ADMIN_BOOTSTRAP_EMAIL: optionalString,
+
+  // Primeiro administrador criado no startup: só age se ainda NÃO existir nenhum SUPER_ADMIN ativo (idempotente; nunca sobrescreve).
+  // Depois do primeiro acesso, REMOVA ADMIN_BOOTSTRAP_PASSWORD do ambiente. O 2FA é cadastrado no primeiro login.
+  ADMIN_BOOTSTRAP_EMAIL: optionalString,
+  ADMIN_BOOTSTRAP_PASSWORD: optionalString,
+  ADMIN_BOOTSTRAP_NAME: optionalString,
 
   // OIDC/OAuth: client secrets are runtime-only values and must never be committed or enabled at build time.
   OAUTH_STATE_TTL_SECONDS: z.coerce.number().int().min(60).max(1800).default(600),

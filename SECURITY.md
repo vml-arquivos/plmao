@@ -30,5 +30,5 @@ A operação precisa formalizar finalidade, base legal, retenção e exclusão, 
 2. `DATA_PROVIDER=real` com credenciais do provedor; `PAYMENT_PROVIDER=asaas|mercadopago` com chave e segredo de webhook (ou `disabled`).
 3. `SANDBOX_SEED_ENABLED=false`, `SANDBOX_CREDIT_PURCHASE_ENABLED=false`.
 4. Defina `ADMIN_HOSTS` e, se possível, `ADMIN_ALLOWED_IPS`.
-5. Crie o primeiro admin com `npm run admin:create` e cadastre o 2FA imediatamente.
+5. Crie o primeiro admin com `npm run admin:create` (ou `ADMIN_BOOTSTRAP_EMAIL`/`ADMIN_BOOTSTRAP_PASSWORD`, removendo a senha do ambiente depois) e cadastre o 2FA imediatamente.
 6. Rode `npm audit --omit=dev --audit-level=high` antes de cada release.
