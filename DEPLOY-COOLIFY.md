@@ -60,6 +60,10 @@ SANDBOX_CREDIT_PURCHASE_ENABLED=false
 
 Se algo estiver inseguro, o container **não sobe** e o log informa `PRODUCTION_CONFIGURATION_INVALID:<códigos>`.
 
+## Subir sem provedor nem gateway (ativação em duas etapas)
+
+Para colocar o sistema no ar antes de contratar as APIs, use `DATA_PROVIDER=disabled` e `PAYMENT_PROVIDER=disabled`: o site, o app e o painel funcionam, consultas pagas aparecem como "em breve", não há cobrança nem compra de saldo. Depois, troque para `DATA_PROVIDER=real` (+ `VEHICLE_API_*`) e `PAYMENT_PROVIDER=asaas|mercadopago` e faça redeploy.
+
 ## Primeiro acesso
 
 1. Abra o terminal da aplicação no Coolify e rode `node apps/api/dist/cli.js admin:create voce@empresa.com.br "Seu Nome"`. A senha provisória aparece **uma única vez**.

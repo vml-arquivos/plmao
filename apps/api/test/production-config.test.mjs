@@ -73,3 +73,12 @@ test('produção exige segredo admin distinto, chave de criptografia e host admi
   assert.match(result.stderr, /DATA_ENCRYPTION_KEY_REQUIRED/);
   assert.match(result.stderr, /ADMIN_HOSTS_OR_ADMIN_URL_REQUIRED/);
 });
+
+test('produção aceita DATA_PROVIDER=disabled (sistema no ar antes de contratar a fonte de dados)', () => {
+  const result = spawnSync(process.execPath, [probe], {
+    env: { ...baseEnv, DATA_PROVIDER: 'disabled', PAYMENT_PROVIDER: 'disabled', VEHICLE_API_BASE_URL: '', VEHICLE_API_QUERY_PATH: '', VEHICLE_API_TOKEN: '', PAYMENT_API_KEY: '', PAYMENT_WEBHOOK_SECRET: '' },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /CONFIG_OK/);
+});

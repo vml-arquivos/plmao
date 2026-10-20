@@ -1032,7 +1032,8 @@ api.get('/validar-relatorio/:code', asyncRoute(async (req, res) => {
 }));
 
 api.get('/query-products', auth, asyncRoute(async (req, res) => {
-  const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.slug,p.features,p.display_order,p.is_free,p.source,p.coverage,p.commercial_status,p.featured,
+  const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.slug,p.features,p.display_order,p.is_free,p.source,p.coverage,
+      CASE WHEN p.is_free OR ($2::boolean AND EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true)) THEN p.commercial_status ELSE 'SOON' END AS commercial_status,p.featured,
       CASE WHEN p.is_free THEN 0 ELSE COALESCE(orgp.price_cents,p.price_cents) END AS effective_price_cents,
       (orgp.price_cents IS NOT NULL AND NOT p.is_free) AS negotiated
     FROM query_products p
@@ -1042,7 +1043,7 @@ api.get('/query-products', auth, asyncRoute(async (req, res) => {
         AND (qp.starts_at IS NULL OR qp.starts_at <= now()) AND (qp.ends_at IS NULL OR qp.ends_at > now())
       WHERE m.user_id=$1 ORDER BY o.created_at LIMIT 1
     ) orgp ON true
-    WHERE p.active=true ORDER BY p.display_order,p.price_cents`, [req.user!.id]);
+    WHERE p.active=true ORDER BY p.display_order,p.price_cents`, [req.user!.id, env.DATA_PROVIDER !== 'disabled']);
   res.json(products.rows.map((product) => ({ id: product.id, name: product.name, description: product.description, basePriceCents: Number(product.price_cents ?? 0), priceCents: Number(product.effective_price_cents ?? 0), negotiated: Boolean(product.negotiated), slug: product.slug, features: product.features, isFree: Boolean(product.is_free), commercialStatus: product.commercial_status, featured: Boolean(product.featured) })));
 }));
 
@@ -1050,8 +1051,8 @@ api.get('/query-products', auth, asyncRoute(async (req, res) => {
 api.get('/catalog', asyncRoute(async (_req, res) => {
   const [products, packages, settings] = await Promise.all([
     pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,p.coverage,p.slug,p.featured,
-        CASE WHEN p.is_free OR EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) THEN p.commercial_status ELSE 'SOON' END AS commercial_status
-      FROM query_products p WHERE p.active=true ORDER BY p.display_order,p.price_cents`),
+        CASE WHEN p.is_free OR ($1::boolean AND EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true)) THEN p.commercial_status ELSE 'SOON' END AS commercial_status
+      FROM query_products p WHERE p.active=true ORDER BY p.display_order,p.price_cents`, [env.DATA_PROVIDER !== 'disabled']),
     pool.query('SELECT slug,name,description,credits,price_cents FROM credit_packages WHERE active=true ORDER BY display_order,price_cents'),
     pool.query('SELECT enabled_methods FROM payment_settings WHERE id=1')
   ]);
@@ -1065,8 +1066,8 @@ api.get('/catalog', asyncRoute(async (_req, res) => {
 
 api.get('/fipe/offers', asyncRoute(async (_req, res) => {
   const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,
-      CASE WHEN p.is_free OR EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) THEN p.commercial_status ELSE 'SOON' END AS commercial_status,p.featured
-    FROM query_products p WHERE p.active=true ORDER BY p.display_order,p.price_cents`);
+      CASE WHEN p.is_free OR ($1::boolean AND EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true)) THEN p.commercial_status ELSE 'SOON' END AS commercial_status,p.featured
+    FROM query_products p WHERE p.active=true ORDER BY p.display_order,p.price_cents`, [env.DATA_PROVIDER !== 'disabled']);
   res.json({ offers: products.rows.map((product) => ({ id: product.id, name: product.name, description: publicOfferDescription(product.id, product.description), priceCents: Boolean(product.is_free) ? 0 : Number(product.price_cents ?? 0), features: product.features, commercialStatus: product.commercial_status, featured: Boolean(product.featured) })) });
 }));
 

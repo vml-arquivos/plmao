@@ -5,6 +5,7 @@
 | `DATA_PROVIDER` | Comportamento |
 | --- | --- |
 | `mock` | Dados fictícios (`sandbox_vehicles`). **Proibido em produção.** |
+| `disabled` | Sem fonte de dados: consultas pagas ficam "em breve", nada é cobrado. Permitido em produção |
 | `real` | Provedor contratado via `ContractedVehicleProvider`; exige `VEHICLE_API_BASE_URL`, `VEHICLE_API_QUERY_PATH` e credenciais conforme `VEHICLE_API_AUTH_SCHEME` (`bearer` ou `basic`) |
 
 Fronteira: `Interface → API → serviço de consulta → adapter → normalizador → PostgreSQL → relatório v2`. O front nunca vê nomes técnicos do fornecedor. Campos que o provedor não devolve viram `NOT_PROVIDED` ("não fornecido"/"em breve"), nunca "nada consta". O formato de referência da resposta do provedor está em `apps/api/test/fixtures`.

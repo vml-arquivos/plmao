@@ -126,7 +126,7 @@ const envSchema = z.object({
   PUBLIC_API_RATE_LIMIT_MAX: z.coerce.number().int().positive().max(10000).default(60),
 
   // Dados veiculares: o modo real só pode operar com contrato e credenciais válidos.
-  DATA_PROVIDER: z.enum(['mock', 'real']).default('mock'),
+  DATA_PROVIDER: z.enum(['mock', 'real', 'disabled']).default('mock'),
 
   // FIPE: feature desligada por padrão; os tokens são exclusivos do backend.
   FEATURE_FREE_FIPE: booleanFromEnv.default(false),
