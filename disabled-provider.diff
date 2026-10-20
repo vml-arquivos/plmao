@@ -1,0 +1,130 @@
+diff --git a/.env.example b/.env.example
+index 40e09ce..68c0916 100644
+--- a/.env.example
++++ b/.env.example
+@@ -43,7 +43,8 @@ PII_REVEAL_ENABLED=true
+ PUBLIC_API_ENABLED=false
+ PUBLIC_API_RATE_LIMIT_MAX=60
+ 
+-# Dados veiculares. mock = dados fictícios de teste (proibido em produção); real = provedor contratado (exige as credenciais abaixo).
++# Dados veiculares. mock = dados fictícios de teste (proibido em produção); real = provedor contratado (exige as credenciais abaixo);
++# disabled = sistema no ar SEM fonte de dados (consultas pagas aparecem como "em breve" e nada é cobrado) — use até contratar o provedor.
+ DATA_PROVIDER=mock
+ VEHICLE_API_BASE_URL=
+ VEHICLE_API_QUERY_PATH=
+diff --git a/API-INTEGRATION.md b/API-INTEGRATION.md
+index 2909c63..030b555 100644
+--- a/API-INTEGRATION.md
++++ b/API-INTEGRATION.md
+@@ -5,6 +5,7 @@
+ | `DATA_PROVIDER` | Comportamento |
+ | --- | --- |
+ | `mock` | Dados fictícios (`sandbox_vehicles`). **Proibido em produção.** |
++| `disabled` | Sem fonte de dados: consultas pagas ficam "em breve", nada é cobrado. Permitido em produção |
+ | `real` | Provedor contratado via `ContractedVehicleProvider`; exige `VEHICLE_API_BASE_URL`, `VEHICLE_API_QUERY_PATH` e credenciais conforme `VEHICLE_API_AUTH_SCHEME` (`bearer` ou `basic`) |
+ 
+ Fronteira: `Interface → API → serviço de consulta → adapter → normalizador → PostgreSQL → relatório v2`. O front nunca vê nomes técnicos do fornecedor. Campos que o provedor não devolve viram `NOT_PROVIDED` ("não fornecido"/"em breve"), nunca "nada consta". O formato de referência da resposta do provedor está em `apps/api/test/fixtures`.
+diff --git a/DEPLOY-COOLIFY.md b/DEPLOY-COOLIFY.md
+index e30633e..fd27f92 100644
+--- a/DEPLOY-COOLIFY.md
++++ b/DEPLOY-COOLIFY.md
+@@ -60,6 +60,10 @@ SANDBOX_CREDIT_PURCHASE_ENABLED=false
+ 
+ Se algo estiver inseguro, o container **não sobe** e o log informa `PRODUCTION_CONFIGURATION_INVALID:<códigos>`.
+ 
++## Subir sem provedor nem gateway (ativação em duas etapas)
++
++Para colocar o sistema no ar antes de contratar as APIs, use `DATA_PROVIDER=disabled` e `PAYMENT_PROVIDER=disabled`: o site, o app e o painel funcionam, consultas pagas aparecem como "em breve", não há cobrança nem compra de saldo. Depois, troque para `DATA_PROVIDER=real` (+ `VEHICLE_API_*`) e `PAYMENT_PROVIDER=asaas|mercadopago` e faça redeploy.
++
+ ## Primeiro acesso
+ 
+ 1. Abra o terminal da aplicação no Coolify e rode `node apps/api/dist/cli.js admin:create voce@empresa.com.br "Seu Nome"`. A senha provisória aparece **uma única vez**.
+diff --git a/apps/api/src/config.ts b/apps/api/src/config.ts
+index 452876d..d2ad120 100644
+--- a/apps/api/src/config.ts
++++ b/apps/api/src/config.ts
+@@ -126,7 +126,7 @@ const envSchema = z.object({
+   PUBLIC_API_RATE_LIMIT_MAX: z.coerce.number().int().positive().max(10000).default(60),
+ 
+   // Dados veiculares: o modo real só pode operar com contrato e credenciais válidos.
+-  DATA_PROVIDER: z.enum(['mock', 'real']).default('mock'),
++  DATA_PROVIDER: z.enum(['mock', 'real', 'disabled']).default('mock'),
+ 
+   // FIPE: feature desligada por padrão; os tokens são exclusivos do backend.
+   FEATURE_FREE_FIPE: booleanFromEnv.default(false),
+diff --git a/apps/api/src/providers/index.ts b/apps/api/src/providers/index.ts
+index 2f9929e..da925d3 100644
+--- a/apps/api/src/providers/index.ts
++++ b/apps/api/src/providers/index.ts
+@@ -5,7 +5,8 @@ import type { VehicleDataProvider } from '../types.js';
+ 
+ export function getProvider(): VehicleDataProvider {
+   if (env.DATA_PROVIDER === 'real') return new ContractedVehicleProvider();
+-  if (env.NODE_ENV === 'production') {
++  // 'disabled' = sistema no ar sem fonte de dados contratada: consultas pagas ficam "em breve" e nada é cobrado.
++  if (env.DATA_PROVIDER === 'disabled' || env.NODE_ENV === 'production') {
+     const error = new Error('DATA_PROVIDER_NOT_CONFIGURED') as Error & { code: string };
+     error.code = 'DATA_PROVIDER_NOT_CONFIGURED';
+     throw error;
+diff --git a/apps/api/src/server.ts b/apps/api/src/server.ts
+index a01504b..512f071 100644
+--- a/apps/api/src/server.ts
++++ b/apps/api/src/server.ts
+@@ -1032,7 +1032,8 @@ api.get('/validar-relatorio/:code', asyncRoute(async (req, res) => {
+ }));
+ 
+ api.get('/query-products', auth, asyncRoute(async (req, res) => {
+-  const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.slug,p.features,p.display_order,p.is_free,p.source,p.coverage,p.commercial_status,p.featured,
++  const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.slug,p.features,p.display_order,p.is_free,p.source,p.coverage,
++      CASE WHEN p.is_free OR ($2::boolean AND EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true)) THEN p.commercial_status ELSE 'SOON' END AS commercial_status,p.featured,
+       CASE WHEN p.is_free THEN 0 ELSE COALESCE(orgp.price_cents,p.price_cents) END AS effective_price_cents,
+       (orgp.price_cents IS NOT NULL AND NOT p.is_free) AS negotiated
+     FROM query_products p
+@@ -1042,7 +1043,7 @@ api.get('/query-products', auth, asyncRoute(async (req, res) => {
+         AND (qp.starts_at IS NULL OR qp.starts_at <= now()) AND (qp.ends_at IS NULL OR qp.ends_at > now())
+       WHERE m.user_id=$1 ORDER BY o.created_at LIMIT 1
+     ) orgp ON true
+-    WHERE p.active=true ORDER BY p.display_order,p.price_cents`, [req.user!.id]);
++    WHERE p.active=true ORDER BY p.display_order,p.price_cents`, [req.user!.id, env.DATA_PROVIDER !== 'disabled']);
+   res.json(products.rows.map((product) => ({ id: product.id, name: product.name, description: product.description, basePriceCents: Number(product.price_cents ?? 0), priceCents: Number(product.effective_price_cents ?? 0), negotiated: Boolean(product.negotiated), slug: product.slug, features: product.features, isFree: Boolean(product.is_free), commercialStatus: product.commercial_status, featured: Boolean(product.featured) })));
+ }));
+ 
+@@ -1050,8 +1051,8 @@ api.get('/query-products', auth, asyncRoute(async (req, res) => {
+ api.get('/catalog', asyncRoute(async (_req, res) => {
+   const [products, packages, settings] = await Promise.all([
+     pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,p.coverage,p.slug,p.featured,
+-        CASE WHEN p.is_free OR EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) THEN p.commercial_status ELSE 'SOON' END AS commercial_status
+-      FROM query_products p WHERE p.active=true ORDER BY p.display_order,p.price_cents`),
++        CASE WHEN p.is_free OR ($1::boolean AND EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true)) THEN p.commercial_status ELSE 'SOON' END AS commercial_status
++      FROM query_products p WHERE p.active=true ORDER BY p.display_order,p.price_cents`, [env.DATA_PROVIDER !== 'disabled']),
+     pool.query('SELECT slug,name,description,credits,price_cents FROM credit_packages WHERE active=true ORDER BY display_order,price_cents'),
+     pool.query('SELECT enabled_methods FROM payment_settings WHERE id=1')
+   ]);
+@@ -1065,8 +1066,8 @@ api.get('/catalog', asyncRoute(async (_req, res) => {
+ 
+ api.get('/fipe/offers', asyncRoute(async (_req, res) => {
+   const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,
+-      CASE WHEN p.is_free OR EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) THEN p.commercial_status ELSE 'SOON' END AS commercial_status,p.featured
+-    FROM query_products p WHERE p.active=true ORDER BY p.display_order,p.price_cents`);
++      CASE WHEN p.is_free OR ($1::boolean AND EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true)) THEN p.commercial_status ELSE 'SOON' END AS commercial_status,p.featured
++    FROM query_products p WHERE p.active=true ORDER BY p.display_order,p.price_cents`, [env.DATA_PROVIDER !== 'disabled']);
+   res.json({ offers: products.rows.map((product) => ({ id: product.id, name: product.name, description: publicOfferDescription(product.id, product.description), priceCents: Boolean(product.is_free) ? 0 : Number(product.price_cents ?? 0), features: product.features, commercialStatus: product.commercial_status, featured: Boolean(product.featured) })) });
+ }));
+ 
+diff --git a/apps/api/test/production-config.test.mjs b/apps/api/test/production-config.test.mjs
+index 5277913..f8720e9 100644
+--- a/apps/api/test/production-config.test.mjs
++++ b/apps/api/test/production-config.test.mjs
+@@ -73,3 +73,12 @@ test('produção exige segredo admin distinto, chave de criptografia e host admi
+   assert.match(result.stderr, /DATA_ENCRYPTION_KEY_REQUIRED/);
+   assert.match(result.stderr, /ADMIN_HOSTS_OR_ADMIN_URL_REQUIRED/);
+ });
++
++test('produção aceita DATA_PROVIDER=disabled (sistema no ar antes de contratar a fonte de dados)', () => {
++  const result = spawnSync(process.execPath, [probe], {
++    env: { ...baseEnv, DATA_PROVIDER: 'disabled', PAYMENT_PROVIDER: 'disabled', VEHICLE_API_BASE_URL: '', VEHICLE_API_QUERY_PATH: '', VEHICLE_API_TOKEN: '', PAYMENT_API_KEY: '', PAYMENT_WEBHOOK_SECRET: '' },
++    encoding: 'utf8'
++  });
++  assert.equal(result.status, 0, result.stderr);
++  assert.match(result.stdout, /CONFIG_OK/);
++});
