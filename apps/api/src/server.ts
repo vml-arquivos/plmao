@@ -42,7 +42,7 @@ import { renderVehiclePdf, type ReportMeta } from './report/pdf.js';
 import { renderVehicleHtml } from './report/printHtml.js';
 import { encryptRaw } from './lib/rawStore.js';
 import { refundProcessingQuery, sweepStuckQueries } from './lib/queryRefund.js';
-import { renderSeoHtml } from './seo.js';
+import { renderRobotsTxt, renderSeoHtml, renderSitemapXml } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle } from './types.js';
 
@@ -2184,6 +2184,12 @@ const adminHtmlPath = path.join(webDist, 'admin.html');
 const adminHtmlTemplate = existsSync(adminHtmlPath) ? readFileSync(adminHtmlPath, 'utf8') : undefined;
 const staticOptions = { index: false, maxAge: env.NODE_ENV === 'production' ? '1h' : 0, etag: true } as const;
 const serveStatic = express.static(webDist, staticOptions);
+app.get('/robots.txt', (req, res) => { res.type('text/plain').setHeader('Cache-Control', 'public, max-age=3600'); res.send(renderRobotsTxt(env.APP_URL ?? env.WEB_ORIGIN, isAdminHost(req))); });
+app.get('/sitemap.xml', (req, res) => {
+  if (isAdminHost(req)) return res.status(404).end();
+  res.type('application/xml').setHeader('Cache-Control', 'public, max-age=3600');
+  return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN));
+});
 const hasAdminHosts = adminHosts().length > 0;
 // Duas frentes: bundle admin (admin.html + assets/admin-*) só é entregue no host do painel (ou em /painel quando não há host dedicado, apenas dev).
 const isAdminAsset = (p: string) => p === '/admin.html' || p.startsWith('/assets/admin-');

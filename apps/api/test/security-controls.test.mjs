@@ -5,7 +5,10 @@ import { readFile } from 'node:fs/promises';
 const server = await readFile(new URL('../src/server.ts', import.meta.url), 'utf8');
 const auth = await readFile(new URL('../src/auth.ts', import.meta.url), 'utf8');
 const config = await readFile(new URL('../src/config.ts', import.meta.url), 'utf8');
-const frontend = await readFile(new URL('../../web/src/main.tsx', import.meta.url), 'utf8');
+const webApi = await readFile(new URL('../../web/src/shared/api.ts', import.meta.url), 'utf8');
+const adminAccount = await readFile(new URL('../../web/src/admin/pages/Account.tsx', import.meta.url), 'utf8');
+const adminSession = await readFile(new URL('../../web/src/admin/session.tsx', import.meta.url), 'utf8');
+const adminApi = await readFile(new URL('../../web/src/admin/api.ts', import.meta.url), 'utf8');
 
 test('hardening fixa CSP e origem CORS sem reflexão ampla', () => {
   assert.match(server, /contentSecurityPolicy:\s*\{/);
@@ -45,19 +48,17 @@ test('TOTP da equipe é obrigatório por padrão e não pode ser desligado em pr
 test('API impede cache condicional e o dashboard não transforma falha parcial em logout', () => {
   assert.match(server, /api\.use\(\(_req, res, next\) =>/);
   assert.match(server, /res\.setHeader\('Cache-Control', 'no-store'\)/);
-  assert.match(frontend, /cache: 'no-store'/);
-  assert.match(frontend, /Promise\.allSettled/);
-  assert.match(frontend, /isAuthenticationFailure\(profileResult\.reason\)/);
-  assert.match(frontend, /adminLoadErrors/);
-  assert.match(frontend, /Tentar novamente/);
+  assert.match(webApi, /cache: 'no-store'/);
+  // sessão expirada (401) limpa o token do painel; erro parcial de uma tela não derruba a sessão
+  assert.match(adminSession, /pnm:admin-unauthorized/);
+  assert.match(webApi, /res\.status === 401 && t && opts\.onUnauthorized/);
+  assert.match(adminApi, /store: 'session'/);
 });
 
 test('painel administrativo expõe alteração segura da senha da sessão atual', () => {
-  assert.match(frontend, /function AdminPasswordCard\(/);
-  assert.match(frontend, /onChangePassword=\{changePassword\}/);
-  assert.match(frontend, /Atualizar senha/);
-  assert.match(frontend, /auth\/change-password/);
-  assert.match(frontend, /As outras sessões serão encerradas após a alteração/);
+  assert.match(adminAccount, /Atualizar senha/);
+  assert.match(adminAccount, /admin\/auth\/change-password/);
+  assert.match(adminAccount, /As outras sessões serão encerradas após a alteração/);
 });
 
 test('visão administrativa calcula receita de consulta pela ordem de pagamento', () => {

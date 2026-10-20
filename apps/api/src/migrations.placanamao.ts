@@ -32,7 +32,7 @@ export const placaMigrations: Migration[] = [
           installments_max integer NOT NULL DEFAULT 3 CHECK (installments_max BETWEEN 1 AND 12),
           card_monthly_interest_bps integer NOT NULL DEFAULT 0 CHECK (card_monthly_interest_bps BETWEEN 0 AND 1000),
           customer_pays_interest boolean NOT NULL DEFAULT true,
-          enabled_methods text[] NOT NULL DEFAULT ARRAY['PIX','CREDITO_A_VISTA','BOLETO']::text[],
+          enabled_methods text[] NOT NULL DEFAULT ARRAY['PIX','CREDITO_A_VISTA']::text[],
           operational_cost_cents integer NOT NULL DEFAULT 0 CHECK (operational_cost_cents >= 0),
           desired_margin_bps integer NOT NULL DEFAULT 3000 CHECK (desired_margin_bps BETWEEN 0 AND 100000),
           min_margin_bps integer NOT NULL DEFAULT 1000 CHECK (min_margin_bps BETWEEN 0 AND 100000),

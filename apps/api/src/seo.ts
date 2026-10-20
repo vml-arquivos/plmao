@@ -15,9 +15,30 @@ const pageMeta: Record<string, SeoMeta> = {
   '/planos': { title: 'Preços e consultas veiculares | Placa na Mão', description: 'Compare as consultas Placa na Mão, veja a cobertura disponível e confira o preço antes de pagar.' },
   '/para-lojistas': { title: 'Consulta veicular para lojistas | Placa na Mão', description: 'Centralize consultas, histórico e relatórios para apoiar a operação de compra e venda de veículos.' },
   '/para-concessionarias': { title: 'Consulta veicular para concessionárias | Placa na Mão', description: 'Apoie a avaliação de usados com consultas, relatórios e controle operacional para equipes.' },
+  '/sobre': { title: 'Sobre a Placa na Mão | Consulta veicular', description: 'Conheça a Placa na Mão: consulta veicular por placa com transparência sobre fonte, data e cobertura de cada informação.' },
+  '/contato': { title: 'Contato e suporte | Placa na Mão', description: 'Fale com a equipe Placa na Mão sobre suporte, privacidade (LGPD) e parcerias comerciais.' },
+  '/desenvolvedores': { title: 'API de consulta veicular para desenvolvedores | Placa na Mão', description: 'Integre consultas veiculares ao seu sistema com a API Placa na Mão: chaves, limites de uso e resposta JSON padronizada.' },
+  '/entrar': { title: 'Entrar | Placa na Mão', description: 'Acesse sua conta Placa na Mão.' },
+  '/criar-conta': { title: 'Criar conta | Placa na Mão', description: 'Crie sua conta Placa na Mão e faça sua primeira consulta veicular.' },
   '/termos': { title: 'Termos de Uso | Placa na Mão', description: 'Conheça as regras de uso, limites e responsabilidades da plataforma Placa na Mão.' },
   '/privacidade': { title: 'Política de Privacidade | Placa na Mão', description: 'Entenda como a Placa na Mão trata dados pessoais, segurança, retenção e direitos dos titulares.' }
 };
+
+/** Páginas públicas indexáveis (entram no sitemap). Telas de conta e do app ficam de fora. */
+export const SITEMAP_PATHS: string[] = Object.keys(pageMeta).filter((p) => !['/entrar', '/criar-conta'].includes(p));
+const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|validar|validar-relatorio|consultar)(\/|$)/;
+
+export function renderRobotsTxt(appUrl: string, adminHost: boolean): string {
+  if (adminHost) return 'User-agent: *\nDisallow: /\n';
+  const base = appUrl.replace(/\/$/, '');
+  return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\n\nSitemap: ${base}/sitemap.xml\n`;
+}
+
+export function renderSitemapXml(appUrl: string): string {
+  const base = appUrl.replace(/\/$/, '');
+  const urls = SITEMAP_PATHS.map((p) => `  <url><loc>${base}${p === '/' ? '/' : p}</loc><changefreq>${p === '/' || p === '/planos' ? 'weekly' : 'monthly'}</changefreq><priority>${p === '/' ? '1.0' : p === '/planos' || p === '/fipe' ? '0.9' : '0.7'}</priority></url>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+}
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? char);
@@ -40,7 +61,10 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
     isPartOf: { '@type': 'WebSite', name: 'Placa na Mão', url: `${baseUrl}/` },
     publisher: { '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/` }
   }).replace(/</g, '\\u003c');
+  const noindex = NOINDEX.test(normalized);
   return template
+    .replace(/https:\/\/placanamao\.com\.br(?=\/brand\/)/g, baseUrl)
+    .replace(/<meta name="robots" content="[^"]*"\s*\/>/, noindex ? '<meta name="robots" content="noindex,nofollow" />' : '<meta name="robots" content="index,follow,max-image-preview:large" />')
     .replace(/<title>.*?<\/title>/s, `<title>${title}</title>`)
     .replace(/<meta name="description" content="[^"]*"\s*\/>/, `<meta name="description" content="${description}" />`)
     .replace(/<link rel="canonical" href="[^"]*"\s*\/>/, `<link rel="canonical" href="${escapeHtml(canonical)}" />`)
