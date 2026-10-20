@@ -68,13 +68,18 @@ curl -fsS "$BASE_URL/api/queries?plate=TST" "${AUTH[@]}" >"$TMP_DIR/history.json
 assert_contains "$TMP_DIR/history.json" '"plate":"TST0A00"'
 echo '✓ histórico filtrável disponível'
 
-curl -fsS -X POST "$BASE_URL/api/auth/login" -H 'Content-Type: application/json' \
-  --data '{"email":"admin@demo.local","password":"Admin@123456"}' >"$TMP_DIR/admin-login.json"
-ADMIN_TOKEN="$(cat "$TMP_DIR/admin-login.json" | json_field token)"
-[ -n "$ADMIN_TOKEN" ] || fail 'token de administrador não retornado'
-curl -fsS "$BASE_URL/api/admin/overview" -H "Authorization: Bearer $ADMIN_TOKEN" >"$TMP_DIR/admin.json"
-assert_contains "$TMP_DIR/admin.json" '"queries_today"'
-echo '✓ rota administrativa protegida por permissão'
+# Painel da equipe é outra superfície: a conta de equipe não entra pelo login do cliente e o token do cliente não abre o admin.
+ADMIN_AS_CLIENT_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/api/auth/login" -H 'Content-Type: application/json' \
+  --data '{"email":"admin@demo.local","password":"Admin@123456"}')"
+[ "$ADMIN_AS_CLIENT_STATUS" = '401' ] || fail "login de cliente aceitou conta de equipe (HTTP $ADMIN_AS_CLIENT_STATUS)"
+ADMIN_WITH_CLIENT_TOKEN="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/api/admin/overview" "${AUTH[@]}")"
+[ "$ADMIN_WITH_CLIENT_TOKEN" = '401' ] || fail "token de cliente acessou o admin (HTTP $ADMIN_WITH_CLIENT_TOKEN)"
+ADMIN_LOGIN_STATUS="$(curl -sS -o "$TMP_DIR/admin-login.json" -w '%{http_code}' -X POST "$BASE_URL/api/admin/auth/login" -H 'Content-Type: application/json' \
+  --data '{"email":"admin@demo.local","password":"Admin@123456"}')"
+[ "$ADMIN_LOGIN_STATUS" = '200' ] || fail "login do painel retornou HTTP $ADMIN_LOGIN_STATUS"
+assert_contains "$TMP_DIR/admin-login.json" '"totpRequired"'
+assert_contains "$TMP_DIR/admin-login.json" '"challenge"'
+echo '✓ painel exige 2FA e não aceita token de cliente'
 
 REGISTER_EMAIL="novo.usuario.$(date +%s)@example.test"
 curl -fsS -X POST "$BASE_URL/api/auth/register" \
@@ -98,7 +103,7 @@ echo '✓ provedores sociais expostos com ativação controlada por runtime'
 
 curl -fsS "$BASE_URL/api/credit-packages" "${AUTH[@]}" >"$TMP_DIR/packages.json"
 assert_contains "$TMP_DIR/packages.json" '"slug":"essencial"'
-assert_contains "$TMP_DIR/packages.json" '"credits":10'
+assert_contains "$TMP_DIR/packages.json" '"credits":25'
 echo '✓ migrations de pacotes de crédito aplicadas'
 
 CHECKOUT_STATUS="$(curl -sS -o "$TMP_DIR/checkout.json" -w '%{http_code}' -X POST "$BASE_URL/api/payments/checkout" "${AUTH[@]}" \
@@ -106,5 +111,18 @@ CHECKOUT_STATUS="$(curl -sS -o "$TMP_DIR/checkout.json" -w '%{http_code}' -X POS
 [ "$CHECKOUT_STATUS" = '503' ] || fail "checkout não configurado retornou HTTP $CHECKOUT_STATUS"
 assert_contains "$TMP_DIR/checkout.json" 'PAYMENT_PROVIDER_NOT_CONFIGURED'
 echo '✓ checkout bloqueado com segurança enquanto faltam credenciais externas'
+
+curl -fsS "$BASE_URL/api/catalog" >"$TMP_DIR/catalog.json"
+assert_contains "$TMP_DIR/catalog.json" '"id":"COMPLETE"'
+assert_contains "$TMP_DIR/catalog.json" '"priceCents":1200'
+echo '✓ catálogo público com preços em centavos'
+
+curl -fsS "$BASE_URL/robots.txt" >"$TMP_DIR/robots.txt"
+assert_contains "$TMP_DIR/robots.txt" 'Sitemap:'
+curl -fsS "$BASE_URL/sitemap.xml" >"$TMP_DIR/sitemap.xml"
+assert_contains "$TMP_DIR/sitemap.xml" '/consulta-placa'
+curl -fsS "$BASE_URL/planos" >"$TMP_DIR/planos.html"
+assert_contains "$TMP_DIR/planos.html" '<title>Preços e consultas veiculares | Placa na Mão</title>'
+echo '✓ SEO servido pelo servidor (robots, sitemap, título por rota)'
 
 echo 'VALIDAÇÃO INTEGRADA: APROVADA'

@@ -22,6 +22,7 @@ COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 RUN npm ci --omit=dev --workspace=apps/api && npm cache clean --force
 COPY --from=build /app/apps/api/dist ./apps/api/dist
+COPY --from=build /app/apps/api/assets ./apps/api/assets
 COPY --from=build /app/apps/web/dist ./apps/web/dist
 COPY --from=build /app/README.md ./README.md
 USER node
