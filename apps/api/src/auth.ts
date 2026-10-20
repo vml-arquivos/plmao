@@ -11,7 +11,7 @@ export type Audience = 'client' | 'admin';
 type TokenClaims = AuthUser & jwt.JwtPayload & { sid?: string; aud?: string };
 declare global { namespace Express { interface Request { user?: AuthUser; sessionId?: string; audience?: Audience } } }
 
-export const TEAM_ROLES = ['OPERADOR', 'ADMIN', 'SUPER_ADMIN'];
+export const TEAM_ROLES = ['CONTEUDO', 'SUPORTE', 'OPERADOR', 'FINANCEIRO', 'ADMIN', 'SUPER_ADMIN'];
 export function isTeamRole(role: string): boolean { return TEAM_ROLES.includes(role); }
 
 function secretFor(audience: Audience): string {

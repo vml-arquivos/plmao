@@ -8,7 +8,7 @@ import { PageHead } from '../parts';
 
 interface Article {
   id: string; slug: string; title: string; excerpt: string; body: string; category: string; tags: string[]; coverImageUrl: string | null; author: string;
-  seoTitle: string | null; seoDescription: string | null; status: 'DRAFT' | 'PUBLISHED'; publishedAt: string | null; updatedAt: string;
+  seoTitle: string | null; seoDescription: string | null; status: 'DRAFT' | 'PUBLISHED'; publishedAt: string | null; updatedAt: string; archived: boolean;
 }
 const slugify = (v: string) => v.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100);
 
@@ -17,26 +17,34 @@ export default function Articles() {
   const res = useAsync(() => api.get<Article[]>('/admin/content/articles'));
   const [edit, setEdit] = useState<Article | 'new' | null>(null);
   const [remove, setRemove] = useState<Article | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const toast = useToast();
   if (res.loading && !res.data) return <PageLoading />;
   if (res.error || !res.data) return <ErrorState error={res.error} onRetry={res.reload} />;
   const categories = [...new Set(res.data.map((a) => a.category))];
+  const archivedCount = res.data.filter((a) => a.archived).length;
+  const rows = res.data.filter((a) => showArchived ? a.archived : !a.archived);
+  async function archive(a: Article, archived: boolean) {
+    try { await api.post(`/admin/content/articles/${a.id}/archive`, { archived }); toast.ok(archived ? 'Artigo arquivado: saiu do site.' : 'Artigo restaurado como rascunho.'); res.reload(); } catch (e) { toast.error(errorMessage(e)); }
+  }
   return (
     <>
       <PageHead title="Artigos e blog" sub="Conteúdo que traz visitantes pelo Google e ajuda o cliente a escolher a consulta certa." actions={<Button variant="primary" icon="plus" onClick={() => setEdit('new')}>Novo artigo</Button>} />
-      {!res.data.length && <EmptyState icon="file-text" title="Nenhum artigo ainda" />}
+      <Tabs label="Artigos" value={showArchived ? 'archived' : 'live'} onChange={(v) => setShowArchived(v === 'archived')} items={[{ id: 'live', label: 'Artigos' }, { id: 'archived', label: `Arquivados (${archivedCount})` }]} />
+      {!rows.length && <EmptyState icon="file-text" title={showArchived ? 'Nenhum artigo arquivado' : 'Nenhum artigo ainda'} />}
       <div className="table-wrap"><table className="table"><thead><tr><th>Título</th><th>Categoria</th><th>Status</th><th>Publicado</th><th /></tr></thead><tbody>
-        {res.data.map((a) => (
+        {rows.map((a) => (
           <tr key={a.id}>
             <td><b>{a.title}</b><div className="muted mono" style={{ fontSize: 11.5 }}>/blog/{a.slug}</div></td>
             <td><Badge>{a.category}</Badge></td>
             <td><Badge tone={a.status === 'PUBLISHED' ? 'ok' : 'warn'} dot>{a.status === 'PUBLISHED' ? 'Publicado' : 'Rascunho'}</Badge></td>
             <td>{a.publishedAt ? dateOnly(a.publishedAt) : '—'}</td>
-            <td className="actions"><Button size="sm" onClick={() => setEdit(a)}>Editar</Button> <Button size="sm" variant="ghost" onClick={() => setRemove(a)}>Remover</Button></td>
+            <td className="actions"><Button size="sm" onClick={() => setEdit(a)}>Editar</Button> <Button size="sm" variant="ghost" onClick={() => void archive(a, !a.archived)}>{a.archived ? 'Restaurar' : 'Arquivar'}</Button> <Button size="sm" variant="ghost" onClick={() => setRemove(a)}>Apagar</Button></td>
           </tr>
         ))}
       </tbody></table></div>
       {edit && <ArticleModal a={edit === 'new' ? null : edit} categories={categories} onClose={(c) => { setEdit(null); if (c) res.reload(); }} />}
-      {remove && <ConfirmDialog danger title="Remover artigo?" message={`“${remove.title}” sai do blog definitivamente.`} confirmLabel="Remover" onConfirm={async () => { await api.del(`/admin/content/articles/${remove.id}`); res.reload(); }} onClose={() => setRemove(null)} />}
+      {remove && <ConfirmDialog danger title="Apagar artigo?" message={`“${remove.title}” será apagado de vez e não dá para desfazer. Se quiser só tirar do site, use Arquivar.`} confirmLabel="Apagar" onConfirm={async () => { await api.del(`/admin/content/articles/${remove.id}`); res.reload(); }} onClose={() => setRemove(null)} />}
     </>
   );
 }

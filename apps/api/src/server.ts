@@ -41,6 +41,8 @@ import { renderVehiclePdf, type ReportMeta } from './report/pdf.js';
 import { renderVehicleHtml } from './report/printHtml.js';
 import { encryptRaw } from './lib/rawStore.js';
 import { refundProcessingQuery, sweepStuckQueries } from './lib/queryRefund.js';
+import { adminPeopleRouter } from './routes/adminPeople.js';
+import { adminBillingRouter } from './routes/adminBilling.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
 import { renderRobotsTxt, renderSeoHtml, renderSitemapXml, type SeoOverride } from './seo.js';
@@ -60,6 +62,8 @@ api.use('/admin/finance', financeRouter);
 api.use('/admin/finance', partnersRouter);
 api.use('/admin/queries', adminQueriesRouter);
 api.use('/admin/content', adminContentRouter);
+api.use('/admin', adminPeopleRouter);
+api.use('/admin', adminBillingRouter);
 api.use((_req, res, next) => {
   // API responses are not cacheable: authenticated clients must never receive a conditional 304 without a body.
   res.setHeader('Cache-Control', 'no-store, private');
@@ -75,7 +79,8 @@ const registerSchema = z.object({
   acceptTerms: z.literal(true),
   acceptPrivacy: z.literal(true),
   marketingOptIn: z.boolean().optional().default(false),
-  affiliateCode: z.string().trim().min(3).max(40).optional()
+  affiliateCode: z.string().trim().min(3).max(40).optional(),
+  accountType: z.enum(['PARTICULAR', 'AUTONOMO', 'EMPRESA']).optional().default('PARTICULAR')
 });
 const oauthTicketSchema = z.object({ ticket: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/) });
 const loginSchema = z.object({ email: z.string().trim().email().max(254), password: z.string().min(1).max(128) }).strict();
@@ -408,7 +413,7 @@ api.post('/auth/register', asyncRoute(async (req, res) => {
       }
       const user = await client.query('INSERT INTO users(email,password_hash,name,role,affiliate_id) VALUES($1,$2,$3,$4,$5) RETURNING id,email,name,role', [email, passwordHash, parsed.data.name, 'CLIENTE', affiliateId]);
       await client.query('INSERT INTO wallets(user_id,balance) VALUES($1,0)', [user.rows[0].id]);
-      await client.query('INSERT INTO user_profiles(user_id,marketing_opt_in) VALUES($1,$2)', [user.rows[0].id, parsed.data.marketingOptIn]);
+      await client.query('INSERT INTO user_profiles(user_id,marketing_opt_in,customer_type) VALUES($1,$2,$3)', [user.rows[0].id, parsed.data.marketingOptIn, parsed.data.accountType]);
       await client.query(`INSERT INTO user_consents(user_id,consent_type,granted,policy_version,source,ip_hash)
         VALUES($1,'TERMS_OF_SERVICE',true,'2026-08','registration',$2),
               ($1,'PRIVACY_POLICY',true,'2026-08','registration',$2),
@@ -1513,7 +1518,7 @@ api.post('/payments/mercadopago/webhook', asyncRoute(async (req, res) => {
   await processPaymentWebhook('mercadopago', req, res);
 }));
 
-api.get('/admin/overview', adminAuth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
+api.get('/admin/overview', adminAuth, requirePermission('VIEW_DASHBOARD'), asyncRoute(async (_req, res) => {
   const summary = await pool.query(`SELECT
     (SELECT count(*) FROM users WHERE active=true AND deleted_at IS NULL) AS active_users,
     (SELECT count(*) FROM users WHERE active=true AND deleted_at IS NULL AND created_at >= now() - interval '30 days') AS new_users_30d,
@@ -1559,7 +1564,7 @@ api.get('/admin/overview', adminAuth, requirePermission('VIEW_AUDIT'), asyncRout
   res.json({ ...summary.rows[0], daily: daily.rows });
 }));
 
-api.get('/admin/overview/series', adminAuth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
+api.get('/admin/overview/series', adminAuth, requirePermission('VIEW_DASHBOARD'), asyncRoute(async (_req, res) => {
   const daily = await pool.query(`WITH days AS (
     SELECT generate_series(current_date - interval '29 days', current_date, interval '1 day')::date AS day
   ), q AS (
@@ -1770,13 +1775,33 @@ api.get('/organization/context', auth, asyncRoute(async (req, res) => {
   res.json({ organization: { id: row.id, name: row.name, slug: row.slug, primaryColor: row.primary_color, accentColor: row.accent_color, logoUrl: row.logo_url, customDomain: row.custom_domain, settings: row.settings ?? {}, role: row.role } });
 }));
 
-api.get('/admin/queries', adminAuth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
+api.get('/admin/queries', adminAuth, requirePermission('VIEW_QUERIES'), asyncRoute(async (req, res) => {
+  const filters = z.object({
+    status: z.enum(['PROCESSING', 'SUCCESS', 'FAILED', 'REFUNDED']).optional(),
+    customerType: z.enum(['PARTICULAR', 'AUTONOMO', 'EMPRESA']).optional(),
+    productId: z.string().trim().max(40).optional(),
+    customerId: z.string().uuid().optional(),
+    search: z.string().trim().max(80).optional(),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+  }).safeParse(req.query);
+  if (!filters.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const f = filters.data; const where: string[] = []; const values: unknown[] = [];
+  const push = (v: unknown) => { values.push(v); return `$${values.length}`; };
+  if (f.status) where.push(`q.status=${push(f.status)}`);
+  if (f.customerType) where.push(`coalesce(up.customer_type,'PARTICULAR')=${push(f.customerType)}`);
+  if (f.productId) where.push(`q.product_id=${push(f.productId)}`);
+  if (f.customerId) where.push(`q.user_id=${push(f.customerId)}`);
+  if (f.search) { const l = push(`%${f.search.replace(/[%_\\]/g, (c) => `\\${c}`)}%`); where.push(`(q.plate ILIKE ${l} OR u.name ILIKE ${l} OR u.email ILIKE ${l})`); }
+  if (f.from) where.push(`q.created_at >= ${push(f.from)}::date`);
+  if (f.to) where.push(`q.created_at < ${push(f.to)}::date + 1`);
   const queries = await pool.query(`SELECT q.id,q.plate,q.status,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,q.error_code,
-      p.name AS product_name,u.name AS customer_name,u.email AS customer_email
+      p.name AS product_name,u.id AS customer_id,u.name AS customer_name,u.email AS customer_email,coalesce(up.customer_type,'PARTICULAR') AS customer_type
     FROM vehicle_queries q
     JOIN users u ON u.id=q.user_id
+    LEFT JOIN user_profiles up ON up.user_id=q.user_id
     JOIN query_products p ON p.id=q.product_id
-    ORDER BY q.created_at DESC LIMIT 200`);
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY q.created_at DESC LIMIT 300`, values);
   res.json(queries.rows.map((row) => ({
     id: row.id,
     plate: row.plate,
@@ -1788,7 +1813,8 @@ api.get('/admin/queries', adminAuth, requirePermission('VIEW_AUDIT'), asyncRoute
     createdAt: row.created_at,
     completedAt: row.completed_at,
     errorCode: row.error_code,
-    customer: { name: row.customer_name, email: row.customer_email }
+    customerType: row.customer_type,
+    customer: { id: row.customer_id, name: row.customer_name, email: row.customer_email }
   })));
 }));
 
@@ -1809,14 +1835,14 @@ api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), 
   }
 }));
 
-const ADMIN_PRODUCT_COLS = 'p.id,p.name,p.description,p.price_cents,p.reference_price_cents,p.active,p.slug,p.features,p.is_free,p.commercial_status,p.featured,p.display_order,p.source,p.coverage,p.tagline,p.long_description,p.badge,p.list_price_cents,p.show_on_home,p.report_sections';
+const ADMIN_PRODUCT_COLS = 'p.archived_at,p.id,p.name,p.description,p.price_cents,p.reference_price_cents,p.active,p.slug,p.features,p.is_free,p.commercial_status,p.featured,p.display_order,p.source,p.coverage,p.tagline,p.long_description,p.badge,p.list_price_cents,p.show_on_home,p.report_sections';
 const SELLABLE_REPORT_SECTIONS = new Set(['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO', 'DEBITOS', 'RESTRICOES', 'GRAVAME', 'INSPECAO_RECALL']);
 function presentAdminProduct(row: Record<string, unknown>) {
   return {
     id: row.id, name: row.name, description: row.description, priceCents: Number(row.price_cents ?? 0), referencePriceCents: row.reference_price_cents == null ? null : Number(row.reference_price_cents),
     active: Boolean(row.active), slug: row.slug, features: row.features ?? [], isFree: Boolean(row.is_free), commercialStatus: row.commercial_status, featured: Boolean(row.featured),
     displayOrder: Number(row.display_order ?? 100), source: row.source, coverage: row.coverage, tagline: row.tagline ?? '', longDescription: row.long_description ?? '', badge: row.badge ?? null,
-    listPriceCents: row.list_price_cents == null ? null : Number(row.list_price_cents), showOnHome: Boolean(row.show_on_home), reportSections: Array.isArray(row.report_sections) ? row.report_sections : null
+    listPriceCents: row.list_price_cents == null ? null : Number(row.list_price_cents), showOnHome: Boolean(row.show_on_home), reportSections: Array.isArray(row.report_sections) ? row.report_sections : null, archivedAt: row.archived_at ?? null
   };
 }
 function checkReportSections(sections: string[] | null | undefined): void {
@@ -2056,19 +2082,36 @@ api.post('/admin/users/:id/wallet-adjustments', adminAuth, requirePermission('MA
   res.status(201).json(result);
 }));
 
-api.get('/admin/payments', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
-  const payments = await pool.query(`SELECT p.id,p.status,p.amount_cents,p.provider,p.external_id,p.created_at,p.paid_at,o.purchase_type,o.product_id,o.query_plate,u.name,u.email
-    FROM payments p JOIN users u ON u.id=p.user_id LEFT JOIN payment_orders o ON o.id=p.order_id ORDER BY p.created_at DESC LIMIT 200`);
-  res.json(payments.rows.map((row) => ({ id: row.id, status: row.status, amountCents: Number(row.amount_cents), purchaseType: row.purchase_type ?? null, productId: row.product_id ?? null, plate: row.query_plate ?? null, provider: row.provider, externalId: row.external_id, createdAt: row.created_at, paidAt: row.paid_at, customer: { name: row.name, email: row.email } })));
+api.get('/admin/payments', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
+  const filters = z.object({
+    status: z.enum(['PENDING', 'PAID', 'CANCELLED', 'FAILED', 'REFUNDED']).optional(),
+    customerType: z.enum(['PARTICULAR', 'AUTONOMO', 'EMPRESA']).optional(),
+    search: z.string().trim().max(80).optional(),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+  }).safeParse(req.query);
+  if (!filters.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const f = filters.data; const where: string[] = []; const values: unknown[] = [];
+  const push = (v: unknown) => { values.push(v); return `$${values.length}`; };
+  if (f.status) where.push(`p.status=${push(f.status)}`);
+  if (f.customerType) where.push(`coalesce(up.customer_type,'PARTICULAR')=${push(f.customerType)}`);
+  if (f.search) { const l = push(`%${f.search.replace(/[%_\\]/g, (c) => `\\${c}`)}%`); where.push(`(u.name ILIKE ${l} OR u.email ILIKE ${l} OR o.query_plate ILIKE ${l})`); }
+  if (f.from) where.push(`p.created_at >= ${push(f.from)}::date`);
+  if (f.to) where.push(`p.created_at < ${push(f.to)}::date + 1`);
+  const payments = await pool.query(`SELECT p.id,p.status,p.amount_cents,p.provider,p.external_id,p.created_at,p.paid_at,o.purchase_type,o.product_id,o.query_plate,u.name,u.email,
+      coalesce(up.customer_type,'PARTICULAR') AS customer_type,
+      (SELECT d.status FROM fiscal_documents d WHERE d.payment_id=p.id AND d.status <> 'CANCELLED' LIMIT 1) AS fiscal_status
+    FROM payments p JOIN users u ON u.id=p.user_id LEFT JOIN user_profiles up ON up.user_id=p.user_id LEFT JOIN payment_orders o ON o.id=p.order_id
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY p.created_at DESC LIMIT 300`, values);
+  res.json(payments.rows.map((row) => ({ id: row.id, status: row.status, amountCents: Number(row.amount_cents), purchaseType: row.purchase_type ?? null, productId: row.product_id ?? null, plate: row.query_plate ?? null, provider: row.provider, externalId: row.external_id ?? null, createdAt: row.created_at, paidAt: row.paid_at ?? null, customer: { name: row.name, email: row.email }, customerType: row.customer_type, fiscalStatus: row.fiscal_status ?? null })));
 }));
 
-api.get('/admin/contact-messages', adminAuth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
+api.get('/admin/contact-messages', adminAuth, requirePermission('MANAGE_SUPPORT'), asyncRoute(async (_req, res) => {
   const messages = await pool.query(`SELECT id,user_id,name,email,subject,message,category,status,created_at,closed_at
     FROM contact_messages ORDER BY created_at DESC LIMIT 200`);
   res.json(messages.rows.map((row) => ({ id: row.id, userId: row.user_id, name: row.name, email: row.email, subject: row.subject, message: row.message, category: row.category, status: row.status, createdAt: row.created_at, closedAt: row.closed_at })));
 }));
 
-api.patch('/admin/contact-messages/:id', adminAuth, requirePermission('MANAGE_USERS'), asyncRoute(async (req, res) => {
+api.patch('/admin/contact-messages/:id', adminAuth, requirePermission('MANAGE_SUPPORT'), asyncRoute(async (req, res) => {
   const parsed = contactStatusSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const updated = await pool.query(`UPDATE contact_messages SET status=$2,closed_at=CASE WHEN $2='CLOSED' THEN now() ELSE NULL END WHERE id=$1 RETURNING id,status,closed_at`, [req.params.id, parsed.data.status]);

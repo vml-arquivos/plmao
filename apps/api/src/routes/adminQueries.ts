@@ -18,7 +18,7 @@ adminQueriesRouter.use(adminAuth);
 
 export const REVEALABLE_FIELDS = ['PRONOME', 'PRONOMEANTERIOR', 'CPF_CNPJ_PROPRIETARIO', 'CPFCNPJFATURADO', 'CPFCNPJCOMPRADOR', 'CHASSI', 'RENAVAM', 'MOTOR'] as const;
 
-adminQueriesRouter.get('/:id', requirePermission('VIEW_AUDIT'), asyncRoute(async (req, res) => {
+adminQueriesRouter.get('/:id', requirePermission('VIEW_QUERIES'), asyncRoute(async (req, res) => {
   const row = await pool.query(`SELECT q.id,q.plate,q.status,q.price_cents,q.charge_source,q.provider,q.source,q.created_at,q.completed_at,q.error_code,
       p.id AS product_id,p.name AS product_name,u.name AS customer_name,u.email AS customer_email,r.normalized,(r.raw_enc IS NOT NULL) AS has_raw
     FROM vehicle_queries q JOIN users u ON u.id=q.user_id JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id

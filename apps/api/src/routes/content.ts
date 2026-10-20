@@ -242,7 +242,7 @@ const faqBody = z.object({
   active: z.boolean().default(true)
 }).strict();
 const faqPatch = faqBody.partial().strict().refine((v) => Object.keys(v).length > 0, 'EMPTY_UPDATE');
-const presentFaq = (r: Record<string, unknown>) => ({ id: r.id, category: r.category, question: r.question, answer: r.answer, displayOrder: Number(r.display_order), active: Boolean(r.active) });
+const presentFaq = (r: Record<string, unknown>) => ({ id: r.id, category: r.category, question: r.question, answer: r.answer, displayOrder: Number(r.display_order), active: Boolean(r.active), archived: Boolean(r.archived_at) });
 
 adminContentRouter.get('/faqs', asyncRoute(async (_req, res) => {
   const rows = await pool.query('SELECT * FROM faqs ORDER BY display_order,created_at');
@@ -264,9 +264,17 @@ adminContentRouter.patch('/faqs/:id', asyncRoute(async (req, res) => {
   const values: unknown[] = [];
   const sets = Object.entries(parsed.data).map(([k, v]) => { values.push(v); return `${map[k]}=$${values.length}`; });
   values.push(req.params.id);
-  const row = await pool.query(`UPDATE faqs SET ${sets.join(',')}, updated_at=now() WHERE id=$${values.length} RETURNING *`, values);
+  const row = await pool.query(`UPDATE faqs SET ${sets.join(',')}${parsed.data.active === true ? ', archived_at=NULL' : ''}, updated_at=now() WHERE id=$${values.length} RETURNING *`, values);
   if (!row.rowCount) throw notFound('FAQ_NOT_FOUND');
   await audit(req.user!.id, 'UPDATE_FAQ', 'FAQ', String(req.params.id), { fields: Object.keys(parsed.data), requestId: requestId(req) });
+  res.json(presentFaq(row.rows[0]));
+}));
+adminContentRouter.post('/faqs/:id/archive', asyncRoute(async (req, res) => {
+  if (!isUuid(req.params.id)) throw notFound('FAQ_NOT_FOUND');
+  const archive = req.body?.archived !== false;
+  const row = await pool.query(`UPDATE faqs SET archived_at=${archive ? 'now()' : 'NULL'}, active=$2, updated_at=now() WHERE id=$1 RETURNING *`, [req.params.id, !archive]);
+  if (!row.rowCount) throw notFound('FAQ_NOT_FOUND');
+  await audit(req.user!.id, archive ? 'ARCHIVE_FAQ' : 'RESTORE_FAQ', 'FAQ', String(req.params.id), { requestId: requestId(req) });
   res.json(presentFaq(row.rows[0]));
 }));
 adminContentRouter.delete('/faqs/:id', asyncRoute(async (req, res) => {
@@ -297,7 +305,7 @@ const articleBody = z.object({
 const articlePatch = articleBody.partial().strict().refine((v) => Object.keys(v).length > 0, 'EMPTY_UPDATE');
 const presentAdminArticle = (r: Record<string, unknown>) => ({
   id: r.id, slug: r.slug, title: r.title, excerpt: r.excerpt, body: r.body, category: r.category, tags: r.tags ?? [], coverImageUrl: r.cover_image_url ?? null, author: r.author,
-  seoTitle: r.seo_title ?? null, seoDescription: r.seo_description ?? null, status: r.status, publishedAt: r.published_at, createdAt: r.created_at, updatedAt: r.updated_at
+  seoTitle: r.seo_title ?? null, seoDescription: r.seo_description ?? null, status: r.status, publishedAt: r.published_at, createdAt: r.created_at, updatedAt: r.updated_at, archived: Boolean(r.archived_at)
 });
 
 adminContentRouter.get('/articles', asyncRoute(async (_req, res) => {
@@ -333,9 +341,18 @@ adminContentRouter.patch('/articles/:id', asyncRoute(async (req, res) => {
   const nextStatus = parsed.data.status ?? String(current.rows[0].status);
   if (nextStatus === 'PUBLISHED' && !current.rows[0].published_at && parsed.data.publishedAt === undefined) sets.push('published_at=now()');
   if (nextStatus === 'DRAFT' && parsed.data.status === 'DRAFT') sets.push('published_at=NULL');
+  if (parsed.data.status === 'PUBLISHED') sets.push('archived_at=NULL');
   values.push(req.params.id);
   const row = await pool.query(`UPDATE articles SET ${sets.join(',')}, updated_at=now() WHERE id=$${values.length} RETURNING *`, values);
   await audit(req.user!.id, 'UPDATE_ARTICLE', 'ARTICLE', String(req.params.id), { fields: Object.keys(parsed.data), requestId: requestId(req) });
+  res.json(presentAdminArticle(row.rows[0]));
+}));
+adminContentRouter.post('/articles/:id/archive', asyncRoute(async (req, res) => {
+  if (!isUuid(req.params.id)) throw notFound('ARTICLE_NOT_FOUND');
+  const archive = req.body?.archived !== false;
+  const row = await pool.query(`UPDATE articles SET archived_at=${archive ? 'now()' : 'NULL'}, ${archive ? "status='DRAFT', published_at=NULL," : ''} updated_at=now() WHERE id=$1 RETURNING *`, [req.params.id]);
+  if (!row.rowCount) throw notFound('ARTICLE_NOT_FOUND');
+  await audit(req.user!.id, archive ? 'ARCHIVE_ARTICLE' : 'RESTORE_ARTICLE', 'ARTICLE', String(req.params.id), { requestId: requestId(req) });
   res.json(presentAdminArticle(row.rows[0]));
 }));
 adminContentRouter.delete('/articles/:id', asyncRoute(async (req, res) => {
@@ -343,5 +360,36 @@ adminContentRouter.delete('/articles/:id', asyncRoute(async (req, res) => {
   const row = await pool.query('DELETE FROM articles WHERE id=$1 RETURNING id,slug', [req.params.id]);
   if (!row.rowCount) throw notFound('ARTICLE_NOT_FOUND');
   await audit(req.user!.id, 'DELETE_ARTICLE', 'ARTICLE', String(req.params.id), { slug: row.rows[0].slug, requestId: requestId(req) });
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- painel: vitrine (arquivar, restaurar e apagar produtos)
+
+adminContentRouter.post('/products/:id/archive', asyncRoute(async (req, res) => {
+  const archive = req.body?.archived !== false;
+  const row = await pool.query(
+    archive ? `UPDATE query_products SET archived_at=now(), active=false, show_on_home=false WHERE id=$1 RETURNING id`
+      : `UPDATE query_products SET archived_at=NULL WHERE id=$1 RETURNING id`, [req.params.id]);
+  if (!row.rowCount) throw notFound('PRODUCT_NOT_FOUND');
+  await audit(req.user!.id, archive ? 'ARCHIVE_QUERY_PRODUCT' : 'RESTORE_QUERY_PRODUCT', 'QUERY_PRODUCT', String(req.params.id), { requestId: requestId(req) });
+  res.json({ ok: true, archived: archive });
+}));
+
+/** Só apaga produto que nunca foi vendido nem consultado; caso contrário a orientação é arquivar. */
+adminContentRouter.delete('/products/:id', asyncRoute(async (req, res) => {
+  try {
+    await tx(async (client) => {
+      const exists = await client.query('SELECT 1 FROM query_products WHERE id=$1 FOR UPDATE', [req.params.id]);
+      if (!exists.rowCount) throw notFound('PRODUCT_NOT_FOUND');
+      await client.query('DELETE FROM product_catalog_features WHERE product_id=$1', [req.params.id]);
+      await client.query('DELETE FROM product_report_configs WHERE product_id=$1', [req.params.id]);
+      await client.query('DELETE FROM report_templates WHERE product_id=$1', [req.params.id]);
+      await client.query('DELETE FROM query_products WHERE id=$1', [req.params.id]);
+    });
+  } catch (error: unknown) {
+    if (typeof error === 'object' && error !== null && (error as { code?: string }).code === '23503') throw appError('PRODUCT_IN_USE', { code: 'PRODUCT_IN_USE', http: 409, expose: true });
+    throw error;
+  }
+  await audit(req.user!.id, 'DELETE_QUERY_PRODUCT', 'QUERY_PRODUCT', String(req.params.id), { requestId: requestId(req) });
   res.json({ ok: true });
 }));

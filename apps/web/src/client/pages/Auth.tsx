@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
-import { Alert, Button, Check, Field, Input, Logo, ThemeSwitch, usePageTitle } from '../../shared/ui';
+import { Alert, Button, Check, Field, Input, Logo, Select, ThemeSwitch, usePageTitle } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { HeroArt } from '../art';
 import { api } from '../api';
@@ -49,7 +49,7 @@ export default function Auth({ initial }: { initial: Mode }) {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
-  const [f, setF] = useState({ name: '', email: '', password: '', confirm: '', terms: false, marketing: false });
+  const [f, setF] = useState({ name: '', email: '', password: '', confirm: '', terms: false, marketing: false, accountType: 'PARTICULAR' });
   const title = { login: 'Entrar', register: 'Criar conta', forgot: 'Recuperar senha', reset: 'Nova senha' }[mode];
   usePageTitle(title);
 
@@ -84,7 +84,7 @@ export default function Auth({ initial }: { initial: Mode }) {
         setMode('login');
       } else if (mode === 'register') {
         const ref = storedReferral();
-        const r = await api.post<{ token: string }>('/auth/register', { name: f.name.trim(), email: f.email.trim(), password: f.password, acceptTerms: true, acceptPrivacy: true, marketingOptIn: f.marketing, ...(ref ? { affiliateCode: ref } : {}) });
+        const r = await api.post<{ token: string }>('/auth/register', { name: f.name.trim(), email: f.email.trim(), password: f.password, acceptTerms: true, acceptPrivacy: true, marketingOptIn: f.marketing, accountType: f.accountType, ...(ref ? { affiliateCode: ref } : {}) });
         trackFunnel('ACCOUNT_CREATED', {});
         await login(r.token);
       } else {
@@ -121,6 +121,15 @@ export default function Auth({ initial }: { initial: Mode }) {
             </>
           )}
           <form className="stack" onSubmit={submit} noValidate={false}>
+            {mode === 'register' && (
+              <Field label="Como você vai usar?">
+                <Select name="accountType" value={f.accountType} onChange={(e) => set('accountType')(e.target.value)}>
+                  <option value="PARTICULAR">Uso pessoal (comprar ou vender um veículo)</option>
+                  <option value="AUTONOMO">Sou vendedor autônomo ou despachante</option>
+                  <option value="EMPRESA">Tenho uma loja, agência ou empresa</option>
+                </Select>
+              </Field>
+            )}
             {mode === 'register' && <Field label="Nome completo"><Input name="name" value={f.name} onChange={(e) => set('name')(e.target.value)} autoComplete="name" minLength={2} required placeholder="Como devemos chamar você?" /></Field>}
             {mode !== 'reset' && <Field label="E-mail"><Input name="email" type="email" value={f.email} onChange={(e) => set('email')(e.target.value)} autoComplete="email" required placeholder="voce@exemplo.com" icon="mail" /></Field>}
             {mode !== 'forgot' && <PasswordField label={mode === 'reset' ? 'Nova senha' : 'Senha'} name="password" value={f.password} onChange={set('password') as (v: string) => void} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'login' ? 1 : 10} meter={mode !== 'login'} />}

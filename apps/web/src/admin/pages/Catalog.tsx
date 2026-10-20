@@ -8,7 +8,7 @@ import { PageHead } from '../parts';
 interface AdminProduct {
   id: string; name: string; slug: string; description: string; tagline: string; longDescription: string; features: string[]; badge: string | null;
   priceCents: number; listPriceCents: number | null; referencePriceCents: number | null; isFree: boolean; active: boolean; commercialStatus: string; featured: boolean;
-  showOnHome: boolean; displayOrder: number; reportSections: string[] | null;
+  showOnHome: boolean; displayOrder: number; reportSections: string[] | null; archivedAt: string | null;
 }
 interface Feature { id: string; key: string; label: string; description: string; displayOrder: number; active: boolean }
 interface MatrixRes { features: Feature[]; products: Array<{ id: string; name: string; cells: Record<string, { status: string; note: string | null }> }> }
@@ -40,16 +40,23 @@ function ProductsTab() {
   const res = useAsync(() => api.get<AdminProduct[]>('/admin/products'));
   const [edit, setEdit] = useState<AdminProduct | null>(null);
   const [creating, setCreating] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [remove, setRemove] = useState<AdminProduct | null>(null);
   const toast = useToast();
   if (res.loading && !res.data) return <PageLoading />;
   if (res.error || !res.data) return <ErrorState error={res.error} onRetry={res.reload} />;
-  const products = res.data.filter((p) => !p.isFree && (p.active || p.showOnHome));
+  const archivedCount = res.data.filter((p) => !p.isFree && p.archivedAt).length;
+  const products = res.data.filter((p) => !p.isFree && (showArchived ? Boolean(p.archivedAt) : !p.archivedAt && (p.active || p.showOnHome)));
+  async function archive(p: AdminProduct, archived: boolean) {
+    try { await api.post(`/admin/content/products/${p.id}/archive`, { archived }); toast.ok(archived ? 'Produto arquivado: saiu do site.' : 'Produto restaurado (volta inativo; ative-o em Editar).'); res.reload(); } catch (e) { toast.error(errorMessage(e)); }
+  }
   async function toggleHome(p: AdminProduct, value: boolean) {
     try { await api.patch(`/admin/products/${p.id}`, { showOnHome: value }); res.reload(); } catch (e) { toast.error(errorMessage(e)); }
   }
   return (
     <div className="stack">
       <div className="toolbar"><span className="muted grow">A ordem abaixo é a ordem do site. “À venda” só aparece ao público quando existe fonte de dados ativa para o produto.</span><Button variant="primary" icon="plus" onClick={() => setCreating(true)}>Novo produto</Button></div>
+      <Tabs label="Produtos" value={showArchived ? 'archived' : 'live'} onChange={(v) => setShowArchived(v === 'archived')} items={[{ id: 'live', label: 'Na vitrine' }, { id: 'archived', label: `Arquivados (${archivedCount})` }]} />
       <div className="table-wrap"><table className="table"><thead><tr><th>Ordem</th><th>Produto</th><th className="r">Preço</th><th>Selo</th><th>Status</th><th>Na página inicial</th><th /></tr></thead><tbody>
         {products.map((p) => (
           <tr key={p.id}>
@@ -59,11 +66,14 @@ function ProductsTab() {
             <td>{p.badge ? <Badge tone="info">{p.badge}</Badge> : <span className="muted">—</span>}</td>
             <td><Badge tone={STATUS[p.commercialStatus]?.t ?? 'neutral'} dot>{STATUS[p.commercialStatus]?.l ?? p.commercialStatus}</Badge>{!p.active && <div className="muted" style={{ fontSize: 12 }}>inativo</div>}</td>
             <td><Switch checked={p.showOnHome} onChange={(e) => void toggleHome(p, e.target.checked)} label={p.showOnHome ? 'Visível' : 'Oculto'} /></td>
-            <td className="actions"><Button size="sm" onClick={() => setEdit(p)}>Editar</Button></td>
+            <td className="actions"><Button size="sm" onClick={() => setEdit(p)}>Editar</Button> <Button size="sm" variant="ghost" onClick={() => void archive(p, !p.archivedAt)}>{p.archivedAt ? 'Restaurar' : 'Arquivar'}</Button> <Button size="sm" variant="ghost" onClick={() => setRemove(p)}>Apagar</Button></td>
           </tr>
         ))}
       </tbody></table></div>
-      {!products.length && <EmptyState icon="tag" title="Nenhum produto cadastrado" />}
+      {!products.length && <EmptyState icon="tag" title={showArchived ? 'Nenhum produto arquivado' : 'Nenhum produto cadastrado'} />}
+      {remove && <ConfirmDialog danger title="Apagar produto?" confirmLabel="Apagar" message={<p>Apagar <b>{remove.name}</b> de vez? Só é possível se ele nunca foi consultado nem vendido. Se já tem histórico, use <b>Arquivar</b>, que tira da vitrine e guarda tudo.</p>} onConfirm={async () => {
+        try { await api.del(`/admin/content/products/${remove.id}`); toast.ok('Produto apagado.'); res.reload(); } catch (e) { toast.error((e as { code?: string }).code === 'PRODUCT_IN_USE' ? 'Este produto já tem consultas ou vendas. Arquive em vez de apagar.' : errorMessage(e)); throw e; }
+      }} onClose={() => setRemove(null)} />}
       {edit && <ProductModal p={edit} onClose={(changed) => { setEdit(null); if (changed) res.reload(); }} />}
       {creating && <CreateModal onClose={(created) => { setCreating(false); if (created) res.reload(); }} />}
     </div>

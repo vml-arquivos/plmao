@@ -1,11 +1,15 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { PageLoading } from '../shared/ui';
 import { useAdminSession } from './session';
-import AdminLayout from './layout';
+import AdminLayout, { firstAllowedRoute } from './layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import { QueriesList, QueryDetailPage } from './pages/Queries';
-import Users from './pages/Users';
+import Customers, { CustomerDetail } from './pages/Customers';
+import Companies, { CompanyDetail } from './pages/Companies';
+import Team from './pages/Team';
+import Charges from './pages/Charges';
+import Fiscal from './pages/Fiscal';
 import Payments from './pages/Payments';
 import Coupons from './pages/Coupons';
 import Support from './pages/Support';
@@ -20,16 +24,23 @@ import System from './pages/System';
 import Account from './pages/Account';
 
 export default function App() {
-  const { user, ready } = useAdminSession();
+  const { user, ready, can } = useAdminSession();
   if (!ready) return <PageLoading />;
   if (!user) return <Login />;
   return (
     <Routes>
       <Route element={<AdminLayout />}>
-        <Route index element={<Dashboard />} />
+        <Route index element={can('VIEW_DASHBOARD') ? <Dashboard /> : <Navigate to={firstAllowedRoute(can)} replace />} />
         <Route path="consultas" element={<QueriesList />} />
         <Route path="consultas/:id" element={<QueryDetailPage />} />
-        <Route path="usuarios" element={<Users />} />
+        <Route path="clientes" element={<Customers />} />
+        <Route path="clientes/:id" element={<CustomerDetail />} />
+        <Route path="empresas" element={<Companies />} />
+        <Route path="empresas/:id" element={<CompanyDetail />} />
+        <Route path="equipe" element={<Team />} />
+        <Route path="cobrancas" element={<Charges />} />
+        <Route path="notas-fiscais" element={<Fiscal />} />
+        <Route path="usuarios" element={<Navigate to="/clientes" replace />} />
         <Route path="suporte" element={<Support />} />
         <Route path="financeiro" element={<Finance />} />
         <Route path="precos" element={<Pricing />} />

@@ -378,5 +378,134 @@ export const placaMigrations: Migration[] = [
         }
       }
     }
+  },
+  {
+    id: '017_admin_people_billing_fiscal',
+    name: 'Painel profissional: papéis da equipe, tipos de cliente, empresas, cobranças com parcelas e notas fiscais',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+        ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('SUPER_ADMIN','ADMIN','FINANCEIRO','OPERADOR','SUPORTE','CONTEUDO','CLIENTE'));
+
+        ALTER TABLE user_profiles
+          ADD COLUMN IF NOT EXISTS customer_type text NOT NULL DEFAULT 'PARTICULAR',
+          ADD COLUMN IF NOT EXISTS segment text,
+          ADD COLUMN IF NOT EXISTS legal_name text,
+          ADD COLUMN IF NOT EXISTS state_registration text,
+          ADD COLUMN IF NOT EXISTS municipal_registration text,
+          ADD COLUMN IF NOT EXISTS billing_email text,
+          ADD COLUMN IF NOT EXISTS zip text,
+          ADD COLUMN IF NOT EXISTS street text,
+          ADD COLUMN IF NOT EXISTS street_number text,
+          ADD COLUMN IF NOT EXISTS complement text,
+          ADD COLUMN IF NOT EXISTS district text,
+          ADD COLUMN IF NOT EXISTS notes text,
+          ADD COLUMN IF NOT EXISTS archived_at timestamptz,
+          ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES users(id) ON DELETE SET NULL;
+        ALTER TABLE user_profiles DROP CONSTRAINT IF EXISTS user_profiles_customer_type_check;
+        ALTER TABLE user_profiles ADD CONSTRAINT user_profiles_customer_type_check CHECK (customer_type IN ('PARTICULAR','AUTONOMO','EMPRESA'));
+        CREATE INDEX IF NOT EXISTS idx_user_profiles_type ON user_profiles(customer_type);
+
+        ALTER TABLE organizations
+          ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'EMPRESA',
+          ADD COLUMN IF NOT EXISTS segment text,
+          ADD COLUMN IF NOT EXISTS legal_name text,
+          ADD COLUMN IF NOT EXISTS contact_name text,
+          ADD COLUMN IF NOT EXISTS email text,
+          ADD COLUMN IF NOT EXISTS phone text,
+          ADD COLUMN IF NOT EXISTS state_registration text,
+          ADD COLUMN IF NOT EXISTS municipal_registration text,
+          ADD COLUMN IF NOT EXISTS zip text,
+          ADD COLUMN IF NOT EXISTS street text,
+          ADD COLUMN IF NOT EXISTS street_number text,
+          ADD COLUMN IF NOT EXISTS complement text,
+          ADD COLUMN IF NOT EXISTS district text,
+          ADD COLUMN IF NOT EXISTS city text,
+          ADD COLUMN IF NOT EXISTS state char(2),
+          ADD COLUMN IF NOT EXISTS notes text,
+          ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+
+        ALTER TABLE faqs ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+        ALTER TABLE articles ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+        ALTER TABLE query_products ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+
+        CREATE TABLE IF NOT EXISTS fiscal_settings (
+          id integer PRIMARY KEY CHECK (id = 1),
+          legal_name text, trade_name text, cnpj text, state_registration text, municipal_registration text,
+          tax_regime text NOT NULL DEFAULT 'SIMPLES' CHECK (tax_regime IN ('MEI','SIMPLES','PRESUMIDO','REAL')),
+          cnae text, service_code text, service_description text,
+          iss_rate_bps integer CHECK (iss_rate_bps IS NULL OR (iss_rate_bps BETWEEN 0 AND 1000)),
+          city text, state char(2), city_ibge_code text,
+          zip text, street text, street_number text, district text, email text, phone text,
+          emission_mode text NOT NULL DEFAULT 'MANUAL' CHECK (emission_mode IN ('MANUAL')),
+          environment text NOT NULL DEFAULT 'HOMOLOGACAO' CHECK (environment IN ('HOMOLOGACAO','PRODUCAO')),
+          series text NOT NULL DEFAULT '1',
+          accountant_email text,
+          notes text,
+          updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        INSERT INTO fiscal_settings(id) VALUES(1) ON CONFLICT(id) DO NOTHING;
+
+        CREATE TABLE IF NOT EXISTS charges (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          organization_id uuid REFERENCES organizations(id) ON DELETE SET NULL,
+          description text NOT NULL,
+          total_cents integer NOT NULL CHECK (total_cents > 0),
+          status text NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','PAID','CANCELLED')),
+          notes text,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          cancelled_at timestamptz,
+          CHECK (user_id IS NOT NULL OR organization_id IS NOT NULL)
+        );
+        CREATE INDEX IF NOT EXISTS idx_charges_user ON charges(user_id);
+        CREATE INDEX IF NOT EXISTS idx_charges_org ON charges(organization_id);
+        CREATE INDEX IF NOT EXISTS idx_charges_status ON charges(status);
+
+        CREATE TABLE IF NOT EXISTS charge_installments (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          charge_id uuid NOT NULL REFERENCES charges(id) ON DELETE CASCADE,
+          number integer NOT NULL CHECK (number > 0),
+          amount_cents integer NOT NULL CHECK (amount_cents > 0),
+          due_date date NOT NULL,
+          status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','PAID','CANCELLED')),
+          paid_at timestamptz,
+          paid_amount_cents integer,
+          method text CHECK (method IS NULL OR method IN ('PIX','BOLETO','CARTAO','TRANSFERENCIA','DINHEIRO','OUTRO')),
+          reference text,
+          UNIQUE (charge_id, number)
+        );
+        CREATE INDEX IF NOT EXISTS idx_installments_due ON charge_installments(status, due_date);
+
+        CREATE TABLE IF NOT EXISTS fiscal_documents (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          kind text NOT NULL DEFAULT 'NFSE' CHECK (kind IN ('NFSE','NFE')),
+          status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','ISSUED','CANCELLED')),
+          user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          organization_id uuid REFERENCES organizations(id) ON DELETE SET NULL,
+          payment_id uuid REFERENCES payments(id) ON DELETE SET NULL,
+          charge_id uuid REFERENCES charges(id) ON DELETE SET NULL,
+          installment_id uuid REFERENCES charge_installments(id) ON DELETE SET NULL,
+          amount_cents integer NOT NULL CHECK (amount_cents > 0),
+          description text NOT NULL,
+          customer_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+          number text, series text, access_key text, verification_code text,
+          issued_at timestamptz, pdf_url text, xml_url text,
+          cancel_reason text, cancelled_at timestamptz,
+          notes text,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_fiscal_documents_status ON fiscal_documents(status, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_fiscal_documents_payment ON fiscal_documents(payment_id) WHERE payment_id IS NOT NULL AND status <> 'CANCELLED';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_fiscal_documents_installment ON fiscal_documents(installment_id) WHERE installment_id IS NOT NULL AND status <> 'CANCELLED';
+      `);
+      // Quem já tem empresa preenchida no perfil vira "Empresa"; o resto segue como particular.
+      await client.query(`UPDATE user_profiles SET customer_type='EMPRESA' WHERE customer_type='PARTICULAR' AND company_name IS NOT NULL AND btrim(company_name) <> '' AND length(regexp_replace(coalesce(cpf_cnpj,''),'\\D','','g')) = 14`);
+    }
   }
 ];

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.1.0 — Painel profissional: pessoas, cobranças e fiscal
+
+### Adicionado
+
+- **Clientes, Empresas e Equipe separados** no painel. Cliente tem tipo (particular, autônomo/vendedor/despachante, empresa/agência), segmento, dados fiscais e endereço; empresa agrupa vários usuários; equipe usa níveis de acesso.
+- **Níveis de acesso da equipe**: Super admin, Admin, Financeiro, Operador, Suporte e Conteúdo. Só o Super admin cria/altera Admin e Super admin; ninguém edita a si mesmo; o último Super admin é protegido. Criação de membro gera senha temporária exibida uma vez; no primeiro acesso a pessoa cadastra o 2FA e troca a senha.
+- **Cobranças e parcelas**: plano de pagamento (à vista ou N parcelas, frequência), baixa manual com forma de pagamento, reabertura, troca de vencimento, atrasos e saldo ("falta pagar").
+- **Notas fiscais (controle)**: dados do emissor, fila "A emitir", registro de emissão (número, chave, links de PDF/XML), cancelamento, sincronização com pagamentos pagos e exportação CSV para o contador. A emissão automática na prefeitura/SEFAZ **não** está ligada (exige certificado digital e emissor contratado).
+- Filtro por tipo de cliente em consultas, pagamentos e cobranças; exportação CSV de clientes.
+- Criar, editar, arquivar, restaurar e apagar (quando não há vínculos) produtos da vitrine, FAQ e artigos; clientes e empresas podem ser arquivados ou removidos com proteção contra perda de histórico.
+- Cadastro público pergunta "Como você vai usar?" (particular, autônomo, empresa).
+- Migration `017_admin_people_billing_fiscal`.
+
+### Alterado
+
+- Menu do painel reorganizado em grupos; cada nível de acesso só vê o que pode usar. A antiga tela "Usuários" foi substituída por Clientes.
+- Janelas (modais) com rolagem interna e rodapé sempre visível.
+
 ## 1.0.0 — Placa na Mão
 
 Produto independente derivado do Carpivara, reconstruído como plataforma de consulta veicular por placa.

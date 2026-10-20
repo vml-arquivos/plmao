@@ -8,6 +8,8 @@ Este produto é **independente**: crie um projeto, um PostgreSQL, segredos e dom
 - A API serve o front React e a API no mesmo processo. Cadastre **dois domínios** apontando para a mesma aplicação:
   - site: `https://placanamao.com.br` (provisório)
   - painel: `https://admin.placanamao.com.br` (provisório; informe-o em `ADMIN_HOSTS`)
+- **É um único recurso no Coolify, com dois domínios** (não crie outra aplicação): em *Configuration → General → Domains*, informe os dois separados por vírgula, por exemplo `https://placanamao.com.br,https://admin.placanamao.com.br`. No DNS, crie um registro **A** `admin` apontando para o mesmo IP do servidor (igual ao do domínio principal). `ADMIN_HOSTS` deve conter o host do painel, sem `https://`.
+- Para entrar no painel antes de o DNS propagar, adicione também em *Domains* o endereço temporário do Coolify (`https://<id>.<IP-do-servidor>.sslip.io`) e coloque esse host em `ADMIN_HOSTS`, separado por vírgula (`admin.placanamao.com.br,<id>.<IP>.sslip.io`). Remova-o quando o domínio definitivo estiver funcionando.
 - O Dockerfile é multi-stage e roda como usuário não-root; nenhum segredo entra na imagem.
 
 ## Banco

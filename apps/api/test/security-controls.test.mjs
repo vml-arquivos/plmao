@@ -32,9 +32,9 @@ test('middleware admin exige sessão persistida, audiência admin e TOTP verific
   assert.match(auth, /metadata\?\.totpVerified !== true/);
 });
 
-test('rotas de contato não expõem conteúdo sem permissão de auditoria', () => {
-  assert.match(server, /api\.get\('\/admin\/contact-messages', adminAuth, requirePermission\('VIEW_AUDIT'\)/);
-  assert.match(server, /api\.patch\('\/admin\/contact-messages\/:id', adminAuth, requirePermission\('MANAGE_USERS'\)/);
+test('rotas de contato não expõem conteúdo sem permissão de suporte', () => {
+  assert.match(server, /api\.get\('\/admin\/contact-messages', adminAuth, requirePermission\('MANAGE_SUPPORT'\)/);
+  assert.match(server, /api\.patch\('\/admin\/contact-messages\/:id', adminAuth, requirePermission\('MANAGE_SUPPORT'\)/);
   assert.match(server, /api\.post\('\/contact', contactRateLimit/);
   assert.match(server, /api\.post\('\/account\/contact', auth, contactRateLimit/);
 });

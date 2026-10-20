@@ -9,7 +9,8 @@ Segredos existem **somente no ambiente de execução** (Coolify): nunca no repos
 | Senhas | bcrypt custo 12; bloqueio de 15 min após 5 falhas; rate limit de login |
 | Sessões | JWT com *audience* `client` ou `admin`, segredos distintos (`JWT_SECRET` ≠ `ADMIN_JWT_SECRET`), sessões revogáveis, expiração curta no painel (`ADMIN_JWT_EXPIRES_IN`) |
 | Painel da equipe | Host dedicado (`ADMIN_HOSTS`/`ADMIN_URL`), allowlist opcional de IP (`ADMIN_ALLOWED_IPS`), **2FA TOTP obrigatório** (não pode ser desligado em produção), códigos de recuperação de uso único |
-| Autorização | Papéis e permissões granulares (ex.: `REVEAL_PII`, `VIEW_AUDIT`); ações financeiras sensíveis exigem `ADMIN_SYSTEM` |
+| Autorização | Papéis (Super admin, Admin, Financeiro, Operador, Suporte, Conteúdo) e permissões granulares (ex.: `REVEAL_PII`, `VIEW_AUDIT`, `MANAGE_TEAM`, `MANAGE_FISCAL`); o papel é lido do banco a cada requisição; só o Super admin concede Admin/Super admin; ninguém edita o próprio acesso; o último Super admin é protegido; CPF/CNPJ aparecem mascarados para quem não gerencia clientes ou fiscal; ações financeiras sensíveis exigem `ADMIN_SYSTEM` |
+| Equipe | Senha temporária gerada pelo sistema e exibida uma única vez; troca obrigatória em "Minha conta"; reset de senha/2FA derruba as sessões abertas; remoção é lógica e preserva a auditoria |
 | Dinheiro | Centavos inteiros, transações com `FOR UPDATE`, saldo ≥ 0, ledger, estorno automático, webhooks idempotentes, trava de margem |
 | API | Helmet, limite de payload, rate limit, zod, SQL parametrizado, `Cache-Control: no-store` em dados sensíveis |
 | Conteúdo editável | Artigos em markdown restrito (sem HTML cru), links só http(s)/mailto/relativos, capa só https; permissão `MANAGE_CONTENT` |

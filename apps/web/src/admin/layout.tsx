@@ -7,22 +7,28 @@ import { ROLE_LABEL, type Permission } from './api';
 import { useAdminSession } from './session';
 
 interface NavItem { to: string; label: string; icon: IconName; perm: Permission; end?: boolean }
-const GROUPS: Array<{ title: string; items: NavItem[] }> = [
-  { title: 'Visão geral', items: [{ to: '/', label: 'Painel', icon: 'dashboard', perm: 'VIEW_AUDIT', end: true }] },
+export const GROUPS: Array<{ title: string; items: NavItem[] }> = [
+  { title: 'Visão geral', items: [{ to: '/', label: 'Painel', icon: 'dashboard', perm: 'VIEW_DASHBOARD', end: true }] },
+  { title: 'Pessoas', items: [
+    { to: '/clientes', label: 'Clientes', icon: 'users', perm: 'VIEW_CUSTOMERS' },
+    { to: '/empresas', label: 'Empresas', icon: 'building', perm: 'VIEW_CUSTOMERS' },
+    { to: '/equipe', label: 'Equipe e acessos', icon: 'key', perm: 'MANAGE_TEAM' }
+  ] },
   { title: 'Operação', items: [
-    { to: '/consultas', label: 'Consultas', icon: 'search', perm: 'VIEW_AUDIT' },
-    { to: '/usuarios', label: 'Usuários', icon: 'users', perm: 'MANAGE_USERS' },
-    { to: '/suporte', label: 'Suporte', icon: 'mail', perm: 'VIEW_AUDIT' }
+    { to: '/consultas', label: 'Consultas', icon: 'search', perm: 'VIEW_QUERIES' },
+    { to: '/suporte', label: 'Suporte', icon: 'mail', perm: 'MANAGE_SUPPORT' }
   ] },
   { title: 'Financeiro', items: [
     { to: '/financeiro', label: 'Financeiro', icon: 'bar-chart', perm: 'MANAGE_BILLING' },
-    { to: '/precos', label: 'Preços e margens', icon: 'tag', perm: 'MANAGE_PRICING' },
+    { to: '/cobrancas', label: 'Cobranças e parcelas', icon: 'receipt', perm: 'MANAGE_BILLING' },
     { to: '/pagamentos', label: 'Pagamentos', icon: 'credit-card', perm: 'MANAGE_BILLING' },
+    { to: '/notas-fiscais', label: 'Notas fiscais', icon: 'file-text', perm: 'MANAGE_FISCAL' },
+    { to: '/precos', label: 'Preços e margens', icon: 'tag', perm: 'MANAGE_PRICING' },
     { to: '/cupons', label: 'Cupons', icon: 'percent', perm: 'MANAGE_BILLING' },
     { to: '/parceiros', label: 'Parceiros e repasses', icon: 'wallet', perm: 'MANAGE_BILLING' }
   ] },
   { title: 'Site e conteúdo', items: [
-    { to: '/catalogo', label: 'Produtos do site', icon: 'sparkles', perm: 'MANAGE_CONTENT' },
+    { to: '/catalogo', label: 'Vitrine de produtos', icon: 'sparkles', perm: 'MANAGE_CONTENT' },
     { to: '/faq', label: 'Perguntas frequentes', icon: 'info', perm: 'MANAGE_CONTENT' },
     { to: '/artigos', label: 'Artigos e blog', icon: 'file-text', perm: 'MANAGE_CONTENT' }
   ] },
@@ -31,6 +37,12 @@ const GROUPS: Array<{ title: string; items: NavItem[] }> = [
     { to: '/sistema', label: 'Sistema', icon: 'settings', perm: 'VIEW_AUDIT' }
   ] }
 ];
+
+/** Primeira tela que a pessoa pode abrir (usada quando ela não tem acesso ao painel inicial). */
+export function firstAllowedRoute(can: (p: Permission) => boolean): string {
+  for (const g of GROUPS) for (const i of g.items) if (can(i.perm)) return i.to;
+  return '/conta';
+}
 
 export default function AdminLayout() {
   const { user, can, logout, recoveryCodesRemaining } = useAdminSession();

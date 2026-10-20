@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, QUERY_STATUS } from '../api';
+import { api, CUSTOMER_TYPE, QUERY_STATUS } from '../api';
 import { useAdminSession } from '../session';
 import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, Modal, PageLoading, PlateBadge, Select, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
@@ -8,8 +8,9 @@ import { dateTime, formatPlate, isValidPlate, money, normalizePlate } from '../.
 import ReportView from '../../shared/ReportView';
 import type { ReportV2 } from '../../shared/reportTypes';
 import { Card, PageHead, QueryStatusBadge } from '../parts';
+import { TypeBadge } from '../people';
 
-interface Row { id: string; plate: string; status: string; priceCents: number; chargeSource: string; provider: string; productName: string; createdAt: string; completedAt: string | null; errorCode: string | null; customer: { name: string; email: string } }
+interface Row { id: string; plate: string; status: string; priceCents: number; chargeSource: string; provider: string; productName: string; createdAt: string; completedAt: string | null; errorCode: string | null; customerType?: string; customer: { name: string; email: string } }
 
 export function QueriesList() {
   usePageTitle('Consultas');
@@ -18,14 +19,16 @@ export function QueriesList() {
   const list = useAsync(() => api.get<Row[]>('/admin/queries'));
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
+  const [type, setType] = useState('');
   const [lookup, setLookup] = useState(false);
-  const rows = useMemo(() => (list.data ?? []).filter((r) => (!status || r.status === status) && (!q || `${r.plate} ${r.customer.email} ${r.customer.name}`.toLowerCase().includes(q.toLowerCase()))), [list.data, q, status]);
+  const rows = useMemo(() => (list.data ?? []).filter((r) => (!status || r.status === status) && (!type || r.customerType === type) && (!q || `${r.plate} ${r.customer.email} ${r.customer.name}`.toLowerCase().includes(q.toLowerCase()))), [list.data, q, status]);
   return (
     <>
-      <PageHead title="Consultas" sub="Últimas 200 consultas. Dados pessoais ficam mascarados; a revelação é motivada e auditada." actions={can('VIEW_SENSITIVE_DATA') && <Button variant="primary" icon="search" onClick={() => setLookup(true)}>Consulta interna</Button>} />
+      <PageHead title="Consultas" sub="Últimas 300 consultas. Dados pessoais ficam mascarados; a revelação é motivada e auditada." actions={can('VIEW_SENSITIVE_DATA') && <Button variant="primary" icon="search" onClick={() => setLookup(true)}>Consulta interna</Button>} />
       <div className="toolbar">
         <div className="grow"><Input icon="search" placeholder="Buscar por placa, nome ou e-mail" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar" /></div>
         <Select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">Todos os status</option>{Object.entries(QUERY_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select>
+        <Select value={type} onChange={(e) => setType(e.target.value)} aria-label="Tipo de cliente"><option value="">Todos os tipos de cliente</option>{Object.entries(CUSTOMER_TYPE).map(([k, v]) => <option key={k} value={k}>{v.plural}</option>)}</Select>
         <Button variant="ghost" icon="refresh" onClick={list.reload}>Atualizar</Button>
       </div>
       {list.loading && !list.data ? <PageLoading /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : !rows.length ? <EmptyState title="Nenhuma consulta encontrada" /> : (
@@ -33,7 +36,7 @@ export function QueriesList() {
           {rows.map((r) => (
             <tr key={r.id} className="clickable" onClick={() => nav(`/consultas/${r.id}`)}>
               <td><b className="mono">{formatPlate(r.plate)}</b></td><td>{r.productName}</td>
-              <td>{r.customer.name}<div className="muted" style={{ fontSize: 12.5 }}>{r.customer.email}</div></td>
+              <td>{r.customer.name} <TypeBadge type={r.customerType} /><div className="muted" style={{ fontSize: 12.5 }}>{r.customer.email}</div></td>
               <td><QueryStatusBadge status={r.status} />{r.errorCode && <div className="muted" style={{ fontSize: 12 }}>{r.errorCode}</div>}</td>
               <td className="r num">{money(r.priceCents)}</td><td><Badge>{r.chargeSource}</Badge></td><td>{dateTime(r.createdAt)}</td>
             </tr>
