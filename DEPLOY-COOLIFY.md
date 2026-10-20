@@ -68,6 +68,8 @@ Para colocar o sistema no ar antes de contratar as APIs, use `DATA_PROVIDER=disa
 
 **Opção A — por variáveis (sem terminal):** defina `ADMIN_BOOTSTRAP_EMAIL`, `ADMIN_BOOTSTRAP_PASSWORD` (12+ caracteres) e `ADMIN_BOOTSTRAP_NAME`, faça o redeploy e entre no painel. O administrador só é criado se ainda não existir nenhum SUPER_ADMIN ativo (nunca sobrescreve). Depois do primeiro acesso, **remova `ADMIN_BOOTSTRAP_PASSWORD`** do ambiente.
 
+**Não consegue entrar ("e-mail ou senha inválidos")?** Veja nos logs da aplicação, logo após a subida, uma destas linhas: `admin_bootstrap_created` (administrador criado; confira `passwordLength` com o tamanho da sua senha — se for menor, o Coolify cortou algum caractere como `$`), `admin_bootstrap_skipped` (já existia outro SUPER_ADMIN, por isso a senha das variáveis **não** foi aplicada) ou nenhuma das duas (as variáveis não chegaram ao container em tempo de execução, ou o deploy falhou e o container antigo continua no ar). Para recuperar o acesso sem terminal, defina também `ADMIN_BOOTSTRAP_FORCE_RESET=true`, faça redeploy, entre e cadastre o 2FA de novo; depois **remova `ADMIN_BOOTSTRAP_FORCE_RESET` e `ADMIN_BOOTSTRAP_PASSWORD`**. Cinco tentativas erradas bloqueiam a conta por 15 minutos (o reset também desbloqueia). Prefira senhas sem `$`, aspas e espaços nas extremidades.
+
 **Opção B — pelo terminal:**
 
 1. Abra o terminal da aplicação no Coolify e rode `node apps/api/dist/cli.js admin:create voce@empresa.com.br "Seu Nome"`. A senha provisória aparece **uma única vez**.

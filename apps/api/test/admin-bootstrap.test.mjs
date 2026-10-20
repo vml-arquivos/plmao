@@ -32,6 +32,20 @@ test('administrador criado por variáveis: só quando não há SUPER_ADMIN e nun
     await pool.query('UPDATE users SET password_hash=$2 WHERE id=$1', [created.id, changed]);
     await ensureSchema();
     assert.equal((await pool.query('SELECT password_hash FROM users WHERE id=$1', [created.id])).rows[0].password_hash, changed);
+
+    // Recuperação: FORCE_RESET redefine a senha, desbloqueia a conta e zera o 2FA, mesmo com administrador existente.
+    await pool.query(`UPDATE users SET failed_login_attempts=0, locked_until=now()+interval '15 minutes' WHERE id=$1`, [created.id]);
+    const { env } = await import('../dist/config.js');
+    env.ADMIN_BOOTSTRAP_FORCE_RESET = true;
+    try {
+      await ensureSchema();
+    } finally {
+      env.ADMIN_BOOTSTRAP_FORCE_RESET = false;
+    }
+    const after = (await pool.query('SELECT password_hash,locked_until,failed_login_attempts FROM users WHERE id=$1', [created.id])).rows[0];
+    assert.equal(await bcrypt.compare(password, after.password_hash), true);
+    assert.equal(after.locked_until, null);
+    assert.equal((await pool.query(`SELECT 1 FROM audit_logs WHERE action='ENV_ADMIN_FORCE_RESET' AND entity_id=$1`, [String(created.id)])).rowCount, 1);
   } finally {
     await pool.query(`DELETE FROM users WHERE lower(email)=lower($1)`, [email]);
     await pool.query(`UPDATE users SET active=true WHERE id = ANY($1::uuid[])`, [others]);

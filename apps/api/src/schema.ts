@@ -180,16 +180,28 @@ export async function ensureSchema() {
   }
 
   if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
-    // Só cria o primeiro administrador; se já existir algum SUPER_ADMIN ativo, não toca em nada (nem na senha).
-    const existing = await pool.query(`SELECT 1 FROM users WHERE role='SUPER_ADMIN' AND active=true AND deleted_at IS NULL LIMIT 1`);
-    if (!existing.rowCount) {
-      const email = env.ADMIN_BOOTSTRAP_EMAIL.trim().toLowerCase();
-      const hash = await bcrypt.hash(env.ADMIN_BOOTSTRAP_PASSWORD, 12);
+    // Cria o primeiro administrador se ainda NÃO existir nenhum SUPER_ADMIN ativo (nunca sobrescreve por acidente).
+    // Com ADMIN_BOOTSTRAP_FORCE_RESET=true, redefine a senha deste e-mail, desbloqueia a conta e zera o 2FA (recuperação de acesso).
+    const email = env.ADMIN_BOOTSTRAP_EMAIL.trim().toLowerCase();
+    const password = env.ADMIN_BOOTSTRAP_PASSWORD.trim();
+    const force = env.ADMIN_BOOTSTRAP_FORCE_RESET === true;
+    const existing = await pool.query(`SELECT email FROM users WHERE role='SUPER_ADMIN' AND active=true AND deleted_at IS NULL ORDER BY created_at LIMIT 5`);
+    if (!existing.rowCount || force) {
+      const hash = await bcrypt.hash(password, 12);
       const created = await pool.query(`INSERT INTO users(email,password_hash,name,role,active) VALUES($1,$2,$3,'SUPER_ADMIN',true)
-        ON CONFLICT(email) DO UPDATE SET password_hash=EXCLUDED.password_hash,role='SUPER_ADMIN',active=true,password_enabled=true RETURNING id`, [email, hash, (env.ADMIN_BOOTSTRAP_NAME ?? 'Administrador').trim() || 'Administrador']);
-      await pool.query('INSERT INTO wallets(user_id,balance,balance_cents) VALUES($1,0,0) ON CONFLICT(user_id) DO NOTHING', [created.rows[0].id]);
-      await pool.query(`INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES(NULL,'ENV_ADMIN_BOOTSTRAP','USER',$1,$2::jsonb)`, [String(created.rows[0].id), JSON.stringify({ email, source: 'env' })]);
-      console.info(JSON.stringify({ level: 'info', event: 'admin_bootstrap_created', email, next: 'Entre no painel, cadastre o 2FA e remova ADMIN_BOOTSTRAP_PASSWORD do ambiente.' }));
+        ON CONFLICT(email) DO UPDATE SET password_hash=EXCLUDED.password_hash,role='SUPER_ADMIN',active=true,password_enabled=true,failed_login_attempts=0,locked_until=NULL,deleted_at=NULL RETURNING id`, [email, hash, (env.ADMIN_BOOTSTRAP_NAME ?? 'Administrador').trim() || 'Administrador']);
+      const id = created.rows[0].id;
+      await pool.query('INSERT INTO wallets(user_id,balance,balance_cents) VALUES($1,0,0) ON CONFLICT(user_id) DO NOTHING', [id]);
+      if (force) {
+        await pool.query('DELETE FROM team_totp_recovery_codes WHERE user_id=$1', [id]);
+        await pool.query('DELETE FROM team_totp WHERE user_id=$1', [id]);
+        await pool.query('UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
+      }
+      await pool.query(`INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES(NULL,$3,'USER',$1,$2::jsonb)`, [String(id), JSON.stringify({ email, source: 'env', force }), force ? 'ENV_ADMIN_FORCE_RESET' : 'ENV_ADMIN_BOOTSTRAP']);
+      console.info(JSON.stringify({ level: 'info', event: force ? 'admin_bootstrap_forced_reset' : 'admin_bootstrap_created', email, passwordLength: password.length, next: 'Entre no painel e cadastre o 2FA. Depois REMOVA ADMIN_BOOTSTRAP_PASSWORD' + (force ? ' e ADMIN_BOOTSTRAP_FORCE_RESET' : '') + ' do ambiente.' }));
+    } else {
+      const mask = (e: string) => e.replace(/^(.).*(@.*)$/, '$1***$2');
+      console.warn(JSON.stringify({ level: 'warn', event: 'admin_bootstrap_skipped', reason: 'SUPER_ADMIN_ALREADY_EXISTS', requestedEmail: mask(email), existingSuperAdmins: existing.rows.map((r) => mask(String(r.email))), hint: 'A senha das variáveis NÃO foi aplicada. Para redefinir, defina ADMIN_BOOTSTRAP_FORCE_RESET=true e faça redeploy.' }));
     }
   }
 

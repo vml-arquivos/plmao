@@ -187,6 +187,8 @@ const envSchema = z.object({
   ADMIN_BOOTSTRAP_EMAIL: optionalString,
   ADMIN_BOOTSTRAP_PASSWORD: optionalString,
   ADMIN_BOOTSTRAP_NAME: optionalString,
+  // Recuperação de acesso: redefine a senha (e zera o 2FA) do ADMIN_BOOTSTRAP_EMAIL mesmo que já exista administrador. Remova depois do uso.
+  ADMIN_BOOTSTRAP_FORCE_RESET: booleanFromEnv.default(false),
 
   // OIDC/OAuth: client secrets are runtime-only values and must never be committed or enabled at build time.
   OAUTH_STATE_TTL_SECONDS: z.coerce.number().int().min(60).max(1800).default(600),
