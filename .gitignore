@@ -9,3 +9,5 @@ coverage/
 
 # Ativos temporários de análise
 .assets/
+
+**/dist/

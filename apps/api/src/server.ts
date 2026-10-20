@@ -31,6 +31,7 @@ import { publicVehicleResult, sanitizeAuditMetadata } from './privacy.js';
 import { buildGenericReport, defaultReportTemplate, reportPdf, reportPrintHtml, type GenericReport, type GenericReportTemplate } from './reportEngine.js';
 import { decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSetup, hashRecoveryCode, verifyTotpCode } from './totp.js';
 import { renderSeoHtml } from './seo.js';
+import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle } from './types.js';
 
 await ensureSchema();
@@ -159,37 +160,9 @@ const adminUserUpdateSchema = z.object({
     fipeGuestDailyLimit: z.number().int().min(1).max(100000).optional()
   }).refine((input) => Object.keys(input).length > 0, 'EMPTY_UPDATE');
 
-type AppError = Error & { code?: string; http?: number; expose?: boolean };
 type RawBodyRequest = Request & { rawBody?: Buffer };
 type FipeStoredResult = { __type: 'FIPE_QUOTE'; quote: FipeQuote };
 type QueryRow = { id: string; status: string; credits_cost: number; price_cents?: number; charge_source?: string; product_id?: string; normalized: NormalizedVehicle | FipeStoredResult | null };
-
-function appError(message: string, options: Pick<AppError, 'code' | 'http' | 'expose'> = {}): AppError {
-  const error = new Error(message) as AppError;
-  Object.assign(error, options);
-  return error;
-}
-
-function asyncRoute(handler: RequestHandler): RequestHandler {
-  return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
-}
-
-function requestId(req: Request): string {
-  return String(req.res?.locals.requestId ?? 'unknown');
-}
-
-function log(level: 'info' | 'warn' | 'error', event: string, metadata: Record<string, unknown>): void {
-  const permitted = Object.fromEntries(Object.entries(metadata).filter(([key]) => !/password|token|authorization|document|chassis|renavam/i.test(key)));
-  const payload = { timestamp: new Date().toISOString(), level, event, ...permitted };
-  if (level === 'error') console.error(JSON.stringify(payload));
-  else if (level === 'warn') console.warn(JSON.stringify(payload));
-  else console.info(JSON.stringify(payload));
-}
-
-async function audit(userId: string | null, action: string, entity: string, entityId: string | null, metadata: Record<string, unknown> = {}): Promise<void> {
-  if (!env.AUDIT_LOG_ENABLED) return;
-  await pool.query('INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,$2,$3,$4,$5::jsonb)', [userId, action, entity, entityId, JSON.stringify(sanitizeAuditMetadata(metadata) ?? {})]);
-}
 
 function publicUser(row: { id: string; email: string; name: string; role: string }): AuthUser {
   return { id: row.id, email: row.email, name: row.name, role: row.role };
