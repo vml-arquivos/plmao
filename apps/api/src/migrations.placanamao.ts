@@ -234,12 +234,12 @@ export const placaMigrations: Migration[] = [
 
         DELETE FROM query_source_rules WHERE product_id IN ('BASIC','COMPLETE','PREMIUM','DEBTS','CADASTRAL','RESTRICTIONS');
         INSERT INTO query_source_rules(product_id,source_type,provider,active,priority,coverage) VALUES
-          ('BASIC','IDENTITY','official',true,10,'Identificação e características (provedor contratado)'),
-          ('COMPLETE','IDENTITY','official',true,10,'Identificação, débitos, restrições e recall (provedor contratado)'),
-          ('PREMIUM','IDENTITY','official',true,10,'Cobertura máxima conforme retorno do provedor contratado'),
-          ('DEBTS','DEBTS','official',false,10,'Descontinuado: incluso na Consulta Completa'),
-          ('CADASTRAL','IDENTITY','official',false,10,'Descontinuado: incluso na Consulta Básica'),
-          ('RESTRICTIONS','RESTRICTIONS','official',false,10,'Descontinuado: incluso na Consulta Completa');
+          ('BASIC','IDENTITY','contracted',true,10,'Identificação e características (provedor contratado)'),
+          ('COMPLETE','IDENTITY','contracted',true,10,'Identificação, débitos, restrições e recall (provedor contratado)'),
+          ('PREMIUM','IDENTITY','contracted',true,10,'Cobertura máxima conforme retorno do provedor contratado'),
+          ('DEBTS','DEBTS','contracted',false,10,'Descontinuado: incluso na Consulta Completa'),
+          ('CADASTRAL','IDENTITY','contracted',false,10,'Descontinuado: incluso na Consulta Básica'),
+          ('RESTRICTIONS','RESTRICTIONS','contracted',false,10,'Descontinuado: incluso na Consulta Completa');
 
         UPDATE credit_packages SET name='Pacote Inicial', description='Saldo pré-pago para consultas pontuais.', credits=25, price_cents=2490, display_order=10, active=true WHERE slug='essencial';
         UPDATE credit_packages SET name='Pacote Plus', description='Mais saldo, com bônus, para quem consulta com frequência.', credits=105, price_cents=9990, display_order=20, active=true WHERE slug='completo';

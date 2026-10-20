@@ -289,3 +289,23 @@ financeRouter.get('/overview', requirePermission('MANAGE_BILLING'), asyncRoute(a
     fiscalWarning: FISCAL_WARNING, taxIsEstimate: true
   });
 }));
+
+// ── Checklist de implantação: o que ainda falta para vender com margem protegida.
+financeRouter.get('/setup-checklist', requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
+  const settings = await loadPaymentSettings();
+  const products = await pool.query(`SELECT p.id,p.name,p.provider_cost_cents,p.supplier_cost_cents,p.reference_price_cents,p.price_cents,
+      (SELECT count(*) FROM price_references r WHERE r.product_id=p.id AND r.created_at > now() - interval '90 days')::int AS refs
+    FROM query_products p WHERE p.active=true AND p.is_free=false ORDER BY p.display_order`);
+  type Item = { key: string; ok: boolean; severity: 'BLOCKER' | 'WARNING'; title: string; detail: string };
+  const items: Item[] = [
+    { key: 'fiscal', ok: Boolean(settings.fiscalAcknowledgedAt), severity: 'BLOCKER', title: 'Alíquotas validadas pelo contador', detail: 'As alíquotas são estimativas configuráveis; confirme o regime e os percentuais com o contador e registre a ciência.' },
+    { key: 'receiver', ok: Boolean(settings.receiverName && settings.receiverPixKey), severity: 'WARNING', title: 'Dados de recebimento', detail: 'Informe razão social e chave Pix/dados bancários usados nos recibos e repasses.' },
+    { key: 'receipt', ok: Boolean(settings.receiptFooter), severity: 'WARNING', title: 'Rodapé do recibo', detail: 'Texto legal exibido nos recibos de repasse.' }
+  ];
+  for (const p of products.rows as Array<Record<string, unknown>>) {
+    const cost = Number(p.provider_cost_cents ?? 0) + Number(p.supplier_cost_cents ?? 0);
+    items.push({ key: `cost:${p.id}`, ok: cost > 0, severity: 'BLOCKER', title: `Custo do provedor — ${p.name}`, detail: 'Sem o custo, a trava de margem não consegue proteger o preço deste produto.' });
+    items.push({ key: `ref:${p.id}`, ok: Number(p.refs) > 0, severity: 'WARNING', title: `Preço de referência de mercado — ${p.name}`, detail: 'Cadastre manualmente preços de referência (uso interno; nunca exibidos ao público).' });
+  }
+  res.json({ ready: items.every((i) => i.ok || i.severity !== 'BLOCKER'), items, fiscalWarning: FISCAL_WARNING });
+}));

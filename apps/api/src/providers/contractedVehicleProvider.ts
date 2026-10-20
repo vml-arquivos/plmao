@@ -32,8 +32,8 @@ function isProviderError(raw: unknown): boolean {
  * runtime configuration so the existing contracted provider remains compatible,
  * while APIBrasil can use POST /consulta/veiculos/credits with a JSON body.
  */
-export class OfficialVehicleProvider implements VehicleDataProvider {
-  readonly name = 'official';
+export class ContractedVehicleProvider implements VehicleDataProvider {
+  readonly name = 'contracted';
 
   async queryByPlate(plate: string): Promise<{ providerQueryId?: string; raw: unknown }> {
     if (!env.VEHICLE_API_BASE_URL || !env.VEHICLE_API_QUERY_PATH) throw providerError('DATA_PROVIDER_NOT_CONFIGURED');

@@ -12,7 +12,7 @@ process.env.VEHICLE_API_AUTH_SCHEME = 'bearer';
 process.env.VEHICLE_API_TOKEN = 'legacy-token';
 process.env.APIBRASIL_BEARER_TOKEN = 'apibrasil-token';
 
-const { OfficialVehicleProvider } = await import('../dist/providers/officialVehicleProvider.js');
+const { ContractedVehicleProvider } = await import('../dist/providers/contractedVehicleProvider.js');
 
 test('envia placa para o endpoint APIBrasil por POST sem expor token na URL', async () => {
   const originalFetch = globalThis.fetch;
@@ -31,7 +31,7 @@ test('envia placa para o endpoint APIBrasil por POST sem expor token na URL', as
   };
 
   try {
-    const result = await new OfficialVehicleProvider().queryByPlate('JIW6972');
+    const result = await new ContractedVehicleProvider().queryByPlate('JIW6972');
     assert.equal(request.url, 'https://gateway.apibrasil.io/api/v2/consulta/veiculos/credits');
     assert.equal(request.init.method, 'POST');
     assert.equal(request.init.headers.authorization, 'Bearer apibrasil-token');

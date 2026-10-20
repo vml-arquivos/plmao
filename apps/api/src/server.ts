@@ -208,8 +208,8 @@ function toSafeQueryError(error: unknown): { status: number; code: string; messa
   if (code === 'QUERY_PAYMENT_NOT_READY') return { status: 409, code, message: 'A confirmação do pagamento ainda não está disponível. Aguarde a atualização do provedor.' };
   if (code === 'QUERY_PAYMENT_ALREADY_USED') return { status: 409, code, message: 'Este pagamento já foi utilizado ou não pode ser reutilizado.' };
   if (code === 'PROVIDER_TIMEOUT') return { status: 502, code: 'QUERY_RETRY_AVAILABLE', message: 'Não foi possível concluir a consulta agora. O saldo será estornado quando debitado; uma consulta já paga permanece disponível para nova tentativa.' };
-  if (code === 'DATA_PROVIDER_NOT_CONFIGURED') return { status: 503, code, message: 'A consulta oficial está em ativação. Tente novamente quando a fonte de dados estiver disponível.' };
-  if (code === 'DATA_PROVIDER_AUTH_FAILED' || code === 'DATA_PROVIDER_UNAVAILABLE' || code === 'DATA_PROVIDER_INVALID_RESPONSE') return { status: 502, code: 'QUERY_RETRY_AVAILABLE', message: 'A consulta oficial não respondeu de forma válida. Se houve débito de saldo, ele foi estornado; pagamento direto confirmado permanece disponível para nova tentativa.' };
+  if (code === 'DATA_PROVIDER_NOT_CONFIGURED') return { status: 503, code, message: 'A consulta está em ativação. Tente novamente quando a fonte de dados estiver disponível.' };
+  if (code === 'DATA_PROVIDER_AUTH_FAILED' || code === 'DATA_PROVIDER_UNAVAILABLE' || code === 'DATA_PROVIDER_INVALID_RESPONSE') return { status: 502, code: 'QUERY_RETRY_AVAILABLE', message: 'A fonte de dados não respondeu de forma válida. Se houve débito de saldo, ele foi estornado; pagamento direto confirmado permanece disponível para nova tentativa.' };
   if (code === 'PRODUCT_NOT_FOUND') return { status: 404, code, message: 'Este produto de consulta não está disponível.' };
   return { status: 502, code: 'QUERY_RETRY_AVAILABLE', message: 'Não foi possível concluir a consulta agora. Se houve débito de saldo, ele foi estornado; pagamento direto confirmado permanece disponível para nova tentativa.' };
 }
