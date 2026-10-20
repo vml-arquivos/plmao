@@ -28,6 +28,8 @@ export interface PaymentSettings {
   receiptFooter: string | null;
   fiscalAcknowledgedAt: string | null;
   updatedAt: string | null;
+  /** maior desconto efetivo dos pacotes de saldo ativos (bps). O piso de preço o absorve: quem paga por pacote paga menos por consulta. */
+  packageDiscountBps: number;
 }
 
 type Queryable = Pool | PoolClient;
@@ -36,7 +38,9 @@ export async function loadPaymentSettings(db: Queryable = pool): Promise<Payment
   const result = await db.query('SELECT * FROM payment_settings WHERE id=1');
   const r = result.rows[0] as Record<string, unknown>;
   const n = (k: string) => Number(r[k]);
+  const pkg = await db.query(`SELECT COALESCE(MAX(ROUND((1 - price_cents::numeric / (credits * 100)) * 10000)), 0)::int AS bps FROM credit_packages WHERE active=true AND credits > 0`);
   return {
+    packageDiscountBps: Math.min(Math.max(Number(pkg.rows[0]?.bps ?? 0), 0), 5000),
     taxRegime: String(r.tax_regime) as TaxRegime,
     taxRates: { cash: n('tax_cash_bps'), boleto: n('tax_boleto_bps'), debit: n('tax_debit_bps'), creditCash: n('tax_credit_cash_bps'), creditInstallment: n('tax_credit_installment_bps') },
     pix: { feeBps: n('pix_fee_bps'), fixedFeeCents: n('pix_fixed_fee_cents') },

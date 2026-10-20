@@ -33,7 +33,10 @@ export function floorPriceFor(settings: PaymentSettings, product: ProductCostInp
   const enabled = result.results.filter((r) => settings.enabledMethods.includes(r.method));
   const considered = enabled.length ? enabled : result.results;
   const worst = considered.reduce((a, b) => (b.suggestedPriceCents > a.suggestedPriceCents ? b : a));
-  return { floorCents: worst.suggestedPriceCents, result, worstMethod: worst.method };
+  // Saldo comprado em pacote com bônus: a receita por consulta é P×(1−d). Exige P×(1−d) ≥ piso do método.
+  const d = Math.min(Math.max(settings.packageDiscountBps ?? 0, 0), 5000);
+  const floorCents = d > 0 ? Math.ceil((worst.suggestedPriceCents * 10_000) / (10_000 - d)) : worst.suggestedPriceCents;
+  return { floorCents, result, worstMethod: worst.method };
 }
 
 export interface ProductPriceProposal extends ReferencePriceDecision {

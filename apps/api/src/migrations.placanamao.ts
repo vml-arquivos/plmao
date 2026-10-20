@@ -209,5 +209,42 @@ export const placaMigrations: Migration[] = [
         ALTER TABLE payment_orders ADD CONSTRAINT payment_orders_reversal_kind_check CHECK (reversal_kind IS NULL OR reversal_kind IN ('REFUND','CHARGEBACK'));
       `);
     }
+  },
+  {
+    id: '015_placanamao_catalog',
+    name: 'Catálogo Placa na Mão: planos Básica/Completa/Premium, pacotes de saldo e fontes',
+    up: async (client) => {
+      // Preços PROVISÓRIOS: o dono define custo do provedor e preços de referência no painel financeiro.
+      // A trava de margem só passa a valer depois que o custo do provedor é informado.
+      await client.query(`
+        UPDATE query_products SET name='Consulta Básica', description='Identificação e características do veículo pela placa.',
+          features='["Marca, modelo e ano","Cor, combustível e categoria","Município e UF de emplacamento","Situação do veículo","Chassi e RENAVAM com proteção parcial"]'::jsonb,
+          coverage='Identificação, características e situação cadastral', display_order=10, featured=false, active=true, commercial_status='ACTIVE', price_cents=990, credit_cost=10, pricing_mode='REFERENCE'
+          WHERE id='BASIC';
+        UPDATE query_products SET name='Consulta Completa', description='Débitos, restrições, recall e situação, além de toda a identificação.',
+          features='["Tudo da Consulta Básica","Débitos: IPVA, licenciamento, multas e DPVAT","Restrições: furto/roubo, judicial, administrativa, tributária e RENAJUD","Recall e situação do veículo","Relatório em PDF com QR de verificação"]'::jsonb,
+          coverage='Identificação, débitos, restrições, recall e situação', display_order=20, featured=true, active=true, commercial_status='ACTIVE', price_cents=2490, credit_cost=25, pricing_mode='REFERENCE'
+          WHERE id='COMPLETE';
+        UPDATE query_products SET name='Consulta Premium', description='Todos os campos que o provedor retornar, incluindo gravame e inspeção.',
+          features='["Tudo da Consulta Completa","Gravame e intenção de gravame","Inspeção veicular e comunicação de venda","Registro, CRV e dados adicionais","Todos os campos que o provedor retornar"]'::jsonb,
+          coverage='Cobertura máxima conforme retorno do provedor', display_order=30, featured=false, active=true, commercial_status='ACTIVE', price_cents=3990, credit_cost=40, pricing_mode='REFERENCE'
+          WHERE id='PREMIUM';
+        UPDATE query_products SET active=false, commercial_status='SOON', featured=false WHERE id IN ('DEBTS','CADASTRAL','RESTRICTIONS');
+        UPDATE query_products SET display_order=1, featured=false WHERE id='FIPE_FREE';
+
+        DELETE FROM query_source_rules WHERE product_id IN ('BASIC','COMPLETE','PREMIUM','DEBTS','CADASTRAL','RESTRICTIONS');
+        INSERT INTO query_source_rules(product_id,source_type,provider,active,priority,coverage) VALUES
+          ('BASIC','IDENTITY','official',true,10,'Identificação e características (provedor contratado)'),
+          ('COMPLETE','IDENTITY','official',true,10,'Identificação, débitos, restrições e recall (provedor contratado)'),
+          ('PREMIUM','IDENTITY','official',true,10,'Cobertura máxima conforme retorno do provedor contratado'),
+          ('DEBTS','DEBTS','official',false,10,'Descontinuado: incluso na Consulta Completa'),
+          ('CADASTRAL','IDENTITY','official',false,10,'Descontinuado: incluso na Consulta Básica'),
+          ('RESTRICTIONS','RESTRICTIONS','official',false,10,'Descontinuado: incluso na Consulta Completa');
+
+        UPDATE credit_packages SET name='Pacote Inicial', description='Saldo pré-pago para consultas pontuais.', credits=25, price_cents=2490, display_order=10, active=true WHERE slug='essencial';
+        UPDATE credit_packages SET name='Pacote Plus', description='Mais saldo, com bônus, para quem consulta com frequência.', credits=105, price_cents=9990, display_order=20, active=true WHERE slug='completo';
+        UPDATE credit_packages SET name='Pacote Pro', description='Para lojistas, despachantes e operações recorrentes. Melhor custo por consulta.', credits=320, price_cents=29990, display_order=30, active=true WHERE slug='profissional';
+      `);
+    }
   }
 ];

@@ -19,6 +19,7 @@ import { financeRouter } from './routes/finance.js';
 import { enforceMarginFloor } from './pricing/guard.js';
 import { partnersRouter, releaseCommissions } from './routes/partners.js';
 import { adminQueriesRouter } from './routes/adminQueries.js';
+import { apiKeyAuth, apiKeyRateLimit, apiKeysRouter, requirePublicApiEnabled } from './routes/apiKeys.js';
 import { completeAuthorization, consumeLoginTicket, createAuthorizationRequest, oauthErrorUrl, oauthSuccessUrl, socialProviderStatus, type OAuthProvider } from './oauth.js';
 import { adminHosts, env } from './config.js';
 import { sendContactConfirmationEmail, sendContactMessageEmail, sendPasswordResetEmail, isEmailConfigured } from './email.js';
@@ -40,6 +41,7 @@ import { defaultReportTemplate } from './reportEngine.js';
 import { renderVehiclePdf, type ReportMeta } from './report/pdf.js';
 import { renderVehicleHtml } from './report/printHtml.js';
 import { encryptRaw } from './lib/rawStore.js';
+import { refundProcessingQuery, sweepStuckQueries } from './lib/queryRefund.js';
 import { renderSeoHtml } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle } from './types.js';
@@ -54,6 +56,7 @@ api.use('/admin/auth', adminAuthRouter);
 api.use('/admin/finance', financeRouter);
 api.use('/admin/finance', partnersRouter);
 api.use('/admin/queries', adminQueriesRouter);
+api.use('/account/api-keys', apiKeysRouter);
 api.use((_req, res, next) => {
   // API responses are not cacheable: authenticated clients must never receive a conditional 304 without a body.
   res.setHeader('Cache-Control', 'no-store, private');
@@ -708,6 +711,7 @@ async function createContactTicket(userId: string | null, input: { name: string;
 
 const publicOfferDescriptions: Record<string, string> = {
   FIPE_FREE: 'Veja o valor médio FIPE e a referência vigente para orientar sua negociação.',
+  BASIC: 'Confirme marca, modelo, ano e características principais e compare com o anúncio.',
   CADASTRAL: 'Confirme as características principais do veículo e compare com o anúncio.',
   RESTRICTIONS: 'Verifique impedimentos que podem afetar a negociação ou a transferência.',
   DEBTS: 'Consulte débitos e pendências relevantes antes de avançar na compra.',
@@ -1042,18 +1046,35 @@ api.get('/query-products', auth, asyncRoute(async (req, res) => {
   res.json(products.rows.map((product) => ({ id: product.id, name: product.name, description: product.description, basePriceCents: Number(product.price_cents ?? 0), priceCents: Number(product.effective_price_cents ?? 0), negotiated: Boolean(product.negotiated), slug: product.slug, features: product.features, isFree: Boolean(product.is_free), commercialStatus: product.commercial_status, featured: Boolean(product.featured) })));
 }));
 
+/** Catálogo público (landing): só o que está ativo; nunca expõe custo, preço de referência nem margens. */
+api.get('/catalog', asyncRoute(async (_req, res) => {
+  const [products, packages, settings] = await Promise.all([
+    pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,p.coverage,p.slug,p.featured,
+        CASE WHEN p.is_free OR EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) THEN p.commercial_status ELSE 'SOON' END AS commercial_status
+      FROM query_products p WHERE p.active=true ORDER BY p.display_order,p.price_cents`),
+    pool.query('SELECT slug,name,description,credits,price_cents FROM credit_packages WHERE active=true ORDER BY display_order,price_cents'),
+    pool.query('SELECT enabled_methods FROM payment_settings WHERE id=1')
+  ]);
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  res.json({
+    products: products.rows.map((p) => ({ id: p.id, slug: p.slug, name: p.name, description: publicOfferDescription(String(p.id), String(p.description)), coverage: p.coverage, priceCents: p.is_free ? 0 : Number(p.price_cents ?? 0), isFree: Boolean(p.is_free), features: p.features, commercialStatus: p.commercial_status, featured: Boolean(p.featured) })),
+    packages: packages.rows.map((p) => ({ slug: p.slug, name: p.name, description: p.description, credits: Number(p.credits), priceCents: Number(p.price_cents), bonusCents: Math.max(Number(p.credits) * 100 - Number(p.price_cents), 0) })),
+    paymentMethods: (settings.rows[0]?.enabled_methods as string[] | undefined) ?? []
+  });
+}));
+
 api.get('/fipe/offers', asyncRoute(async (_req, res) => {
   const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,
       CASE WHEN p.is_free OR EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) THEN p.commercial_status ELSE 'SOON' END AS commercial_status,p.featured
-    FROM query_products p WHERE p.id IN ('FIPE_FREE','CADASTRAL','RESTRICTIONS','DEBTS','COMPLETE','PREMIUM') ORDER BY p.display_order,p.price_cents`);
+    FROM query_products p WHERE p.active=true ORDER BY p.display_order,p.price_cents`);
   res.json({ offers: products.rows.map((product) => ({ id: product.id, name: product.name, description: publicOfferDescription(product.id, product.description), priceCents: Boolean(product.is_free) ? 0 : Number(product.price_cents ?? 0), features: product.features, commercialStatus: product.commercial_status, featured: Boolean(product.featured) })) });
 }));
 
-api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async (req, res) => {
-  const parsed = requestQuerySchema.safeParse(req.body);
-  if (!parsed.success) throw appError('INVALID_PLATE', { code: 'INVALID_PLATE', http: 400, expose: true });
-  const idempotencyKeyHeader = req.headers['idempotency-key'];
-  const idempotencyKey = typeof idempotencyKeyHeader === 'string' && /^[a-zA-Z0-9_-]{12,128}$/.test(idempotencyKeyHeader) ? idempotencyKeyHeader : null;
+type RunQueryInput = { userId: string; plate: string; productId: string; paymentOrderId?: string; idempotencyKey: string | null; reqId: string; source: 'WEB' | 'API' };
+
+/** Executa uma consulta de ponta a ponta (cobrança, provedor, armazenamento, estorno em falha). Usada pelo web e pela API pública. */
+async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; body: Record<string, unknown> }> {
+  const { userId, idempotencyKey } = input;
   const provider = getProvider();
   let queryId: string | null = null;
   let cost = 0;
@@ -1063,85 +1084,108 @@ api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async 
   if (idempotencyKey) {
     const duplicate = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
       FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id
-      WHERE q.user_id=$1 AND q.idempotency_key=$2`, [req.user!.id, idempotencyKey]);
+      WHERE q.user_id=$1 AND q.idempotency_key=$2`, [userId, idempotencyKey]);
     if (duplicate.rowCount) {
       const existing = serializeQuery(duplicate.rows[0] as QueryRow & Record<string, unknown>);
-      if (existing.status === 'SUCCESS') return res.status(200).json({ ...existing, idempotent: true });
+      if (existing.status === 'SUCCESS') return { status: 200, body: { ...existing, idempotent: true } };
       throw appError('QUERY_IN_PROGRESS', { code: 'QUERY_IN_PROGRESS', http: 409, expose: true });
     }
   }
 
   try {
     await tx(async (client) => {
-      const product = await client.query('SELECT price_cents,is_free FROM query_products WHERE id=$1 AND active=true', [parsed.data.productId]);
+      const product = await client.query('SELECT price_cents,is_free FROM query_products WHERE id=$1 AND active=true', [input.productId]);
       if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404 });
-      const pricing = await effectiveQueryPrice(client, req.user!.id, parsed.data.productId, Number(product.rows[0].price_cents ?? 0), Boolean(product.rows[0].is_free));
+      const pricing = await effectiveQueryPrice(client, userId, input.productId, Number(product.rows[0].price_cents ?? 0), Boolean(product.rows[0].is_free));
       cost = pricing.priceCents;
       let before = 0;
       let after = 0;
-      if (parsed.data.paymentOrderId) {
+      if (input.paymentOrderId) {
         const entitlement = await client.query(`SELECT e.id,e.status,e.user_id,e.product_id,e.plate,o.status AS order_status,o.amount_cents
           FROM query_payment_entitlements e JOIN payment_orders o ON o.id=e.order_id
-          WHERE e.order_id=$1 AND e.user_id=$2 AND e.product_id=$3 AND e.plate=$4 FOR UPDATE`, [parsed.data.paymentOrderId, req.user!.id, parsed.data.productId, parsed.data.plate]);
+          WHERE e.order_id=$1 AND e.user_id=$2 AND e.product_id=$3 AND e.plate=$4 FOR UPDATE`, [input.paymentOrderId, userId, input.productId, input.plate]);
         if (!entitlement.rowCount) throw appError('QUERY_PAYMENT_NOT_READY', { code: 'QUERY_PAYMENT_NOT_READY', http: 409, expose: true });
         if (String(entitlement.rows[0].status) !== 'READY' || String(entitlement.rows[0].order_status) !== 'PAID') throw appError('QUERY_PAYMENT_ALREADY_USED', { code: 'QUERY_PAYMENT_ALREADY_USED', http: 409, expose: true });
         cost = Number(entitlement.rows[0].amount_cents);
         chargeSource = 'DIRECT_PAYMENT';
         entitlementId = String(entitlement.rows[0].id);
       } else {
-        const wallet = await client.query('SELECT balance_cents FROM wallets WHERE user_id=$1 FOR UPDATE', [req.user!.id]);
+        const wallet = await client.query('SELECT balance_cents FROM wallets WHERE user_id=$1 FOR UPDATE', [userId]);
         if (!wallet.rowCount || Number(wallet.rows[0].balance_cents) < cost) throw appError('INSUFFICIENT_BALANCE', { code: 'INSUFFICIENT_BALANCE', http: 402, expose: true });
         before = Number(wallet.rows[0].balance_cents);
         after = before - cost;
       }
-      const created = await client.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider,idempotency_key,payment_order_id,request_metadata)
-        VALUES($1,$2,$3,'PROCESSING',0,$4,$5,$6,$7,$8,$9::jsonb) RETURNING id`, [req.user!.id, parsed.data.plate, parsed.data.productId, cost, chargeSource, provider.name, idempotencyKey, parsed.data.paymentOrderId ?? null, JSON.stringify({ requestId: requestId(req), negotiated: pricing.negotiated })]);
+      const created = await client.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider,idempotency_key,payment_order_id,request_metadata,source)
+        VALUES($1,$2,$3,'PROCESSING',0,$4,$5,$6,$7,$8,$9::jsonb,$10) RETURNING id`, [userId, input.plate, input.productId, cost, chargeSource, provider.name, idempotencyKey, input.paymentOrderId ?? null, JSON.stringify({ requestId: input.reqId, negotiated: pricing.negotiated }), input.source]);
       queryId = created.rows[0].id as string;
-      if (!parsed.data.paymentOrderId) {
-        await client.query('UPDATE wallets SET balance_cents=$2,updated_at=now() WHERE user_id=$1', [req.user!.id, after]);
+      if (!input.paymentOrderId) {
+        await client.query('UPDATE wallets SET balance_cents=$2,updated_at=now() WHERE user_id=$1', [userId, after]);
         await client.query(`INSERT INTO wallet_transactions(user_id,kind,amount,balance_before,balance_after,amount_cents,balance_before_cents,balance_after_cents,query_id,description,metadata)
-          VALUES($1,'QUERY',0,0,0,$2,$3,$4,$5,$6,$7::jsonb)`, [req.user!.id, -cost, before, after, queryId, `Consulta ${parsed.data.plate}`, JSON.stringify({ productId: parsed.data.productId, negotiated: pricing.negotiated, requestId: requestId(req) })]);
+          VALUES($1,'QUERY',0,0,0,$2,$3,$4,$5,$6,$7::jsonb)`, [userId, -cost, before, after, queryId, `Consulta ${input.plate}`, JSON.stringify({ productId: input.productId, negotiated: pricing.negotiated, requestId: input.reqId })]);
       } else {
         await client.query(`UPDATE query_payment_entitlements SET status='CONSUMED',query_id=$2,consumed_at=now() WHERE id=$1 AND status='READY'`, [entitlementId, queryId]);
       }
     });
 
-    const output = await executeVehicleLookup({ provider, plate: parsed.data.plate, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
+    const output = await executeVehicleLookup({ provider, plate: input.plate, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
     const normalized = output.normalized;
     const resultHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
     await tx(async (client) => {
       await client.query('INSERT INTO vehicle_query_results(query_id,normalized,raw_response,raw_enc,normalizer_version) VALUES($1,$2::jsonb,$3::jsonb,$4,$5)', [queryId, JSON.stringify(normalized), JSON.stringify({ stored: env.STORE_RAW_PROVIDER_RESPONSE, encrypted: env.STORE_RAW_PROVIDER_RESPONSE }), env.STORE_RAW_PROVIDER_RESPONSE ? encryptRaw(output.raw) : null, NORMALIZER_VERSION]);
       await client.query(`UPDATE vehicle_queries SET status='SUCCESS',provider_query_id=$2,result_hash=$3,completed_at=now() WHERE id=$1`, [queryId, output.providerQueryId ?? null, resultHash]);
     });
-    await audit(req.user!.id, 'VEHICLE_QUERY', 'VEHICLE_QUERY', queryId, { plate: parsed.data.plate, productId: parsed.data.productId, provider: provider.name, requestId: requestId(req) });
+    await audit(userId, 'VEHICLE_QUERY', 'VEHICLE_QUERY', queryId, { plate: input.plate, productId: input.productId, provider: provider.name, requestId: input.reqId });
     const completed = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
       FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.id=$1`, [queryId]);
     const completedRow = completed.rows[0] as QueryRow & Record<string, unknown>;
-    res.status(201).json(serializeQuery(completedRow));
+    return { status: 201, body: serializeQuery(completedRow) };
   } catch (error: unknown) {
     if (queryId) {
-      await tx(async (client) => {
-        const query = await client.query('SELECT status FROM vehicle_queries WHERE id=$1 FOR UPDATE', [queryId]);
-        if (!query.rowCount || query.rows[0].status !== 'PROCESSING') return;
-        if (chargeSource === 'DIRECT_PAYMENT') {
-          if (entitlementId) await client.query(`UPDATE query_payment_entitlements SET status='READY',query_id=NULL,consumed_at=NULL WHERE id=$1 AND status='CONSUMED'`, [entitlementId]);
-        } else {
-          const wallet = await client.query('SELECT balance_cents FROM wallets WHERE user_id=$1 FOR UPDATE', [req.user!.id]);
-          const before = Number(wallet.rows[0]?.balance_cents ?? 0);
-          const after = before + cost;
-          await client.query('UPDATE wallets SET balance_cents=$2,updated_at=now() WHERE user_id=$1', [req.user!.id, after]);
-          await client.query(`INSERT INTO wallet_transactions(user_id,kind,amount,balance_before,balance_after,amount_cents,balance_before_cents,balance_after_cents,query_id,description,metadata)
-            VALUES($1,'REFUND',0,0,0,$2,$3,$4,$5,$6,$7::jsonb)`, [req.user!.id, cost, before, after, queryId, `Estorno consulta ${parsed.data.plate}`, JSON.stringify({ requestId: requestId(req) })]);
-        }
-        const errorCode = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'PROVIDER_ERROR';
-        await client.query(`UPDATE vehicle_queries SET status='REFUNDED',error_code=$2,error_message=$3,completed_at=now() WHERE id=$1`, [queryId, errorCode, 'Consulta não concluída; cobrança estornada.']);
-      });
-      await audit(req.user!.id, 'QUERY_REFUND', 'VEHICLE_QUERY', queryId, { plate: parsed.data.plate, requestId: requestId(req) });
+      const errorCode = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'PROVIDER_ERROR';
+      await tx((client) => refundProcessingQuery(client, queryId!, errorCode));
+      await audit(userId, 'QUERY_REFUND', 'VEHICLE_QUERY', queryId, { plate: input.plate, requestId: input.reqId });
     }
     const safe = toSafeQueryError(error);
-    res.status(safe.status).json({ error: safe.code, message: safe.message, refunded: Boolean(queryId) && chargeSource !== 'DIRECT_PAYMENT' });
+    return { status: safe.status, body: { error: safe.code, message: safe.message, refunded: Boolean(queryId) && chargeSource !== 'DIRECT_PAYMENT' } };
   }
+}
+
+api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async (req, res) => {
+  const parsed = requestQuerySchema.safeParse(req.body);
+  if (!parsed.success) throw appError('INVALID_PLATE', { code: 'INVALID_PLATE', http: 400, expose: true });
+  const idempotencyKeyHeader = req.headers['idempotency-key'];
+  const idempotencyKey = typeof idempotencyKeyHeader === 'string' && /^[a-zA-Z0-9_-]{12,128}$/.test(idempotencyKeyHeader) ? idempotencyKeyHeader : null;
+  const out = await runVehicleQuery({ userId: req.user!.id, plate: parsed.data.plate, productId: parsed.data.productId, paymentOrderId: parsed.data.paymentOrderId, idempotencyKey, reqId: requestId(req), source: 'WEB' });
+  res.status(out.status).json(out.body);
 }));
+
+// ---- API pública v1 (chave de API; habilitada por PUBLIC_API_ENABLED) ----
+const v1QuerySchema = z.object({ plate: plateSchema, product: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/).default('COMPLETE') }).strict();
+const v1 = express.Router();
+v1.use(requirePublicApiEnabled, apiKeyAuth, apiKeyRateLimit);
+v1.get('/products', asyncRoute(async (_req, res) => {
+  const products = await pool.query(`SELECT id,name,description,price_cents FROM query_products WHERE active=true AND is_free=false AND id IN (SELECT product_id FROM query_source_rules WHERE active=true) ORDER BY display_order`);
+  res.json({ object: 'list', data: products.rows.map((p) => ({ id: p.id, name: p.name, description: p.description, priceCents: Number(p.price_cents) })) });
+}));
+v1.get('/balance', asyncRoute(async (req, res) => {
+  const w = await pool.query('SELECT balance_cents FROM wallets WHERE user_id=$1', [req.user!.id]);
+  res.json({ balanceCents: Number(w.rows[0]?.balance_cents ?? 0) });
+}));
+v1.post('/vehicles', asyncRoute(async (req, res) => {
+  const parsed = v1QuerySchema.safeParse(req.body);
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const key = req.headers['idempotency-key'];
+  const idempotencyKey = typeof key === 'string' && /^[a-zA-Z0-9_-]{12,128}$/.test(key) ? key : null;
+  const out = await runVehicleQuery({ userId: req.user!.id, plate: parsed.data.plate, productId: parsed.data.product, idempotencyKey, reqId: requestId(req), source: 'API' });
+  res.status(out.status).json({ object: 'vehicle_query', ...out.body });
+}));
+v1.get('/vehicles/:id', asyncRoute(async (req, res) => {
+  const q = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
+    FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.id=$1 AND q.user_id=$2 AND q.source='API'`, [req.params.id, req.user!.id]);
+  if (!q.rowCount) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
+  res.json({ object: 'vehicle_query', ...serializeQuery(q.rows[0] as QueryRow & Record<string, unknown>) });
+}));
+api.use('/v1', v1);
 
 api.get('/queries', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
   const plate = typeof req.query.plate === 'string' ? req.query.plate.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7) : '';
@@ -2165,6 +2209,7 @@ app.get('*', (req, res, next) => {
   res.type('html').send(renderSeoHtml(indexHtmlTemplate, req.path, env.APP_URL ?? env.WEB_ORIGIN));
 });
 
+setInterval(() => { sweepStuckQueries(env.QUERY_STUCK_MINUTES).catch((error) => log('error', 'query_sweeper_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 2 * 60 * 1000).unref();
 setInterval(() => { releaseCommissions().catch((error) => log('error', 'commission_release_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 60 * 60 * 1000).unref();
 const httpServer = app.listen(env.PORT, '0.0.0.0', () => log('info', 'server_started', { port: env.PORT, provider: env.DATA_PROVIDER, environment: env.NODE_ENV }));
 let shuttingDown = false;
