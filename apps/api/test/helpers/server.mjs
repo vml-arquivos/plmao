@@ -39,3 +39,31 @@ export async function startServer(extraEnv = {}) {
     request: (path, { method = 'GET', body, token, headers = {} } = {}) => fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined })
   };
 }
+
+/** Cria um usuário de equipe, cumpre o 2FA e devolve um token de admin válido. */
+export async function adminSession({ server, pool, role = 'SUPER_ADMIN', host = 'admin.placanamao.test' }) {
+  const bcrypt = (await import('bcryptjs')).default;
+  const { totpCodeAt } = await import('../../dist/totp.js');
+  const email = `adm-${Math.random().toString(36).slice(2, 9)}@painel.local`;
+  const password = 'Senha-Forte-123!';
+  await pool.query(`INSERT INTO users(email,password_hash,name,role) VALUES($1,$2,'Admin Teste',$3)`, [email, await bcrypt.hash(password, 4), role]);
+  const call = (path, opts = {}) => hostRequest(server.base, path, { ...opts, host });
+  const login = await call('/api/admin/auth/login', { method: 'POST', body: { email, password } });
+  const secret = login.json.setup.secret;
+  const ok = await call('/api/admin/auth/totp/enroll/confirm', { method: 'POST', body: { challenge: login.json.challenge, code: totpCodeAt(secret) } });
+  return { email, token: ok.json.token, call: (path, opts = {}) => call(path, { token: ok.json.token, ...opts }) };
+}
+
+import http from 'node:http';
+export function hostRequest(base, path, { method = 'GET', body, token, host } = {}) {
+  const url = new URL(base + path);
+  return new Promise((resolve, reject) => {
+    const req = http.request({ hostname: url.hostname, port: url.port, path: url.pathname + url.search, method, headers: { 'content-type': 'application/json', ...(host ? { host } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) } }, (res) => {
+      let data = ''; res.on('data', (d) => { data += d; });
+      res.on('end', () => { let json = null; try { json = data ? JSON.parse(data) : null; } catch { json = data; } resolve({ status: res.statusCode, json, text: data, headers: res.headers }); });
+    });
+    req.on('error', reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}

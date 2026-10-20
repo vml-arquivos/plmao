@@ -15,6 +15,9 @@ import { settlePaymentEvent } from './payments/settle.js';
 import { adminAuth, adminEdgeGuard, auth, clientApiGuard, isAdminHost, isTeamRole, issueSession, revokeSession, type AuthUser } from './auth.js';
 import { hashIp } from './lib/totpFlow.js';
 import { adminAuthRouter } from './routes/adminAuth.js';
+import { financeRouter } from './routes/finance.js';
+import { enforceMarginFloor } from './pricing/guard.js';
+import { partnersRouter, releaseCommissions } from './routes/partners.js';
 import { completeAuthorization, consumeLoginTicket, createAuthorizationRequest, oauthErrorUrl, oauthSuccessUrl, socialProviderStatus, type OAuthProvider } from './oauth.js';
 import { adminHosts, env } from './config.js';
 import { sendContactConfirmationEmail, sendContactMessageEmail, sendPasswordResetEmail, isEmailConfigured } from './email.js';
@@ -43,6 +46,8 @@ const api = express.Router();
 // Duas frentes: o painel só existe nos hosts de admin; o app do cliente não é servido nesses hosts.
 api.use((req, res, next) => (req.path.startsWith('/admin') ? adminEdgeGuard(req, res, next) : clientApiGuard(req, res, next)));
 api.use('/admin/auth', adminAuthRouter);
+api.use('/admin/finance', financeRouter);
+api.use('/admin/finance', partnersRouter);
 api.use((_req, res, next) => {
   // API responses are not cacheable: authenticated clients must never receive a conditional 304 without a body.
   res.setHeader('Cache-Control', 'no-store, private');
@@ -95,6 +100,9 @@ const forgotPasswordSchema = z.object({ email: z.string().trim().email().max(254
     description: z.string().trim().min(2).max(400).optional(),
     referencePriceCents: z.number().int().min(0).max(100000000).nullable().optional(),
     priceCents: z.number().int().min(0).max(100000000).optional(),
+    providerCostCents: z.number().int().min(0).max(100000000).optional(),
+    supplierCostCents: z.number().int().min(0).max(100000000).optional(),
+    overrideMarginLock: z.object({ reason: z.string().trim().min(10).max(280) }).optional(),
     slug: z.string().trim().min(2).max(80).regex(/^[a-z0-9-]+$/).optional(),
     features: z.array(z.string().trim().min(1).max(180)).max(30).optional(),
     source: z.string().trim().max(240).nullable().optional(),
@@ -116,6 +124,9 @@ const forgotPasswordSchema = z.object({ email: z.string().trim().email().max(254
     name: z.string().trim().min(2).max(120),
     description: z.string().trim().min(2).max(400),
     priceCents: z.number().int().min(0).max(100000000),
+    providerCostCents: z.number().int().min(0).max(100000000).default(0),
+    supplierCostCents: z.number().int().min(0).max(100000000).default(0),
+    overrideMarginLock: z.object({ reason: z.string().trim().min(10).max(280) }).optional(),
     referencePriceCents: z.number().int().min(0).max(100000000).nullable().optional(),
     slug: z.string().trim().min(2).max(80).regex(/^[a-z0-9-]+$/),
     features: z.array(z.string().trim().min(1).max(180)).max(30).default([]),
@@ -1662,39 +1673,6 @@ api.delete('/admin/coupons/:id', adminAuth, requirePermission('MANAGE_BILLING'),
   res.status(204).end();
 }));
 
-api.get('/admin/affiliates', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
-  const result = await pool.query(`SELECT a.id,a.name,a.email,a.code,a.commission_bps,a.active,a.created_at,
-    count(ac.id)::int AS commissions_count, coalesce(sum(ac.amount_cents) FILTER (WHERE ac.status='PENDING'),0)::int AS pending_cents
-    FROM affiliates a LEFT JOIN affiliate_commissions ac ON ac.affiliate_id=a.id GROUP BY a.id ORDER BY a.created_at DESC`);
-  res.json(result.rows.map((row) => ({ id: row.id, name: row.name, email: row.email, code: row.code, commissionBps: Number(row.commission_bps), active: row.active, commissionsCount: Number(row.commissions_count), pendingCents: Number(row.pending_cents), createdAt: row.created_at })));
-}));
-
-api.post('/admin/affiliates', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
-  const parsed = affiliateCreateSchema.safeParse(req.body);
-  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const result = await pool.query(`INSERT INTO affiliates(name,email,code,commission_bps,active) VALUES($1,$2,$3,$4,$5)
-    RETURNING id,name,email,code,commission_bps,active,created_at`, [parsed.data.name, parsed.data.email ?? null, parsed.data.code.toUpperCase(), parsed.data.commissionBps, parsed.data.active]);
-  await audit(req.user!.id, 'CREATE_AFFILIATE', 'AFFILIATE', result.rows[0].id, { requestId: requestId(req) });
-  res.status(201).json(result.rows[0]);
-}));
-
-api.patch('/admin/affiliates/:id', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
-  const parsed = affiliateUpdateSchema.safeParse(req.body);
-  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const fields = Object.entries(parsed.data).filter(([, value]) => value !== undefined);
-  if (!fields.length) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const values: unknown[] = []; const assignments: string[] = [];
-  for (const [key, value] of fields) {
-    const column = key === 'commissionBps' ? 'commission_bps' : key;
-    values.push(key === 'code' ? String(value).toUpperCase() : value ?? null); assignments.push(`${column}=$${values.length}`);
-  }
-  values.push(req.params.id);
-  const result = await pool.query(`UPDATE affiliates SET ${assignments.join(',')},updated_at=now() WHERE id=$${values.length} RETURNING id,name,email,code,commission_bps,active,created_at`, values);
-  if (!result.rowCount) throw appError('AFFILIATE_NOT_FOUND', { code: 'AFFILIATE_NOT_FOUND', http: 404, expose: true });
-  await audit(req.user!.id, 'UPDATE_AFFILIATE', 'AFFILIATE', String(req.params.id), { requestId: requestId(req) });
-  res.json(result.rows[0]);
-}));
-
 api.get('/admin/organizations', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (_req, res) => {
   const result = await pool.query(`SELECT id,name,document,active,slug,primary_color,accent_color,logo_url,custom_domain,settings,created_at
     FROM organizations ORDER BY created_at DESC`);
@@ -1770,23 +1748,6 @@ api.get('/affiliate/stats', auth, asyncRoute(async (req, res) => {
   const code = String(affiliate.rows[0].code);
   const shareUrl = new URL('/?ref=' + encodeURIComponent(code), env.APP_URL).toString();
   res.json({ affiliate: { id: affiliate.rows[0].id, code }, shareUrl, totals: { commissions: Number(totals.rows[0].commissions), pendingCents: Number(totals.rows[0].pending_cents), paidCents: Number(totals.rows[0].paid_cents), referredUsers: Number(totals.rows[0].referred_users) } });
-}));
-
-api.get('/admin/affiliate-commissions', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
-  const result = await pool.query(`SELECT c.id,c.amount_cents,c.status,c.created_at,c.paid_at,a.name AS affiliate_name,a.code,p.external_reference
-    FROM affiliate_commissions c JOIN affiliates a ON a.id=c.affiliate_id LEFT JOIN payment_orders p ON p.id=c.order_id
-    ORDER BY c.created_at DESC LIMIT 200`);
-  res.json(result.rows.map((row) => ({ id: row.id, amountCents: Number(row.amount_cents), status: row.status, createdAt: row.created_at, paidAt: row.paid_at, affiliate: { name: row.affiliate_name, code: row.code }, externalReference: row.external_reference })));
-}));
-
-api.patch('/admin/affiliate-commissions/:id', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
-  const parsed = z.object({ status: z.enum(['PAID', 'CANCELLED']) }).safeParse(req.body);
-  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const result = await pool.query(`UPDATE affiliate_commissions SET status=$2,paid_at=CASE WHEN $2='PAID' THEN now() ELSE paid_at END
-    WHERE id=$1 AND status='PENDING' RETURNING id,amount_cents,status,paid_at`, [req.params.id, parsed.data.status]);
-  if (!result.rowCount) throw appError('COMMISSION_NOT_FOUND_OR_CLOSED', { code: 'COMMISSION_NOT_FOUND_OR_CLOSED', http: 404, expose: true });
-  await audit(req.user!.id, 'UPDATE_AFFILIATE_COMMISSION', 'AFFILIATE_COMMISSION', String(req.params.id), { status: parsed.data.status, requestId: requestId(req) });
-  res.json({ id: result.rows[0].id, amountCents: Number(result.rows[0].amount_cents), status: result.rows[0].status, paidAt: result.rows[0].paid_at });
 }));
 
 api.get('/admin/organizations/:id/members', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
@@ -1875,8 +1836,10 @@ api.post('/admin/products', adminAuth, requirePermission('MANAGE_PRICING'), asyn
   const created = await tx(async (client) => {
     const priceCents = value.isFree ? 0 : value.priceCents;
     const legacyCreditCost = Math.ceil(priceCents / 100);
-    const product = await client.query(`INSERT INTO query_products(id,name,description,credit_cost,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15) RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free`, [value.id, value.name, value.description, legacyCreditCost, priceCents, value.referencePriceCents ?? null, value.active, value.slug, JSON.stringify(value.features), value.displayOrder, value.source ?? null, value.coverage ?? null, value.commercialStatus, value.featured, value.isFree]);
+    const guard = await enforceMarginFloor(client, { name: value.name, providerCostCents: value.providerCostCents, supplierCostCents: value.supplierCostCents, priceCents, isFree: value.isFree }, req.user!.role, value.overrideMarginLock);
+    if (guard.overridden) await audit(req.user!.id, 'MARGIN_LOCK_OVERRIDE', 'QUERY_PRODUCT', value.id, { requestId: requestId(req), floorCents: guard.floorCents, priceCents, reason: value.overrideMarginLock?.reason });
+    const product = await client.query(`INSERT INTO query_products(id,name,description,credit_cost,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,provider_cost_cents,supplier_cost_cents,floor_price_cents)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free`, [value.id, value.name, value.description, legacyCreditCost, priceCents, value.referencePriceCents ?? null, value.active, value.slug, JSON.stringify(value.features), value.displayOrder, value.source ?? null, value.coverage ?? null, value.commercialStatus, value.featured, value.isFree, value.providerCostCents, value.supplierCostCents, guard.floorCents || null]);
     const insertedTemplate = await client.query(`INSERT INTO report_templates(product_id,version,name,status,config,created_by) VALUES($1,1,$2,'PUBLISHED',$3::jsonb,$4) RETURNING id,version,name,status`, [value.id, templateName, JSON.stringify(templateConfig), req.user!.id]);
     await client.query(`INSERT INTO product_report_configs(product_id,template_id,mode,formats,updated_by) VALUES($1,$2,'SNAPSHOT',ARRAY['JSON','HTML','PDF'],$3)`, [value.id, insertedTemplate.rows[0].id, req.user!.id]);
     return { product: product.rows[0], template: insertedTemplate.rows[0] };
@@ -1891,6 +1854,19 @@ api.patch('/admin/products/:id', adminAuth, requirePermission('MANAGE_PRICING'),
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const values: unknown[] = [];
   const assignments: string[] = [];
+  if (parsed.data.priceCents !== undefined || parsed.data.providerCostCents !== undefined || parsed.data.supplierCostCents !== undefined) {
+    const current = await pool.query('SELECT name,price_cents,provider_cost_cents,supplier_cost_cents,is_free FROM query_products WHERE id=$1', [req.params.id]);
+    if (!current.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
+    const row = current.rows[0] as Record<string, unknown>;
+    const nextCost = parsed.data.providerCostCents ?? Number(row.provider_cost_cents ?? 0);
+    const nextSupplier = parsed.data.supplierCostCents ?? Number(row.supplier_cost_cents ?? 0);
+    const nextPrice = parsed.data.isFree ? 0 : parsed.data.priceCents ?? Number(row.price_cents ?? 0);
+    const guard = await enforceMarginFloor(pool, { name: String(row.name), providerCostCents: nextCost, supplierCostCents: nextSupplier, priceCents: nextPrice, isFree: parsed.data.isFree ?? Boolean(row.is_free) }, req.user!.role, parsed.data.overrideMarginLock);
+    if (guard.overridden) await audit(req.user!.id, 'MARGIN_LOCK_OVERRIDE', 'QUERY_PRODUCT', String(req.params.id), { requestId: requestId(req), floorCents: guard.floorCents, priceCents: nextPrice, reason: parsed.data.overrideMarginLock?.reason });
+    if (parsed.data.providerCostCents !== undefined) { values.push(parsed.data.providerCostCents); assignments.push(`provider_cost_cents=$${values.length}`); }
+    if (parsed.data.supplierCostCents !== undefined) { values.push(parsed.data.supplierCostCents); assignments.push(`supplier_cost_cents=$${values.length}`); }
+    values.push(guard.floorCents || null); assignments.push(`floor_price_cents=$${values.length}`);
+  }
   if (parsed.data.name !== undefined) { values.push(parsed.data.name); assignments.push(`name=$${values.length}`); }
   if (parsed.data.description !== undefined) { values.push(parsed.data.description); assignments.push(`description=$${values.length}`); }
   if (parsed.data.referencePriceCents !== undefined) { values.push(parsed.data.referencePriceCents); assignments.push(`reference_price_cents=$${values.length}`); }
@@ -2207,6 +2183,7 @@ app.get('*', (req, res, next) => {
   res.type('html').send(renderSeoHtml(indexHtmlTemplate, req.path, env.APP_URL ?? env.WEB_ORIGIN));
 });
 
+setInterval(() => { releaseCommissions().catch((error) => log('error', 'commission_release_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 60 * 60 * 1000).unref();
 const httpServer = app.listen(env.PORT, '0.0.0.0', () => log('info', 'server_started', { port: env.PORT, provider: env.DATA_PROVIDER, environment: env.NODE_ENV }));
 let shuttingDown = false;
 function shutdown(signal: string): void {
