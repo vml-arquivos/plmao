@@ -12,6 +12,9 @@ const baseEnv = {
   DATABASE_URL: 'postgresql://user:password@db.example.test:5432/app',
   DATABASE_SSL: 'true',
   JWT_SECRET: 'a'.repeat(80),
+  ADMIN_JWT_SECRET: 'b'.repeat(80),
+  DATA_ENCRYPTION_KEY: 'c'.repeat(48),
+  ADMIN_URL: 'https://admin.example.test',
   APP_URL: 'https://app.example.test',
   WEB_ORIGIN: 'https://app.example.test',
   DATA_PROVIDER: 'real',
@@ -45,7 +48,7 @@ test('produção aceita provider real e pagamento completo sem imprimir credenci
   const result = spawnSync(process.execPath, [probe], { env: baseEnv, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /CONFIG_OK/);
-  assert.doesNotMatch(result.stdout + result.stderr, /vehicle-runtime-token|asaas-runtime-key|webhook-runtime-secret/);
+  assert.doesNotMatch(result.stdout + result.stderr, /vehicle-runtime-token|asaas-runtime-key|webhook-runtime-secret|bbbbbbbb|cccccccc/);
 });
 
 test('produção aceita pagamento explicitamente desabilitado sem credenciais de gateway', () => {
@@ -61,4 +64,12 @@ test('produção aceita pagamento explicitamente desabilitado sem credenciais de
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /CONFIG_OK/);
+});
+
+test('produção exige segredo admin distinto, chave de criptografia e host admin', () => {
+  const result = spawnSync(process.execPath, [probe], { env: { ...baseEnv, ADMIN_JWT_SECRET: baseEnv.JWT_SECRET, DATA_ENCRYPTION_KEY: '', ADMIN_URL: '', ADMIN_HOSTS: '' }, encoding: 'utf8' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /ADMIN_JWT_SECRET_STRONG_AND_DISTINCT_REQUIRED/);
+  assert.match(result.stderr, /DATA_ENCRYPTION_KEY_REQUIRED/);
+  assert.match(result.stderr, /ADMIN_HOSTS_OR_ADMIN_URL_REQUIRED/);
 });

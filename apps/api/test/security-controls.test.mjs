@@ -24,23 +24,22 @@ test('retenção exige prévia por padrão e só permite execução administrati
   assert.match(server, /INSERT INTO audit_retention_runs/);
 });
 
-test('middleware não aceita token sem sessão persistida para equipe', () => {
-  assert.match(auth, /\['OPERADOR', 'ADMIN', 'SUPER_ADMIN'\]\.includes\(String\(claims\.role\)\) && !claims\.sid/);
-  assert.match(auth, /metadata\.totpVerified !== true/);
+test('middleware admin exige sessão persistida, audiência admin e TOTP verificado', () => {
+  assert.match(auth, /audience === 'admin' && \(!claims\.sid \|\| !isTeamRole\(String\(claims\.role\)\)\)/);
+  assert.match(auth, /metadata\?\.totpVerified !== true/);
 });
 
 test('rotas de contato não expõem conteúdo sem permissão de auditoria', () => {
-  assert.match(server, /api\.get\('\/admin\/contact-messages', auth, requirePermission\('VIEW_AUDIT'\)/);
-  assert.match(server, /api\.patch\('\/admin\/contact-messages\/:id', auth, requirePermission\('MANAGE_USERS'\)/);
+  assert.match(server, /api\.get\('\/admin\/contact-messages', adminAuth, requirePermission\('VIEW_AUDIT'\)/);
+  assert.match(server, /api\.patch\('\/admin\/contact-messages\/:id', adminAuth, requirePermission\('MANAGE_USERS'\)/);
   assert.match(server, /api\.post\('\/contact', contactRateLimit/);
   assert.match(server, /api\.post\('\/account\/contact', auth, contactRateLimit/);
 });
 
-test('TOTP da equipe fica desligado por padrão e só é exigido quando explicitamente habilitado', () => {
-  assert.match(config, /TEAM_TOTP_REQUIRED: booleanFromEnv\.default\(false\)/);
-  assert.match(auth, /env\.TEAM_TOTP_REQUIRED && \['OPERADOR', 'ADMIN', 'SUPER_ADMIN'\]\.includes\(String\(claims\.role\)\)/);
-  assert.match(server, /!isTeamRole\(user\.role\) \|\| !env\.TEAM_TOTP_REQUIRED/);
-  assert.match(server, /totpRequired: isTeamRole\(user\.role\) && env\.TEAM_TOTP_REQUIRED/);
+test('TOTP da equipe é obrigatório por padrão e não pode ser desligado em produção', () => {
+  assert.match(config, /TEAM_TOTP_REQUIRED: booleanFromEnv\.default\(true\)/);
+  assert.match(config, /ADMIN_TOTP_CANNOT_BE_DISABLED/);
+  assert.match(server, /if \(isTeamRole\(user\.role\)\) throw appError\('INVALID_CREDENTIALS'/);
 });
 
 test('API impede cache condicional e o dashboard não transforma falha parcial em logout', () => {

@@ -48,7 +48,7 @@ test('migration 009 cria preços por organização e entitlement de consulta', (
 });
 
 test('server separa ordens QUERY do saldo legado e expõe os contratos monetários', () => {
-  assert.match(serverSource, /purchaseType === 'QUERY'/);
+  assert.match(serverSource, /purchaseType: 'QUERY'/);
   assert.match(serverSource, /query_payment_entitlements/);
   assert.match(serverSource, /priceCents/);
   assert.match(serverSource, /amountCents/);

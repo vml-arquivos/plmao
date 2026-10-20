@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import type { FipeProviderResult, FipeQuote, FipeVehicleDetails } from './types.js';
 
-const stripAccents = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, '');
+/** Mantém o Latin-1 (WinAnsi) para acentos em português; símbolos fora dele viram equivalentes simples. */
+const stripAccents = (value: string) => value.normalize('NFC').replace(/[\u2013\u2014]/g, '-').replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
 const escapeHtml = (value: unknown) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 const display = (value?: string) => value?.trim() || 'Não informado';
 
@@ -126,7 +127,7 @@ export function fipePdf(quote: FipeQuote, branding: ReportBranding = {}): Buffer
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
     `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`
   ];
   let pdf = '%PDF-1.4\n';

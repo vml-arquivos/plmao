@@ -1,4 +1,6 @@
 import type { NormalizedVehicle } from './types.js';
+import { viewReport } from './report/normalizeV2.js';
+import type { Tier } from './report/catalog.js';
 
 /**
  * Retorno seguro para clientes finais.
@@ -7,9 +9,9 @@ import type { NormalizedVehicle } from './types.js';
  * identificador nominal ou documental do proprietário deve atravessar as
  * rotas de histórico, consulta ou exportação do cliente.
  */
-export function publicVehicleResult(vehicle: NormalizedVehicle): Omit<NormalizedVehicle, 'owner'> {
-  const { owner: _owner, ...publicResult } = vehicle;
-  return publicResult;
+export function publicVehicleResult(vehicle: NormalizedVehicle, tier: Tier = 3): Omit<NormalizedVehicle, 'owner'> {
+  const { owner: _owner, v2, ...publicResult } = vehicle;
+  return v2 ? { ...publicResult, v2: viewReport(v2, { audience: 'client', tier }) } : publicResult;
 }
 
 /**

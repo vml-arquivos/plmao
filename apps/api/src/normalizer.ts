@@ -1,4 +1,6 @@
 import type { NormalizedVehicle } from './types.js';
+import { buildReportV2 } from './report/normalizeV2.js';
+import { maskDocument, maskName, maskVehicleId } from './report/mask.js';
 
 const cents = (v: unknown) => {
   if (typeof v !== 'string' && typeof v !== 'number') return 0;
@@ -54,6 +56,24 @@ function successfulResponse(raw: unknown): boolean {
   return normalized === '1' || normalized === '200' || normalized === 'OK' || normalized === 'SUCCESS' || normalized === 'SUCESSO';
 }
 
+function tryReportV2(raw: unknown) {
+  try { return buildReportV2(raw); } catch { return undefined; }
+}
+
+/** Débitos sem dupla contagem: multas por órgão são componentes do total de multas. */
+function legacyDebts(raw: unknown): NormalizedVehicle['debts'] {
+  const v2 = tryReportV2(raw);
+  if (v2) {
+    const legacyKey: Record<string, string> = { DEBIPVA: 'IPVA', VALORTOTALDEBITOMULTA: 'MULTAS', EXISTEDEBITODELICENCIAMENTOVL: 'LICENCIAMENTO', DPVAT: 'DPVAT', DEBMUNICIPAIS: 'MUNICIPAIS', DEBCETESB: 'CETESB' };
+    const flagged = v2.debts.items.map((i) => ({ key: legacyKey[i.key] ?? i.key, label: i.label, amountCents: i.amountCents, hasDebt: true }));
+    return flagged.length ? flagged : [{ key: 'TOTAL', label: 'Débitos', amountCents: 0, hasDebt: v2.debts.hasDebt }];
+  }
+  const fine = cents(valueOf(raw, ['VALORTOTALDEBITOMULTA', 'valorTotalDebitoMulta', 'finesAmount']));
+  const lic = cents(valueOf(raw, ['EXISTEDEBITODELICENCIAMENTOVL', 'debitoLicenciamento', 'licensingDebt']));
+  const ipva = cents(valueOf(raw, ['DEBIPVA', 'debitoIpva', 'ipvaDebt']));
+  return [['MULTAS', 'Multas', fine], ['LICENCIAMENTO', 'Licenciamento', lic], ['IPVA', 'IPVA', ipva]].map(([key, label, amountCents]) => ({ key: String(key), label: String(label), amountCents: Number(amountCents), hasDebt: Number(amountCents) > 0 }));
+}
+
 export function normalizeBdrp(raw: any): NormalizedVehicle {
   if (!successfulResponse(raw)) throw new Error('Resposta do provedor inválida');
   const plate = text(valueOf(raw, ['PLACA', 'plate', 'licensePlate', 'placaVeiculo']));
@@ -85,16 +105,16 @@ export function normalizeBdrp(raw: any): NormalizedVehicle {
   return {
     identification: {
       plate,
-      renavam: text(valueOf(raw, ['RENAVAM', 'renavam'])),
-      chassis: text(valueOf(raw, ['CHASSI', 'chassis', 'chassi'])),
-      engine: text(valueOf(raw, ['MOTOR', 'engine', 'numeroMotor'])),
-      gearbox: text(valueOf(raw, ['NUMEROCAIXACAMBIO', 'gearbox', 'cambio', 'numeroCambio'])),
+      renavam: maskVehicleId(text(valueOf(raw, ['RENAVAM', 'renavam'])), 2, 3) ?? undefined,
+      chassis: maskVehicleId(text(valueOf(raw, ['CHASSI', 'chassis', 'chassi']))) ?? undefined,
+      engine: maskVehicleId(text(valueOf(raw, ['MOTOR', 'engine', 'numeroMotor']))) ?? undefined,
+      gearbox: maskVehicleId(text(valueOf(raw, ['NUMEROCAIXACAMBIO', 'gearbox', 'cambio', 'numeroCambio']))) ?? undefined,
       brand,
       model,
       fullModel
     },
     characteristics: {
-      manufactureYear: text(valueOf(raw, ['VEIANOFAB', 'anoFabricacao', 'ano', 'manufactureYear', 'fabricationYear'])),
+      manufactureYear: text(valueOf(raw, ['VEIANOFABR', 'VEIANOFAB', 'anoFabricacao', 'ano', 'manufactureYear', 'fabricationYear'])),
       modelYear: text(valueOf(raw, ['VEIANOMODELO', 'anoModelo', 'ano_modelo', 'modelYear'])),
       color: text(valueOf(raw, ['COR', 'color'])),
       fuel: text(valueOf(raw, ['COMBUSTIVEL', 'fuel', 'combustivel', 'combustível'])),
@@ -117,20 +137,11 @@ export function normalizeBdrp(raw: any): NormalizedVehicle {
       status: text(valueOf(raw, ['SITUACAOVEICULO', 'situacaoVeiculo', 'status', 'vehicleStatus']))
     },
     owner: {
-      name: text(valueOf(raw, ['PRONOME', 'nomeProprietario', 'ownerName'])),
-      document: text(valueOf(raw, ['CPF_CNPJ_PROPRIETARIO', 'cpfCnpjProprietario', 'ownerDocument'])),
+      name: maskName(text(valueOf(raw, ['PRONOME', 'nomeProprietario', 'ownerName']))) ?? undefined,
+      document: maskDocument(text(valueOf(raw, ['CPF_CNPJ_PROPRIETARIO', 'cpfCnpjProprietario', 'ownerDocument']))) ?? undefined,
       documentType: text(valueOf(raw, ['TIPODOCUMENTOPROPRIETARIO', 'tipoDocumentoProprietario', 'ownerDocumentType']))
     },
-    debts: [
-      ['MULTAS', 'Multas', debtAliases[0]],
-      ['LICENCIAMENTO', 'Licenciamento', debtAliases[1]],
-      ['IPVA', 'IPVA', debtAliases[2]],
-      ['DETRAN', 'DETRAN', debtAliases[3]],
-      ['DER', 'DER', debtAliases[4]],
-      ['PRF', 'Polícia Rodoviária Federal', debtAliases[5]],
-      ['RENAINF', 'RENAINF', debtAliases[6]],
-      ['MUNICIPAIS', 'Débitos municipais', debtAliases[7]]
-    ].map(([debtKey, label, aliases]) => { const value = valueOf(raw, aliases as string[]); return { key: String(debtKey), label: String(label), amountCents: cents(value), hasDebt: cents(value) > 0 }; }),
+    debts: legacyDebts(raw),
     restrictions: [
       ['FURTO', 'Furto/Roubo', restrictionAliases[0]],
       ['JUDICIAL', 'Judicial', restrictionAliases[1]],
@@ -147,7 +158,8 @@ export function normalizeBdrp(raw: any): NormalizedVehicle {
       debts: debtAliases.some((aliases) => valueOf(raw, aliases) !== undefined) ? 'FOUND' : 'NOT_QUERIED',
       restrictions: restrictionAliases.some((aliases) => valueOf(raw, aliases) !== undefined) ? 'FOUND' : 'NOT_QUERIED',
       recall: recall ? 'FOUND' : 'NOT_QUERIED'
-    }
+    },
+    v2: tryReportV2(raw)
   };
 }
 

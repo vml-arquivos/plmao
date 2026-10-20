@@ -9,6 +9,9 @@ describe('liquidação de pagamentos: comissões, idempotência, estornos e char
     db = await loadCore();
     pool = db.pool;
     settle = await import('../dist/payments/settle.js');
+    // banco de teste compartilhado: volta às configurações padrão para o cálculo ser determinístico
+    await pool.query('DELETE FROM payment_settings');
+    await pool.query('INSERT INTO payment_settings(id) VALUES (1)');
   });
   after(async () => { await pool.end(); });
 
