@@ -20,7 +20,15 @@ type MercadoPagoPreferenceResponse = {
 type MercadoPagoPaymentResponse = {
   status?: string;
   external_reference?: string | null;
+  payment_type_id?: string | null;
+  fee_details?: Array<{ amount?: number | string; type?: string }>;
+  transaction_details?: { net_received_amount?: number | string | null };
 };
+
+function toCents(value: unknown): number | null {
+  const n = typeof value === 'string' ? Number(value) : typeof value === 'number' ? value : NaN;
+  return Number.isFinite(n) ? Math.round(n * 100) : null;
+}
 
 type MercadoPagoWebhookPayload = {
   type?: unknown;
@@ -163,7 +171,14 @@ export class MercadoPagoProvider implements PaymentCheckoutProvider {
       headers: { accept: 'application/json', authorization: `Bearer ${this.accessToken()}` }
     });
     if (!response.ok || typeof response.body.status !== 'string') throw codedError('PAYMENT_PROVIDER_REQUEST_FAILED');
-    return { status: response.body.status, externalReference: response.body.external_reference ?? null };
+    const fees = (response.body.fee_details ?? []).map((f) => toCents(f.amount)).filter((v): v is number => v !== null);
+    return {
+      status: response.body.status,
+      externalReference: response.body.external_reference ?? null,
+      paymentType: response.body.payment_type_id ?? null,
+      feeCents: fees.length ? fees.reduce((a, b) => a + b, 0) : null,
+      netCents: toCents(response.body.transaction_details?.net_received_amount)
+    };
   }
 }
 

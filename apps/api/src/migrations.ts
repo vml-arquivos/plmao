@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import { pool, tx } from './db.js';
 import { env } from './config.js';
+import { placaMigrations } from './migrations.placanamao.js';
 
 export type Migration = {
   id: string;
@@ -15,7 +16,7 @@ const rolePermissions: Record<string, string[]> = {
   SUPER_ADMIN: ['QUERY_VEHICLE', 'VIEW_HISTORY', 'BUY_CREDITS', 'VIEW_SENSITIVE_DATA', 'MANAGE_USERS', 'MANAGE_PRICING', 'MANAGE_PROVIDERS', 'MANAGE_BILLING', 'MANAGE_SUPPORT', 'VIEW_AUDIT', 'ADMIN_SYSTEM']
 };
 
-export const migrations: Migration[] = [
+const baseMigrations: Migration[] = [
   {
     id: '001_security_and_product_hardening',
     name: 'Security controls, idempotency and configurable products',
@@ -728,6 +729,8 @@ export const migrations: Migration[] = [
     }
   }
 ];
+
+export const migrations: Migration[] = [...baseMigrations, ...placaMigrations];
 
 export async function runMigrations(): Promise<void> {
   await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (

@@ -36,6 +36,10 @@ function validateProductionConfig(value: ParsedEnv): void {
   requireProduction(value.JWT_SECRET.length >= 64 && !isExampleValue(value.JWT_SECRET), 'JWT_SECRET_STRONG_AND_UNIQUE_REQUIRED', issues);
   requireProduction(isHttpsUrl(value.APP_URL), 'APP_URL_HTTPS_REQUIRED', issues);
   requireProduction(isHttpsUrl(value.WEB_ORIGIN), 'WEB_ORIGIN_HTTPS_REQUIRED', issues);
+  requireProduction(Boolean(value.ADMIN_JWT_SECRET) && (value.ADMIN_JWT_SECRET?.length ?? 0) >= 64 && value.ADMIN_JWT_SECRET !== value.JWT_SECRET && !isExampleValue(value.ADMIN_JWT_SECRET), 'ADMIN_JWT_SECRET_STRONG_AND_DISTINCT_REQUIRED', issues);
+  requireProduction(Boolean(value.DATA_ENCRYPTION_KEY) && (value.DATA_ENCRYPTION_KEY?.length ?? 0) >= 32 && !isExampleValue(value.DATA_ENCRYPTION_KEY), 'DATA_ENCRYPTION_KEY_REQUIRED', issues);
+  requireProduction(Boolean(value.ADMIN_HOSTS) || isHttpsUrl(value.ADMIN_URL), 'ADMIN_HOSTS_OR_ADMIN_URL_REQUIRED', issues);
+  requireProduction(value.TEAM_TOTP_REQUIRED !== false, 'ADMIN_TOTP_CANNOT_BE_DISABLED', issues);
   requireProduction(value.DATA_PROVIDER !== 'mock', 'DATA_PROVIDER_MOCK_FORBIDDEN', issues);
   requireProduction(value.PAYMENT_PROVIDER !== 'sandbox', 'PAYMENT_PROVIDER_SANDBOX_FORBIDDEN', issues);
   requireProduction(!value.SANDBOX_SEED_ENABLED, 'SANDBOX_SEED_FORBIDDEN', issues);
@@ -66,6 +70,8 @@ function validateProductionConfig(value: ParsedEnv): void {
 
   const configuredSecrets = [
     value.JWT_SECRET,
+    value.ADMIN_JWT_SECRET,
+    value.DATA_ENCRYPTION_KEY,
     value.SMTP_PASSWORD,
     value.VEHICLE_API_TOKEN,
     value.APIBRASIL_BEARER_TOKEN,
@@ -104,8 +110,20 @@ const envSchema = z.object({
   MIGRATION_LOCK_TIMEOUT_MS: z.coerce.number().int().positive().max(300000).default(60000),
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().default('2h'),
-  // Equipe usa somente e-mail e senha por padrão; TOTP pode ser reativado explicitamente.
-  TEAM_TOTP_REQUIRED: booleanFromEnv.default(false),
+  // Painel administrativo: segredo/audiência de JWT próprios, 2FA (TOTP) obrigatório e restrição por host/IP.
+  ADMIN_JWT_SECRET: optionalString,
+  ADMIN_JWT_EXPIRES_IN: z.string().default('30m'),
+  ADMIN_URL: optionalUrl,
+  ADMIN_HOSTS: optionalString,
+  ADMIN_ALLOWED_IPS: optionalString,
+  // Mantida por compatibilidade de variável; o 2FA de equipe é SEMPRE exigido (valor ignorado).
+  TEAM_TOTP_REQUIRED: booleanFromEnv.default(true),
+  // Chave AES-256-GCM (>=32 caracteres) para JSON bruto do provedor e dados sensíveis em repouso.
+  DATA_ENCRYPTION_KEY: optionalString,
+  // Mascaramento LGPD: documentos e nomes mascarados por padrão.
+  PII_REVEAL_ENABLED: booleanFromEnv.default(true),
+  PUBLIC_API_ENABLED: booleanFromEnv.default(false),
+  PUBLIC_API_RATE_LIMIT_MAX: z.coerce.number().int().positive().max(10000).default(60),
 
   // Dados veiculares: o modo real só pode operar com contrato e credenciais válidos.
   DATA_PROVIDER: z.enum(['mock', 'real']).default('mock'),
@@ -186,4 +204,15 @@ export function publicAppUrl(): string {
 
 export function oauthCallbackUrl(provider: 'google' | 'microsoft' | 'apple'): string {
   return `${publicAppUrl()}/api/auth/oauth/${provider}/callback`;
+}
+
+export function adminHosts(): string[] {
+  const hosts = new Set<string>();
+  for (const part of (env.ADMIN_HOSTS ?? '').split(',')) { const h = part.trim().toLowerCase(); if (h) hosts.add(h); }
+  if (env.ADMIN_URL) { try { hosts.add(new URL(env.ADMIN_URL).host.toLowerCase()); } catch { /* ignorado: validado na produção */ } }
+  return [...hosts];
+}
+
+export function adminAllowedIps(): string[] {
+  return (env.ADMIN_ALLOWED_IPS ?? '').split(',').map((v) => v.trim()).filter(Boolean);
 }

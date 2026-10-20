@@ -11,9 +11,12 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { auth, issueSession, revokeSession, type AuthUser } from './auth.js';
+import { settlePaymentEvent } from './payments/settle.js';
+import { adminAuth, adminEdgeGuard, auth, clientApiGuard, isAdminHost, isTeamRole, issueSession, revokeSession, type AuthUser } from './auth.js';
+import { hashIp } from './lib/totpFlow.js';
+import { adminAuthRouter } from './routes/adminAuth.js';
 import { completeAuthorization, consumeLoginTicket, createAuthorizationRequest, oauthErrorUrl, oauthSuccessUrl, socialProviderStatus, type OAuthProvider } from './oauth.js';
-import { env } from './config.js';
+import { adminHosts, env } from './config.js';
 import { sendContactConfirmationEmail, sendContactMessageEmail, sendPasswordResetEmail, isEmailConfigured } from './email.js';
 import { pool, tx } from './db.js';
 import type { PoolClient } from 'pg';
@@ -29,7 +32,6 @@ import { executeVehicleLookup } from './vehicleLookup.js';
 import { calculateAffiliateCommission, calculateCouponDiscount, couponHasCapacity, couponWindowIsOpen, effectiveQueryPriceCents, queryAmountAfterCoupon } from './commercial.js';
 import { publicVehicleResult, sanitizeAuditMetadata } from './privacy.js';
 import { buildGenericReport, defaultReportTemplate, reportPdf, reportPrintHtml, type GenericReport, type GenericReportTemplate } from './reportEngine.js';
-import { decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSetup, hashRecoveryCode, verifyTotpCode } from './totp.js';
 import { renderSeoHtml } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle } from './types.js';
@@ -38,6 +40,9 @@ await ensureSchema();
 
 const app = express();
 const api = express.Router();
+// Duas frentes: o painel só existe nos hosts de admin; o app do cliente não é servido nesses hosts.
+api.use((req, res, next) => (req.path.startsWith('/admin') ? adminEdgeGuard(req, res, next) : clientApiGuard(req, res, next)));
+api.use('/admin/auth', adminAuthRouter);
 api.use((_req, res, next) => {
   // API responses are not cacheable: authenticated clients must never receive a conditional 304 without a body.
   res.setHeader('Cache-Control', 'no-store, private');
@@ -168,76 +173,11 @@ function publicUser(row: { id: string; email: string; name: string; role: string
   return { id: row.id, email: row.email, name: row.name, role: row.role };
 }
 
-function isTeamRole(role: string): boolean {
-  return ['OPERADOR', 'ADMIN', 'SUPER_ADMIN'].includes(role);
-}
-
-function challengeHash(challenge: string): string {
-  return createHash('sha256').update(challenge).digest('hex');
-}
-
-async function createAuthChallenge(userId: string, kind: 'TOTP_LOGIN' | 'TOTP_ENROLL', ip: string): Promise<string> {
-  const challenge = randomBytes(48).toString('base64url');
-  await pool.query(`INSERT INTO auth_challenges(user_id,kind,token_hash,expires_at,ip_hash) VALUES($1,$2,$3,now()+interval '10 minutes',$4)`, [userId, kind, challengeHash(challenge), hashIp(ip)]);
-  return challenge;
-}
-
 async function authResultForUser(user: AuthUser, flow: string, req: Request): Promise<Record<string, unknown>> {
-  if (!isTeamRole(user.role) || !env.TEAM_TOTP_REQUIRED) {
-    const issued = await issueSession(user, { flow, requestId: requestId(req), totpVerified: !env.TEAM_TOTP_REQUIRED });
-    return { token: issued.token, user };
-  }
-  const existing = await pool.query('SELECT enabled_at FROM team_totp WHERE user_id=$1', [user.id]);
-  if (existing.rowCount && existing.rows[0].enabled_at) {
-    const challenge = await createAuthChallenge(user.id, 'TOTP_LOGIN', req.ip ?? 'unknown');
-    return { user, totpRequired: 'VERIFY', challenge, expiresInSeconds: 600 };
-  }
-  const setup = generateTotpSetup(user.email);
-  await pool.query(`INSERT INTO team_totp(user_id,encrypted_secret,enabled_at) VALUES($1,$2,NULL)
-    ON CONFLICT(user_id) DO UPDATE SET encrypted_secret=EXCLUDED.encrypted_secret,enabled_at=NULL,updated_at=now()`, [user.id, encryptTotpSecret(setup.secret)]);
-  const challenge = await createAuthChallenge(user.id, 'TOTP_ENROLL', req.ip ?? 'unknown');
-  return { user, totpRequired: 'ENROLL', challenge, setup, expiresInSeconds: 600 };
-}
-
-async function completeTotpEnrollment(challenge: string, code: string): Promise<{ user: AuthUser; recoveryCodes: string[] }> {
-  return tx(async (client) => {
-    const found = await client.query(`SELECT c.id,c.user_id,u.id AS uid,u.email,u.name,u.role,t.encrypted_secret
-      FROM auth_challenges c JOIN users u ON u.id=c.user_id JOIN team_totp t ON t.user_id=u.id
-      WHERE c.token_hash=$1 AND c.kind='TOTP_ENROLL' AND c.used_at IS NULL AND c.expires_at>now() AND u.active=true FOR UPDATE`, [challengeHash(challenge)]);
-    if (!found.rowCount) throw appError('TOTP_CHALLENGE_INVALID', { code: 'TOTP_CHALLENGE_INVALID', http: 401, expose: true });
-    const row = found.rows[0] as Record<string, unknown>;
-    let valid = false;
-    try { valid = verifyTotpCode(decryptTotpSecret(String(row.encrypted_secret)), code); } catch { valid = false; }
-    if (!valid) throw appError('TOTP_CODE_INVALID', { code: 'TOTP_CODE_INVALID', http: 401, expose: true });
-    const recoveryCodes = generateRecoveryCodes();
-    await client.query('UPDATE team_totp SET enabled_at=now(),last_verified_at=now(),updated_at=now() WHERE user_id=$1', [row.user_id]);
-    await client.query('DELETE FROM team_totp_recovery_codes WHERE user_id=$1', [row.user_id]);
-    for (const recoveryCode of recoveryCodes) await client.query('INSERT INTO team_totp_recovery_codes(user_id,code_hash) VALUES($1,$2)', [row.user_id, hashRecoveryCode(recoveryCode)]);
-    await client.query('UPDATE auth_challenges SET used_at=now() WHERE id=$1', [row.id]);
-    return { user: { id: String(row.uid), email: String(row.email), name: String(row.name), role: String(row.role) } as AuthUser, recoveryCodes };
-  });
-}
-
-async function completeTotpLogin(challenge: string, code: string): Promise<AuthUser> {
-  const result = await tx(async (client) => {
-    const found = await client.query(`SELECT c.id,c.user_id,u.id AS uid,u.email,u.name,u.role,t.encrypted_secret,t.enabled_at
-      FROM auth_challenges c JOIN users u ON u.id=c.user_id LEFT JOIN team_totp t ON t.user_id=u.id
-      WHERE c.token_hash=$1 AND c.kind='TOTP_LOGIN' AND c.used_at IS NULL AND c.expires_at>now() AND u.active=true FOR UPDATE`, [challengeHash(challenge)]);
-    if (!found.rowCount) throw appError('TOTP_CHALLENGE_INVALID', { code: 'TOTP_CHALLENGE_INVALID', http: 401, expose: true });
-    const row = found.rows[0] as Record<string, unknown>;
-    if (!row.encrypted_secret || !row.enabled_at) throw appError('TOTP_ENROLLMENT_REQUIRED', { code: 'TOTP_ENROLLMENT_REQUIRED', http: 403, expose: true });
-    let valid = false;
-    try { valid = verifyTotpCode(decryptTotpSecret(String(row.encrypted_secret)), code); } catch { valid = false; }
-    if (!valid) {
-      const recovery = await client.query(`SELECT id FROM team_totp_recovery_codes WHERE user_id=$1 AND used_at IS NULL AND code_hash=$2 LIMIT 1 FOR UPDATE`, [row.user_id, hashRecoveryCode(code)]);
-      if (!recovery.rowCount) throw appError('TOTP_CODE_INVALID', { code: 'TOTP_CODE_INVALID', http: 401, expose: true });
-      await client.query('UPDATE team_totp_recovery_codes SET used_at=now() WHERE id=$1', [recovery.rows[0].id]);
-    }
-    await client.query('UPDATE auth_challenges SET used_at=now() WHERE id=$1', [row.id]);
-    await client.query('UPDATE team_totp SET last_verified_at=now() WHERE user_id=$1', [row.user_id]);
-    return { id: String(row.uid), email: String(row.email), name: String(row.name), role: String(row.role) } as AuthUser;
-  });
-  return result;
+  // O app do cliente só emite sessões `client`. Contas de equipe entram exclusivamente pelo painel (/api/admin/auth).
+  if (isTeamRole(user.role)) throw appError('INVALID_CREDENTIALS', { code: 'INVALID_CREDENTIALS', http: 401, expose: true });
+  const issued = await issueSession(user, { flow, requestId: requestId(req) }, 'client');
+  return { token: issued.token, user };
 }
 
 function toSafeQueryError(error: unknown): { status: number; code: string; message: string } {
@@ -413,33 +353,8 @@ api.post('/auth/oauth/consume', loginRateLimit, asyncRoute(async (req, res) => {
   if (!parsed.success) throw appError('OAUTH_TICKET_INVALID', { code: 'OAUTH_TICKET_INVALID', http: 401, expose: true });
   const user = await consumeLoginTicket(parsed.data.ticket);
   const result = await authResultForUser(user, 'social', req);
-  await audit(user.id, 'OAUTH_LOGIN', 'USER', user.id, { requestId: requestId(req), totpRequired: isTeamRole(user.role) && env.TEAM_TOTP_REQUIRED });
+  await audit(user.id, 'OAUTH_LOGIN', 'USER', user.id, { requestId: requestId(req), flow: 'client' });
   res.json(result);
-}));
-
-api.post('/auth/totp/verify', loginRateLimit, asyncRoute(async (req, res) => {
-  const parsed = totpChallengeSchema.safeParse(req.body);
-  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const user = await completeTotpLogin(parsed.data.challenge, parsed.data.code);
-  const issued = await issueSession(user, { flow: 'totp_login', requestId: requestId(req), totpVerified: true });
-  await audit(user.id, 'TOTP_LOGIN', 'USER', user.id, { requestId: requestId(req), recoveryCodeUsed: !/^\d{6}$/.test(parsed.data.code) });
-  res.json({ token: issued.token, user });
-}));
-
-api.post('/auth/totp/enroll/confirm', loginRateLimit, asyncRoute(async (req, res) => {
-  const parsed = totpEnrollmentSchema.safeParse(req.body);
-  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const enrolled = await completeTotpEnrollment(parsed.data.challenge, parsed.data.code);
-  const issued = await issueSession(enrolled.user, { flow: 'totp_enrollment', requestId: requestId(req), totpVerified: true });
-  await audit(enrolled.user.id, 'TOTP_ENROLLED', 'USER', enrolled.user.id, { requestId: requestId(req) });
-  res.json({ token: issued.token, user: enrolled.user, recoveryCodes: enrolled.recoveryCodes });
-}));
-
-api.get('/auth/totp/status', auth, asyncRoute(async (req, res) => {
-  if (!isTeamRole(req.user!.role) || !env.TEAM_TOTP_REQUIRED) { res.json({ required: false, enabled: false, recoveryCodesRemaining: 0 }); return; }
-  const result = await pool.query(`SELECT t.enabled_at,(SELECT count(*) FROM team_totp_recovery_codes c WHERE c.user_id=t.user_id AND c.used_at IS NULL) AS recovery_codes
-    FROM team_totp t WHERE t.user_id=$1`, [req.user!.id]);
-  res.json({ required: true, enabled: Boolean(result.rows[0]?.enabled_at), recoveryCodesRemaining: Number(result.rows[0]?.recovery_codes ?? 0) });
 }));
 
 api.post('/auth/register', asyncRoute(async (req, res) => {
@@ -494,7 +409,7 @@ api.post('/auth/login', loginRateLimit, asyncRoute(async (req, res) => {
   const user = publicUser({ id: String(account.id), email: String(account.email), name: String(account.name), role: String(account.role) });
   await pool.query('UPDATE users SET failed_login_attempts=0, locked_until=NULL, last_login_at=now() WHERE id=$1', [user.id]);
   const resultForUser = await authResultForUser(user, 'password', req);
-  await audit(user.id, 'LOGIN', 'USER', user.id, { requestId: requestId(req), totpRequired: isTeamRole(user.role) && env.TEAM_TOTP_REQUIRED });
+  await audit(user.id, 'LOGIN', 'USER', user.id, { requestId: requestId(req), flow: 'client' });
   res.json(resultForUser);
 }));
 
@@ -585,7 +500,7 @@ api.post('/auth/reset-password', passwordResetRateLimit, asyncRoute(async (req, 
   });
   const user = publicUser({ id: String(result.user_id), email: String(result.email), name: String(result.name), role: String(result.role) });
   const resultForUser = await authResultForUser(user, 'password_reset', req);
-  await audit(user.id, 'PASSWORD_RESET_COMPLETED', 'USER', user.id, { requestId: requestId(req), totpRequired: isTeamRole(user.role) });
+  await audit(user.id, 'PASSWORD_RESET_COMPLETED', 'USER', user.id, { requestId: requestId(req), flow: 'client' });
   res.json({ ...resultForUser, message: 'Senha redefinida com sucesso.' });
 }));
 
@@ -1553,11 +1468,17 @@ async function processPaymentWebhook(providerName: PaymentProviderName, req: Req
 
   let reference = parsed.externalReference;
   let rawStatus = parsed.rawStatus;
+  let paymentType: string | null = null;
+  let feeCents: number | null = null;
+  let netCents: number | null = null;
   if (provider.fetchPaymentStatus && parsed.externalPaymentId) {
     const payment = await provider.fetchPaymentStatus(parsed.externalPaymentId);
     if (!payment) throw appError('PAYMENT_PROVIDER_REQUEST_FAILED', { code: 'PAYMENT_PROVIDER_REQUEST_FAILED', http: 502, expose: false });
     reference ??= payment.externalReference ?? null;
     rawStatus = payment.status;
+    paymentType = payment.paymentType ?? null;
+    feeCents = payment.feeCents ?? null;
+    netCents = payment.netCents ?? null;
   }
 
   const event = req.body as Record<string, unknown>;
@@ -1570,66 +1491,16 @@ async function processPaymentWebhook(providerName: PaymentProviderName, req: Req
     throw appError('PAYMENT_WEBHOOK_INVALID', { code: 'PAYMENT_WEBHOOK_INVALID', http: 400, expose: false });
   }
 
-  let duplicate = false;
-  await tx(async (client) => {
-    const inserted = await client.query(`INSERT INTO payment_webhook_events(provider,provider_event_id,event_type,payload)
-      VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(provider,provider_event_id) DO NOTHING RETURNING id`, [providerName, eventId, eventType, JSON.stringify({ id: eventId, event: eventType, reference, externalId: parsed.externalPaymentId })]);
-    if (!inserted.rowCount) { duplicate = true; return; }
-    const order = reference
-      ? await client.query('SELECT * FROM payment_orders WHERE external_reference=$1 FOR UPDATE', [reference])
-      : await client.query('SELECT * FROM payment_orders WHERE provider_checkout_id=$1 FOR UPDATE', [parsed.externalPaymentId]);
-    if (!order.rowCount) {
-      await client.query('UPDATE payment_webhook_events SET processing_error=$2,processed_at=now() WHERE id=$1', [inserted.rows[0].id, 'ORDER_NOT_FOUND']);
-      return;
-    }
-    const current = order.rows[0] as Record<string, unknown>;
-    const orderId = String(current.id);
-    await client.query('UPDATE payment_webhook_events SET order_id=$2 WHERE id=$1', [inserted.rows[0].id, orderId]);
-    const normalizedStatus = String(rawStatus ?? '').toUpperCase();
-    const paid = providerName === 'mercadopago'
-      ? normalizedStatus === 'APPROVED'
-      : normalizedStatus === 'CHECKOUT_PAID' || normalizedStatus === 'PAYMENT_RECEIVED';
-    if (paid && current.status !== 'PAID') {
-      const purchaseType = String(current.purchase_type ?? 'CREDIT_PACKAGE');
-      const credits = Number(current.credits ?? 0);
-      const payment = await client.query(`INSERT INTO payments(user_id,provider,status,amount_cents,credits,external_id,order_id,paid_at,provider_status,metadata)
-        VALUES($1,$2,'PAID',$3,$4,$5,$6,now(),$7,$8::jsonb) RETURNING id`, [current.user_id, providerName, current.amount_cents, purchaseType === 'QUERY' ? 0 : credits, parsed.externalPaymentId, orderId, rawStatus, JSON.stringify({ eventId, purchaseType })]);
-      if (purchaseType === 'QUERY') {
-        if (!current.product_id || !current.query_plate) {
-          await client.query(`UPDATE payment_webhook_events SET processing_error=$2 WHERE id=$1`, [inserted.rows[0].id, 'QUERY_ORDER_MISSING_PRODUCT_OR_PLATE']);
-          throw appError('QUERY_ORDER_INVALID', { code: 'QUERY_ORDER_INVALID', http: 500, expose: false });
-        }
-        await client.query(`INSERT INTO query_payment_entitlements(order_id,user_id,product_id,plate,status)
-          VALUES($1,$2,$3,$4,'READY') ON CONFLICT(order_id) DO UPDATE SET user_id=EXCLUDED.user_id,product_id=EXCLUDED.product_id,plate=EXCLUDED.plate,status='READY'`, [orderId, current.user_id, current.product_id, current.query_plate]);
-      } else {
-        const wallet = await client.query('SELECT balance,balance_cents FROM wallets WHERE user_id=$1 FOR UPDATE', [current.user_id]);
-        const before = Number(wallet.rows[0]?.balance ?? 0); const after = before + credits;
-        const purchasedCents = credits * 100;
-        const beforeCents = Number(wallet.rows[0]?.balance_cents ?? before * 100); const afterCents = beforeCents + purchasedCents;
-        await client.query('INSERT INTO wallets(user_id,balance,balance_cents) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET balance=wallets.balance + EXCLUDED.balance, balance_cents=wallets.balance_cents + EXCLUDED.balance_cents,updated_at=now()', [current.user_id, credits, purchasedCents]);
-        await client.query(`INSERT INTO wallet_transactions(user_id,kind,amount,balance_before,balance_after,amount_cents,balance_before_cents,balance_after_cents,payment_id,description,metadata)
-          VALUES($1,'PURCHASE',$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`, [current.user_id, credits, before, after, purchasedCents, beforeCents, afterCents, payment.rows[0].id, `Saldo pré-pago legado convertido via ${providerName}`, JSON.stringify({ orderId, eventId, purchaseType, legacyCredits: credits })]);
-      }
-      if (current.coupon_id) {
-        const redemption = await client.query(`UPDATE coupon_redemptions SET status='REDEEMED',redeemed_at=now(),updated_at=now()
-          WHERE payment_order_id=$1 AND status='RESERVED' RETURNING id`, [orderId]);
-        if (redemption.rowCount) await client.query('UPDATE coupons SET redeemed_count=redeemed_count+1,updated_at=now() WHERE id=$1', [current.coupon_id]);
-      }
-      if (current.affiliate_id) {
-        const commissionCents = calculateAffiliateCommission(Number(current.amount_cents), Number(current.affiliate_commission_bps ?? 0));
-        await client.query(`INSERT INTO affiliate_commissions(affiliate_id,payment_id,order_id,amount_cents,status)
-          VALUES($1,$2,$3,$4,'PENDING') ON CONFLICT(payment_id) DO NOTHING`, [current.affiliate_id, payment.rows[0].id, orderId, commissionCents]);
-      }
-      await client.query(`UPDATE payment_orders SET status='PAID',paid_at=now(),updated_at=now() WHERE id=$1`, [orderId]);
-    } else if (!paid && current.status !== 'PAID') {
-      const mapped = normalizedStatus.includes('EXPIRED') ? 'EXPIRED'
-        : normalizedStatus.includes('CANCEL') || normalizedStatus.includes('REJECT') ? 'CANCELLED'
-          : normalizedStatus.includes('REFUND') ? 'REFUNDED' : 'CHECKOUT_ACTIVE';
-      await client.query('UPDATE payment_orders SET status=$2,updated_at=now() WHERE id=$1', [orderId, mapped]);
-      if (['CANCELLED', 'EXPIRED', 'FAILED'].includes(mapped)) await client.query(`UPDATE coupon_redemptions SET status='RELEASED',updated_at=now() WHERE payment_order_id=$1 AND status='RESERVED'`, [orderId]);
-    }
-    await client.query('UPDATE payment_webhook_events SET processed_at=now() WHERE id=$1', [inserted.rows[0].id]);
-  });
+  const settled = await tx((client) => settlePaymentEvent(client, {
+    provider: providerName as 'asaas' | 'mercadopago',
+    eventId,
+    eventType,
+    rawStatus: rawStatus ?? null,
+    externalPaymentId: parsed.externalPaymentId,
+    reference: reference ?? null,
+    paymentType, feeCents, netCents
+  }));
+  const duplicate = settled.outcome === 'DUPLICATE';
   res.status(200).json({ received: true, duplicate });
 }
 
@@ -1641,7 +1512,7 @@ api.post('/payments/mercadopago/webhook', asyncRoute(async (req, res) => {
   await processPaymentWebhook('mercadopago', req, res);
 }));
 
-api.get('/admin/overview', auth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
+api.get('/admin/overview', adminAuth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
   const summary = await pool.query(`SELECT
     (SELECT count(*) FROM users WHERE active=true AND deleted_at IS NULL) AS active_users,
     (SELECT count(*) FROM users WHERE active=true AND deleted_at IS NULL AND created_at >= now() - interval '30 days') AS new_users_30d,
@@ -1687,7 +1558,7 @@ api.get('/admin/overview', auth, requirePermission('VIEW_AUDIT'), asyncRoute(asy
   res.json({ ...summary.rows[0], daily: daily.rows });
 }));
 
-api.get('/admin/overview/series', auth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
+api.get('/admin/overview/series', adminAuth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
   const daily = await pool.query(`WITH days AS (
     SELECT generate_series(current_date - interval '29 days', current_date, interval '1 day')::date AS day
   ), q AS (
@@ -1705,7 +1576,7 @@ api.get('/admin/overview/series', auth, requirePermission('VIEW_AUDIT'), asyncRo
   res.json({ daily: daily.rows });
 }));
 
-api.get('/admin/settings', auth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
+api.get('/admin/settings', adminAuth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
   const value = await safeBusinessSettings();
   res.json({
     environment: {
@@ -1740,7 +1611,7 @@ api.get('/admin/settings', auth, requirePermission('VIEW_AUDIT'), asyncRoute(asy
   });
 }));
 
-api.patch('/admin/settings', auth, requirePermission('MANAGE_PROVIDERS'), asyncRoute(async (req, res) => {
+api.patch('/admin/settings', adminAuth, requirePermission('MANAGE_PROVIDERS'), asyncRoute(async (req, res) => {
   const parsed = safeSettingsSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const current = await safeBusinessSettings();
@@ -1751,13 +1622,13 @@ api.patch('/admin/settings', auth, requirePermission('MANAGE_PROVIDERS'), asyncR
   res.json({ safe: next });
 }));
 
-api.get('/admin/coupons', auth, requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
+api.get('/admin/coupons', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
   const result = await pool.query(`SELECT id,code,discount_type,discount_value,max_redemptions,redeemed_count,starts_at,expires_at,active,created_at
     FROM coupons ORDER BY created_at DESC`);
   res.json(result.rows.map((row) => ({ id: row.id, code: row.code, discountType: row.discount_type, discountValue: Number(row.discount_value), maxRedemptions: row.max_redemptions === null ? null : Number(row.max_redemptions), redeemedCount: Number(row.redeemed_count), startsAt: row.starts_at, expiresAt: row.expires_at, active: row.active, createdAt: row.created_at })));
 }));
 
-api.post('/admin/coupons', auth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
+api.post('/admin/coupons', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
   const parsed = couponCreateSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const code = parsed.data.code.toUpperCase();
@@ -1767,7 +1638,7 @@ api.post('/admin/coupons', auth, requirePermission('MANAGE_BILLING'), asyncRoute
   res.status(201).json(result.rows[0]);
 }));
 
-api.patch('/admin/coupons/:id', auth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
+api.patch('/admin/coupons/:id', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
   const parsed = couponUpdateSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const fields = Object.entries(parsed.data).filter(([, value]) => value !== undefined);
@@ -1784,21 +1655,21 @@ api.patch('/admin/coupons/:id', auth, requirePermission('MANAGE_BILLING'), async
   res.json(result.rows[0]);
 }));
 
-api.delete('/admin/coupons/:id', auth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
+api.delete('/admin/coupons/:id', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
   const result = await pool.query(`UPDATE coupons SET active=false,updated_at=now() WHERE id=$1 RETURNING id`, [req.params.id]);
   if (!result.rowCount) throw appError('COUPON_NOT_FOUND', { code: 'COUPON_NOT_FOUND', http: 404, expose: true });
   await audit(req.user!.id, 'DELETE_COUPON', 'COUPON', String(req.params.id), { requestId: requestId(req) });
   res.status(204).end();
 }));
 
-api.get('/admin/affiliates', auth, requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
+api.get('/admin/affiliates', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
   const result = await pool.query(`SELECT a.id,a.name,a.email,a.code,a.commission_bps,a.active,a.created_at,
     count(ac.id)::int AS commissions_count, coalesce(sum(ac.amount_cents) FILTER (WHERE ac.status='PENDING'),0)::int AS pending_cents
     FROM affiliates a LEFT JOIN affiliate_commissions ac ON ac.affiliate_id=a.id GROUP BY a.id ORDER BY a.created_at DESC`);
   res.json(result.rows.map((row) => ({ id: row.id, name: row.name, email: row.email, code: row.code, commissionBps: Number(row.commission_bps), active: row.active, commissionsCount: Number(row.commissions_count), pendingCents: Number(row.pending_cents), createdAt: row.created_at })));
 }));
 
-api.post('/admin/affiliates', auth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
+api.post('/admin/affiliates', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
   const parsed = affiliateCreateSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const result = await pool.query(`INSERT INTO affiliates(name,email,code,commission_bps,active) VALUES($1,$2,$3,$4,$5)
@@ -1807,7 +1678,7 @@ api.post('/admin/affiliates', auth, requirePermission('MANAGE_BILLING'), asyncRo
   res.status(201).json(result.rows[0]);
 }));
 
-api.patch('/admin/affiliates/:id', auth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
+api.patch('/admin/affiliates/:id', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
   const parsed = affiliateUpdateSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const fields = Object.entries(parsed.data).filter(([, value]) => value !== undefined);
@@ -1824,13 +1695,13 @@ api.patch('/admin/affiliates/:id', auth, requirePermission('MANAGE_BILLING'), as
   res.json(result.rows[0]);
 }));
 
-api.get('/admin/organizations', auth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (_req, res) => {
+api.get('/admin/organizations', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (_req, res) => {
   const result = await pool.query(`SELECT id,name,document,active,slug,primary_color,accent_color,logo_url,custom_domain,settings,created_at
     FROM organizations ORDER BY created_at DESC`);
   res.json(result.rows.map((row) => ({ id: row.id, name: row.name, document: row.document, active: row.active, slug: row.slug, primaryColor: row.primary_color, accentColor: row.accent_color, logoUrl: row.logo_url, customDomain: row.custom_domain, settings: row.settings ?? {}, createdAt: row.created_at })));
 }));
 
-api.post('/admin/organizations', auth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
+api.post('/admin/organizations', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
   const parsed = organizationBrandingSchema.extend({ name: z.string().min(2), document: z.string().max(30).optional(), active: z.boolean().default(true) }).safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const result = await pool.query(`INSERT INTO organizations(name,document,active,slug,primary_color,accent_color,logo_url,custom_domain,settings)
@@ -1839,7 +1710,7 @@ api.post('/admin/organizations', auth, requirePermission('ADMIN_SYSTEM'), asyncR
   res.status(201).json(result.rows[0]);
 }));
 
-api.patch('/admin/organizations/:id', auth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
+api.patch('/admin/organizations/:id', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
   const parsed = organizationBrandingSchema.partial().safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const fields = Object.entries(parsed.data).filter(([, value]) => value !== undefined);
@@ -1901,14 +1772,14 @@ api.get('/affiliate/stats', auth, asyncRoute(async (req, res) => {
   res.json({ affiliate: { id: affiliate.rows[0].id, code }, shareUrl, totals: { commissions: Number(totals.rows[0].commissions), pendingCents: Number(totals.rows[0].pending_cents), paidCents: Number(totals.rows[0].paid_cents), referredUsers: Number(totals.rows[0].referred_users) } });
 }));
 
-api.get('/admin/affiliate-commissions', auth, requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
+api.get('/admin/affiliate-commissions', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
   const result = await pool.query(`SELECT c.id,c.amount_cents,c.status,c.created_at,c.paid_at,a.name AS affiliate_name,a.code,p.external_reference
     FROM affiliate_commissions c JOIN affiliates a ON a.id=c.affiliate_id LEFT JOIN payment_orders p ON p.id=c.order_id
     ORDER BY c.created_at DESC LIMIT 200`);
   res.json(result.rows.map((row) => ({ id: row.id, amountCents: Number(row.amount_cents), status: row.status, createdAt: row.created_at, paidAt: row.paid_at, affiliate: { name: row.affiliate_name, code: row.code }, externalReference: row.external_reference })));
 }));
 
-api.patch('/admin/affiliate-commissions/:id', auth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
+api.patch('/admin/affiliate-commissions/:id', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
   const parsed = z.object({ status: z.enum(['PAID', 'CANCELLED']) }).safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const result = await pool.query(`UPDATE affiliate_commissions SET status=$2,paid_at=CASE WHEN $2='PAID' THEN now() ELSE paid_at END
@@ -1918,13 +1789,13 @@ api.patch('/admin/affiliate-commissions/:id', auth, requirePermission('MANAGE_BI
   res.json({ id: result.rows[0].id, amountCents: Number(result.rows[0].amount_cents), status: result.rows[0].status, paidAt: result.rows[0].paid_at });
 }));
 
-api.get('/admin/organizations/:id/members', auth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
+api.get('/admin/organizations/:id/members', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
   const result = await pool.query(`SELECT m.organization_id,m.user_id,m.role,u.name,u.email,u.active
     FROM organization_members m JOIN users u ON u.id=m.user_id WHERE m.organization_id=$1 ORDER BY u.name`, [req.params.id]);
   res.json(result.rows.map((row) => ({ organizationId: row.organization_id, userId: row.user_id, role: row.role, name: row.name, email: row.email, active: row.active })));
 }));
 
-api.post('/admin/organizations/:id/members', auth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
+api.post('/admin/organizations/:id/members', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
   const parsed = organizationMemberSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const result = await pool.query(`INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,$3)
@@ -1933,7 +1804,7 @@ api.post('/admin/organizations/:id/members', auth, requirePermission('ADMIN_SYST
   res.status(201).json(result.rows[0]);
 }));
 
-api.delete('/admin/organizations/:id/members/:userId', auth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
+api.delete('/admin/organizations/:id/members/:userId', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
   await pool.query('DELETE FROM organization_members WHERE organization_id=$1 AND user_id=$2', [req.params.id, req.params.userId]);
   await audit(req.user!.id, 'REMOVE_ORGANIZATION_MEMBER', 'ORGANIZATION', String(req.params.id), { memberId: req.params.userId, requestId: requestId(req) });
   res.status(204).end();
@@ -1948,7 +1819,7 @@ api.get('/organization/context', auth, asyncRoute(async (req, res) => {
   res.json({ organization: { id: row.id, name: row.name, slug: row.slug, primaryColor: row.primary_color, accentColor: row.accent_color, logoUrl: row.logo_url, customDomain: row.custom_domain, settings: row.settings ?? {}, role: row.role } });
 }));
 
-api.get('/admin/queries', auth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
+api.get('/admin/queries', adminAuth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
   const queries = await pool.query(`SELECT q.id,q.plate,q.status,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,q.error_code,
       p.name AS product_name,u.name AS customer_name,u.email AS customer_email
     FROM vehicle_queries q
@@ -1970,7 +1841,7 @@ api.get('/admin/queries', auth, requirePermission('VIEW_AUDIT'), asyncRoute(asyn
   })));
 }));
 
-api.post('/admin/lookups', auth, requirePermission('VIEW_SENSITIVE_DATA'), asyncRoute(async (req, res) => {
+api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), asyncRoute(async (req, res) => {
   const parsed = z.object({ plate: plateSchema, productId: z.string().trim().min(1).max(80) }).safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const product = await pool.query('SELECT id,name FROM query_products WHERE id=$1 AND active=true', [parsed.data.productId]);
@@ -1987,14 +1858,14 @@ api.post('/admin/lookups', auth, requirePermission('VIEW_SENSITIVE_DATA'), async
   }
 }));
 
-api.get('/admin/products', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (_req, res) => {
+api.get('/admin/products', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (_req, res) => {
   const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.reference_price_cents,p.active,p.slug,p.features,p.is_free,p.commercial_status,p.featured,p.display_order,p.source,p.coverage,
       t.id AS template_id,t.version AS template_version,t.name AS template_name,t.status AS template_status
     FROM query_products p LEFT JOIN product_report_configs c ON c.product_id=p.id LEFT JOIN report_templates t ON t.id=c.template_id ORDER BY p.display_order,p.price_cents`);
   res.json(products.rows.map((product) => ({ id: product.id, name: product.name, description: product.description, priceCents: Number(product.price_cents ?? 0), referencePriceCents: product.reference_price_cents == null ? null : Number(product.reference_price_cents), active: Boolean(product.active), slug: product.slug, features: product.features ?? [], isFree: Boolean(product.is_free), commercialStatus: product.commercial_status, featured: Boolean(product.featured), displayOrder: Number(product.display_order ?? 100), source: product.source, coverage: product.coverage, reportTemplate: product.template_id ? { id: product.template_id, version: Number(product.template_version), name: product.template_name, status: product.template_status } : null })));
 }));
 
-api.post('/admin/products', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
+api.post('/admin/products', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
   const parsed = productCreateSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const value = parsed.data;
@@ -2015,7 +1886,7 @@ api.post('/admin/products', auth, requirePermission('MANAGE_PRICING'), asyncRout
   res.status(201).json({ id: row.id, name: row.name, description: row.description, priceCents: Number(row.price_cents ?? 0), referencePriceCents: row.reference_price_cents == null ? null : Number(row.reference_price_cents), active: Boolean(row.active), slug: row.slug, features: row.features, displayOrder: Number(row.display_order), source: row.source, coverage: row.coverage, commercialStatus: row.commercial_status, featured: Boolean(row.featured), isFree: Boolean(row.is_free), reportTemplate: created.template });
 }));
 
-api.patch('/admin/products/:id', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
+api.patch('/admin/products/:id', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
   const parsed = productUpdateSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const values: unknown[] = [];
@@ -2042,12 +1913,12 @@ api.patch('/admin/products/:id', auth, requirePermission('MANAGE_PRICING'), asyn
   res.json({ id: row.id, name: row.name, description: row.description, priceCents: Number(row.price_cents ?? 0), referencePriceCents: row.reference_price_cents == null ? null : Number(row.reference_price_cents), active: Boolean(row.active), slug: row.slug, features: row.features ?? [], displayOrder: Number(row.display_order ?? 100), source: row.source, coverage: row.coverage, commercialStatus: row.commercial_status, featured: Boolean(row.featured), isFree: Boolean(row.is_free) });
 }));
 
-api.get('/admin/products/:id/report-templates', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
+api.get('/admin/products/:id/report-templates', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
   const templates = await pool.query(`SELECT id,product_id,version,name,status,config,created_by,created_at FROM report_templates WHERE product_id=$1 ORDER BY version DESC`, [req.params.id]);
   res.json(templates.rows.map((row) => ({ id: row.id, productId: row.product_id, version: Number(row.version), name: row.name, status: row.status, config: row.config, createdBy: row.created_by, createdAt: row.created_at })));
 }));
 
-api.post('/admin/products/:id/report-templates', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
+api.post('/admin/products/:id/report-templates', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
   const parsed = reportTemplateCreateSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const created = await tx(async (client) => {
@@ -2064,7 +1935,7 @@ api.post('/admin/products/:id/report-templates', auth, requirePermission('MANAGE
   res.status(201).json({ id: created.id, productId: created.product_id, version: Number(created.version), name: created.name, status: created.status, config: created.config, createdAt: created.created_at });
 }));
 
-api.post('/admin/report-templates/:id/publish', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
+api.post('/admin/report-templates/:id/publish', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
   const published = await tx(async (client) => {
     const template = await client.query('SELECT id,product_id,version,name,config FROM report_templates WHERE id=$1', [req.params.id]);
     if (!template.rowCount) throw appError('REPORT_TEMPLATE_NOT_FOUND', { code: 'REPORT_TEMPLATE_NOT_FOUND', http: 404, expose: true });
@@ -2078,13 +1949,13 @@ api.post('/admin/report-templates/:id/publish', auth, requirePermission('MANAGE_
   res.json({ id: published.id, productId: published.product_id, version: Number(published.version), name: published.name, status: 'PUBLISHED', config: published.config });
 }));
 
-api.get('/admin/organizations/:id/query-prices', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
+api.get('/admin/organizations/:id/query-prices', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
   const prices = await pool.query(`SELECT x.id,x.organization_id,x.product_id,p.name,p.price_cents AS base_price_cents,x.price_cents,x.active,x.starts_at,x.ends_at
     FROM organization_query_prices x JOIN query_products p ON p.id=x.product_id WHERE x.organization_id=$1 ORDER BY p.display_order,p.price_cents`, [req.params.id]);
   res.json(prices.rows.map((row) => ({ id: row.id, organizationId: row.organization_id, productId: row.product_id, productName: row.name, basePriceCents: Number(row.base_price_cents), priceCents: Number(row.price_cents), active: Boolean(row.active), startsAt: row.starts_at, endsAt: row.ends_at })));
 }));
 
-api.put('/admin/organizations/:id/query-prices', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
+api.put('/admin/organizations/:id/query-prices', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
   const parsed = orgQueryPriceSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const value = parsed.data;
@@ -2102,20 +1973,20 @@ api.put('/admin/organizations/:id/query-prices', auth, requirePermission('MANAGE
   res.json({ id: result.row.id, organizationId: result.row.organization_id, productId: result.row.product_id, productName: result.product.name, basePriceCents: Number(result.product.price_cents), priceCents: Number(result.row.price_cents), active: Boolean(result.row.active), startsAt: result.row.starts_at, endsAt: result.row.ends_at });
 }));
 
-api.delete('/admin/organizations/:id/query-prices/:productId', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
+api.delete('/admin/organizations/:id/query-prices/:productId', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
   const result = await pool.query('UPDATE organization_query_prices SET active=false,updated_at=now() WHERE organization_id=$1 AND product_id=$2 RETURNING id', [req.params.id, req.params.productId]);
   if (!result.rowCount) throw appError('ORGANIZATION_PRICE_NOT_FOUND', { code: 'ORGANIZATION_PRICE_NOT_FOUND', http: 404, expose: true });
   await audit(req.user!.id, 'DEACTIVATE_ORGANIZATION_QUERY_PRICE', 'ORGANIZATION', String(req.params.id), { productId: req.params.productId, requestId: requestId(req) });
   res.status(204).end();
 }));
 
-api.get('/admin/organizations/:id/credit-package-prices', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
+api.get('/admin/organizations/:id/credit-package-prices', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
   const prices = await pool.query(`SELECT x.id,x.organization_id,x.package_id,p.slug,p.name,p.price_cents AS base_price_cents,x.price_cents,x.active,x.starts_at,x.ends_at
     FROM organization_credit_package_prices x JOIN credit_packages p ON p.id=x.package_id WHERE x.organization_id=$1 ORDER BY p.display_order,p.price_cents`, [req.params.id]);
   res.json(prices.rows.map((row) => ({ id: row.id, organizationId: row.organization_id, packageId: row.package_id, packageSlug: row.slug, packageName: row.name, basePriceCents: Number(row.base_price_cents), priceCents: Number(row.price_cents), active: Boolean(row.active), startsAt: row.starts_at, endsAt: row.ends_at })));
 }));
 
-api.put('/admin/organizations/:id/credit-package-prices', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
+api.put('/admin/organizations/:id/credit-package-prices', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
   const parsed = orgPackagePriceSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const value = parsed.data;
@@ -2133,14 +2004,14 @@ api.put('/admin/organizations/:id/credit-package-prices', auth, requirePermissio
   res.json({ id: result.row.id, organizationId: result.row.organization_id, packageId: result.row.package_id, packageSlug: result.packageSlug, basePriceCents: result.basePriceCents, priceCents: Number(result.row.price_cents), active: Boolean(result.row.active), startsAt: result.row.starts_at, endsAt: result.row.ends_at });
 }));
 
-api.delete('/admin/organizations/:id/credit-package-prices/:packageId', auth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
+api.delete('/admin/organizations/:id/credit-package-prices/:packageId', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (req, res) => {
   const result = await pool.query(`UPDATE organization_credit_package_prices SET active=false,updated_at=now() WHERE organization_id=$1 AND package_id=$2 RETURNING id`, [req.params.id, req.params.packageId]);
   if (!result.rowCount) throw appError('ORGANIZATION_PRICE_NOT_FOUND', { code: 'ORGANIZATION_PRICE_NOT_FOUND', http: 404, expose: true });
   await audit(req.user!.id, 'DEACTIVATE_ORGANIZATION_PACKAGE_PRICE', 'ORGANIZATION', String(req.params.id), { packageId: req.params.packageId, requestId: requestId(req) });
   res.status(204).end();
 }));
 
-api.get('/admin/users', auth, requirePermission('MANAGE_USERS'), asyncRoute(async (_req, res) => {
+api.get('/admin/users', adminAuth, requirePermission('MANAGE_USERS'), asyncRoute(async (_req, res) => {
   const users = await pool.query(`SELECT u.id,u.name,u.email,u.role,u.active,u.created_at,u.last_login_at,
     coalesce(w.balance_cents,0) AS balance_cents,
     (SELECT count(*) FROM vehicle_queries q WHERE q.user_id=u.id) AS queries_count
@@ -2149,7 +2020,7 @@ api.get('/admin/users', auth, requirePermission('MANAGE_USERS'), asyncRoute(asyn
   res.json(users.rows.map((row) => ({ id: row.id, name: row.name, email: row.email, role: row.role, active: row.active, createdAt: row.created_at, lastLoginAt: row.last_login_at, balanceCents: Number(row.balance_cents), queriesCount: Number(row.queries_count) })));
 }));
 
-api.patch('/admin/users/:id', auth, requirePermission('MANAGE_USERS'), asyncRoute(async (req, res) => {
+api.patch('/admin/users/:id', adminAuth, requirePermission('MANAGE_USERS'), asyncRoute(async (req, res) => {
   const parsed = adminUserUpdateSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   if (String(req.params.id) === req.user!.id) throw appError('ADMIN_SELF_CHANGE_FORBIDDEN', { code: 'ADMIN_SELF_CHANGE_FORBIDDEN', http: 409, expose: true });
@@ -2166,7 +2037,7 @@ api.patch('/admin/users/:id', auth, requirePermission('MANAGE_USERS'), asyncRout
   res.json(updated.rows[0]);
 }));
 
-api.delete('/admin/users/:id', auth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
+api.delete('/admin/users/:id', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
   if (String(req.params.id) === req.user!.id) {
     throw appError('ADMIN_SELF_DELETION_FORBIDDEN', { code: 'ADMIN_SELF_DELETION_FORBIDDEN', http: 409, expose: true });
   }
@@ -2181,7 +2052,7 @@ api.delete('/admin/users/:id', auth, requirePermission('ADMIN_SYSTEM'), asyncRou
   res.status(204).end();
 }));
 
-api.post('/admin/users/:id/wallet-adjustments', auth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
+api.post('/admin/users/:id/wallet-adjustments', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
   const parsed = adminWalletAdjustmentSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const result = await tx(async (client) => {
@@ -2199,19 +2070,19 @@ api.post('/admin/users/:id/wallet-adjustments', auth, requirePermission('MANAGE_
   res.status(201).json(result);
 }));
 
-api.get('/admin/payments', auth, requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
+api.get('/admin/payments', adminAuth, requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
   const payments = await pool.query(`SELECT p.id,p.status,p.amount_cents,p.provider,p.external_id,p.created_at,p.paid_at,o.purchase_type,o.product_id,o.query_plate,u.name,u.email
     FROM payments p JOIN users u ON u.id=p.user_id LEFT JOIN payment_orders o ON o.id=p.order_id ORDER BY p.created_at DESC LIMIT 200`);
   res.json(payments.rows.map((row) => ({ id: row.id, status: row.status, amountCents: Number(row.amount_cents), purchaseType: row.purchase_type ?? null, productId: row.product_id ?? null, plate: row.query_plate ?? null, provider: row.provider, externalId: row.external_id, createdAt: row.created_at, paidAt: row.paid_at, customer: { name: row.name, email: row.email } })));
 }));
 
-api.get('/admin/contact-messages', auth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
+api.get('/admin/contact-messages', adminAuth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
   const messages = await pool.query(`SELECT id,user_id,name,email,subject,message,category,status,created_at,closed_at
     FROM contact_messages ORDER BY created_at DESC LIMIT 200`);
   res.json(messages.rows.map((row) => ({ id: row.id, userId: row.user_id, name: row.name, email: row.email, subject: row.subject, message: row.message, category: row.category, status: row.status, createdAt: row.created_at, closedAt: row.closed_at })));
 }));
 
-api.patch('/admin/contact-messages/:id', auth, requirePermission('MANAGE_USERS'), asyncRoute(async (req, res) => {
+api.patch('/admin/contact-messages/:id', adminAuth, requirePermission('MANAGE_USERS'), asyncRoute(async (req, res) => {
   const parsed = contactStatusSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const updated = await pool.query(`UPDATE contact_messages SET status=$2,closed_at=CASE WHEN $2='CLOSED' THEN now() ELSE NULL END WHERE id=$1 RETURNING id,status,closed_at`, [req.params.id, parsed.data.status]);
@@ -2220,7 +2091,7 @@ api.patch('/admin/contact-messages/:id', auth, requirePermission('MANAGE_USERS')
   res.json({ id: updated.rows[0].id, status: updated.rows[0].status, closedAt: updated.rows[0].closed_at });
 }));
 
-api.post('/admin/audit/retention', auth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
+api.post('/admin/audit/retention', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
   const parsed = auditRetentionSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const cutoff = new Date(Date.now() - parsed.data.olderThanDays * 24 * 60 * 60 * 1000);
@@ -2239,13 +2110,13 @@ api.post('/admin/audit/retention', auth, requirePermission('ADMIN_SYSTEM'), asyn
   res.json({ dryRun: false, cutoffAt: cutoff.toISOString(), deletedCount: deleted, retentionDays: parsed.data.olderThanDays });
 }));
 
-api.get('/admin/audit', auth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
+api.get('/admin/audit', adminAuth, requirePermission('VIEW_AUDIT'), asyncRoute(async (_req, res) => {
   const entries = await pool.query(`SELECT a.id,a.action,a.entity,a.entity_id,a.created_at,u.name AS actor_name,u.email AS actor_email
     FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 200`);
   res.json(entries.rows.map((row) => ({ id: row.id, action: row.action, entity: row.entity, entityId: row.entity_id, createdAt: row.created_at, actor: row.actor_name ? { name: row.actor_name, email: row.actor_email } : null })));
 }));
 
-api.get('/admin/permissions', auth, requirePermission('ADMIN_SYSTEM'), (req, res) => {
+api.get('/admin/permissions', adminAuth, requirePermission('ADMIN_SYSTEM'), (req, res) => {
   res.json({ role: req.user!.role, permissions: permissionsFor(req.user!.role), canManagePricing: hasPermission(req.user!.role, 'MANAGE_PRICING') });
 });
 
@@ -2261,11 +2132,6 @@ app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
 function parseOAuthProvider(value: string): OAuthProvider {
   if (value === 'google' || value === 'microsoft' || value === 'apple') return value;
   throw appError('OAUTH_PROVIDER_UNSUPPORTED', { code: 'OAUTH_PROVIDER_UNSUPPORTED', http: 404, expose: true });
-}
-
-function hashIp(ip: string | undefined): string | null {
-  if (!ip) return null;
-  return crypto.createHash('sha256').update(`${env.JWT_SECRET}:${ip}`).digest('hex');
 }
 
 function humanMessage(code: string): string {
@@ -2311,9 +2177,31 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDist = path.resolve(__dirname, '../../web/dist');
 const indexHtmlPath = path.join(webDist, 'index.html');
 const indexHtmlTemplate = existsSync(indexHtmlPath) ? readFileSync(indexHtmlPath, 'utf8') : '';
-app.use(express.static(webDist, { index: false, maxAge: env.NODE_ENV === 'production' ? '1h' : 0, etag: true }));
+const adminHtmlPath = path.join(webDist, 'admin.html');
+const adminHtmlTemplate = existsSync(adminHtmlPath) ? readFileSync(adminHtmlPath, 'utf8') : undefined;
+const staticOptions = { index: false, maxAge: env.NODE_ENV === 'production' ? '1h' : 0, etag: true } as const;
+const serveStatic = express.static(webDist, staticOptions);
+const hasAdminHosts = adminHosts().length > 0;
+// Duas frentes: bundle admin (admin.html + assets/admin-*) só é entregue no host do painel (ou em /painel quando não há host dedicado, apenas dev).
+const isAdminAsset = (p: string) => p === '/admin.html' || p.startsWith('/assets/admin-');
+app.use((req, res, next) => {
+  if (isAdminHost(req)) return serveStatic(req, res, next);
+  if (isAdminAsset(req.path) && hasAdminHosts) return res.status(404).end();
+  if (req.path === '/admin.html') return res.status(404).end();
+  return serveStatic(req, res, next);
+});
+function sendAdminShell(res: Response): void {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  res.type('html').send(adminHtmlTemplate);
+}
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/') || req.path === '/health') return next();
+  if (isAdminHost(req)) {
+    if (!adminHtmlTemplate) return next();
+    return sendAdminShell(res);
+  }
+  if (!hasAdminHosts && adminHtmlTemplate && (req.path === '/painel' || req.path.startsWith('/painel/'))) return sendAdminShell(res);
   if (!indexHtmlTemplate) return next();
   res.setHeader('Cache-Control', 'no-store');
   res.type('html').send(renderSeoHtml(indexHtmlTemplate, req.path, env.APP_URL ?? env.WEB_ORIGIN));

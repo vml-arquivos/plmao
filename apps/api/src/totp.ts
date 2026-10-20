@@ -1,8 +1,9 @@
 import { createCipheriv, createDecipheriv, createHmac, createHash, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { adminJwtSecret } from './lib/secrets.js';
 import { env } from './config.js';
 
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-const KEY = Buffer.from(hkdfSync('sha256', Buffer.from(env.JWT_SECRET, 'utf8'), Buffer.from('PLACA-NA-MAO-TOTP-SALT', 'utf8'), Buffer.from('Placa na Mao team TOTP encryption v1', 'utf8'), 32));
+const KEY = Buffer.from(hkdfSync('sha256', Buffer.from(adminJwtSecret(), 'utf8'), Buffer.from('PLACA-NA-MAO-TOTP-SALT', 'utf8'), Buffer.from('Placa na Mao team TOTP encryption v1', 'utf8'), 32));
 
 function base32Encode(input: Buffer): string {
   let bits = 0;
@@ -58,6 +59,11 @@ export function generateTotpSetup(email: string): { secret: string; otpauthUrl: 
   const label = encodeURIComponent(`PlacaNaMao:${email}`);
   const issuer = encodeURIComponent('Placa na Mao');
   return { secret, otpauthUrl: `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30` };
+}
+
+/** Código TOTP vigente (RFC 6238, SHA-1, 6 dígitos, 30s) — usado por testes e ferramentas internas. */
+export function totpCodeAt(secret: string, nowMs = Date.now()): string {
+  return hotp(base32Decode(secret), Math.floor(nowMs / 1000 / 30));
 }
 
 export function verifyTotpCode(secret: string, code: string, nowMs = Date.now()): boolean {

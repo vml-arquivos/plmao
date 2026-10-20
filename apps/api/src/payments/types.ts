@@ -8,7 +8,7 @@ export type CheckoutInput = {
 
 export type CheckoutResult = { id: string; link: string; status: string };
 
-export type PaymentStatusResult = { status: string; externalReference?: string | null };
+export type PaymentStatusResult = { status: string; externalReference?: string | null; paymentType?: string | null; feeCents?: number | null; netCents?: number | null };
 
 export type PaymentWebhookEvent = {
   externalReference: string | null;
