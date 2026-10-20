@@ -9,6 +9,7 @@
  */
 import { CATALOG_BY_KEY, FIELD_CATALOG, SECTIONS, type FieldDef, type SectionKey, type Tier } from './catalog.js';
 import { maskDocument, maskName, maskVehicleId } from './mask.js';
+import { brlFromCents, sentenceCase } from './format.js';
 
 export const NORMALIZER_VERSION = 2;
 export const REPORT_SCHEMA = 'placanamao.vehicle.report.v2';
@@ -23,6 +24,8 @@ export interface ReportItem {
   state: ItemState;
   /** valor pronto para exibição (já mascarado quando sensível); null quando NOT_PROVIDED */
   value: string | null;
+  /** texto pronto para leitura humana (ex.: "Nada consta", "R$ 293,47") */
+  display?: string | null;
   amountCents?: number;
   masked?: boolean;
   sensitivity: FieldDef['sensitivity'];
@@ -144,25 +147,25 @@ function buildItem(def: FieldDef, rawValue: unknown): ReportItem {
   const text = scalar(rawValue);
   if (!text) return base;
 
-  if (def.doc === 'CPF_CNPJ') return { ...base, state: 'INFO', value: maskDocument(text), masked: true };
-  if (def.doc === 'NAME') return { ...base, state: 'INFO', value: maskName(text), masked: true };
-  if (def.doc === 'VEHICLE_ID') return { ...base, state: 'INFO', value: maskVehicleId(text), masked: true };
+  if (def.doc === 'CPF_CNPJ') { const v = maskDocument(text); return { ...base, state: 'INFO', value: v, display: v, masked: true }; }
+  if (def.doc === 'NAME') { const v = maskName(text); return { ...base, state: 'INFO', value: v, display: v, masked: true }; }
+  if (def.doc === 'VEHICLE_ID') { const v = maskVehicleId(text); return { ...base, state: 'INFO', value: v, display: v, masked: true }; }
 
   const folded = fold(text);
   switch (def.kind) {
     case 'money': {
       const amountCents = MONEY_RE.test(text) ? parseCents(text) : 0;
       const component = FINE_COMPONENTS.has(def.key);
-      return { ...base, state: amountCents > 0 ? 'ALERT' : 'CLEAR', value: MONEY_RE.test(text) ? text : null, amountCents, component };
+      return { ...base, state: amountCents > 0 ? 'ALERT' : 'CLEAR', value: MONEY_RE.test(text) ? text : null, display: MONEY_RE.test(text) ? brlFromCents(amountCents) : null, amountCents, component };
     }
     case 'flag': {
       const clear = DEFAULT_CLEAR.test(folded) || Boolean(def.clear?.test(folded));
-      return { ...base, state: clear ? 'CLEAR' : 'ALERT', value: text };
+      return { ...base, state: clear ? 'CLEAR' : 'ALERT', value: text, display: sentenceCase(text) };
     }
     case 'status':
-      return { ...base, state: SITUATION_ALERT.test(folded) ? 'ALERT' : 'INFO', value: text, high: SITUATION_ALERT.test(folded) || undefined };
+      return { ...base, state: SITUATION_ALERT.test(folded) ? 'ALERT' : 'INFO', value: text, display: sentenceCase(text), high: SITUATION_ALERT.test(folded) || undefined };
     default:
-      return { ...base, state: 'INFO', value: text };
+      return { ...base, state: 'INFO', value: text, display: text };
   }
 }
 

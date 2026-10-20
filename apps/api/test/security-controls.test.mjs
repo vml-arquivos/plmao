@@ -65,8 +65,9 @@ test('visão administrativa calcula receita de consulta pela ordem de pagamento'
   assert.doesNotMatch(server, /FROM payments WHERE status='PAID' AND purchase_type='QUERY'/);
 });
 
-test('resposta bruta do provider fica desligada por padrão e credenciais de provider são documentadas', async () => {
-  assert.match(config, /STORE_RAW_PROVIDER_RESPONSE: booleanFromEnv\.default\(false\)/);
+test('resposta bruta do provider é guardada criptografada por padrão e credenciais de provider são documentadas', async () => {
+  assert.match(config, /STORE_RAW_PROVIDER_RESPONSE: booleanFromEnv\.default\(true\)/);
+  assert.match(server, /encryptRaw\(output\.raw\)/);
   const envExample = await readFile(new URL('../../../.env.example', import.meta.url), 'utf8');
   for (const variable of ['APIBRASIL_BEARER_TOKEN', 'APIBRASIL_DEVICE_TOKEN', 'VEHICLE_API_DEVICE_TOKEN', 'VEHICLE_API_QUERY_METHOD', 'SUPER_ADMIN_BOOTSTRAP_ENABLED']) {
     assert.match(envExample, new RegExp(`^${variable}=`, 'm'));

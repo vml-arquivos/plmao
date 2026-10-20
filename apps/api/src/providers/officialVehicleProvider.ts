@@ -1,5 +1,6 @@
 import { env } from '../config.js';
 import type { VehicleDataProvider } from '../types.js';
+import { providerOutcome } from '../report/normalizeV2.js';
 
 function providerError(code: string): Error & { code: string } {
   const error = new Error(code) as Error & { code: string };
@@ -67,6 +68,8 @@ export class OfficialVehicleProvider implements VehicleDataProvider {
     if (!response.ok) throw providerError('DATA_PROVIDER_UNAVAILABLE');
     const raw = await response.json().catch(() => { throw providerError('DATA_PROVIDER_INVALID_RESPONSE'); });
     if (isProviderError(raw)) throw providerError('DATA_PROVIDER_INVALID_RESPONSE');
+    // Contrato do provedor: sucesso = CODIGO=1 + DESCRICAORETORNO=SUCESSO + EXISTE_ERRO=0 (quando presentes).
+    if (!providerOutcome(raw).ok) throw providerError('DATA_PROVIDER_INVALID_RESPONSE');
 
     // The queried plate is trusted input, not a vehicle attribute inferred from
     // the provider. Keeping it at the root also supports providers that omit it.

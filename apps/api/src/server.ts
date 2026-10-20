@@ -18,6 +18,7 @@ import { adminAuthRouter } from './routes/adminAuth.js';
 import { financeRouter } from './routes/finance.js';
 import { enforceMarginFloor } from './pricing/guard.js';
 import { partnersRouter, releaseCommissions } from './routes/partners.js';
+import { adminQueriesRouter } from './routes/adminQueries.js';
 import { completeAuthorization, consumeLoginTicket, createAuthorizationRequest, oauthErrorUrl, oauthSuccessUrl, socialProviderStatus, type OAuthProvider } from './oauth.js';
 import { adminHosts, env } from './config.js';
 import { sendContactConfirmationEmail, sendContactMessageEmail, sendPasswordResetEmail, isEmailConfigured } from './email.js';
@@ -34,8 +35,11 @@ import { performAdminLookup } from './adminLookup.js';
 import { executeVehicleLookup } from './vehicleLookup.js';
 import { calculateAffiliateCommission, calculateCouponDiscount, couponHasCapacity, couponWindowIsOpen, effectiveQueryPriceCents, queryAmountAfterCoupon } from './commercial.js';
 import { publicVehicleResult, sanitizeAuditMetadata } from './privacy.js';
-import { tierForProductCode } from './report/normalizeV2.js';
-import { buildGenericReport, defaultReportTemplate, reportPdf, reportPrintHtml, type GenericReport, type GenericReportTemplate } from './reportEngine.js';
+import { NORMALIZER_VERSION, tierForProductCode, viewReport } from './report/normalizeV2.js';
+import { defaultReportTemplate } from './reportEngine.js';
+import { renderVehiclePdf, type ReportMeta } from './report/pdf.js';
+import { renderVehicleHtml } from './report/printHtml.js';
+import { encryptRaw } from './lib/rawStore.js';
 import { renderSeoHtml } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle } from './types.js';
@@ -49,6 +53,7 @@ api.use((req, res, next) => (req.path.startsWith('/admin') ? adminEdgeGuard(req,
 api.use('/admin/auth', adminAuthRouter);
 api.use('/admin/finance', financeRouter);
 api.use('/admin/finance', partnersRouter);
+api.use('/admin/queries', adminQueriesRouter);
 api.use((_req, res, next) => {
   // API responses are not cacheable: authenticated clients must never receive a conditional 304 without a body.
   res.setHeader('Cache-Control', 'no-store, private');
@@ -664,44 +669,6 @@ async function effectiveQueryPrice(client: PoolClient, userId: string, productId
   return Number.isInteger(negotiated) && negotiated >= 0 ? { priceCents: negotiated, negotiated: true } : { priceCents: base, negotiated: false };
 }
 
-async function loadGenericReportTemplate(productId: string, productName: string): Promise<GenericReportTemplate> {
-  try {
-    const result = await pool.query(`SELECT t.id,t.product_id,t.version,t.name,t.status,t.config
-      FROM product_report_configs c JOIN report_templates t ON t.id=c.template_id
-      WHERE c.product_id=$1 AND t.status='PUBLISHED'`, [productId]);
-    if (result.rowCount) {
-      const row = result.rows[0] as Record<string, unknown>;
-      const config = row.config as Record<string, unknown>;
-      if (config && Array.isArray(config.sections)) return { id: String(row.id), productId: String(row.product_id), version: Number(row.version), name: String(row.name), status: 'PUBLISHED', title: typeof config.title === 'string' ? config.title : productName, subtitle: typeof config.subtitle === 'string' ? config.subtitle : 'Relatório veicular Placa na Mão', sections: config.sections as GenericReportTemplate['sections'] };
-    }
-  } catch (error) {
-    log('warn', 'report_template_fallback', { productId, error: error instanceof Error ? error.message : 'unknown' });
-  }
-  return defaultReportTemplate(productId, productName);
-}
-
-async function saveGenericVehicleReport(queryId: string, userId: string, productId: string, productName: string, normalized: NormalizedVehicle, provider: string): Promise<void> {
-  const template = await loadGenericReportTemplate(productId, productName);
-  const report = buildGenericReport(template, publicVehicleResult(normalized));
-  const documentCode = `RPT-${randomBytes(6).toString('hex').toUpperCase()}`;
-  await pool.query(`INSERT INTO report_documents(document_code,query_id,user_id,report_kind,report_version,provider,report_hash,snapshot,product_id,template_id,template_version)
-    VALUES($1,$2,$3,'VEHICLE_QUERY',$4,$5,$6,$7::jsonb,$8,$9,$10)`, [documentCode, queryId, userId, template.version, provider, report.validation, JSON.stringify({ report }), productId, template.id.startsWith('default-') ? null : template.id, template.version]);
-}
-
-async function genericReportForQuery(queryId: string, userId: string): Promise<GenericReport> {
-  const stored = await pool.query(`SELECT d.snapshot FROM report_documents d WHERE d.query_id=$1 AND d.user_id=$2 AND d.report_kind='VEHICLE_QUERY' ORDER BY d.created_at DESC LIMIT 1`, [queryId, userId]);
-  if (stored.rowCount) {
-    const report = (stored.rows[0].snapshot as Record<string, unknown>)?.report as GenericReport | undefined;
-    if (report?.schema === 'placanamao.generic.report.v1') return report;
-  }
-  const query = await pool.query(`SELECT q.product_id,p.name,r.normalized,q.provider FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.id=$1 AND q.user_id=$2 AND q.status='SUCCESS'`, [queryId, userId]);
-  if (!query.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
-  const row = query.rows[0] as Record<string, unknown>;
-  const normalized = publicVehicleResult(row.normalized as NormalizedVehicle);
-  const template = await loadGenericReportTemplate(String(row.product_id), String(row.name));
-  return buildGenericReport(template, normalized);
-}
-
 async function saveFipeDocument(quote: FipeQuote): Promise<void> {
   await pool.query(`INSERT INTO report_documents(document_code,report_kind,provider,report_hash,snapshot)
     VALUES($1,'FIPE_FREE',$2,$3,$4::jsonb) ON CONFLICT(document_code) DO NOTHING`, [quote.documentCode, quote.provider, quote.reportHash, JSON.stringify(reportSnapshot(quote))]);
@@ -1143,18 +1110,13 @@ api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async 
     const normalized = output.normalized;
     const resultHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
     await tx(async (client) => {
-      await client.query('INSERT INTO vehicle_query_results(query_id,normalized,raw_response) VALUES($1,$2::jsonb,$3::jsonb)', [queryId, JSON.stringify(normalized), JSON.stringify(env.STORE_RAW_PROVIDER_RESPONSE ? output.raw : { stored: false })]);
+      await client.query('INSERT INTO vehicle_query_results(query_id,normalized,raw_response,raw_enc,normalizer_version) VALUES($1,$2::jsonb,$3::jsonb,$4,$5)', [queryId, JSON.stringify(normalized), JSON.stringify({ stored: env.STORE_RAW_PROVIDER_RESPONSE, encrypted: env.STORE_RAW_PROVIDER_RESPONSE }), env.STORE_RAW_PROVIDER_RESPONSE ? encryptRaw(output.raw) : null, NORMALIZER_VERSION]);
       await client.query(`UPDATE vehicle_queries SET status='SUCCESS',provider_query_id=$2,result_hash=$3,completed_at=now() WHERE id=$1`, [queryId, output.providerQueryId ?? null, resultHash]);
     });
     await audit(req.user!.id, 'VEHICLE_QUERY', 'VEHICLE_QUERY', queryId, { plate: parsed.data.plate, productId: parsed.data.productId, provider: provider.name, requestId: requestId(req) });
     const completed = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
       FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.id=$1`, [queryId]);
     const completedRow = completed.rows[0] as QueryRow & Record<string, unknown>;
-    try {
-      await saveGenericVehicleReport(String(queryId), req.user!.id, String(completedRow.product_id), String(completedRow.product_name), completedRow.normalized as NormalizedVehicle, String(completedRow.provider));
-    } catch (error) {
-      log('error', 'generic_report_snapshot_failed', { queryId, error: error instanceof Error ? error.message : 'unknown' });
-    }
     res.status(201).json(serializeQuery(completedRow));
   } catch (error: unknown) {
     if (queryId) {
@@ -1210,19 +1172,37 @@ api.get('/queries/:id/export', auth, requirePermission('VIEW_HISTORY'), asyncRou
   res.type('application/json').send(JSON.stringify(serializeQuery(query.rows[0] as QueryRow & Record<string, unknown>), null, 2));
 }));
 
+async function vehicleReportForQuery(queryId: string, userId: string) {
+  const query = await pool.query(`SELECT q.id,q.plate,q.product_id,q.created_at,q.completed_at,q.result_hash,p.name AS product_name,r.normalized
+    FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id
+    WHERE q.id=$1 AND q.user_id=$2 AND q.status='SUCCESS'`, [queryId, userId]);
+  if (!query.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
+  const row = query.rows[0] as Record<string, unknown>;
+  const vehicle = row.normalized as NormalizedVehicle | null;
+  if (!vehicle?.v2) throw appError('REPORT_UNAVAILABLE', { code: 'REPORT_UNAVAILABLE', http: 409, expose: true });
+  const report = viewReport(vehicle.v2, { audience: 'client', tier: tierForProductCode(String(row.product_id)) });
+  const code = String(row.id).slice(0, 8).toUpperCase();
+  const base = (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '');
+  const meta: ReportMeta = { productName: String(row.product_name), verificationCode: code, verificationUrl: `${base}/validar/${code}`, consultedAt: new Date(String(row.completed_at ?? row.created_at)), resultHash: row.result_hash ? String(row.result_hash) : null, audience: 'client' };
+  return { report, meta };
+}
+
+api.get('/queries/:id/report', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const { report, meta } = await vehicleReportForQuery(String(req.params.id), req.user!.id);
+  res.json({ report, verificationCode: meta.verificationCode, verificationUrl: meta.verificationUrl, consultedAt: meta.consultedAt, productName: meta.productName });
+}));
+
 api.get('/queries/:id/report/pdf', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
-  const report = await genericReportForQuery(String(req.params.id), req.user!.id);
-  const branding = await organizationBrandingForUser(req.user!.id);
+  const { report, meta } = await vehicleReportForQuery(String(req.params.id), req.user!.id);
   await audit(req.user!.id, 'EXPORT_QUERY_REPORT_PDF', 'VEHICLE_QUERY', String(req.params.id), { requestId: requestId(req) });
-  res.setHeader('Content-Disposition', `attachment; filename="placa-na-mao-${String(req.params.id).slice(0, 8)}.pdf"`);
-  res.type('application/pdf').send(reportPdf(report, branding));
+  res.setHeader('Content-Disposition', `attachment; filename="placa-na-mao-${meta.verificationCode}.pdf"`);
+  res.type('application/pdf').send(await renderVehiclePdf(report, meta));
 }));
 
 api.get('/queries/:id/report/print', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
-  const report = await genericReportForQuery(String(req.params.id), req.user!.id);
-  const branding = await organizationBrandingForUser(req.user!.id);
+  const { report, meta } = await vehicleReportForQuery(String(req.params.id), req.user!.id);
   await audit(req.user!.id, 'PRINT_QUERY_REPORT', 'VEHICLE_QUERY', String(req.params.id), { requestId: requestId(req) });
-  res.type('html').send(reportPrintHtml(report, branding));
+  res.type('html').send(renderVehicleHtml(report, meta));
 }));
 
 api.get('/wallet/transactions', auth, asyncRoute(async (req, res) => {

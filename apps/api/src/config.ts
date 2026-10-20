@@ -172,7 +172,7 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   LOG_SENSITIVE_DATA: booleanFromEnv.default(false),
   AUDIT_LOG_ENABLED: booleanFromEnv.default(true),
-  STORE_RAW_PROVIDER_RESPONSE: booleanFromEnv.default(false),
+  STORE_RAW_PROVIDER_RESPONSE: booleanFromEnv.default(true),
 
   // Bootstrap administrativo: uso pontual, explicitamente habilitado e removido após a promoção auditada.
   SUPER_ADMIN_BOOTSTRAP_ENABLED: booleanFromEnv.default(false),
