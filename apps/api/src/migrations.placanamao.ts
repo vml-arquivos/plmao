@@ -507,5 +507,91 @@ export const placaMigrations: Migration[] = [
       // Quem já tem empresa preenchida no perfil vira "Empresa"; o resto segue como particular.
       await client.query(`UPDATE user_profiles SET customer_type='EMPRESA' WHERE customer_type='PARTICULAR' AND company_name IS NOT NULL AND btrim(company_name) <> '' AND length(regexp_replace(coalesce(cpf_cnpj,''),'\\D','','g')) = 14`);
     }
+  },
+  {
+    id: '018_vehicle_guide',
+    name: 'Guia de veículos: modelos, versões com ficha técnica, opiniões de donos e dicas',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS vehicle_models (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          slug text NOT NULL UNIQUE,
+          brand text NOT NULL,
+          name text NOT NULL,
+          vehicle_type text NOT NULL DEFAULT 'CAR' CHECK (vehicle_type IN ('CAR','MOTORCYCLE','TRUCK')),
+          body_type text,
+          year_from integer CHECK (year_from IS NULL OR year_from BETWEEN 1950 AND 2100),
+          year_to integer CHECK (year_to IS NULL OR year_to BETWEEN 1950 AND 2100),
+          summary text NOT NULL DEFAULT '',
+          review text NOT NULL DEFAULT '',
+          pros jsonb NOT NULL DEFAULT '[]'::jsonb,
+          cons jsonb NOT NULL DEFAULT '[]'::jsonb,
+          buyer_tips text NOT NULL DEFAULT '',
+          image_url text,
+          status text NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','PUBLISHED')),
+          archived_at timestamptz,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_vehicle_models_list ON vehicle_models(status, archived_at, brand, name);
+
+        CREATE TABLE IF NOT EXISTS vehicle_versions (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          model_id uuid NOT NULL REFERENCES vehicle_models(id) ON DELETE CASCADE,
+          name text NOT NULL,
+          year_model integer CHECK (year_model IS NULL OR year_model BETWEEN 1950 AND 2100),
+          fuel text,
+          fipe_code text,
+          specs jsonb NOT NULL DEFAULT '{}'::jsonb,
+          display_order integer NOT NULL DEFAULT 0,
+          active boolean NOT NULL DEFAULT true,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_versions_unique ON vehicle_versions(model_id, lower(name), coalesce(year_model, 0));
+        CREATE INDEX IF NOT EXISTS idx_vehicle_versions_model ON vehicle_versions(model_id, display_order);
+
+        CREATE TABLE IF NOT EXISTS vehicle_opinions (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          model_id uuid NOT NULL REFERENCES vehicle_models(id) ON DELETE CASCADE,
+          version_id uuid REFERENCES vehicle_versions(id) ON DELETE SET NULL,
+          user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          rating smallint NOT NULL CHECK (rating BETWEEN 1 AND 5),
+          ratings jsonb NOT NULL DEFAULT '{}'::jsonb,
+          title text NOT NULL DEFAULT '',
+          liked text NOT NULL DEFAULT '',
+          disliked text NOT NULL DEFAULT '',
+          comment text NOT NULL DEFAULT '',
+          owner_since integer CHECK (owner_since IS NULL OR owner_since BETWEEN 1950 AND 2100),
+          km integer CHECK (km IS NULL OR km BETWEEN 0 AND 2000000),
+          status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),
+          reject_reason text,
+          moderated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          moderated_at timestamptz,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          UNIQUE (model_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_vehicle_opinions_model ON vehicle_opinions(model_id, status, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_vehicle_opinions_status ON vehicle_opinions(status, created_at);
+
+        CREATE TABLE IF NOT EXISTS vehicle_tips (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          category text NOT NULL DEFAULT 'CUIDADOS',
+          title text NOT NULL,
+          body text NOT NULL DEFAULT '',
+          model_id uuid REFERENCES vehicle_models(id) ON DELETE CASCADE,
+          status text NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','PUBLISHED')),
+          display_order integer NOT NULL DEFAULT 0,
+          archived_at timestamptz,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_vehicle_tips_list ON vehicle_tips(status, archived_at, category, display_order);
+      `);
+    }
   }
+
 ];

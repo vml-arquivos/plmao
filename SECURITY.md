@@ -16,6 +16,8 @@ Segredos existem **somente no ambiente de execução** (Coolify): nunca no repos
 | Conteúdo editável | Artigos em markdown restrito (sem HTML cru), links só http(s)/mailto/relativos, capa só https; permissão `MANAGE_CONTENT` |
 | Rastreamento | Request ID, trilha de auditoria, logs sem dados sensíveis (`LOG_SENSITIVE_DATA=false`) |
 
+- **Guia de veículos**: opiniões passam por moderação, rejeitam links/e-mails, têm limite de 20 envios/hora e aparecem com nome abreviado; o e-mail do autor só aparece no painel. Busca por placa no guia tem cota diária por conta. Foto de capa só aceita https e o painel avisa para usar apenas imagens com direito de uso. Gestão restrita à permissão `MANAGE_CONTENT` e registrada na auditoria (`VEHICLE_*`).
+
 ## LGPD
 
 - **Minimização:** CPF/CNPJ, nomes, chassi, RENAVAM e motor saem mascarados por padrão no cliente, na equipe, na impressão e no PDF.

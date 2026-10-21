@@ -18,6 +18,8 @@ const pageMeta: Record<string, SeoMeta> = {
   '/sobre': { title: 'Sobre a Placa na Mão | Consulta veicular', description: 'Conheça a Placa na Mão: consulta veicular por placa com transparência sobre fonte, data e cobertura de cada informação.' },
   '/contato': { title: 'Contato e suporte | Placa na Mão', description: 'Fale com a equipe Placa na Mão sobre suporte, privacidade (LGPD) e parcerias comerciais.' },
   '/perguntas-frequentes': { title: 'Perguntas frequentes sobre consulta veicular | Placa na Mão', description: 'Tire dúvidas sobre consulta de placa, pagamento, estorno, privacidade e o que cada relatório mostra.' },
+  '/veiculos': { title: 'Guia de veículos: ficha técnica, opinião de donos e comparador | Placa na Mão', description: 'Veja ficha técnica, nota e opinião de quem tem o carro, dicas de cuidados e compare veículos lado a lado antes de comprar.' },
+  '/comparar': { title: 'Comparar veículos lado a lado | Placa na Mão', description: 'Compare ficha técnica, consumo, espaço e nota dos donos de até 3 veículos.' },
   '/blog': { title: 'Blog: guias para comprar e vender veículo com segurança | Placa na Mão', description: 'Guias práticos sobre gravame, débitos, restrições, Tabela FIPE, recall e vistoria para decidir com segurança.' },
   '/entrar': { title: 'Entrar | Placa na Mão', description: 'Acesse sua conta Placa na Mão.' },
   '/criar-conta': { title: 'Criar conta | Placa na Mão', description: 'Crie sua conta Placa na Mão e faça sua primeira consulta veicular.' },
@@ -26,15 +28,15 @@ const pageMeta: Record<string, SeoMeta> = {
 };
 
 /** Páginas públicas indexáveis (entram no sitemap). Telas de conta e do app ficam de fora. */
-export const SITEMAP_PATHS: string[] = Object.keys(pageMeta).filter((p) => !['/entrar', '/criar-conta'].includes(p));
-const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|validar|validar-relatorio|consultar)(\/|$)/;
+export const SITEMAP_PATHS: string[] = Object.keys(pageMeta).filter((p) => !['/entrar', '/criar-conta', '/comparar'].includes(p));
+const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|validar|validar-relatorio|consultar|comparar)(\/|$)/;
 
 export interface SeoOverride { title?: string; description?: string; jsonLd?: unknown[] }
 
 export function renderRobotsTxt(appUrl: string, adminHost: boolean): string {
   if (adminHost) return 'User-agent: *\nDisallow: /\n';
   const base = appUrl.replace(/\/$/, '');
-  return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\n\nSitemap: ${base}/sitemap.xml\n`;
+  return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\nDisallow: /comparar\n\nSitemap: ${base}/sitemap.xml\n`;
 }
 
 export function renderSitemapXml(appUrl: string, extra: Array<{ path: string; lastmod?: Date }> = []): string {

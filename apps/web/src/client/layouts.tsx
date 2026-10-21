@@ -24,6 +24,7 @@ export function ScrollManager() {
 const NAV: Array<{ to: string; label: string }> = [
   { to: '/', label: 'Início' },
   { to: '/planos', label: 'Consultas e preços' },
+  { to: '/veiculos', label: 'Guia de veículos' },
   { to: '/blog', label: 'Blog' },
   { to: '/perguntas-frequentes', label: 'Perguntas' },
   { to: '/fipe', label: 'FIPE grátis' }
@@ -82,7 +83,7 @@ export function PublicFooter() {
             <p style={{ maxWidth: 320, marginTop: 10 }}>Consulta veicular completa por placa, com relatório detalhado e PDF para imprimir. {BRAND.slogan}</p>
             <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>
           </div>
-          <div><h5>Consultas</h5><ul><li><Link to="/consulta-placa">Consulta de placa</Link></li><li><Link to="/consultar-debitos-veiculo">Débitos e multas</Link></li><li><Link to="/consultar-gravame">Gravame</Link></li><li><Link to="/consultar-leilao-veiculo">Leilão</Link></li><li><Link to="/fipe">FIPE grátis</Link></li></ul></div>
+          <div><h5>Consultas</h5><ul><li><Link to="/consulta-placa">Consulta de placa</Link></li><li><Link to="/consultar-debitos-veiculo">Débitos e multas</Link></li><li><Link to="/consultar-gravame">Gravame</Link></li><li><Link to="/consultar-leilao-veiculo">Leilão</Link></li><li><Link to="/fipe">FIPE grátis</Link></li><li><Link to="/veiculos">Guia de veículos</Link></li><li><Link to="/comparar">Comparar veículos</Link></li></ul></div>
           <div><h5>Empresa</h5><ul><li><Link to="/sobre">Sobre</Link></li><li><Link to="/para-lojistas">Para lojistas</Link></li><li><Link to="/blog">Blog</Link></li><li><Link to="/perguntas-frequentes">Perguntas frequentes</Link></li><li><Link to="/contato">Contato</Link></li></ul></div>
           <div><h5>Legal</h5><ul><li><Link to="/termos">Termos de Uso</Link></li><li><Link to="/privacidade">Política de Privacidade</Link></li><li><Link to="/validar">Validar relatório</Link></li></ul></div>
         </div>
@@ -108,6 +109,7 @@ export function PublicLayout() {
 const ITEMS: Array<{ to: string; label: string; icon: IconName; end?: boolean }> = [
   { to: '/app', label: 'Painel', icon: 'home', end: true },
   { to: '/app/historico', label: 'Histórico', icon: 'clock' },
+  { to: '/veiculos', label: 'Guia de veículos', icon: 'car' },
   { to: '/app/carteira', label: 'Carteira', icon: 'wallet' },
   { to: '/app/parceiro', label: 'Parceiro', icon: 'users' },
   { to: '/app/conta', label: 'Minha conta', icon: 'user' }

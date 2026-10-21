@@ -43,6 +43,9 @@ import { encryptRaw } from './lib/rawStore.js';
 import { refundProcessingQuery, sweepStuckQueries } from './lib/queryRefund.js';
 import { adminPeopleRouter } from './routes/adminPeople.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
+import { adminVehiclesRouter } from './routes/adminVehicles.js';
+import { publicVehiclesRouter } from './routes/vehicles.js';
+import { scoreModelMatch } from './lib/vehicleSpecs.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
 import { renderRobotsTxt, renderSeoHtml, renderSitemapXml, type SeoOverride } from './seo.js';
@@ -62,6 +65,7 @@ api.use('/admin/finance', financeRouter);
 api.use('/admin/finance', partnersRouter);
 api.use('/admin/queries', adminQueriesRouter);
 api.use('/admin/content', adminContentRouter);
+api.use('/admin/vehicles', adminVehiclesRouter);
 api.use('/admin', adminPeopleRouter);
 api.use('/admin', adminBillingRouter);
 api.use((_req, res, next) => {
@@ -1058,6 +1062,43 @@ api.get('/query-products', auth, asyncRoute(async (req, res) => {
 }));
 
 api.use(publicContentRouter);
+
+/** Guia de veículos: a rota por placa fica aqui porque usa o provedor de dados e a cota diária, e precisa vir antes das rotas `/vehicles/:slug`. */
+const VEHICLE_PLATE_DAILY_LIMIT = 5;
+api.post('/vehicles/by-plate', auth, asyncRoute(async (req, res) => {
+  const plate = plateSchema.safeParse((req.body as { plate?: unknown } | undefined)?.plate);
+  if (!plate.success) throw appError('INVALID_PLATE', { code: 'INVALID_PLATE', http: 400, expose: true });
+  const scopeKey = `vguide:plate:${req.user!.id}`;
+  await reserveFipeQuota(scopeKey, VEHICLE_PLATE_DAILY_LIMIT);
+  let normalized: NormalizedVehicle;
+  try {
+    const output = await withTimeout(getProvider().queryByPlate(plate.data), env.QUERY_REQUEST_TIMEOUT_MS);
+    normalized = normalizeBdrp(output.raw);
+  } catch (error) {
+    await releaseFipeQuota(scopeKey);
+    const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : '';
+    if (code === 'NOT_FOUND') throw appError('FIPE_PLATE_NOT_FOUND', { code: 'FIPE_PLATE_NOT_FOUND', http: 404, expose: true });
+    throw appError('VEHICLE_PLATE_UNAVAILABLE', { code: 'VEHICLE_PLATE_UNAVAILABLE', http: 503, expose: true });
+  }
+  const brand = normalized.identification.brand ?? normalized.identification.fullModel?.split(/\s+/)[0] ?? '';
+  const model = fipeModelTarget(normalized);
+  const fullModel = normalized.identification.fullModel ?? model;
+  const year = Number(normalized.characteristics.modelYear ?? normalized.characteristics.manufactureYear ?? '') || null;
+  const candidates = brand ? await pool.query(`SELECT m.id,m.slug,m.brand,m.name FROM vehicle_models m WHERE m.status='PUBLISHED' AND m.archived_at IS NULL AND m.brand ILIKE $1`, [`%${brand.split(/\s+/)[0]!.replace(/[%_\\]/g, '')}%`]) : { rows: [] as Array<Record<string, any>> };
+  const scored = candidates.rows
+    .map((c) => ({ c, score: Math.max(scoreModelMatch({ brand, model }, { brand: c.brand, name: c.name }), scoreModelMatch({ brand, model: fullModel }, { brand: c.brand, name: c.name })) }))
+    .filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 5);
+  const versions = scored.length ? await pool.query('SELECT id,model_id,name,year_model,fuel FROM vehicle_versions WHERE model_id = ANY($1::uuid[]) AND active ORDER BY year_model DESC NULLS LAST, display_order, name', [scored.map((x) => x.c.id)]) : { rows: [] as Array<Record<string, any>> };
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json({
+    vehicle: { plate: plate.data, brand: normalized.identification.brand ?? null, model: fullModel || null, year, fuel: normalized.characteristics.fuel ?? null },
+    matches: scored.map((x) => ({
+      slug: x.c.slug, brand: x.c.brand, name: x.c.name,
+      versions: versions.rows.filter((v) => v.model_id === x.c.id).map((v) => ({ id: v.id, name: v.name, yearModel: v.year_model, fuel: v.fuel, sameYear: year != null && v.year_model === year }))
+    }))
+  });
+}));
+api.use(publicVehiclesRouter);
 
 api.get('/fipe/offers', asyncRoute(async (_req, res) => {
   const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,
@@ -2155,7 +2196,8 @@ app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
   const status = known.http ?? 500;
   const code = known.code ?? 'INTERNAL_ERROR';
   log('error', 'request_failed', { requestId: requestId(req), path: req.path, method: req.method, status, code, message: error instanceof Error ? error.message : 'Unknown error' });
-  res.status(status).json({ error: code, message: known.expose ? humanMessage(code) : 'Não foi possível concluir esta operação agora. Tente novamente.' });
+  const details = known.expose ? (known as AppError & { details?: unknown }).details : undefined;
+  res.status(status).json({ error: code, message: known.expose ? humanMessage(code) : 'Não foi possível concluir esta operação agora. Tente novamente.', ...(Array.isArray(details) ? { details } : {}) });
 });
 
 function parseOAuthProvider(value: string): OAuthProvider {
@@ -2191,6 +2233,23 @@ function humanMessage(code: string): string {
     FIPE_NOT_FOUND: 'A combinação de veículo informada não foi encontrada na tabela vigente.',
     FIPE_REFERENCE_MISSING: 'A referência mensal da consulta não está disponível no momento.',
     FIPE_PLATE_DATA_INVALID: 'Não foi possível identificar os dados do veículo para esta placa.',
+    VEHICLE_NOT_FOUND: 'Não encontramos este veículo no guia.',
+    INVALID_SPECS: 'Há campos da ficha técnica com valor inválido. Revise os campos indicados.',
+    VEHICLE_HAS_OPINIONS: 'Este modelo já tem opiniões de donos. Arquive o modelo em vez de apagar.',
+    SLUG_TAKEN: 'Já existe um modelo com este endereço (slug).',
+    TIP_NOT_FOUND: 'A dica não foi encontrada.',
+    OPINION_NOT_FOUND: 'A opinião não foi encontrada.',
+    VERSION_DUPLICATE: 'Já existe uma versão com este nome e ano neste modelo.',
+    IMPORT_INVALID: 'O arquivo de importação é inválido.',
+    IMPORT_EMPTY: 'A planilha não tem linhas para importar.',
+    IMPORT_TOO_LARGE: 'A planilha tem linhas demais. Importe até 2.000 linhas por vez.',
+    IMPORT_MISSING_COLUMNS: 'A planilha precisa das colunas marca, modelo e versao. Baixe o modelo de planilha.',
+    COMPARE_NEEDS_2_OR_3: 'Escolha de 2 a 3 veículos diferentes para comparar.',
+    COMPARE_VEHICLE_NOT_FOUND: 'Um dos veículos escolhidos não está mais disponível no guia.',
+    OPINION_TOO_SHORT: 'Conte um pouco mais: escreva ao menos 20 caracteres entre o que gostou, o que não gostou e o comentário.',
+    OPINION_LINKS_NOT_ALLOWED: 'Não é permitido colocar links ou e-mails na opinião.',
+    VERSION_NOT_FOUND: 'A versão escolhida não existe para este modelo.',
+    VEHICLE_PLATE_UNAVAILABLE: 'A busca por placa está indisponível no momento. Busque pelo nome do modelo.',
     FIPE_PLATE_NOT_FOUND: 'Não identificamos um veículo para esta placa. Confira os dados e tente novamente.',
     FIPE_PLATE_UNAVAILABLE: 'Não foi possível consultar os dados do veículo agora. Tente novamente em instantes.',
     FIPE_PLATE_VEHICLE_NOT_IDENTIFIED: 'Não encontramos a versão FIPE correspondente a esta placa.',
@@ -2214,8 +2273,9 @@ app.get('/robots.txt', (req, res) => { res.type('text/plain').setHeader('Cache-C
 app.get('/sitemap.xml', asyncRoute(async (req, res) => {
   if (isAdminHost(req)) return res.status(404).end();
   const articles = await publishedArticleSlugs();
+  const vehicles = await pool.query(`SELECT slug,updated_at FROM vehicle_models WHERE status='PUBLISHED' AND archived_at IS NULL ORDER BY brand,name LIMIT 5000`);
   res.type('application/xml').setHeader('Cache-Control', 'public, max-age=3600');
-  return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN, articles.map((a) => ({ path: `/blog/${a.slug}`, lastmod: a.updatedAt }))));
+  return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN, [...articles.map((a) => ({ path: `/blog/${a.slug}`, lastmod: a.updatedAt })), ...vehicles.rows.map((v) => ({ path: `/veiculos/${v.slug}`, lastmod: v.updated_at as Date }))]));
 }));
 const hasAdminHosts = adminHosts().length > 0;
 // Duas frentes: bundle admin (admin.html + assets/admin-*) só é entregue no host do painel (ou em /painel quando não há host dedicado, apenas dev).
@@ -2247,6 +2307,14 @@ app.get('*', asyncRoute(async (req, res, next) => {
     const meta = await articleSeo(article[1]);
     if (!meta) res.status(404);
     else override = { title: `${meta.title} | Placa na Mão`, description: meta.description, jsonLd: [{ '@context': 'https://schema.org', '@type': 'Article', headline: meta.title, description: meta.description, datePublished: meta.publishedAt, dateModified: meta.updatedAt, inLanguage: 'pt-BR', author: { '@type': 'Organization', name: meta.author }, publisher: { '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/` }, mainEntityOfPage: `${baseUrl}/blog/${article[1]}` }] };
+  } else if (/^\/veiculos\/[a-z0-9-]+\/?$/.test(req.path)) {
+    const v = await pool.query(`SELECT brand,name,summary,year_from,year_to,body_type FROM vehicle_models WHERE slug=$1 AND status='PUBLISHED' AND archived_at IS NULL`, [req.path.split('/')[2]]);
+    if (!v.rowCount) res.status(404);
+    else {
+      const m = v.rows[0]!;
+      const years = m.year_from ? ` (${m.year_from}${m.year_to && m.year_to !== m.year_from ? `–${m.year_to}` : ''})` : '';
+      override = { title: `${m.brand} ${m.name}${years}: ficha técnica e opinião dos donos | Placa na Mão`, description: String(m.summary || `Ficha técnica, consumo, nota e opinião de donos do ${m.brand} ${m.name}.`).slice(0, 160) };
+    }
   } else if (req.path.replace(/\/$/, '') === '/perguntas-frequentes') {
     const faqs = await pool.query('SELECT question,answer FROM faqs WHERE active=true ORDER BY display_order,created_at LIMIT 60');
     if (faqs.rowCount) override = { jsonLd: [{ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.rows.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })) }] };

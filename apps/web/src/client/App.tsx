@@ -12,6 +12,9 @@ const Landing = lazy(() => import('./pages/Landing'));
 const Auth = lazy(() => import('./pages/Auth'));
 const SeoPage = lazy(() => import('./pages/SeoPage'));
 const Fipe = lazy(() => import('./pages/Fipe'));
+const GuideHome = lazy(() => import('./pages/Guide').then((m) => ({ default: m.GuideHome })));
+const GuideModelPage = lazy(() => import('./pages/Guide').then((m) => ({ default: m.GuideModelPage })));
+const Compare = lazy(() => import('./pages/Compare'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const NewQuery = lazy(() => import('./pages/NewQuery'));
 const History = lazy(() => import('./pages/History'));
@@ -58,6 +61,9 @@ export default function App() {
           <Route element={<PublicLayout />}>
             <Route path="/consultar" element={<GuestQuery />} />
             <Route path="/fipe" element={<Fipe />} />
+            <Route path="/veiculos" element={<GuideHome />} />
+            <Route path="/veiculos/:slug" element={<GuideModelPage />} />
+            <Route path="/comparar" element={<Compare />} />
             <Route path="/planos" element={<PlansPage />} />
             <Route path="/desenvolvedores" element={<Navigate to="/" replace />} />
             <Route path="/perguntas-frequentes" element={<FaqPage />} />

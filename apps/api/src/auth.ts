@@ -84,6 +84,17 @@ export async function auth(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** Como `auth`, mas sem exigir login: anexa `req.user` quando há token cliente válido e segue anônimo caso contrário. */
+export async function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+  try {
+    if (bearer(req)) {
+      const result = await verify(req, 'client');
+      if (!('error' in result)) { req.user = result.user; req.sessionId = result.sid; req.audience = 'client'; }
+    }
+  } catch { /* segue anônimo */ }
+  next();
+}
+
 /** Autenticação do painel (audiência `admin`): segredo próprio, sessão com 2FA verificado, host e IP permitidos. */
 export async function adminAuth(req: Request, res: Response, next: NextFunction) {
   try {

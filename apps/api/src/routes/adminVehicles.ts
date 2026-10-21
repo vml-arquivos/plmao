@@ -1,0 +1,458 @@
+import { Router } from 'express';
+import type { PoolClient } from 'pg';
+import { z } from 'zod';
+import { pool, tx } from '../db.js';
+import { adminAuth } from '../auth.js';
+import { appError, asyncRoute, audit } from '../lib/http.js';
+import { requirePermission } from '../permissions.js';
+import { BODY_TYPES, SPEC_FIELDS, SPEC_BY_KEY, TIP_CATEGORIES, cleanSpecs, normalizeText, slugify } from '../lib/vehicleSpecs.js';
+import { parseCsv } from '../lib/csvParse.js';
+import { csvEscape } from '../lib/br.js';
+
+/** Gestão do Guia de veículos no painel: modelos, versões (ficha técnica), opiniões, dicas e importação por planilha. */
+export const adminVehiclesRouter = Router();
+adminVehiclesRouter.use(adminAuth, requirePermission('MANAGE_CONTENT'));
+
+const isUuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+const bad = (code = 'INVALID_INPUT') => appError(code, { code, http: 400, expose: true });
+const notFound = (code: string) => appError(code, { code, http: 404, expose: true });
+const conflict = (code: string) => appError(code, { code, http: 409, expose: true });
+const tipKeys = TIP_CATEGORIES.map((c) => c.key) as [string, ...string[]];
+const httpsUrl = z.string().trim().max(500).url().refine((u) => u.startsWith('https://'), 'URL_MUST_BE_HTTPS');
+const yearField = z.number().int().min(1950).max(2100).nullish();
+const stringList = z.array(z.string().trim().min(1).max(160)).max(10).default([]);
+
+const modelFields = {
+  brand: z.string().trim().min(2).max(60),
+  name: z.string().trim().min(1).max(80),
+  vehicleType: z.enum(['CAR', 'MOTORCYCLE', 'TRUCK']).default('CAR'),
+  bodyType: z.string().trim().max(40).nullish().transform((v) => v || null),
+  yearFrom: yearField, yearTo: yearField,
+  summary: z.string().trim().max(400).default(''),
+  review: z.string().max(20000).default(''),
+  pros: stringList, cons: stringList,
+  buyerTips: z.string().max(8000).default(''),
+  imageUrl: httpsUrl.nullish().transform((v) => v || null),
+  status: z.enum(['DRAFT', 'PUBLISHED']).default('DRAFT')
+};
+const modelCreate = z.object(modelFields).strict();
+const modelUpdate = z.object({ ...modelFields, slug: z.string().trim().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).min(3).max(90) }).partial().strict();
+const versionFields = {
+  name: z.string().trim().min(1).max(120),
+  yearModel: yearField,
+  fuel: z.string().trim().max(40).nullish().transform((v) => v || null),
+  fipeCode: z.string().trim().max(20).nullish().transform((v) => v || null),
+  specs: z.record(z.unknown()).default({}),
+  displayOrder: z.number().int().min(0).max(10000).default(0),
+  active: z.boolean().default(true)
+};
+const versionCreate = z.object(versionFields).strict();
+const versionUpdate = z.object(versionFields).partial().strict();
+
+async function uniqueSlug(client: Pick<PoolClient, 'query'>, brand: string, name: string, ignoreId?: string): Promise<string> {
+  const base = slugify(`${brand} ${name}`) || 'veiculo';
+  for (let i = 0; i < 50; i++) {
+    const slug = i === 0 ? base : `${base}-${i + 1}`;
+    const r = await client.query('SELECT id FROM vehicle_models WHERE slug=$1', [slug]);
+    if (!r.rowCount || r.rows[0].id === ignoreId) return slug;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+function specsOrThrow(input: unknown): Record<string, string | number | boolean> {
+  const { specs, errors } = cleanSpecs(input);
+  if (errors.length) throw Object.assign(bad('INVALID_SPECS'), { details: errors });
+  return specs;
+}
+
+const presentModel = (m: Record<string, any>) => ({
+  id: m.id, slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
+  summary: m.summary, review: m.review, pros: m.pros ?? [], cons: m.cons ?? [], buyerTips: m.buyer_tips, imageUrl: m.image_url, status: m.status,
+  archived: m.archived_at != null, createdAt: m.created_at, updatedAt: m.updated_at
+});
+const presentVersion = (v: Record<string, any>) => ({ id: v.id, modelId: v.model_id, name: v.name, yearModel: v.year_model, fuel: v.fuel, fipeCode: v.fipe_code, specs: v.specs ?? {}, displayOrder: v.display_order, active: v.active });
+
+// ---------------------------------------------------------------- visão geral
+adminVehiclesRouter.get('/meta', asyncRoute(async (_req, res) => {
+  const r = await pool.query(`SELECT
+      (SELECT count(*) FROM vehicle_models WHERE archived_at IS NULL)::int AS models,
+      (SELECT count(*) FROM vehicle_models WHERE archived_at IS NULL AND status='PUBLISHED')::int AS published,
+      (SELECT count(*) FROM vehicle_opinions WHERE status='PENDING')::int AS pending_opinions,
+      (SELECT count(*) FROM vehicle_tips WHERE archived_at IS NULL)::int AS tips`);
+  const m = r.rows[0]!;
+  res.json({ models: Number(m.models), published: Number(m.published), pendingOpinions: Number(m.pending_opinions), tips: Number(m.tips), bodyTypes: BODY_TYPES, specFields: SPEC_FIELDS, tipCategories: TIP_CATEGORIES });
+}));
+
+// ---------------------------------------------------------------- opiniões (moderação)
+adminVehiclesRouter.get('/opinions', asyncRoute(async (req, res) => {
+  const status = ['PENDING', 'APPROVED', 'REJECTED'].includes(String(req.query.status)) ? String(req.query.status) : null;
+  const params: unknown[] = [];
+  const where: string[] = [];
+  if (status) { params.push(status); where.push(`o.status=$${params.length}`); }
+  if (isUuid(req.query.modelId)) { params.push(req.query.modelId); where.push(`o.model_id=$${params.length}`); }
+  const r = await pool.query(`SELECT o.*, m.brand, m.name AS model_name, m.slug, v.name AS version_name, u.name AS author_name, u.email AS author_email
+    FROM vehicle_opinions o JOIN vehicle_models m ON m.id=o.model_id JOIN users u ON u.id=o.user_id LEFT JOIN vehicle_versions v ON v.id=o.version_id
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY (o.status='PENDING') DESC, o.created_at DESC LIMIT 200`, params);
+  res.json({
+    items: r.rows.map((o) => ({
+      id: o.id, status: o.status, rating: Number(o.rating), ratings: o.ratings ?? {}, title: o.title, liked: o.liked, disliked: o.disliked, comment: o.comment,
+      ownerSince: o.owner_since, km: o.km, rejectReason: o.reject_reason, createdAt: o.created_at, moderatedAt: o.moderated_at,
+      model: { id: o.model_id, slug: o.slug, label: `${o.brand} ${o.model_name}` }, versionName: o.version_name,
+      author: { id: o.user_id, name: o.author_name, email: o.author_email }
+    }))
+  });
+}));
+
+adminVehiclesRouter.post('/opinions/:id/approve', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  if (!isUuid(id)) throw notFound('OPINION_NOT_FOUND');
+  const r = await pool.query(`UPDATE vehicle_opinions SET status='APPROVED', reject_reason=NULL, moderated_by=$2, moderated_at=now() WHERE id=$1 RETURNING id,model_id`, [id, req.user!.id]);
+  if (!r.rowCount) throw notFound('OPINION_NOT_FOUND');
+  await audit(req.user!.id, 'VEHICLE_OPINION_APPROVED', 'vehicle_opinion', id, { modelId: r.rows[0].model_id });
+  res.json({ ok: true });
+}));
+
+adminVehiclesRouter.post('/opinions/:id/reject', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  const body = z.object({ reason: z.string().trim().max(300).default('') }).strict().safeParse(req.body ?? {});
+  if (!isUuid(id)) throw notFound('OPINION_NOT_FOUND');
+  if (!body.success) throw bad();
+  const r = await pool.query(`UPDATE vehicle_opinions SET status='REJECTED', reject_reason=$3, moderated_by=$2, moderated_at=now() WHERE id=$1 RETURNING id,model_id`, [id, req.user!.id, body.data.reason || null]);
+  if (!r.rowCount) throw notFound('OPINION_NOT_FOUND');
+  await audit(req.user!.id, 'VEHICLE_OPINION_REJECTED', 'vehicle_opinion', id, { modelId: r.rows[0].model_id });
+  res.json({ ok: true });
+}));
+
+adminVehiclesRouter.delete('/opinions/:id', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  if (!isUuid(id)) throw notFound('OPINION_NOT_FOUND');
+  const r = await pool.query('DELETE FROM vehicle_opinions WHERE id=$1 RETURNING model_id', [id]);
+  if (!r.rowCount) throw notFound('OPINION_NOT_FOUND');
+  await audit(req.user!.id, 'VEHICLE_OPINION_DELETED', 'vehicle_opinion', id, { modelId: r.rows[0].model_id });
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- dicas
+const tipFields = {
+  category: z.enum(tipKeys).default('CUIDADOS'),
+  title: z.string().trim().min(3).max(140),
+  body: z.string().max(8000).default(''),
+  modelId: z.string().refine(isUuid).nullish(),
+  status: z.enum(['DRAFT', 'PUBLISHED']).default('DRAFT'),
+  displayOrder: z.number().int().min(0).max(10000).default(0)
+};
+const presentTip = (t: Record<string, any>) => ({
+  id: t.id, category: t.category, title: t.title, body: t.body, modelId: t.model_id, modelLabel: t.brand ? `${t.brand} ${t.model_name}` : null,
+  status: t.status, displayOrder: t.display_order, archived: t.archived_at != null, updatedAt: t.updated_at
+});
+const TIP_SELECT = `SELECT t.*, m.brand, m.name AS model_name FROM vehicle_tips t LEFT JOIN vehicle_models m ON m.id=t.model_id`;
+
+adminVehiclesRouter.get('/tips', asyncRoute(async (req, res) => {
+  const archived = req.query.archived === 'true';
+  const r = await pool.query(`${TIP_SELECT} WHERE ${archived ? 't.archived_at IS NOT NULL' : 't.archived_at IS NULL'} ORDER BY t.display_order, t.created_at DESC LIMIT 500`);
+  res.json({ items: r.rows.map(presentTip) });
+}));
+
+adminVehiclesRouter.post('/tips', asyncRoute(async (req, res) => {
+  const p = z.object(tipFields).strict().safeParse(req.body);
+  if (!p.success) throw bad();
+  const d = p.data;
+  if (d.modelId && !(await pool.query('SELECT 1 FROM vehicle_models WHERE id=$1', [d.modelId])).rowCount) throw bad('VEHICLE_NOT_FOUND');
+  const r = await pool.query('INSERT INTO vehicle_tips(category,title,body,model_id,status,display_order,created_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id', [d.category, d.title, d.body, d.modelId ?? null, d.status, d.displayOrder, req.user!.id]);
+  await audit(req.user!.id, 'VEHICLE_TIP_CREATED', 'vehicle_tip', r.rows[0].id, { category: d.category });
+  const row = await pool.query(`${TIP_SELECT} WHERE t.id=$1`, [r.rows[0].id]);
+  res.status(201).json({ tip: presentTip(row.rows[0]) });
+}));
+
+adminVehiclesRouter.patch('/tips/:id', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  const p = z.object(tipFields).partial().strict().safeParse(req.body);
+  if (!isUuid(id)) throw notFound('TIP_NOT_FOUND');
+  if (!p.success || !Object.keys(p.data).length) throw bad();
+  const d = p.data;
+  const sets: string[] = []; const params: unknown[] = [id];
+  const set = (col: string, v: unknown) => { params.push(v); sets.push(`${col}=$${params.length}`); };
+  if (d.category !== undefined) set('category', d.category);
+  if (d.title !== undefined) set('title', d.title);
+  if (d.body !== undefined) set('body', d.body);
+  if (d.modelId !== undefined) {
+    if (d.modelId && !(await pool.query('SELECT 1 FROM vehicle_models WHERE id=$1', [d.modelId])).rowCount) throw bad('VEHICLE_NOT_FOUND');
+    set('model_id', d.modelId ?? null);
+  }
+  if (d.status !== undefined) { set('status', d.status); if (d.status === 'PUBLISHED') sets.push('archived_at=NULL'); }
+  if (d.displayOrder !== undefined) set('display_order', d.displayOrder);
+  const r = await pool.query(`UPDATE vehicle_tips SET ${sets.join(',')}, updated_at=now() WHERE id=$1 RETURNING id`, params);
+  if (!r.rowCount) throw notFound('TIP_NOT_FOUND');
+  await audit(req.user!.id, 'VEHICLE_TIP_UPDATED', 'vehicle_tip', id, {});
+  res.json({ tip: presentTip((await pool.query(`${TIP_SELECT} WHERE t.id=$1`, [id])).rows[0]) });
+}));
+
+adminVehiclesRouter.post('/tips/:id/archive', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  const archived = z.object({ archived: z.boolean() }).strict().safeParse(req.body);
+  if (!isUuid(id)) throw notFound('TIP_NOT_FOUND');
+  if (!archived.success) throw bad();
+  const r = await pool.query(archived.data.archived ? `UPDATE vehicle_tips SET archived_at=now(), status='DRAFT', updated_at=now() WHERE id=$1 RETURNING id` : `UPDATE vehicle_tips SET archived_at=NULL, updated_at=now() WHERE id=$1 RETURNING id`, [id]);
+  if (!r.rowCount) throw notFound('TIP_NOT_FOUND');
+  await audit(req.user!.id, archived.data.archived ? 'VEHICLE_TIP_ARCHIVED' : 'VEHICLE_TIP_RESTORED', 'vehicle_tip', id, {});
+  res.json({ ok: true });
+}));
+
+adminVehiclesRouter.delete('/tips/:id', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  if (!isUuid(id)) throw notFound('TIP_NOT_FOUND');
+  const r = await pool.query('DELETE FROM vehicle_tips WHERE id=$1 RETURNING id', [id]);
+  if (!r.rowCount) throw notFound('TIP_NOT_FOUND');
+  await audit(req.user!.id, 'VEHICLE_TIP_DELETED', 'vehicle_tip', id, {});
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- importação por planilha
+const HEADER_ALIASES: Record<string, string> = {
+  marca: 'brand', modelo: 'model', tipo: 'type', carroceria: 'body', versao: 'version', ano: 'year', combustivel: 'fuel', codigo_fipe: 'fipe', fipe: 'fipe'
+};
+
+adminVehiclesRouter.get('/import/template.csv', (_req, res) => {
+  const headers = ['marca', 'modelo', 'tipo', 'carroceria', 'versao', 'ano', 'combustivel', 'codigo_fipe', ...SPEC_FIELDS.map((f) => f.key)];
+  const example: Record<string, string> = { marca: 'Marca Exemplo', modelo: 'Modelo Exemplo', tipo: 'carro', carroceria: 'Hatch', versao: 'Versão de exemplo 1.0 Flex', ano: '2020', combustivel: 'Flex', engine: '1.0 12V', power_hp: '80', abs: 'sim' };
+  const body = `﻿${headers.join(';')}\r\n${headers.map((h) => csvEscape(example[h] ?? '')).join(';')}\r\n`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="modelo-importacao-guia-veiculos.csv"');
+  res.send(body);
+});
+
+interface ImportReport { dryRun: boolean; rows: number; modelsNew: number; modelsExisting: number; versionsNew: number; versionsUpdated: number; errors: Array<{ line: number; message: string }> }
+
+adminVehiclesRouter.post('/import', asyncRoute(async (req, res) => {
+  const p = z.object({ csv: z.string().min(10).max(2_000_000), dryRun: z.boolean().default(true) }).strict().safeParse(req.body);
+  if (!p.success) throw bad('IMPORT_INVALID');
+  const table = parseCsv(p.data.csv);
+  if (table.length < 2) throw bad('IMPORT_EMPTY');
+  if (table.length > 2001) throw bad('IMPORT_TOO_LARGE');
+  const header = table[0]!.map((h) => { const k = normalizeText(h).replace(/\s+/g, '_'); return HEADER_ALIASES[k] ?? (SPEC_BY_KEY.has(h.trim()) ? h.trim() : SPEC_BY_KEY.has(k) ? k : null); });
+  for (const need of ['brand', 'model', 'version']) if (!header.includes(need)) throw bad('IMPORT_MISSING_COLUMNS');
+  const report: ImportReport = { dryRun: p.data.dryRun, rows: table.length - 1, modelsNew: 0, modelsExisting: 0, versionsNew: 0, versionsUpdated: 0, errors: [] };
+  const typeOf = (v: string) => (/moto/i.test(v) ? 'MOTORCYCLE' : /caminh|onibus|ônibus/i.test(v) ? 'TRUCK' : 'CAR');
+
+  const run = async (client: Pick<PoolClient, 'query'>) => {
+    const seenModels = new Map<string, string>();
+    for (let i = 1; i < table.length; i++) {
+      const cells = table[i]!;
+      const get = (key: string) => (cells[header.indexOf(key)] ?? '').trim();
+      const line = i + 1;
+      const brand = get('brand'); const model = get('model'); const version = get('version');
+      if (brand.length < 2 || !model || !version) { report.errors.push({ line, message: 'Marca, modelo e versão são obrigatórios.' }); continue; }
+      const year = get('year') ? Number(get('year')) : null;
+      if (year !== null && (!Number.isInteger(year) || year < 1950 || year > 2100)) { report.errors.push({ line, message: `Ano inválido: ${get('year')}` }); continue; }
+      const rawSpecs: Record<string, string> = {};
+      header.forEach((h, idx) => { if (h && SPEC_BY_KEY.has(h)) rawSpecs[h] = cells[idx] ?? ''; });
+      const { specs, errors } = cleanSpecs(rawSpecs);
+      if (errors.length) { report.errors.push({ line, message: errors.join('; ') }); continue; }
+      const slugBase = slugify(`${brand} ${model}`);
+      let modelId = seenModels.get(slugBase);
+      if (!modelId) {
+        const existing = await client.query('SELECT id FROM vehicle_models WHERE slug=$1', [slugBase]);
+        if (existing.rowCount) { modelId = existing.rows[0].id as string; report.modelsExisting++; }
+        else {
+          report.modelsNew++;
+          if (p.data.dryRun) modelId = `dry-${slugBase}`;
+          else {
+            const ins = await client.query(`INSERT INTO vehicle_models(slug,brand,name,vehicle_type,body_type,status,created_by) VALUES($1,$2,$3,$4,$5,'DRAFT',$6) RETURNING id`, [slugBase, brand, model, typeOf(get('type')), get('body') || null, req.user!.id]);
+            modelId = ins.rows[0].id as string;
+          }
+        }
+        seenModels.set(slugBase, modelId);
+      }
+      if (p.data.dryRun && modelId.startsWith('dry-')) { report.versionsNew++; continue; }
+      const found = await client.query('SELECT id,specs FROM vehicle_versions WHERE model_id=$1 AND lower(name)=lower($2) AND coalesce(year_model,0)=$3', [modelId, version, year ?? 0]);
+      if (found.rowCount) {
+        report.versionsUpdated++;
+        if (!p.data.dryRun) await client.query('UPDATE vehicle_versions SET specs=specs || $2::jsonb, fuel=coalesce(nullif($3,\'\'),fuel), fipe_code=coalesce(nullif($4,\'\'),fipe_code), updated_at=now() WHERE id=$1', [found.rows[0].id, JSON.stringify(specs), get('fuel'), get('fipe')]);
+      } else {
+        report.versionsNew++;
+        if (!p.data.dryRun) await client.query('INSERT INTO vehicle_versions(model_id,name,year_model,fuel,fipe_code,specs) VALUES($1,$2,$3,$4,$5,$6::jsonb)', [modelId, version, year, get('fuel') || null, get('fipe') || null, JSON.stringify(specs)]);
+      }
+    }
+  };
+  if (p.data.dryRun) await run(pool);
+  else {
+    await tx(run);
+    await audit(req.user!.id, 'VEHICLE_GUIDE_IMPORTED', 'vehicle_models', null, { rows: report.rows, modelsNew: report.modelsNew, versionsNew: report.versionsNew, versionsUpdated: report.versionsUpdated, errors: report.errors.length });
+  }
+  res.json(report);
+}));
+
+// ---------------------------------------------------------------- modelos
+adminVehiclesRouter.get('/', asyncRoute(async (req, res) => {
+  const view = ['all', 'draft', 'published', 'archived'].includes(String(req.query.view)) ? String(req.query.view) : 'all';
+  const where: string[] = [view === 'archived' ? 'm.archived_at IS NOT NULL' : 'm.archived_at IS NULL'];
+  if (view === 'draft') where.push(`m.status='DRAFT'`);
+  if (view === 'published') where.push(`m.status='PUBLISHED'`);
+  const params: unknown[] = [];
+  for (const token of String(req.query.search ?? '').split(/\s+/).filter(Boolean).slice(0, 5)) {
+    params.push(`%${token.replace(/[%_\\]/g, '\\$&')}%`);
+    where.push(`(m.brand || ' ' || m.name) ILIKE $${params.length}`);
+  }
+  const r = await pool.query(`SELECT m.id,m.slug,m.brand,m.name,m.vehicle_type,m.body_type,m.year_from,m.year_to,m.status,m.archived_at,m.updated_at,
+      (SELECT count(*) FROM vehicle_versions v WHERE v.model_id=m.id)::int AS versions,
+      (SELECT count(*) FROM vehicle_opinions o WHERE o.model_id=m.id AND o.status='APPROVED')::int AS opinions,
+      (SELECT count(*) FROM vehicle_opinions o WHERE o.model_id=m.id AND o.status='PENDING')::int AS pending_opinions,
+      (m.summary <> '' AND m.review <> '') AS has_text
+    FROM vehicle_models m WHERE ${where.join(' AND ')} ORDER BY m.brand, m.name LIMIT 500`, params);
+  res.json({
+    items: r.rows.map((m) => ({
+      id: m.id, slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
+      status: m.status, archived: m.archived_at != null, updatedAt: m.updated_at, versions: Number(m.versions), opinions: Number(m.opinions), pendingOpinions: Number(m.pending_opinions), hasText: Boolean(m.has_text)
+    }))
+  });
+}));
+
+adminVehiclesRouter.post('/', asyncRoute(async (req, res) => {
+  const p = modelCreate.safeParse(req.body);
+  if (!p.success) throw bad();
+  const d = p.data;
+  const id = await tx(async (client) => {
+    const slug = await uniqueSlug(client, d.brand, d.name);
+    const r = await client.query(`INSERT INTO vehicle_models(slug,brand,name,vehicle_type,body_type,year_from,year_to,summary,review,pros,cons,buyer_tips,image_url,status,created_by)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15) RETURNING id`,
+      [slug, d.brand, d.name, d.vehicleType, d.bodyType, d.yearFrom ?? null, d.yearTo ?? null, d.summary, d.review, JSON.stringify(d.pros), JSON.stringify(d.cons), d.buyerTips, d.imageUrl, d.status, req.user!.id]);
+    return r.rows[0].id as string;
+  });
+  await audit(req.user!.id, 'VEHICLE_MODEL_CREATED', 'vehicle_model', id, { brand: d.brand, name: d.name });
+  res.status(201).json({ model: presentModel((await pool.query('SELECT * FROM vehicle_models WHERE id=$1', [id])).rows[0]) });
+}));
+
+adminVehiclesRouter.get('/:id', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  if (!isUuid(id)) throw notFound('VEHICLE_NOT_FOUND');
+  const [m, versions, counts] = await Promise.all([
+    pool.query('SELECT * FROM vehicle_models WHERE id=$1', [id]),
+    pool.query('SELECT * FROM vehicle_versions WHERE model_id=$1 ORDER BY year_model DESC NULLS LAST, display_order, name', [id]),
+    pool.query(`SELECT count(*) FILTER (WHERE status='APPROVED')::int AS approved, count(*) FILTER (WHERE status='PENDING')::int AS pending FROM vehicle_opinions WHERE model_id=$1`, [id])
+  ]);
+  if (!m.rowCount) throw notFound('VEHICLE_NOT_FOUND');
+  res.json({ model: presentModel(m.rows[0]), versions: versions.rows.map(presentVersion), opinions: { approved: Number(counts.rows[0]!.approved), pending: Number(counts.rows[0]!.pending) } });
+}));
+
+adminVehiclesRouter.patch('/:id', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  const p = modelUpdate.safeParse(req.body);
+  if (!isUuid(id)) throw notFound('VEHICLE_NOT_FOUND');
+  if (!p.success || !Object.keys(p.data).length) throw bad();
+  const d = p.data;
+  const sets: string[] = []; const params: unknown[] = [id];
+  const set = (col: string, v: unknown, cast = '') => { params.push(v); sets.push(`${col}=$${params.length}${cast}`); };
+  if (d.slug !== undefined) {
+    if ((await pool.query('SELECT 1 FROM vehicle_models WHERE slug=$1 AND id<>$2', [d.slug, id])).rowCount) throw conflict('SLUG_TAKEN');
+    set('slug', d.slug);
+  }
+  if (d.brand !== undefined) set('brand', d.brand);
+  if (d.name !== undefined) set('name', d.name);
+  if (d.vehicleType !== undefined) set('vehicle_type', d.vehicleType);
+  if (d.bodyType !== undefined) set('body_type', d.bodyType);
+  if (d.yearFrom !== undefined) set('year_from', d.yearFrom ?? null);
+  if (d.yearTo !== undefined) set('year_to', d.yearTo ?? null);
+  if (d.summary !== undefined) set('summary', d.summary);
+  if (d.review !== undefined) set('review', d.review);
+  if (d.pros !== undefined) set('pros', JSON.stringify(d.pros), '::jsonb');
+  if (d.cons !== undefined) set('cons', JSON.stringify(d.cons), '::jsonb');
+  if (d.buyerTips !== undefined) set('buyer_tips', d.buyerTips);
+  if (d.imageUrl !== undefined) set('image_url', d.imageUrl);
+  if (d.status !== undefined) { set('status', d.status); if (d.status === 'PUBLISHED') sets.push('archived_at=NULL'); }
+  const r = await pool.query(`UPDATE vehicle_models SET ${sets.join(',')}, updated_at=now() WHERE id=$1 RETURNING *`, params);
+  if (!r.rowCount) throw notFound('VEHICLE_NOT_FOUND');
+  await audit(req.user!.id, 'VEHICLE_MODEL_UPDATED', 'vehicle_model', id, { fields: Object.keys(d) });
+  res.json({ model: presentModel(r.rows[0]) });
+}));
+
+adminVehiclesRouter.post('/:id/archive', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  const p = z.object({ archived: z.boolean() }).strict().safeParse(req.body);
+  if (!isUuid(id)) throw notFound('VEHICLE_NOT_FOUND');
+  if (!p.success) throw bad();
+  const r = await pool.query(p.data.archived ? `UPDATE vehicle_models SET archived_at=now(), status='DRAFT', updated_at=now() WHERE id=$1 RETURNING id` : `UPDATE vehicle_models SET archived_at=NULL, updated_at=now() WHERE id=$1 RETURNING id`, [id]);
+  if (!r.rowCount) throw notFound('VEHICLE_NOT_FOUND');
+  await audit(req.user!.id, p.data.archived ? 'VEHICLE_MODEL_ARCHIVED' : 'VEHICLE_MODEL_RESTORED', 'vehicle_model', id, {});
+  res.json({ ok: true });
+}));
+
+adminVehiclesRouter.delete('/:id', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  if (!isUuid(id)) throw notFound('VEHICLE_NOT_FOUND');
+  const used = await pool.query('SELECT count(*)::int AS n FROM vehicle_opinions WHERE model_id=$1', [id]);
+  if (Number(used.rows[0]!.n) > 0) throw conflict('VEHICLE_HAS_OPINIONS');
+  const r = await pool.query('DELETE FROM vehicle_models WHERE id=$1 RETURNING brand,name', [id]);
+  if (!r.rowCount) throw notFound('VEHICLE_NOT_FOUND');
+  await audit(req.user!.id, 'VEHICLE_MODEL_DELETED', 'vehicle_model', id, { brand: r.rows[0].brand, name: r.rows[0].name });
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- versões (ficha técnica)
+const dupMessage = (e: unknown) => (e as { code?: string })?.code === '23505' ? conflict('VERSION_DUPLICATE') : e;
+
+adminVehiclesRouter.post('/:id/versions', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  const p = versionCreate.safeParse(req.body);
+  if (!isUuid(id)) throw notFound('VEHICLE_NOT_FOUND');
+  if (!p.success) throw bad();
+  const specs = specsOrThrow(p.data.specs);
+  if (!(await pool.query('SELECT 1 FROM vehicle_models WHERE id=$1', [id])).rowCount) throw notFound('VEHICLE_NOT_FOUND');
+  try {
+    const r = await pool.query('INSERT INTO vehicle_versions(model_id,name,year_model,fuel,fipe_code,specs,display_order,active) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING *',
+      [id, p.data.name, p.data.yearModel ?? null, p.data.fuel, p.data.fipeCode, JSON.stringify(specs), p.data.displayOrder, p.data.active]);
+    await audit(req.user!.id, 'VEHICLE_VERSION_CREATED', 'vehicle_version', r.rows[0].id, { modelId: id });
+    res.status(201).json({ version: presentVersion(r.rows[0]) });
+  } catch (e) { throw dupMessage(e); }
+}));
+
+adminVehiclesRouter.patch('/versions/:vid', asyncRoute(async (req, res) => {
+  const vid = String(req.params.vid);
+  const p = versionUpdate.safeParse(req.body);
+  if (!isUuid(vid)) throw notFound('VERSION_NOT_FOUND');
+  if (!p.success || !Object.keys(p.data).length) throw bad();
+  const d = p.data;
+  const sets: string[] = []; const params: unknown[] = [vid];
+  const set = (col: string, v: unknown, cast = '') => { params.push(v); sets.push(`${col}=$${params.length}${cast}`); };
+  if (d.name !== undefined) set('name', d.name);
+  if (d.yearModel !== undefined) set('year_model', d.yearModel ?? null);
+  if (d.fuel !== undefined) set('fuel', d.fuel);
+  if (d.fipeCode !== undefined) set('fipe_code', d.fipeCode);
+  if (d.specs !== undefined) set('specs', JSON.stringify(specsOrThrow(d.specs)), '::jsonb');
+  if (d.displayOrder !== undefined) set('display_order', d.displayOrder);
+  if (d.active !== undefined) set('active', d.active);
+  try {
+    const r = await pool.query(`UPDATE vehicle_versions SET ${sets.join(',')}, updated_at=now() WHERE id=$1 RETURNING *`, params);
+    if (!r.rowCount) throw notFound('VERSION_NOT_FOUND');
+    await audit(req.user!.id, 'VEHICLE_VERSION_UPDATED', 'vehicle_version', vid, { fields: Object.keys(d) });
+    res.json({ version: presentVersion(r.rows[0]) });
+  } catch (e) { throw dupMessage(e); }
+}));
+
+adminVehiclesRouter.post('/versions/:vid/duplicate', asyncRoute(async (req, res) => {
+  const vid = String(req.params.vid);
+  if (!isUuid(vid)) throw notFound('VERSION_NOT_FOUND');
+  const src = await pool.query('SELECT * FROM vehicle_versions WHERE id=$1', [vid]);
+  if (!src.rowCount) throw notFound('VERSION_NOT_FOUND');
+  const v = src.rows[0]!;
+  const copy = await tx(async (client) => {
+    for (let i = 2; i < 30; i++) {
+      const name = `${v.name} (cópia${i > 2 ? ` ${i - 1}` : ''})`;
+      const exists = await client.query('SELECT 1 FROM vehicle_versions WHERE model_id=$1 AND lower(name)=lower($2) AND coalesce(year_model,0)=$3', [v.model_id, name, v.year_model ?? 0]);
+      if (exists.rowCount) continue;
+      return (await client.query('INSERT INTO vehicle_versions(model_id,name,year_model,fuel,fipe_code,specs,display_order,active) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,true) RETURNING *', [v.model_id, name, v.year_model, v.fuel, v.fipe_code, JSON.stringify(v.specs ?? {}), v.display_order])).rows[0];
+    }
+    return null;
+  });
+  if (!copy) throw conflict('VERSION_DUPLICATE');
+  await audit(req.user!.id, 'VEHICLE_VERSION_CREATED', 'vehicle_version', copy.id, { modelId: copy.model_id, duplicatedFrom: vid });
+  res.status(201).json({ version: presentVersion(copy) });
+}));
+
+adminVehiclesRouter.delete('/versions/:vid', asyncRoute(async (req, res) => {
+  const vid = String(req.params.vid);
+  if (!isUuid(vid)) throw notFound('VERSION_NOT_FOUND');
+  const r = await pool.query('DELETE FROM vehicle_versions WHERE id=$1 RETURNING model_id', [vid]);
+  if (!r.rowCount) throw notFound('VERSION_NOT_FOUND');
+  await audit(req.user!.id, 'VEHICLE_VERSION_DELETED', 'vehicle_version', vid, { modelId: r.rows[0].model_id });
+  res.json({ ok: true });
+}));
