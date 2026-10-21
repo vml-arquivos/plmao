@@ -95,11 +95,16 @@ publicVehiclesRouter.get('/vehicles', asyncRoute(async (req, res) => {
     add((p) => `(m.brand ILIKE ${p} OR m.name ILIKE ${p} OR coalesce(m.body_type,'') ILIKE ${p} OR EXISTS (SELECT 1 FROM vehicle_versions v WHERE v.model_id=m.id AND v.active AND v.name ILIKE ${p}))`, `%${token.replace(/[%_\\]/g, '\\$&')}%`);
   }
   const order = q.data.sort === 'rating' ? 'rating_avg DESC NULLS LAST, rating_count DESC, m.brand, m.name' : q.data.sort === 'recent' ? 'm.updated_at DESC' : 'm.brand, m.name';
-  const base = `FROM vehicle_models m LEFT JOIN (SELECT model_id, count(*)::int AS rating_count, round(avg(rating)::numeric,1) AS rating_avg FROM vehicle_opinions WHERE status='APPROVED' GROUP BY model_id) r ON r.model_id=m.id WHERE ${where.join(' AND ')}`;
+  const base = `FROM vehicle_models m LEFT JOIN (SELECT model_id, count(*)::int AS rating_count, round(avg(rating)::numeric,1) AS rating_avg FROM vehicle_opinions WHERE status='APPROVED' GROUP BY model_id) r ON r.model_id=m.id
+    LEFT JOIN LATERAL (SELECT v.fuel, v.specs FROM vehicle_versions v WHERE v.model_id=m.id AND v.active ORDER BY v.year_model DESC NULLS LAST, v.display_order, v.name LIMIT 1) fv ON true
+    WHERE ${where.join(' AND ')}`;
   const [rows, total] = await Promise.all([
     pool.query(`SELECT m.slug,m.brand,m.name,m.vehicle_type,m.body_type,m.year_from,m.year_to,m.summary,m.image_url,
         (SELECT count(*) FROM vehicle_versions v WHERE v.model_id=m.id AND v.active)::int AS versions,
-        coalesce(r.rating_count,0) AS rating_count, r.rating_avg ${base} ORDER BY ${order} LIMIT ${q.data.limit} OFFSET ${q.data.offset}`, params),
+        coalesce(r.rating_count,0) AS rating_count, r.rating_avg, fv.fuel AS top_fuel, fv.specs AS top_specs,
+        EXISTS (SELECT 1 FROM vehicle_consumption_obs o WHERE o.model_id=m.id AND o.status='CONFERIDO') AS has_official
+        ${base}
+        ORDER BY ${order} LIMIT ${q.data.limit} OFFSET ${q.data.offset}`, params),
     pool.query(`SELECT count(*)::int AS n ${base}`, params)
   ]);
   res.setHeader('Cache-Control', 'public, max-age=30');
@@ -107,7 +112,30 @@ publicVehiclesRouter.get('/vehicles', asyncRoute(async (req, res) => {
     total: Number(total.rows[0]?.n ?? 0),
     items: rows.rows.map((m) => ({
       slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
-      summary: m.summary, imageUrl: m.image_url, versions: Number(m.versions), ratingCount: Number(m.rating_count), ratingAverage: num(m.rating_avg)
+      summary: m.summary, imageUrl: m.image_url, versions: Number(m.versions), ratingCount: Number(m.rating_count), ratingAverage: num(m.rating_avg),
+      fuel: m.top_fuel ?? null, officialConsumption: Boolean(m.has_official),
+      quick: { cityGasKml: num(m.top_specs?.cons_city_gas_kml), cityEthKml: num(m.top_specs?.cons_city_eth_kml), cityDieselKml: num(m.top_specs?.cons_city_diesel_kml), powerHp: num(m.top_specs?.power_hp), trunkL: num(m.top_specs?.trunk_l) }
+    }))
+  });
+}));
+
+/**
+ * Consumo por versão para o ranking e para a calculadora de combustível.
+ * `official` = existe observação conferida (Inmetro) ligada à versão; sem isso, o número é o da ficha de referência do modelo.
+ */
+publicVehiclesRouter.get('/vehicles/economy', asyncRoute(async (_req, res) => {
+  const r = await pool.query(`SELECT v.id, v.name, v.year_model, v.fuel, v.specs, m.slug, m.brand, m.name AS model_name, m.body_type, m.vehicle_type, m.spec_source,
+      EXISTS (SELECT 1 FROM vehicle_consumption_obs o WHERE o.version_id=v.id AND o.status='CONFERIDO') AS official
+    FROM vehicle_versions v JOIN vehicle_models m ON m.id=v.model_id
+    WHERE ${PUBLISHED} AND v.active AND m.vehicle_type='CAR'
+      AND (v.specs ? 'cons_city_gas_kml' OR v.specs ? 'cons_city_eth_kml' OR v.specs ? 'cons_city_diesel_kml')
+    ORDER BY m.brand, m.name, v.year_model DESC NULLS LAST, v.display_order, v.name LIMIT 500`);
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  res.json({
+    items: r.rows.map((v) => ({
+      versionId: v.id, slug: v.slug, brand: v.brand, model: v.model_name, version: v.name, yearModel: v.year_model, fuel: v.fuel, bodyType: v.body_type, official: Boolean(v.official), source: v.spec_source ?? null,
+      cityGasKml: num(v.specs?.cons_city_gas_kml), roadGasKml: num(v.specs?.cons_road_gas_kml), cityEthKml: num(v.specs?.cons_city_eth_kml), roadEthKml: num(v.specs?.cons_road_eth_kml),
+      cityDieselKml: num(v.specs?.cons_city_diesel_kml), roadDieselKml: num(v.specs?.cons_road_diesel_kml)
     }))
   });
 }));
@@ -189,7 +217,14 @@ publicVehiclesRouter.get('/vehicles/:slug', optionalAuth, asyncRoute(async (req,
   ]);
   const pros: string[] = Array.isArray(m.pros) ? m.pros : [];
   const cons: string[] = Array.isArray(m.cons) ? m.cons : [];
+  const obs = await pool.query(`SELECT o.*, v.name AS version_name FROM vehicle_consumption_obs o LEFT JOIN vehicle_versions v ON v.id=o.version_id WHERE o.model_id=$1 AND o.status='CONFERIDO' ORDER BY CASE o.source_kind WHEN 'INMETRO' THEN 0 WHEN 'FABRICANTE' THEN 1 ELSE 2 END, o.version_label, o.fuel`, [m.id]);
+  const consumption = obs.rows.map((o) => ({
+    id: o.id, versionId: o.version_id ?? null, versionName: o.version_name ?? null, versionLabel: o.version_label, brandLabel: o.brand, modelLabel: o.model, propulsion: o.propulsion, segment: o.segment,
+    fuel: o.fuel, cityKml: num(o.city_kml), roadKml: num(o.road_kml), cycle: o.cycle, sourceKind: o.source_kind, sourceName: o.source_name, sourceUrl: o.source_url,
+    collectedAt: o.collected_at instanceof Date ? o.collected_at.toISOString().slice(0, 10) : String(o.collected_at).slice(0, 10), note: o.note
+  }));
   const base = {
+    consumption,
     slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
     summary: m.summary, imageUrl: m.image_url, specSource: m.spec_source ?? null, updatedAt: m.updated_at, rating: summaries.get(String(m.id)) ?? emptySummary(), locked: !unlocked
   };

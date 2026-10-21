@@ -12,6 +12,8 @@ const Landing = lazy(() => import('./pages/Landing'));
 const Auth = lazy(() => import('./pages/Auth'));
 const SeoPage = lazy(() => import('./pages/SeoPage'));
 const Fipe = lazy(() => import('./pages/Fipe'));
+const FuelPage = lazy(() => import('./pages/Fuel').then((m) => ({ default: m.FuelPage })));
+const EconomyPage = lazy(() => import('./pages/Fuel').then((m) => ({ default: m.EconomyPage })));
 const GuideHome = lazy(() => import('./pages/Guide').then((m) => ({ default: m.GuideHome })));
 const GuideModelPage = lazy(() => import('./pages/Guide').then((m) => ({ default: m.GuideModelPage })));
 const Compare = lazy(() => import('./pages/Compare'));
@@ -63,6 +65,8 @@ export default function App() {
             <Route path="/consultar" element={<GuestQuery />} />
             <Route path="/fipe" element={<Fipe />} />
             <Route path="/veiculos" element={<GuideHome />} />
+            <Route path="/veiculos/mais-economicos" element={<EconomyPage />} />
+            <Route path="/combustivel" element={<FuelPage />} />
             <Route path="/veiculos/:slug" element={<GuideModelPage />} />
             <Route path="/comparar" element={<Compare />} />
             <Route path="/simulador" element={<Simulator />} />

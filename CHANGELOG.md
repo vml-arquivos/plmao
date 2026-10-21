@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.4.0 — Guia de veículos reorganizado, consumo oficial com fonte e ferramentas de combustível
+
+### Adicionado
+
+- **Página do guia (`/veiculos`) reorganizada**: busca única com atalhos por tipo (Hatch, Sedã, SUV, Picape, Motos, Caminhões), cards compactos com os números que importam (consumo na cidade, potência, porta-malas) e selo "Inmetro" quando o consumo foi conferido, faixa de ferramentas, "Os mais econômicos do guia" e o bloco "De onde vêm os números". Sem os cards vazios de "seja o primeiro a opinar". A página avisa que o guia ainda não tem todos os modelos do mercado.
+- **Consumo oficial como observação por fonte** (migration `022_vehicle_consumption_obs`): cada número guarda versão com o rótulo literal da fonte, combustível, ciclo (PBEV 2024), fonte e link, data da conferência e observações. Fontes divergentes ficam lado a lado, sem média e sem substituição silenciosa. A ficha do modelo ganhou o bloco **"Consumo oficial e fontes"**, com barras, notas e links.
+- **Conferência com a tabela do Inmetro (PBE Veicular 2024)**: 12 versões já cadastradas tiveram o consumo comparado com a tabela oficial (Onix, Onix Sedan, Mobi, Argo, Cronos, HB20, Polo, Virtus, HR-V e Corolla); 11 batem. O **Corolla XEi 2.0** divergia (ficha: 11,9/14,5 km/l; Inmetro: 12,3/14,9) e foi corrigido, só se a ficha ainda tinha o valor da carga inicial.
+- **Corolla Altis Hybrid e Civic Touring Hybrid** (pesquisa anexada): consumo oficial do Inmetro (18,5/15,7 e 18,3/15,9 km/l na gasolina). O catálogo da Honda traz 18,4 km/l na cidade para o Civic; o valor fica em linha própria, sem substituir o do Inmetro. O Civic entra no guia só com o consumo oficial; o resto da ficha fica em branco até haver fonte.
+- **Ranking de economia** (`/veiculos/mais-economicos`): por combustível, ciclo e carroceria, com a fonte de cada linha (Inmetro ou ficha de referência).
+- **Etanol ou gasolina?** (`/combustivel` e na ficha de cada versão): custo mensal pelo consumo da própria versão e ponto de equilíbrio do etanol calculado para aquele carro (não os 70% fixos). Os preços são os que a pessoa digita.
+- **Painel › Guia de veículos › Consumo oficial**: importa planilha de pesquisa (colunas `marca, modelo, ano_modelo, versao_pbev, segmento_pbev, propulsao, combustivel_comparado, consumo_urbano_km_l, consumo_rodoviario_km_l, unidade_consumo, fonte_consumo, ciclo_pbev, observacoes`), com prévia e erros por linha. **Nada importado aparece no site** até alguém marcar "conferido". Auditoria: `VEHICLE_CONSUMPTION_IMPORTED/UPDATED/DELETED`.
+- SEO e rodapé para as duas páginas novas.
+
+### Atenção
+
+- A tabela do Inmetro foi lida por ferramenta de leitura de página (o servidor de desenvolvimento não alcança o gov.br), não por importação de arquivo. Por isso só entraram como "conferido" as linhas em que duas fontes independentes concordam ou que vieram da pesquisa anexada. Dez modelos (Tracker, Pulse, Strada, Toro, Nivus, T-Cross, Creta, Kwid, Compass, Hilux e Ranger) não foram localizados na leitura: seguem como "ficha de referência", sem selo.
+- Notas e resumos de proprietários de outros sites **não foram copiados** (direitos e termos de uso). As opiniões do guia continuam sendo as dos donos cadastrados.
+- Os valores são de ensaio de homologação; o consumo real varia.
+
 ## 1.3.1 — Comparação de taxas e tarifas por banco
 
 ### Adicionado

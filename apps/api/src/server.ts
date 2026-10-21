@@ -2238,6 +2238,7 @@ function humanMessage(code: string): string {
     FIPE_REFERENCE_MISSING: 'A referência mensal da consulta não está disponível no momento.',
     FIPE_PLATE_DATA_INVALID: 'Não foi possível identificar os dados do veículo para esta placa.',
     VEHICLE_NOT_FOUND: 'Não encontramos este veículo no guia.',
+    CONSUMPTION_NOT_FOUND: 'Não encontramos este registro de consumo.',
     INVALID_SPECS: 'Há campos da ficha técnica com valor inválido. Revise os campos indicados.',
     VEHICLE_HAS_OPINIONS: 'Este modelo já tem opiniões de donos. Arquive o modelo em vez de apagar.',
     SLUG_TAKEN: 'Já existe um modelo com este endereço (slug).',

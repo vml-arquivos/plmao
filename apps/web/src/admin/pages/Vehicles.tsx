@@ -29,7 +29,7 @@ const errText = (e: unknown) => {
 export default function VehicleGuide() {
   usePageTitle('Guia de veículos');
   const [params, setParams] = useSearchParams();
-  const tab = (['models', 'opinions', 'tips', 'import'].includes(params.get('aba') ?? '') ? params.get('aba') : 'models') as 'models' | 'opinions' | 'tips' | 'import';
+  const tab = (['models', 'opinions', 'tips', 'consumption', 'import'].includes(params.get('aba') ?? '') ? params.get('aba') : 'models') as 'models' | 'opinions' | 'tips' | 'consumption' | 'import';
   const meta = useAsync(() => api.get<Meta>('/admin/vehicles/meta'));
   if (meta.loading && !meta.data) return <PageLoading />;
   if (meta.error || !meta.data) return <ErrorState error={meta.error} onRetry={meta.reload} />;
@@ -41,11 +41,13 @@ export default function VehicleGuide() {
         { id: 'models', label: `Modelos (${m.models})` },
         { id: 'opinions', label: m.pendingOpinions ? `Opiniões (${m.pendingOpinions} para revisar)` : 'Opiniões' },
         { id: 'tips', label: `Dicas e cuidados (${m.tips})` },
+        { id: 'consumption', label: 'Consumo oficial' },
         { id: 'import', label: 'Importar planilha' }
       ]} />
       {tab === 'models' && <ModelsTab meta={m} onChanged={meta.reload} />}
       {tab === 'opinions' && <OpinionsTab onChanged={meta.reload} />}
       {tab === 'tips' && <TipsTab meta={m} onChanged={meta.reload} />}
+      {tab === 'consumption' && <ConsumptionTab />}
       {tab === 'import' && <ImportTab onDone={meta.reload} />}
     </>
   );
@@ -470,6 +472,87 @@ function ImportTab({ onDone }: { onDone: () => void }) {
         </Alert>
       )}
       {done && <Alert tone="ok" title="Importação concluída">{done.modelsNew} modelo(s) criado(s) como rascunho, {done.versionsNew} versão(ões) criada(s), {done.versionsUpdated} atualizada(s){done.errors.length ? `, ${done.errors.length} linha(s) ignorada(s)` : ''}. Veja na aba Modelos → Rascunhos.</Alert>}
+    </div>
+  );
+}
+
+/* ---------- Consumo oficial (observações por fonte) ---------- */
+interface ConsumptionRow { id: string; brand: string; model: string; versionLabel: string; modelYear: number | null; segment: string | null; propulsion: string | null; fuel: string; cityKml: number | null; roadKml: number | null; cycle: string; sourceKind: string; sourceName: string; sourceUrl: string; collectedAt: string; status: 'CONFERIDO' | 'A_CONFERIR'; note: string; modelSlug: string | null }
+interface ConsumptionList { counts: { conferido: number; aConferir: number }; items: ConsumptionRow[] }
+interface ConsumptionReport { dryRun: boolean; rows: number; created: number; updated: number; keptConfirmed: number; errors: Array<{ line: number; message: string }> }
+const kmlStr = (v: number | null) => (v == null ? '—' : v.toFixed(1).replace('.', ','));
+
+function ConsumptionTab() {
+  const toast = useToast();
+  const [status, setStatus] = useState<'' | 'CONFERIDO' | 'A_CONFERIR'>('A_CONFERIR');
+  const [search, setSearch] = useState('');
+  const list = useAsync(() => api.get<ConsumptionList>('/admin/vehicles/consumption', { query: { status, search } }), [status, search]);
+  const [csv, setCsv] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [report, setReport] = useState<ConsumptionReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [remove, setRemove] = useState<ConsumptionRow | null>(null);
+
+  async function run(dryRun: boolean) {
+    setBusy(true);
+    try {
+      const r = await api.post<ConsumptionReport>('/admin/vehicles/consumption/import', { csv, dryRun });
+      if (dryRun) setReport(r); else { setReport(null); setCsv(''); setFileName(''); toast.ok(`${r.created} registro(s) novo(s) e ${r.updated} atualizado(s). Falta conferir antes de aparecer no site.`); list.reload(); }
+    } catch (e) { toast.error(errText(e)); } finally { setBusy(false); }
+  }
+  async function pick(file: File | undefined) {
+    if (!file) return;
+    setFileName(file.name); setReport(null); setCsv(await file.text());
+  }
+  async function setOk(row: ConsumptionRow, next: 'CONFERIDO' | 'A_CONFERIR') {
+    try { await api.patch(`/admin/vehicles/consumption/${row.id}`, { status: next }); toast.ok(next === 'CONFERIDO' ? 'Marcado como conferido: já aparece no site.' : 'Voltou para “a conferir”: saiu do site.'); list.reload(); } catch (e) { toast.error(errText(e)); }
+  }
+
+  return (
+    <div className="stack">
+      <Card title="Como funciona">
+        <p style={{ margin: 0 }}>Cada número de consumo fica guardado <b>com a fonte, o ciclo e a data</b>. O que você importa aqui entra como <b>“a conferir”</b> e <b>não aparece no site</b> até alguém comparar com a tabela oficial (por exemplo, o PDF do Inmetro) e marcar como <b>conferido</b>. Conflitos entre fontes ficam lado a lado, sem média.</p>
+        <div className="row" style={{ marginTop: 12 }}>
+          <Button icon="download" onClick={() => void api.download('/admin/vehicles/consumption/template.csv', 'modelo-importacao-consumo-oficial.csv').catch((e) => toast.error(errText(e)))}>Baixar planilha modelo</Button>
+          <label className="btn" style={{ cursor: 'pointer' }}>Escolher arquivo .csv<input type="file" accept=".csv,text/csv,text/plain" hidden onChange={(e) => void pick(e.target.files?.[0])} /></label>
+          {fileName && <span className="muted">{fileName}</span>}
+          <Button variant="primary" loading={busy && !report} disabled={!csv} onClick={() => void run(true)}>Conferir planilha</Button>
+          {report && <Button variant="primary" loading={busy} disabled={report.created + report.updated === 0} onClick={() => void run(false)}>Importar {report.created + report.updated} linha(s)</Button>}
+        </div>
+        <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>Colunas: marca, modelo, ano_modelo, versao_pbev, segmento_pbev, propulsao, combustivel_comparado, consumo_urbano_km_l, consumo_rodoviario_km_l, unidade_consumo, fonte_consumo (URL https), ciclo_pbev e observacoes. Use NA para o que a fonte não informa.</p>
+      </Card>
+      {report && (
+        <Alert tone={report.errors.length ? 'warn' : 'ok'} title="Prévia (nada foi gravado)">
+          {report.created} nova(s) · {report.updated} a atualizar · {report.keptConfirmed} já conferida(s), mantida(s) como estão.
+          {report.errors.length > 0 && <><div style={{ marginTop: 6 }}><b>{report.errors.length} linha(s) com problema serão ignoradas:</b></div><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{report.errors.slice(0, 30).map((e) => <li key={e.line}>Linha {e.line}: {e.message}</li>)}</ul></>}
+        </Alert>
+      )}
+      <Card title={list.data ? `Registros (${list.data.counts.conferido} conferidos, ${list.data.counts.aConferir} a conferir)` : 'Registros'}>
+        <div className="row" style={{ marginBottom: 12 }}>
+          <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} aria-label="Situação" style={{ maxWidth: 220 }}><option value="A_CONFERIR">A conferir</option><option value="CONFERIDO">Conferidos</option><option value="">Todos</option></Select>
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar marca, modelo ou versão" aria-label="Buscar" style={{ maxWidth: 320 }} />
+        </div>
+        {list.loading && !list.data ? <PageLoading /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : !list.data?.items.length ? <EmptyState icon="car" title="Nada por aqui">Importe uma planilha ou troque o filtro.</EmptyState> : (
+          <div className="table-wrap"><table className="table"><thead><tr><th>Veículo (rótulo da fonte)</th><th>Comb.</th><th className="r">Cidade</th><th className="r">Estrada</th><th>Fonte</th><th>Situação</th><th /></tr></thead><tbody>
+            {list.data.items.map((o) => (
+              <tr key={o.id}>
+                <td><b>{o.brand} {o.model}</b><div className="muted small">{o.versionLabel}{o.modelYear ? ` · ${o.modelYear}` : ''}{!o.modelSlug && ' · sem modelo no guia'}</div>{o.note && <div className="muted small">{o.note}</div>}</td>
+                <td>{o.fuel}</td>
+                <td className="r">{kmlStr(o.cityKml)}</td>
+                <td className="r">{kmlStr(o.roadKml)}</td>
+                <td><a href={o.sourceUrl} target="_blank" rel="noopener noreferrer">{o.sourceName}</a><div className="muted small">{o.cycle} · {o.collectedAt.split('-').reverse().join('/')}</div></td>
+                <td><Badge tone={o.status === 'CONFERIDO' ? 'ok' : 'warn'} dot>{o.status === 'CONFERIDO' ? 'Conferido' : 'A conferir'}</Badge></td>
+                <td className="actions">
+                  {o.status === 'A_CONFERIR' ? <Button size="sm" variant="primary" disabled={!o.modelSlug} title={o.modelSlug ? '' : 'Cadastre o modelo no guia antes'} onClick={() => void setOk(o, 'CONFERIDO')}>Marcar conferido</Button> : <Button size="sm" variant="ghost" onClick={() => void setOk(o, 'A_CONFERIR')}>Tirar do site</Button>}
+                  <Button size="sm" variant="ghost" onClick={() => setRemove(o)}>Apagar</Button>
+                </td>
+              </tr>
+            ))}
+          </tbody></table></div>
+        )}
+      </Card>
+      {remove && <ConfirmDialog title="Apagar registro de consumo" message={<p>Apagar <b>{remove.brand} {remove.model} {remove.versionLabel}</b> ({remove.fuel})?</p>} confirmLabel="Apagar" danger
+        onConfirm={async () => { try { await api.del(`/admin/vehicles/consumption/${remove.id}`); toast.ok('Registro apagado.'); list.reload(); } catch (e) { toast.error(errText(e)); throw e; } }} onClose={() => setRemove(null)} />}
     </div>
   );
 }

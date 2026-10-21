@@ -1,5 +1,6 @@
 import type { Migration } from './migrations.js';
 import { SEED_SOURCE, VEHICLE_SEED } from './data/vehicleSeed.js';
+import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL, INMETRO_NAME, INMETRO_PBEV_2024_URL, COLLECTED_AT, type ConsumptionSeed } from './data/consumptionSeed.js';
 import { SEED_ARTICLES, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
 
 /**
@@ -715,6 +716,88 @@ export const placaMigrations: Migration[] = [
       for (const [name, match] of seed) {
         await client.query('INSERT INTO financing_banks(name,bcb_match,display_order) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [name, match, order++]);
       }
+    }
+  },
+  {
+    id: '022_vehicle_consumption_obs',
+    name: 'Guia de veículos: consumo oficial como observações por fonte (Inmetro, fabricante) e híbridos Corolla e Civic',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS vehicle_consumption_obs (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          brand text NOT NULL,
+          model text NOT NULL,
+          version_label text NOT NULL,
+          model_year integer CHECK (model_year IS NULL OR model_year BETWEEN 1950 AND 2100),
+          segment text,
+          propulsion text,
+          fuel text NOT NULL,
+          city_kml numeric(5,1) CHECK (city_kml IS NULL OR (city_kml > 0 AND city_kml <= 60)),
+          road_kml numeric(5,1) CHECK (road_kml IS NULL OR (road_kml > 0 AND road_kml <= 60)),
+          unit text NOT NULL DEFAULT 'km/l',
+          cycle text NOT NULL,
+          source_kind text NOT NULL CHECK (source_kind IN ('INMETRO','FABRICANTE','OUTRA')),
+          source_name text NOT NULL,
+          source_url text NOT NULL,
+          reference_date date,
+          collected_at date NOT NULL,
+          status text NOT NULL DEFAULT 'A_CONFERIR' CHECK (status IN ('CONFERIDO','A_CONFERIR')),
+          note text NOT NULL DEFAULT '',
+          model_id uuid REFERENCES vehicle_models(id) ON DELETE SET NULL,
+          version_id uuid REFERENCES vehicle_versions(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          CHECK (city_kml IS NOT NULL OR road_kml IS NOT NULL)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_consumption_unique ON vehicle_consumption_obs(lower(brand), lower(model), lower(version_label), coalesce(model_year, 0), lower(fuel), lower(cycle), source_kind);
+        CREATE INDEX IF NOT EXISTS idx_vehicle_consumption_model ON vehicle_consumption_obs(model_id) WHERE status = 'CONFERIDO';
+      `);
+
+      // Corolla XEi: a ficha de referência trazia 11,9/14,5 (gasolina) e 8,0/10,0 (etanol); a tabela do Inmetro traz 12,3/14,9 e 8,6/10,7.
+      // Só corrige se a ficha ainda tem o valor da carga inicial (se a equipe editou, não mexe).
+      await client.query(
+        `UPDATE vehicle_versions v SET specs = specs || '{"cons_city_gas_kml":12.3,"cons_road_gas_kml":14.9,"cons_city_eth_kml":8.6,"cons_road_eth_kml":10.7}'::jsonb, updated_at = now()
+           FROM vehicle_models m WHERE m.id = v.model_id AND m.slug = 'toyota-corolla' AND v.name = 'XEi 2.0'
+            AND (v.specs->>'cons_city_gas_kml')::numeric = 11.9 AND (v.specs->>'cons_road_gas_kml')::numeric = 14.5
+            AND (v.specs->>'cons_city_eth_kml')::numeric = 8 AND (v.specs->>'cons_road_eth_kml')::numeric = 10`
+      );
+
+      // Versão híbrida do Corolla (só com o que as fontes informam).
+      const corolla = await client.query(`SELECT id FROM vehicle_models WHERE slug='toyota-corolla'`);
+      if (corolla.rowCount) {
+        const v = COROLLA_HYBRID_VERSION;
+        await client.query(
+          `INSERT INTO vehicle_versions(model_id,name,year_model,fuel,specs,display_order) VALUES($1,$2,$3,$4,$5::jsonb,10) ON CONFLICT DO NOTHING`,
+          [corolla.rows[0].id, v.name, v.yearModel, v.fuel, JSON.stringify(v.specs)]
+        );
+      }
+      // Civic: modelo novo, publicado só com o consumo oficial.
+      const civic = await client.query(
+        `INSERT INTO vehicle_models(slug,brand,name,vehicle_type,body_type,summary,status,spec_source) VALUES($1,$2,$3,$4,$5,'','PUBLISHED',$6) ON CONFLICT (slug) DO NOTHING RETURNING id`,
+        [CIVIC_MODEL.slug, CIVIC_MODEL.brand, CIVIC_MODEL.name, CIVIC_MODEL.vehicleType, CIVIC_MODEL.bodyType, CIVIC_MODEL.specSource]
+      );
+      if (civic.rowCount) {
+        await client.query(
+          `INSERT INTO vehicle_versions(model_id,name,year_model,fuel,specs,display_order) VALUES($1,$2,$3,$4,$5::jsonb,0) ON CONFLICT DO NOTHING`,
+          [civic.rows[0].id, CIVIC_MODEL.version.name, CIVIC_MODEL.version.yearModel, CIVIC_MODEL.version.fuel, JSON.stringify(CIVIC_MODEL.version.specs)]
+        );
+      }
+
+      const link = async (o: ConsumptionSeed) => {
+        const m = await client.query(`SELECT id FROM vehicle_models WHERE slug=$1`, [o.modelSlug]);
+        const modelId = (m.rows[0]?.id as string | undefined) ?? null;
+        let versionId: string | null = null;
+        if (modelId && o.versionName) {
+          const v = await client.query(`SELECT id FROM vehicle_versions WHERE model_id=$1 AND lower(name)=lower($2) ORDER BY year_model DESC NULLS LAST LIMIT 1`, [modelId, o.versionName]);
+          versionId = (v.rows[0]?.id as string | undefined) ?? null;
+        }
+        await client.query(
+          `INSERT INTO vehicle_consumption_obs(brand,model,version_label,segment,propulsion,fuel,city_kml,road_kml,cycle,source_kind,source_name,source_url,collected_at,status,note,model_id,version_id)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,'PBEV 2024',$9,$10,$11,$12,'CONFERIDO',$13,$14,$15) ON CONFLICT DO NOTHING`,
+          [o.brand, o.model, o.versionLabel, o.segment, o.propulsion, o.fuel, o.cityKml, o.roadKml, o.sourceKind, o.sourceName ?? INMETRO_NAME, o.sourceUrl ?? INMETRO_PBEV_2024_URL, COLLECTED_AT, o.note, modelId, versionId]
+        );
+      };
+      for (const o of [...CONSUMPTION_SEED, HONDA_CIVIC_OBS]) await link(o);
     }
   }
 ];

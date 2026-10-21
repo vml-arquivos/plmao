@@ -7,12 +7,30 @@ import { ApiError, errorMessage } from '../../shared/api';
 import { dateOnly, isValidPlate, normalizePlate } from '../../shared/format';
 import { Markdown } from '../../shared/markdown';
 import { useSession } from '../session';
-import { GuideCover, ModelCard, RatingBars, StarPicker, Stars, formatSpec, ratingText, typeLabel, useSpecMeta, versionLabel, yearsLabel, type GuideCard, type GuideModel, type GuideTip, type PublicOpinion, type SpecMeta, type Specs } from '../guide';
+import { ConsumptionSources, FuelCalc, GuideCover, ModelCard, RatingBars, StarPicker, Stars, formatSpec, kmlText, ratingText, typeLabel, useEconomy, useSpecMeta, versionLabel, yearsLabel, type GuideCard, type GuideModel, type GuideTip, type PublicOpinion, type SpecMeta, type Specs } from '../guide';
 
 /* ========================================================================== */
 /*  /veiculos — busca                                                          */
 /* ========================================================================== */
 interface PlateResult { vehicle: { plate: string; brand: string | null; model: string | null; year: number | null; fuel: string | null }; matches: Array<{ slug: string; brand: string; name: string; versions: Array<{ id: string; name: string; yearModel: number | null; sameYear: boolean }> }> }
+
+const QUICK: Array<{ key: string; label: string; params: { type?: string; body?: string } }> = [
+  { key: '', label: 'Todos', params: {} },
+  { key: 'hatch', label: 'Hatch', params: { type: 'CAR', body: 'Hatch' } },
+  { key: 'sedan', label: 'Sedã', params: { type: 'CAR', body: 'Sedã' } },
+  { key: 'suv', label: 'SUV', params: { type: 'CAR', body: 'SUV' } },
+  { key: 'pickup', label: 'Picape', params: { type: 'CAR', body: 'Picape' } },
+  { key: 'moto', label: 'Motos', params: { type: 'MOTORCYCLE' } },
+  { key: 'truck', label: 'Caminhões', params: { type: 'TRUCK' } }
+];
+
+const TOOLS: Array<{ to: string; icon: 'bar-chart' | 'zap' | 'calculator' | 'search' | 'dollar'; title: string; text: string }> = [
+  { to: '/comparar', icon: 'bar-chart', title: 'Comparar versões', text: 'Dois ou três carros lado a lado' },
+  { to: '/veiculos/mais-economicos', icon: 'zap', title: 'Mais econômicos', text: 'Ranking de consumo por versão' },
+  { to: '/combustivel', icon: 'dollar', title: 'Etanol ou gasolina?', text: 'Qual compensa no seu carro' },
+  { to: '/simulador', icon: 'calculator', title: 'Simular financiamento', text: 'Parcela, CET e custo total' },
+  { to: '/consultar', icon: 'search', title: 'Consultar placa', text: 'Débitos, restrições e leilão' }
+];
 
 export function GuideHome() {
   usePageTitle('Guia de veículos');
@@ -22,7 +40,7 @@ export function GuideHome() {
   const [search, setSearch] = useState(params.get('q') ?? '');
   const [debounced, setDebounced] = useState(search);
   const [brand, setBrand] = useState('');
-  const [type, setType] = useState('');
+  const [quick, setQuick] = useState('');
   const [sort, setSort] = useState<'name' | 'rating'>('name');
   const [brands, setBrands] = useState<Array<{ brand: string; total: number }>>([]);
   const [items, setItems] = useState<GuideCard[]>([]);
@@ -31,7 +49,8 @@ export function GuideHome() {
   const [error, setError] = useState<unknown>(null);
   const [tips, setTips] = useState<GuideTip[]>([]);
   const [tipCat, setTipCat] = useState('');
-  const PAGE = 12;
+  const { items: economy } = useEconomy();
+  const PAGE = 16;
 
   useEffect(() => { api.get<{ brands: Array<{ brand: string; total: number }> }>('/vehicles/brands').then((r) => setBrands(r.brands), () => undefined); }, []);
   useEffect(() => { api.get<{ tips: GuideTip[] }>('/vehicles/tips', { query: { limit: 30 } }).then((r) => setTips(r.tips), () => undefined); }, []);
@@ -40,44 +59,50 @@ export function GuideHome() {
   const load = useCallback(async (offset: number) => {
     setLoading(true); setError(null);
     try {
-      const r = await api.get<{ total: number; items: GuideCard[] }>('/vehicles', { query: { search: debounced, brand, type, sort, limit: PAGE, offset } });
+      const qp = QUICK.find((x) => x.key === quick)?.params ?? {};
+      const r = await api.get<{ total: number; items: GuideCard[] }>('/vehicles', { query: { search: debounced, brand, type: qp.type ?? '', body: qp.body ?? '', sort, limit: PAGE, offset } });
       setTotal(r.total); setItems((prev) => (offset ? [...prev, ...r.items] : r.items));
     } catch (e) { setError(e); } finally { setLoading(false); }
-  }, [debounced, brand, type, sort]);
+  }, [debounced, brand, quick, sort]);
   useEffect(() => { void load(0); }, [load]);
 
-  const filtersOn = Boolean(debounced || brand || type);
+  const filtersOn = Boolean(debounced || brand || quick);
   const tipList = tips.filter((t) => !tipCat || t.category === tipCat);
   const tipCats = useMemo(() => [...new Map(tips.map((t) => [t.category, t.categoryLabel])).entries()], [tips]);
+  const top = useMemo(() => (economy ?? []).filter((e) => e.official && e.cityGasKml != null).sort((a, b) => (b.cityGasKml ?? 0) - (a.cityGasKml ?? 0)).slice(0, 5), [economy]);
 
   return (
     <>
-      <section className="page-hero">
+      <section className="page-hero guide-home-hero">
         <div className="container">
           <span className="eyebrow">Guia de veículos</span>
           <h1 style={{ maxWidth: '22ch' }}>Conheça o carro antes de comprar.</h1>
-          <p className="lead">Ficha técnica, nota de quem tem o carro, dicas de cuidados e comparação lado a lado. Cadastro grátis para ver tudo.</p>
-        </div>
-      </section>
-      <section className="section" style={{ paddingTop: 8 }}>
-        <div className="container stack-lg">
-          <div className="card card-pad stack">
+          <p className="lead">Consumo oficial com a fonte à vista, ficha técnica, opinião de quem tem o carro e comparação lado a lado. Cadastro grátis para ver tudo.</p>
+          <div className="guide-search card card-pad stack">
             <Tabs label="Forma de busca" value={mode} onChange={setMode} items={[{ id: 'model', label: 'Por modelo' }, { id: 'plate', label: 'Por placa' }]} />
             {mode === 'model' ? (
-              <div className="guide-filters">
-                <Input icon="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ex.: Tracker, Onix, CG 160…" aria-label="Buscar modelo" maxLength={80} />
-                <Select value={brand} onChange={(e) => setBrand(e.target.value)} aria-label="Marca"><option value="">Todas as marcas</option>{brands.map((b) => <option key={b.brand} value={b.brand}>{b.brand} ({b.total})</option>)}</Select>
-                <Select value={type} onChange={(e) => setType(e.target.value)} aria-label="Tipo"><option value="">Carro, moto e caminhão</option><option value="CAR">Carros</option><option value="MOTORCYCLE">Motos</option><option value="TRUCK">Caminhões</option></Select>
-                <Select value={sort} onChange={(e) => setSort(e.target.value as 'name' | 'rating')} aria-label="Ordenar"><option value="name">Ordem alfabética</option><option value="rating">Mais bem avaliados</option></Select>
-              </div>
+              <>
+                <div className="guide-filters">
+                  <Input icon="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ex.: Tracker, Onix, CG 160…" aria-label="Buscar modelo" maxLength={80} />
+                  <Select value={brand} onChange={(e) => setBrand(e.target.value)} aria-label="Marca"><option value="">Todas as marcas</option>{brands.map((b) => <option key={b.brand} value={b.brand}>{b.brand} ({b.total})</option>)}</Select>
+                  <Select value={sort} onChange={(e) => setSort(e.target.value as 'name' | 'rating')} aria-label="Ordenar"><option value="name">Ordem alfabética</option><option value="rating">Mais bem avaliados</option></Select>
+                </div>
+                <div className="chips" role="group" aria-label="Tipo de veículo">
+                  {QUICK.map((q) => <button key={q.key} type="button" className="chip" aria-pressed={quick === q.key} onClick={() => setQuick(q.key)}>{q.label}</button>)}
+                </div>
+              </>
             ) : <PlateSearch authed={status === 'authed'} />}
           </div>
+        </div>
+      </section>
 
+      <section className="section" style={{ paddingTop: 8 }}>
+        <div className="container stack-lg">
           {mode === 'model' && (
             <div className="stack">
-              {!loading && !error && <p className="muted" aria-live="polite">{total ? `${total} ${total === 1 ? 'veículo' : 'veículos'}${filtersOn ? ' encontrados' : ' no guia'}` : ''}</p>}
+              {!loading && !error && <p className="muted" aria-live="polite">{total ? `${total} ${total === 1 ? 'veículo' : 'veículos'}${filtersOn ? ' encontrados' : ' no guia'}. O guia cresce a cada semana: ainda não temos todos os modelos do mercado.` : ''}</p>}
               {error != null && <ErrorState error={error} onRetry={() => void load(0)} />}
-              {loading && !items.length && <div className="guide-grid"><Skeleton h={300} r={24} /><Skeleton h={300} r={24} /><Skeleton h={300} r={24} /></div>}
+              {loading && !items.length && <div className="guide-grid"><Skeleton h={170} r={20} /><Skeleton h={170} r={20} /><Skeleton h={170} r={20} /><Skeleton h={170} r={20} /></div>}
               {!loading && !error && !items.length && (
                 <EmptyState icon="car" title={filtersOn ? 'Nenhum veículo com esses filtros' : 'O guia está sendo montado'}>
                   {filtersOn ? 'Tente outro nome ou limpe os filtros.' : 'Em breve teremos as primeiras fichas por aqui. Enquanto isso, consulte o valor FIPE ou a situação de um veículo pela placa.'}
@@ -85,6 +110,37 @@ export function GuideHome() {
               )}
               {items.length > 0 && <div className="guide-grid">{items.map((m) => <ModelCard key={m.slug} m={m} />)}</div>}
               {items.length < total && <div style={{ textAlign: 'center' }}><Button loading={loading} onClick={() => void load(items.length)}>Ver mais veículos</Button></div>}
+            </div>
+          )}
+
+          <div className="stack">
+            <div><span className="eyebrow">Ferramentas</span><h2 style={{ marginTop: 6 }}>Decida com números, não com achismo</h2></div>
+            <div className="tool-tiles">
+              {TOOLS.map((t) => (
+                <Link key={t.to} to={t.to} className="tool-tile">
+                  <span className="tool-ico"><Icon name={t.icon} size={20} /></span>
+                  <span><b>{t.title}</b><small>{t.text}</small></span>
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {!filtersOn && top.length > 0 && (
+            <div className="card card-pad stack">
+              <div className="between">
+                <div><span className="eyebrow">Consumo na cidade</span><h2 style={{ fontSize: 22, marginTop: 6 }}>Os mais econômicos do guia</h2></div>
+                <LinkButton to="/veiculos/mais-economicos" iconRight="arrow-right" size="sm">Ver ranking completo</LinkButton>
+              </div>
+              <ol className="top-list">
+                {top.map((e, i) => (
+                  <li key={e.versionId}>
+                    <span className="top-pos">{i + 1}</span>
+                    <Link to={`/veiculos/${e.slug}?versao=${e.versionId}`}><b>{e.brand} {e.model}</b> <span className="muted">{e.version}</span></Link>
+                    <span className="top-val"><b>{kmlText(e.cityGasKml!)}</b> km/l</span>
+                  </li>
+                ))}
+              </ol>
+              <p className="muted" style={{ fontSize: 13, margin: 0 }}>Gasolina, ciclo urbano, só versões conferidas com a tabela do Inmetro. Valores de ensaio; o consumo real varia.</p>
             </div>
           )}
 
@@ -100,6 +156,15 @@ export function GuideHome() {
               <div className="tip-grid">{tipList.map((t) => <TipCard key={t.id} tip={t} />)}</div>
             </div>
           )}
+
+          <div className="card card-pad stack" id="fontes">
+            <div><span className="eyebrow">Transparência</span><h2 style={{ fontSize: 22, marginTop: 6 }}>De onde vêm os números</h2></div>
+            <div className="trust-grid">
+              <div><b>Consumo</b><p className="muted">Tabela oficial do Inmetro (PBE Veicular) e catálogos de fabricantes. Cada valor mostra a fonte, o ciclo e a data da conferência. Quando as fontes divergem, mostramos as duas.</p></div>
+              <div><b>Ficha técnica</b><p className="muted">Fichas de referência de fabricantes. O que a fonte não informa fica em branco: nós não estimamos nem preenchemos por média.</p></div>
+              <div><b>Opiniões</b><p className="muted">Escritas por donos com conta, uma por pessoa por modelo, revisadas pela equipe antes de aparecer. Não copiamos notas de outros sites.</p></div>
+            </div>
+          </div>
 
           <div className="card card-pad guide-cta">
             <div><h3>Vai comprar um usado?</h3><p className="muted">A ficha mostra como o modelo é. A consulta pela placa mostra como aquele carro específico está: débitos, restrições, leilão e mais.</p></div>
@@ -242,6 +307,8 @@ export function GuideModelPage() {
               </div>
             )}
 
+            <ConsumptionSources items={model.consumption ?? []} />
+
             {(model.pros.length > 0 || model.cons.length > 0) && (
               <div className="grid-2">
                 {model.pros.length > 0 && <div className="card card-pad stack-sm pros"><h3><Icon name="check-circle" size={20} /> Pontos fortes</h3><ul>{model.pros.map((p) => <li key={p}>{p}</li>)}</ul></div>}
@@ -277,6 +344,7 @@ export function GuideModelPage() {
               {model.rating.count > 0 && <Distribution rating={model.rating} />}
               {!model.rating.count && <p className="muted" style={{ fontSize: 14 }}>Ainda não há opiniões aprovadas. Tem ou já teve este veículo? Conte como é.</p>}
             </div>
+            <ModelFuelCalc versionId={version?.id ?? null} />
             <div className="card card-pad stack-sm">
               <h3>Vai comprar este veículo?</h3>
               <p className="muted" style={{ fontSize: 14 }}>A ficha mostra como o modelo é. Para saber como o carro anunciado está, consulte a placa dele.</p>
@@ -287,6 +355,20 @@ export function GuideModelPage() {
       </section>
       {editing && <OpinionModal model={model} onClose={(changed) => { setEditing(false); if (changed) void reload(); }} />}
     </>
+  );
+}
+
+function ModelFuelCalc({ versionId }: { versionId: string | null }) {
+  const { items } = useEconomy();
+  const it = items?.find((e) => e.versionId === versionId);
+  if (!it) return null;
+  return (
+    <FuelCalc
+      gas={it.cityGasKml != null || it.roadGasKml != null ? { city: it.cityGasKml, road: it.roadGasKml } : undefined}
+      eth={it.cityEthKml != null || it.roadEthKml != null ? { city: it.cityEthKml, road: it.roadEthKml } : undefined}
+      diesel={it.cityDieselKml != null || it.roadDieselKml != null ? { city: it.cityDieselKml, road: it.roadDieselKml } : undefined}
+      title="Quanto esta versão gasta?" compact
+    />
   );
 }
 

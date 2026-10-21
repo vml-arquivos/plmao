@@ -637,3 +637,66 @@
 .sim-banks-table tr.best td { background: color-mix(in srgb, var(--ok-ink) 7%, transparent); }
 .sim-banks-table tr.best td b { color: var(--ok-ink); }
 .sim-best-tag { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: color-mix(in srgb, var(--ok-ink) 14%, transparent); color: var(--ok-ink); vertical-align: 1px; }
+
+/* ---------- Guia de veículos: página reorganizada (1.4.0) ---------- */
+.guide-home-hero { padding-bottom: 8px; }
+.guide-search { margin-top: 26px; max-width: 980px; }
+.guide-filters { grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); }
+.guide-filters.econ-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 860px) { .guide-filters, .guide-filters.econ-filters { grid-template-columns: 1fr 1fr; } .guide-filters > :first-child { grid-column: 1 / -1; } }
+@media (max-width: 520px) { .guide-filters, .guide-filters.econ-filters { grid-template-columns: 1fr; } }
+.guide-grid { grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 14px; }
+.vcard { display: flex; flex-direction: column; border-radius: var(--radius-lg, 18px); overflow: hidden; background: var(--surface); border: 1px solid var(--border); color: inherit; transition: transform .18s, box-shadow .18s, border-color .18s; }
+.vcard:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--border-strong); text-decoration: none; }
+.vcard-body { padding: 16px 16px 14px; display: grid; gap: 6px; align-content: start; flex: 1; }
+.vcard-body h3 { font-size: 19px; line-height: 1.2; }
+.vcard-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.official-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 800; letter-spacing: .02em; color: var(--ok, #0a7a43); background: var(--ok-soft, rgba(16, 150, 90, .12)); padding: 2px 8px; border-radius: 999px; }
+.vcard-facts { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.vcard-facts li { font-size: 12.5px; font-weight: 700; color: var(--text-2); background: var(--surface-2, #f3f6fb); border-radius: 8px; padding: 3px 8px; }
+.vcard-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; min-height: 22px; }
+.vcard .guide-rate { font-size: 13px; gap: 5px; }
+.vcard .guide-more { margin-top: 0; }
+
+.tool-tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.tool-tile { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); color: inherit; transition: border-color .15s, transform .15s; }
+.tool-tile:hover { border-color: var(--primary); transform: translateY(-1px); text-decoration: none; }
+.tool-tile b { display: block; font-family: var(--font-display); font-size: 15px; }
+.tool-tile small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.tool-ico { flex: none; width: 40px; height: 40px; border-radius: 12px; background: var(--primary-soft); color: var(--primary); display: grid; place-items: center; }
+
+.top-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.top-list li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--border); }
+.top-list li:last-child { border-bottom: 0; }
+.top-pos { width: 26px; height: 26px; border-radius: 50%; background: var(--primary-soft); color: var(--primary-ink); font-weight: 800; font-size: 13px; display: grid; place-items: center; }
+.top-val { white-space: nowrap; color: var(--muted); }
+.top-val b { color: var(--text); font-size: 17px; font-family: var(--font-display); }
+
+.trust-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.trust-grid p { margin: 4px 0 0; font-size: 14.5px; }
+
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.obs-table { width: 100%; border-collapse: collapse; font-size: 14.5px; min-width: 460px; }
+.obs-table th { text-align: left; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 6px 10px 8px 0; border-bottom: 1px solid var(--border); }
+.obs-table td { padding: 10px 10px 10px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+.obs-table tr:last-child td { border-bottom: 0; }
+.obs-src { font-size: 12.5px; margin-top: 2px; }
+.src-tag { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; padding: 1px 7px; border-radius: 6px; background: var(--surface-2, #eef2f8); color: var(--text-2); }
+.src-tag.inmetro { background: var(--ok-soft, rgba(16, 150, 90, .12)); color: var(--ok, #0a7a43); }
+.src-tag.fabricante { background: var(--primary-soft); color: var(--primary-ink); }
+.kml-cell { display: grid; gap: 4px; min-width: 76px; }
+.kml-cell.wide { min-width: 150px; }
+.kml-cell b { font-size: 16px; font-family: var(--font-display); }
+.kml-bar { display: block; height: 6px; border-radius: 4px; background: var(--primary); min-width: 4px; }
+.kml-bar.alt { background: #7C6CF0; }
+.obs-notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; color: var(--text-2); }
+.econ-table td:first-child { width: 36px; }
+
+.fuel-page { display: grid; gap: 20px; max-width: 760px; }
+.fuel-calc h3 { font-size: 18px; }
+.fuel-results { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+.fuel-results > div { display: grid; gap: 2px; padding: 12px 14px; border-radius: 14px; background: var(--primary-soft); }
+.fuel-results b { font-size: 21px; font-family: var(--font-display); color: var(--primary-ink); }
+.fuel-results small { color: var(--muted); font-size: 12.5px; }
+.fuel-verdict { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 800; color: var(--ok, #0a7a43); }
+.fuel-calc.compact .form-grid.cols-2 { grid-template-columns: 1fr 1fr; }

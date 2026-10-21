@@ -283,6 +283,148 @@ adminVehiclesRouter.post('/import', asyncRoute(async (req, res) => {
   res.json(report);
 }));
 
+// ---------------------------------------------------------------- consumo oficial (observações por fonte)
+const CONSUMPTION_HEADERS: Record<string, string> = {
+  id: 'id', marca: 'brand', modelo: 'model', ano_modelo: 'year', versao_pbev: 'version', versao: 'version', segmento_pbev: 'segment', propulsao: 'propulsion',
+  combustivel_comparado: 'fuel', combustivel: 'fuel', consumo_urbano_km_l: 'city', consumo_rodoviario_km_l: 'road', unidade_consumo: 'unit',
+  fonte_consumo: 'url', fonte: 'url', ciclo_pbev: 'cycle', ciclo: 'cycle', observacoes: 'note'
+};
+const FUELS: Record<string, string> = { gasolina: 'Gasolina', etanol: 'Etanol', alcool: 'Etanol', diesel: 'Diesel' };
+const isNa = (v: string) => v === '' || /^(na|n\/a|nd|-|—)$/i.test(v.trim());
+const kml = (v: string): number | null | 'bad' => {
+  if (isNa(v)) return null;
+  const n = Number(v.trim().replace(',', '.'));
+  return Number.isFinite(n) && n > 0 && n <= 60 ? Math.round(n * 10) / 10 : 'bad';
+};
+
+adminVehiclesRouter.get('/consumption/template.csv', (_req, res) => {
+  const headers = ['id', 'marca', 'modelo', 'ano_modelo', 'versao_pbev', 'segmento_pbev', 'propulsao', 'combustivel_comparado', 'consumo_urbano_km_l', 'consumo_rodoviario_km_l', 'unidade_consumo', 'fonte_consumo', 'ciclo_pbev', 'observacoes'];
+  const example = ['EXEMPLO-1', 'MARCA', 'MODELO', 'NA', 'VERSÃO LITERAL DA TABELA', 'Compacto', 'Combustão', 'Gasolina', '13,5', '15,0', 'km/l', 'https://www.gov.br/inmetro/exemplo.pdf', 'PBEV 2024', 'Copie o rótulo da versão exatamente como está na fonte.'];
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="modelo-importacao-consumo-oficial.csv"');
+  res.send(`﻿${headers.join(';')}\r\n${example.map(csvEscape).join(';')}\r\n`);
+});
+
+adminVehiclesRouter.get('/consumption', asyncRoute(async (req, res) => {
+  const status = ['CONFERIDO', 'A_CONFERIR'].includes(String(req.query.status)) ? String(req.query.status) : null;
+  const params: unknown[] = [];
+  const where: string[] = [];
+  if (status) { params.push(status); where.push(`o.status=$${params.length}`); }
+  for (const token of String(req.query.search ?? '').split(/\s+/).filter(Boolean).slice(0, 4)) {
+    params.push(`%${token.replace(/[%_\\]/g, '\\$&')}%`);
+    where.push(`(o.brand || ' ' || o.model || ' ' || o.version_label) ILIKE $${params.length}`);
+  }
+  const r = await pool.query(`SELECT o.*, m.slug AS model_slug FROM vehicle_consumption_obs o LEFT JOIN vehicle_models m ON m.id=o.model_id
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY o.status DESC, o.brand, o.model, o.version_label, o.fuel LIMIT 500`, params);
+  const counts = await pool.query(`SELECT count(*) FILTER (WHERE status='CONFERIDO')::int AS ok, count(*) FILTER (WHERE status='A_CONFERIR')::int AS pending FROM vehicle_consumption_obs`);
+  res.json({
+    counts: { conferido: Number(counts.rows[0]?.ok ?? 0), aConferir: Number(counts.rows[0]?.pending ?? 0) },
+    items: r.rows.map((o) => ({
+      id: o.id, brand: o.brand, model: o.model, versionLabel: o.version_label, modelYear: o.model_year, segment: o.segment, propulsion: o.propulsion, fuel: o.fuel,
+      cityKml: o.city_kml == null ? null : Number(o.city_kml), roadKml: o.road_kml == null ? null : Number(o.road_kml), cycle: o.cycle, sourceKind: o.source_kind, sourceName: o.source_name,
+      sourceUrl: o.source_url, collectedAt: o.collected_at instanceof Date ? o.collected_at.toISOString().slice(0, 10) : String(o.collected_at).slice(0, 10), status: o.status, note: o.note, modelSlug: o.model_slug ?? null
+    }))
+  });
+}));
+
+interface ConsumptionReport { dryRun: boolean; rows: number; created: number; updated: number; keptConfirmed: number; errors: Array<{ line: number; message: string }> }
+
+/**
+ * Importa linhas da tabela oficial (formato da planilha de pesquisa). Nada entra como "conferido": a pessoa
+ * da equipe compara com a fonte e confirma linha a linha, e só então o consumo aparece no site.
+ */
+adminVehiclesRouter.post('/consumption/import', asyncRoute(async (req, res) => {
+  const p = z.object({ csv: z.string().min(10).max(1_000_000), dryRun: z.boolean().default(true) }).strict().safeParse(req.body);
+  if (!p.success) throw bad('IMPORT_INVALID');
+  const table = parseCsv(p.data.csv);
+  if (table.length < 2) throw bad('IMPORT_EMPTY');
+  if (table.length > 2001) throw bad('IMPORT_TOO_LARGE');
+  const header = table[0]!.map((h) => CONSUMPTION_HEADERS[normalizeText(h).replace(/\s+/g, '_')] ?? null);
+  for (const need of ['brand', 'model', 'version', 'fuel', 'url', 'cycle']) if (!header.includes(need)) throw bad('IMPORT_MISSING_COLUMNS');
+  if (!header.includes('city') && !header.includes('road')) throw bad('IMPORT_MISSING_COLUMNS');
+  const report: ConsumptionReport = { dryRun: p.data.dryRun, rows: table.length - 1, created: 0, updated: 0, keptConfirmed: 0, errors: [] };
+  const today = new Date().toISOString().slice(0, 10);
+
+  const run = async (client: Pick<PoolClient, 'query'>) => {
+    for (let i = 1; i < table.length; i++) {
+      const cells = table[i]!;
+      const get = (key: string) => { const idx = header.indexOf(key); return idx < 0 ? '' : (cells[idx] ?? '').trim(); };
+      const line = i + 1;
+      const brand = get('brand'); const model = get('model'); const versionLabel = get('version'); const cycle = get('cycle');
+      if (brand.length < 2 || !model || !versionLabel || !cycle) { report.errors.push({ line, message: 'Marca, modelo, versão e ciclo são obrigatórios.' }); continue; }
+      const fuel = FUELS[normalizeText(get('fuel'))];
+      if (!fuel) { report.errors.push({ line, message: `Combustível não reconhecido: ${get('fuel')}` }); continue; }
+      const unit = get('unit');
+      if (unit && unit.toLowerCase().replace(/\s+/g, '') !== 'km/l') { report.errors.push({ line, message: `Unidade não aceita: ${unit} (use km/l).` }); continue; }
+      const city = kml(get('city')); const road = kml(get('road'));
+      if (city === 'bad' || road === 'bad') { report.errors.push({ line, message: 'Consumo inválido: use número entre 0,1 e 60 km/l ou NA.' }); continue; }
+      if (city === null && road === null) { report.errors.push({ line, message: 'Informe o consumo urbano ou o rodoviário.' }); continue; }
+      const url = get('url');
+      let host = '';
+      try { const u = new URL(url); if (u.protocol !== 'https:') throw new Error('http'); host = u.hostname.toLowerCase(); } catch { report.errors.push({ line, message: 'A fonte precisa ser uma URL https.' }); continue; }
+      const year = isNa(get('year')) ? null : Number(get('year'));
+      if (year !== null && (!Number.isInteger(year) || year < 1950 || year > 2100)) { report.errors.push({ line, message: `Ano inválido: ${get('year')}` }); continue; }
+      const kind = host.endsWith('gov.br') && /inmetro|conpet/i.test(url) ? 'INMETRO' : /honda|toyota|fiat|chevrolet|volkswagen|vw\.com|hyundai|renault|jeep|ford|nissan|byd|caoa|peugeot|citroen/i.test(host) ? 'FABRICANTE' : 'OUTRA';
+      const sourceName = kind === 'INMETRO' ? `Inmetro, Tabela PBE Veicular ${(cycle.match(/\d{4}/) ?? [''])[0]}`.trim() : host;
+      const slug = slugify(`${brand} ${model}`);
+      const m = await client.query('SELECT id FROM vehicle_models WHERE slug=$1', [slug]);
+      const modelId = (m.rows[0]?.id as string | undefined) ?? null;
+      const existing = await client.query(
+        `SELECT id,status FROM vehicle_consumption_obs WHERE lower(brand)=lower($1) AND lower(model)=lower($2) AND lower(version_label)=lower($3) AND coalesce(model_year,0)=$4 AND lower(fuel)=lower($5) AND lower(cycle)=lower($6) AND source_kind=$7`,
+        [brand, model, versionLabel, year ?? 0, fuel, cycle, kind]);
+      if (existing.rowCount) {
+        if (existing.rows[0].status === 'CONFERIDO') { report.keptConfirmed++; continue; }
+        report.updated++;
+        if (!p.data.dryRun) await client.query(`UPDATE vehicle_consumption_obs SET city_kml=$2, road_kml=$3, source_name=$4, source_url=$5, note=$6, segment=$7, propulsion=$8, model_id=$9, collected_at=$10, updated_at=now() WHERE id=$1`,
+          [existing.rows[0].id, city, road, sourceName, url, get('note'), get('segment') || null, get('propulsion') || null, modelId, today]);
+        continue;
+      }
+      report.created++;
+      if (!p.data.dryRun) await client.query(
+        `INSERT INTO vehicle_consumption_obs(brand,model,version_label,model_year,segment,propulsion,fuel,city_kml,road_kml,cycle,source_kind,source_name,source_url,collected_at,status,note,model_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'A_CONFERIR',$15,$16)`,
+        [brand, model, versionLabel, year, get('segment') || null, get('propulsion') || null, fuel, city, road, cycle, kind, sourceName, url, today, get('note'), modelId]);
+    }
+  };
+  if (p.data.dryRun) await run(pool);
+  else {
+    await tx(run);
+    await audit(req.user!.id, 'VEHICLE_CONSUMPTION_IMPORTED', 'vehicle_consumption_obs', null, { rows: report.rows, created: report.created, updated: report.updated, errors: report.errors.length });
+  }
+  res.json(report);
+}));
+
+adminVehiclesRouter.patch('/consumption/:id', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  if (!isUuid(id)) throw notFound('CONSUMPTION_NOT_FOUND');
+  const p = z.object({ status: z.enum(['CONFERIDO', 'A_CONFERIR']).optional(), versionId: z.string().refine(isUuid).nullish(), note: z.string().trim().max(600).optional() }).strict().safeParse(req.body);
+  if (!p.success) throw bad();
+  const cur = await pool.query('SELECT id, model_id FROM vehicle_consumption_obs WHERE id=$1', [id]);
+  if (!cur.rowCount) throw notFound('CONSUMPTION_NOT_FOUND');
+  if (p.data.versionId) {
+    const v = await pool.query('SELECT 1 FROM vehicle_versions WHERE id=$1 AND model_id=$2', [p.data.versionId, cur.rows[0].model_id]);
+    if (!v.rowCount) throw bad('VERSION_NOT_FOUND');
+  }
+  const sets: string[] = []; const vals: unknown[] = [id];
+  const add = (col: string, v: unknown) => { vals.push(v); sets.push(`${col}=$${vals.length}`); };
+  if (p.data.status) add('status', p.data.status);
+  if (p.data.versionId !== undefined) add('version_id', p.data.versionId ?? null);
+  if (p.data.note !== undefined) add('note', p.data.note);
+  if (!sets.length) throw bad();
+  await pool.query(`UPDATE vehicle_consumption_obs SET ${sets.join(', ')}, updated_at=now() WHERE id=$1`, vals);
+  await audit(req.user!.id, 'VEHICLE_CONSUMPTION_UPDATED', 'vehicle_consumption_obs', id, p.data);
+  res.json({ ok: true });
+}));
+
+adminVehiclesRouter.delete('/consumption/:id', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  if (!isUuid(id)) throw notFound('CONSUMPTION_NOT_FOUND');
+  const r = await pool.query('DELETE FROM vehicle_consumption_obs WHERE id=$1 RETURNING id', [id]);
+  if (!r.rowCount) throw notFound('CONSUMPTION_NOT_FOUND');
+  await audit(req.user!.id, 'VEHICLE_CONSUMPTION_DELETED', 'vehicle_consumption_obs', id, {});
+  res.json({ ok: true });
+}));
+
 // ---------------------------------------------------------------- modelos
 adminVehiclesRouter.get('/', asyncRoute(async (req, res) => {
   const view = ['all', 'draft', 'published', 'archived'].includes(String(req.query.view)) ? String(req.query.view) : 'all';
