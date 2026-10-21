@@ -625,3 +625,15 @@
 .sim-stats b { overflow-wrap: anywhere; }
 
 .spec-source { font-size: 12.5px; margin: 0; }
+
+/* comparação entre bancos */
+.sim-banks-wrap { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
+.sim-banks-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; min-width: 520px; }
+.sim-banks-table th { text-align: right; padding: 8px 10px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border-strong); white-space: nowrap; }
+.sim-banks-table th:first-child, .sim-banks-table td:first-child { text-align: left; }
+.sim-banks-table td { padding: 10px; text-align: right; border-bottom: 1px solid var(--border); vertical-align: top; white-space: nowrap; }
+.sim-banks-table td:first-child { white-space: normal; min-width: 190px; }
+.sim-banks-table small { display: block; color: var(--muted); font-size: 11.5px; font-weight: 500; line-height: 1.3; margin-top: 2px; }
+.sim-banks-table tr.best td { background: color-mix(in srgb, var(--ok-ink) 7%, transparent); }
+.sim-banks-table tr.best td b { color: var(--ok-ink); }
+.sim-best-tag { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: color-mix(in srgb, var(--ok-ink) 14%, transparent); color: var(--ok-ink); vertical-align: 1px; }

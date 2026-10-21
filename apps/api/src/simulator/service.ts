@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { simulate, FinancingError, LIMITS, type FinancingInput, type FinancingResult, type Modality, type PersonType } from '../lib/financing.js';
 import { marketRate, type FinancingSettings } from '../financingSettings.js';
+import { pickBankRate, type BankConfig, type BcbBankRate } from '../lib/bankRates.js';
 
 export const VEHICLE_KINDS = [
   { key: 'CAR', label: 'Carro' },
@@ -37,18 +38,29 @@ export const simulationBody = z.object({
 export type SimulationBody = z.infer<typeof simulationBody>;
 
 export interface RateInfo { pct: number; custom: boolean; note: string | null }
+/** Oferta estimada de um banco: mesma simulação com a taxa (e tarifas, se informadas) daquele banco. Sem a tabela de parcelas. */
+export interface BankOffer {
+  id: string; name: string; modality: 'CDC' | 'LEASING';
+  ratePct: number; rateSource: 'manual' | 'bcb'; institution: string | null; period: string | null; ownFees: boolean;
+  installmentCents: number; totalPaidCents: number; interestCents: number; iofCents: number; feesTotalCents: number;
+  principalCents: number; residualCents: number; cetMonthlyPct: number; cetAnnualPct: number; costOverVehiclePct: number; annualRatePct: number;
+}
 export interface SimulationOutput {
   body: SimulationBody;
+  banks?: BankOffer[];
   results: { cdc?: FinancingResult; leasing?: FinancingResult };
   rates: { cdc?: RateInfo; leasing?: RateInfo };
   errors: { cdc?: string; leasing?: string };
   generatedAt: string;
 }
 
-function toInput(body: SimulationBody, modality: Modality, settings: FinancingSettings): { input: FinancingInput; rate: RateInfo } {
+interface BankOverride { pct: number; fees: BankConfig['fees'] }
+
+function toInput(body: SimulationBody, modality: Modality, settings: FinancingSettings, bank?: BankOverride): { input: FinancingInput; rate: RateInfo } {
   const market = marketRate(settings, modality, body.personType);
-  const custom = body.ratePct != null && body.ratePct > 0;
-  const pct = custom ? body.ratePct! : market.pct;
+  const custom = !bank && body.ratePct != null && body.ratePct > 0;
+  const pct = bank ? bank.pct : custom ? body.ratePct! : market.pct;
+  const bf = bank?.fees;
   const isLeasing = modality === 'LEASING';
   return {
     rate: { pct, custom, note: custom ? null : market.note },
@@ -66,10 +78,11 @@ function toInput(body: SimulationBody, modality: Modality, settings: FinancingSe
       firstInstallmentDays: body.firstInstallmentDays,
       iof: settings.iof,
       fees: {
-        cadastroCents: body.fees.cadastroCents ?? settings.fees.cadastroCents,
-        avaliacaoCents: body.fees.avaliacaoCents ?? (body.condition === 'USED' ? settings.fees.avaliacaoCents : 0),
+        // tarifa digitada pelo cliente vale mais que a do banco, que vale mais que a de referência
+        cadastroCents: body.fees.cadastroCents ?? bf?.cadastroCents ?? settings.fees.cadastroCents,
+        avaliacaoCents: body.fees.avaliacaoCents ?? (body.condition === 'USED' ? (bf?.avaliacaoCents ?? settings.fees.avaliacaoCents) : 0),
         // leasing: o veículo fica em nome da arrendadora, não há alienação fiduciária/gravame a registrar
-        registroCents: body.fees.registroCents ?? (isLeasing ? 0 : settings.fees.registroCents),
+        registroCents: body.fees.registroCents ?? (isLeasing ? 0 : (bf?.registroCents ?? settings.fees.registroCents)),
         insuranceCents: body.fees.insuranceCents ?? 0
       }
     }
@@ -95,6 +108,33 @@ export function runSimulation(body: SimulationBody, settings: FinancingSettings,
   }
   if (!out.results.cdc && !out.results.leasing) throw new FinancingError('SIM_INVALID', Object.values(out.errors)[0] ?? 'Não foi possível simular.');
   return out;
+}
+
+/** Mesma simulação para cada banco cadastrado que tenha taxa (informada pela equipe ou média do Banco Central). Ordenado pelo menor CET. */
+export function runBankComparison(body: SimulationBody, settings: FinancingSettings, banks: BankConfig[], bcb: BcbBankRate[], now = new Date()): BankOffer[] {
+  const wanted: Modality[] = body.modality === 'BOTH' ? ['CDC', 'LEASING'] : [body.modality];
+  const offers: BankOffer[] = [];
+  for (const bank of banks) {
+    if (!bank.active) continue;
+    for (const m of wanted) {
+      const rate = pickBankRate(bank, m, body.personType, bcb);
+      if (!rate) continue;
+      try {
+        const { input } = toInput(body, m, settings, { pct: rate.pct, fees: bank.fees });
+        input.startDate = now;
+        const r = simulate(input);
+        offers.push({
+          id: bank.id, name: bank.name, modality: m, ratePct: rate.pct, rateSource: rate.source, institution: rate.institution, period: rate.period,
+          ownFees: bank.fees.cadastroCents != null || bank.fees.avaliacaoCents != null || bank.fees.registroCents != null,
+          installmentCents: r.installmentCents, totalPaidCents: r.totalPaidCents, interestCents: r.interestCents, iofCents: r.iofCents, feesTotalCents: r.feesTotalCents,
+          principalCents: r.principalCents, residualCents: r.residualCents, cetMonthlyPct: r.cetMonthlyPct, cetAnnualPct: r.cetAnnualPct, costOverVehiclePct: r.costOverVehiclePct, annualRatePct: r.annualRatePct
+        });
+      } catch (e) {
+        if (!(e instanceof FinancingError)) throw e; // prazo ou valor fora do limite da modalidade: o banco só não aparece
+      }
+    }
+  }
+  return offers.sort((a, b) => a.cetAnnualPct - b.cetAnnualPct);
 }
 
 export function simulatorConfig(settings: FinancingSettings) {

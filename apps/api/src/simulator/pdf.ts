@@ -2,7 +2,7 @@ import { PDFString, rgb, type RGB } from 'pdf-lib';
 import { C, CW, Doc, H, M, W, clean, drawLogo, fit, rect } from '../report/pdf.js';
 import { brlFromCents } from '../report/format.js';
 import type { FinancingResult } from '../lib/financing.js';
-import { VEHICLE_KINDS, type RateInfo, type SimulationOutput } from './service.js';
+import { VEHICLE_KINDS, type BankOffer, type RateInfo, type SimulationOutput } from './service.js';
 
 export interface SimulationPdfMeta {
   code: string;
@@ -130,6 +130,59 @@ function scheduleTable(d: Doc, r: FinancingResult, title: string) {
     d.text(`Valor residual garantido (VRG): ${brlFromCents(r.residualCents)}, pago ao final somente se você exercer a opção de compra.`, M + 10, d.y - 18, 8.5, d.dm500, C.text, { maxWidth: CW - 20 });
     d.y -= 38;
   } else d.y -= 8;
+}
+
+/** Tabela de comparação entre bancos (já ordenada pelo menor CET). Taxa de cada banco: informada pela equipe ou média do Banco Central. */
+function banksTable(d: Doc, offers: BankOffer[], modality: 'CDC' | 'LEASING', many: boolean) {
+  const list = offers.filter((o) => o.modality === modality).slice(0, 12);
+  if (!list.length) return;
+  sectionTitle(d, `Comparação entre bancos${many ? ` - ${modality === 'CDC' ? 'CDC' : 'Leasing'}` : ''}`, 'ordenado pelo menor CET');
+  const cols = [
+    { h: 'Banco', w: 150, align: 'left' as const },
+    { h: 'Taxa a.m.', w: 62, align: 'right' as const },
+    { h: 'Parcela', w: 88, align: 'right' as const },
+    { h: 'Total pago', w: 100, align: 'right' as const },
+    { h: 'CET a.a.', w: CW - (150 + 62 + 88 + 100), align: 'right' as const }
+  ];
+  const rowH = 17;
+  d.ensure(rowH * 4);
+  rect(d.page, { x: M, y: d.y - rowH, width: CW, height: rowH, color: C.ink, borderRadius: 4 });
+  let hx = M;
+  for (const c of cols) {
+    const tw = d.dm700.widthOfTextAtSize(clean(c.h), 7.5);
+    d.text(c.h, c.align === 'left' ? hx + 7 : hx + c.w - 7 - tw, d.y - rowH + 5, 7.5, d.dm700, C.white);
+    hx += c.w;
+  }
+  d.y -= rowH + 2;
+  list.forEach((o, idx) => {
+    d.ensure(rowH + 4);
+    const y = d.y - rowH;
+    if (idx % 2 === 0) rect(d.page, { x: M, y, width: CW, height: rowH, color: C.soft });
+    const best = idx === 0 && list.length > 1;
+    const cells = [o.name + (o.ownFees ? ' *' : ''), pct(o.ratePct), brlFromCents(o.installmentCents), brlFromCents(o.totalPaidCents), pct(o.cetAnnualPct)];
+    let x = M;
+    cols.forEach((c, i) => {
+      const f = i === 0 || i === 2 || i === 4 ? d.dm700 : d.dm500;
+      const text = clean(cells[i]!);
+      const tw = f.widthOfTextAtSize(text, 8.5);
+      d.text(cells[i]!, c.align === 'left' ? x + 7 : x + c.w - 7 - tw, y + 5, 8.5, f, best && i >= 2 ? C.green : C.ink, c.align === 'left' ? { maxWidth: c.w - 12 } : undefined);
+      x += c.w;
+    });
+    d.y -= rowH;
+  });
+  d.y -= 6;
+  const bcb = list.some((o) => o.rateSource === 'bcb');
+  const manual = list.some((o) => o.rateSource === 'manual');
+  const own = list.some((o) => o.ownFees);
+  const period = list.find((o) => o.period)?.period;
+  const text = [
+    bcb ? `Taxas médias praticadas por cada instituição em operações de veículos, segundo o Banco Central${period ? ` (período iniciado em ${dateBr(period)})` : ''}.` : '',
+    manual ? 'Parte das taxas foi informada pela equipe da Placa na Mão a partir de condições divulgadas pelos bancos.' : '',
+    own ? '* Usa tarifas próprias do banco, cadastradas na plataforma.' : '',
+    'São médias, não ofertas: a taxa que você receberá depende da sua análise de crédito, da entrada, do prazo e do veículo. Peça a proposta e compare pelo CET.'
+  ].filter(Boolean).join(' ');
+  for (const l of d.wrap(text, d.dm400, 7.5, CW - 8)) { d.ensure(10); d.text(l, M + 4, d.y - 8, 7.5, d.dm400, C.muted); d.y -= 9.5; }
+  d.y -= 12;
 }
 
 function rateText(r: FinancingResult, info: RateInfo | undefined, meta: SimulationPdfMeta): string {
@@ -294,6 +347,11 @@ export async function renderSimulationPdf(out: SimulationOutput, meta: Simulatio
   for (const r of [out.results.cdc, out.results.leasing]) if (r) {
     if (many) { d.addPage(); d.y = H - M; }
     modalityBlock(d, out, r, meta, many);
+  }
+
+  if (out.banks?.length) {
+    d.addPage(); d.y = H - M;
+    for (const m of ['CDC', 'LEASING'] as const) banksTable(d, out.banks, m, many);
   }
 
   for (const r of [out.results.cdc, out.results.leasing]) if (r) { d.addPage(); d.y = H - M; scheduleTable(d, r, `Cronograma de parcelas${many ? ` - ${MODALITY_NAME[r.modality]}` : ''}`); }

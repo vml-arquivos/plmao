@@ -52,4 +52,6 @@ Também `018_vehicle_guide`: `vehicle_models` (marca, modelo, tipo, carroceria, 
 
 Também `019_financing_simulator`: `financing_settings` (linha única: taxas médias CDC PF/PJ e leasing PJ/PF, mês de referência, fonte, atualização automática e último erro, tarifas de referência em centavos e parâmetros do IOF) e `financing_simulations` (código `SIM-XXXXXXXX`, usuário, modalidade, tipo de veículo, valores, taxa, parcela, total, CET, `input` e `output` jsonb para reimprimir o PDF exatamente como foi gerado).
 
+Também `021_financing_banks`: `financing_banks` (nome, trecho do nome no Banco Central, taxas manuais CDC PF/PJ e leasing PJ, tarifas próprias em centavos, observação, ativo e ordem) e `financing_bank_rates` (média por instituição vinda do Banco Central: segmento, modalidade, instituição, taxa a.m./a.a., posição e período), mais `banks_refreshed_at` e `banks_refresh_error` em `financing_settings`. Os 12 bancos de partida entram sem taxa.
+
 Também `020_vehicle_seed`: coluna `vehicle_models.spec_source` (fonte e data da conferência da ficha técnica, mostrada no site) e carga inicial de 20 modelos publicados com suas versões. Usa `ON CONFLICT DO NOTHING`: pode rodar de novo sem duplicar e não altera modelos já editados pela equipe.

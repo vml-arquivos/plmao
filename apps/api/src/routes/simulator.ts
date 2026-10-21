@@ -6,7 +6,8 @@ import { auth } from '../auth.js';
 import { appError, asyncRoute } from '../lib/http.js';
 import { FinancingError } from '../lib/financing.js';
 import { loadFinancingSettings, maybeRefreshInBackground } from '../financingSettings.js';
-import { runSimulation, simulationBody, simulatorConfig, type SimulationOutput } from '../simulator/service.js';
+import { runBankComparison, runSimulation, simulationBody, simulatorConfig, type SimulationOutput } from '../simulator/service.js';
+import { loadBanks, loadBcbBankRates } from '../financingBanks.js';
 import { renderSimulationPdf } from '../simulator/pdf.js';
 import { publicAppUrl } from '../config.js';
 
@@ -44,10 +45,19 @@ simulatorRouter.get('/simulator/config', asyncRoute(async (_req, res) => {
 simulatorRouter.post('/simulator/calculate', calcLimiter, asyncRoute(async (req, res) => {
   const settings = await loadFinancingSettings();
   const out = run(parseBody(req.body), settings);
+  const banks = await bankOffers(out, settings);
   res.setHeader('Cache-Control', 'no-store');
   // o cronograma completo só vai no PDF e no detalhe; a tela recebe tudo para a tabela de parcelas
-  res.json({ results: out.results, rates: out.rates, errors: out.errors, generatedAt: out.generatedAt, referenceMonth: settings.referenceMonth, source: settings.source });
+  res.json({ results: out.results, rates: out.rates, errors: out.errors, banks, generatedAt: out.generatedAt, referenceMonth: settings.referenceMonth, source: settings.source });
 }));
+
+/** Comparação entre bancos. Uma falha ao ler os bancos nunca derruba a simulação principal. */
+async function bankOffers(out: SimulationOutput, settings: Awaited<ReturnType<typeof loadFinancingSettings>>) {
+  try {
+    const [banks, bcb] = await Promise.all([loadBanks(), loadBcbBankRates()]);
+    return runBankComparison(out.body, settings, banks, bcb, new Date(out.generatedAt));
+  } catch { return []; }
+}
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function newCode(): string {
@@ -73,6 +83,7 @@ simulatorRouter.post('/simulator/pdf', auth, pdfLimiter, asyncRoute(async (req, 
   const settings = await loadFinancingSettings();
   const body = parseBody(req.body);
   const out = run(body, settings);
+  out.banks = await bankOffers(out, settings);
   const primary = out.results.cdc ?? out.results.leasing!;
   const code = newCode();
   const snapshot = { ...out, referenceMonth: settings.referenceMonth, rateSource: settings.source };

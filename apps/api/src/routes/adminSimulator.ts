@@ -4,6 +4,8 @@ import { pool } from '../db.js';
 import { adminAuth } from '../auth.js';
 import { appError, asyncRoute, audit } from '../lib/http.js';
 import { requirePermission } from '../permissions.js';
+import { loadBanks, loadBcbBankRates } from '../financingBanks.js';
+import { pickBankRate } from '../lib/bankRates.js';
 import { BCB_SERIES, loadFinancingSettings, refreshRatesFromBcb } from '../financingSettings.js';
 
 /** Painel: taxas de referência (Banco Central), tarifas de referência, IOF e simulações feitas pelos clientes. */
@@ -74,4 +76,86 @@ adminSimulatorRouter.get('/simulations', asyncRoute(async (req, res) => {
       customer: r.user_id ? { id: r.user_id, name: r.user_name, email: r.user_email } : null
     }))
   });
+}));
+
+// ---------------------------------------------------------------- bancos
+const optRate = z.number().min(0.05).max(15).nullable();
+const optFee = z.number().int().min(0).max(5_000_000).nullable();
+const bankFields = {
+  name: z.string().trim().min(2).max(60),
+  bcbMatch: z.string().trim().max(80).default(''),
+  cdcPfPct: optRate.default(null), cdcPjPct: optRate.default(null), leasingPjPct: optRate.default(null),
+  feeCadastroCents: optFee.default(null), feeAvaliacaoCents: optFee.default(null), feeRegistroCents: optFee.default(null),
+  notes: z.string().trim().max(300).default(''),
+  active: z.boolean().default(true),
+  displayOrder: z.number().int().min(0).max(1000).default(0)
+};
+const bankCreate = z.object(bankFields).strict();
+const bankUpdate = z.object(bankFields).partial().strict();
+
+adminSimulatorRouter.get('/banks', asyncRoute(async (_req, res) => {
+  const [banks, bcb, settings] = await Promise.all([loadBanks(false), loadBcbBankRates(), loadFinancingSettings()]);
+  res.json({
+    items: banks.map((b) => ({
+      ...b,
+      // taxa que o simulador usa hoje para cada combinação (informada ou média do Banco Central)
+      current: {
+        cdcPf: pickBankRate(b, 'CDC', 'PF', bcb), cdcPj: pickBankRate(b, 'CDC', 'PJ', bcb), leasingPj: pickBankRate(b, 'LEASING', 'PJ', bcb)
+      }
+    })),
+    bcb: { institutions: new Set(bcb.map((r) => r.institution)).size, refreshedAt: settings.banksRefreshedAt, error: settings.banksRefreshError }
+  });
+}));
+
+/** Instituições que o Banco Central informou (ajuda a achar o texto para o campo "nome no Banco Central"). */
+adminSimulatorRouter.get('/banks/bcb-institutions', asyncRoute(async (_req, res) => {
+  const rows = await loadBcbBankRates();
+  const names = [...new Set(rows.map((r) => r.institution))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  res.json({ items: names });
+}));
+
+adminSimulatorRouter.post('/banks', asyncRoute(async (req, res) => {
+  const p = bankCreate.safeParse(req.body);
+  if (!p.success) throw bad();
+  const d = p.data;
+  if ((await pool.query('SELECT 1 FROM financing_banks WHERE lower(name)=lower($1)', [d.name])).rowCount) throw appError('BANK_EXISTS', { code: 'BANK_EXISTS', http: 409, expose: true });
+  const r = await pool.query(
+    `INSERT INTO financing_banks(name,bcb_match,cdc_pf_pct,cdc_pj_pct,leasing_pj_pct,fee_cadastro_cents,fee_avaliacao_cents,fee_registro_cents,notes,active,display_order)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+    [d.name, d.bcbMatch, d.cdcPfPct, d.cdcPjPct, d.leasingPjPct, d.feeCadastroCents, d.feeAvaliacaoCents, d.feeRegistroCents, d.notes, d.active, d.displayOrder]);
+  await audit(req.user!.id, 'FINANCING_BANK_CREATED', 'financing_bank', r.rows[0].id, { name: d.name });
+  res.status(201).json({ id: r.rows[0].id });
+}));
+
+adminSimulatorRouter.put('/banks/:id', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/.test(id)) throw appError('BANK_NOT_FOUND', { code: 'BANK_NOT_FOUND', http: 404, expose: true });
+  const p = bankUpdate.safeParse(req.body);
+  if (!p.success) throw bad();
+  const d = p.data;
+  const cols: Record<string, string> = {
+    name: 'name', bcbMatch: 'bcb_match', cdcPfPct: 'cdc_pf_pct', cdcPjPct: 'cdc_pj_pct', leasingPjPct: 'leasing_pj_pct',
+    feeCadastroCents: 'fee_cadastro_cents', feeAvaliacaoCents: 'fee_avaliacao_cents', feeRegistroCents: 'fee_registro_cents', notes: 'notes', active: 'active', displayOrder: 'display_order'
+  };
+  const sets: string[] = []; const vals: unknown[] = [];
+  for (const [k, col] of Object.entries(cols)) {
+    const v = (d as Record<string, unknown>)[k];
+    if (v !== undefined) { vals.push(v); sets.push(`${col}=$${vals.length}`); }
+  }
+  if (!sets.length) throw bad();
+  if (d.name !== undefined && (await pool.query('SELECT 1 FROM financing_banks WHERE lower(name)=lower($1) AND id<>$2', [d.name, id])).rowCount) throw appError('BANK_EXISTS', { code: 'BANK_EXISTS', http: 409, expose: true });
+  vals.push(id);
+  const r = await pool.query(`UPDATE financing_banks SET ${sets.join(', ')}, updated_at=now() WHERE id=$${vals.length} RETURNING id`, vals);
+  if (!r.rowCount) throw appError('BANK_NOT_FOUND', { code: 'BANK_NOT_FOUND', http: 404, expose: true });
+  await audit(req.user!.id, 'FINANCING_BANK_UPDATED', 'financing_bank', id, { fields: Object.keys(d) });
+  res.json({ ok: true });
+}));
+
+adminSimulatorRouter.delete('/banks/:id', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/.test(id)) throw appError('BANK_NOT_FOUND', { code: 'BANK_NOT_FOUND', http: 404, expose: true });
+  const r = await pool.query('DELETE FROM financing_banks WHERE id=$1 RETURNING name', [id]);
+  if (!r.rowCount) throw appError('BANK_NOT_FOUND', { code: 'BANK_NOT_FOUND', http: 404, expose: true });
+  await audit(req.user!.id, 'FINANCING_BANK_DELETED', 'financing_bank', id, { name: r.rows[0].name });
+  res.json({ ok: true });
 }));

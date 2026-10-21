@@ -669,5 +669,52 @@ export const placaMigrations: Migration[] = [
         }
       }
     }
+  },
+  {
+    id: '021_financing_banks',
+    name: 'Simulador: bancos (taxas e tarifas por instituição) e taxas médias por instituição do Banco Central',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS financing_banks (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          name text NOT NULL,
+          bcb_match text NOT NULL DEFAULT '',
+          cdc_pf_pct numeric(7,4) CHECK (cdc_pf_pct IS NULL OR (cdc_pf_pct >= 0.05 AND cdc_pf_pct <= 15)),
+          cdc_pj_pct numeric(7,4) CHECK (cdc_pj_pct IS NULL OR (cdc_pj_pct >= 0.05 AND cdc_pj_pct <= 15)),
+          leasing_pj_pct numeric(7,4) CHECK (leasing_pj_pct IS NULL OR (leasing_pj_pct >= 0.05 AND leasing_pj_pct <= 15)),
+          fee_cadastro_cents bigint CHECK (fee_cadastro_cents IS NULL OR fee_cadastro_cents BETWEEN 0 AND 5000000),
+          fee_avaliacao_cents bigint CHECK (fee_avaliacao_cents IS NULL OR fee_avaliacao_cents BETWEEN 0 AND 5000000),
+          fee_registro_cents bigint CHECK (fee_registro_cents IS NULL OR fee_registro_cents BETWEEN 0 AND 5000000),
+          notes text NOT NULL DEFAULT '',
+          active boolean NOT NULL DEFAULT true,
+          display_order integer NOT NULL DEFAULT 0,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_financing_banks_name ON financing_banks(lower(name));
+        CREATE TABLE IF NOT EXISTS financing_bank_rates (
+          segment text NOT NULL CHECK (segment IN ('PF','PJ')),
+          modality text NOT NULL CHECK (modality IN ('CDC','LEASING')),
+          institution text NOT NULL,
+          monthly_pct numeric(7,4) NOT NULL,
+          annual_pct numeric(8,2),
+          position integer,
+          period text,
+          fetched_at timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (segment, modality, institution)
+        );
+        ALTER TABLE financing_settings ADD COLUMN IF NOT EXISTS banks_refreshed_at timestamptz;
+        ALTER TABLE financing_settings ADD COLUMN IF NOT EXISTS banks_refresh_error text;
+      `);
+      // Bancos comuns em financiamento de veículos. Sem taxa própria: a média do Banco Central da instituição é usada quando existir.
+      const seed: Array<[string, string]> = [
+        ['Banco do Brasil', 'DO BRASIL'], ['Bradesco', 'BRADESCO'], ['Itaú', 'ITAU'], ['Santander', 'SANTANDER'], ['Banco BV', 'BV'], ['Banco Pan', 'PAN'],
+        ['Banco Safra', 'SAFRA'], ['Banco Volkswagen', 'VOLKSWAGEN'], ['Banco RCI (Renault)', 'RCI'], ['Banco Toyota', 'TOYOTA'], ['Banco Honda', 'HONDA'], ['Banco Yamaha', 'YAMAHA']
+      ];
+      let order = 0;
+      for (const [name, match] of seed) {
+        await client.query('INSERT INTO financing_banks(name,bcb_match,display_order) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [name, match, order++]);
+      }
+    }
   }
 ];

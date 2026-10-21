@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.3.1 — Comparação de taxas e tarifas por banco
+
+### Adicionado
+
+- **Comparação entre bancos no simulador**: abaixo do resultado, a tabela "Compare os bancos" mostra, para cada banco ativo, a taxa ao mês, a parcela, o total pago e o **CET anual** daquela mesma simulação, ordenada pelo menor CET e com o melhor marcado. Cada linha informa a origem da taxa ("Média no Banco Central" com o nome da instituição, ou "Condição informada pela equipe") e se o banco usa tarifas próprias. Vale para CDC e leasing e para os dois modos de pessoa.
+- **Taxas por instituição do Banco Central**: além das séries gerais, o servidor lê a base "Taxas de juros por instituição financeira" (Olinda/BCB, aquisição de veículos e arrendamento), guarda a média mais recente de cada banco e atualiza junto da rotina de 24 horas (`FINANCING_AUTO_REFRESH`). Uma falha só registra o erro e mantém as últimas taxas.
+- **Painel › Simulador › Bancos e taxas por banco**: cadastrar, editar, ativar/desativar e remover bancos. Para cada um: nome mostrado ao cliente, "nome no Banco Central" (para achar a taxa média sozinho), taxa manual de CDC pessoa física, CDC empresa e leasing empresa, **tarifas próprias** (cadastro, avaliação, registro) e observação interna. Taxa informada à mão vale mais que a média do Banco Central; tarifa em branco usa a de referência. Alterações auditadas (`FINANCING_BANK_CREATED`, `FINANCING_BANK_UPDATED`, `FINANCING_BANK_DELETED`).
+- **PDF**: nova página "Comparação entre bancos", salva junto da simulação (reimpressão idêntica).
+- Migration `021_financing_banks` (tabelas `financing_banks` e `financing_bank_rates`, colunas de atualização em `financing_settings`) com 12 bancos de partida **sem taxa**.
+
+### Atenção
+
+- A taxa do Banco Central por banco é uma **média do período**, não uma oferta: a taxa real depende da análise de crédito. A tela e o PDF dizem isso.
+- Bancos sem nenhuma taxa (nem manual nem do Banco Central) não aparecem para o cliente.
+- As **tarifas por banco** não têm fonte pública consolidada: só aparecem se a equipe cadastrar.
+
 ## 1.3.0 — Simulador de financiamento e carga inicial do guia
 
 ### Adicionado

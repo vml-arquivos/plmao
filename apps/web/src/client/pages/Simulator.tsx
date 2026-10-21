@@ -7,7 +7,7 @@ import { errorMessage } from '../../shared/api';
 import { useSession } from '../session';
 import {
   CostBar, KindTabs, KINDS, MoneyInput, ScheduleTable, brl, dateBr, defaultState, kindBySlug, kindByKey, monthRef, paramsFromState, pct, reais,
-  stateFromParams, toBody, useCalculation, useSimConfig, type CalcResponse, type Kind, type Modality, type RateInfo, type SimConfig, type SimResult, type SimState
+  stateFromParams, toBody, useCalculation, useSimConfig, type BankOffer, type CalcResponse, type Kind, type Modality, type RateInfo, type SimConfig, type SimResult, type SimState
 } from '../simulator';
 
 const PRAZOS = [12, 24, 36, 48, 60, 72, 84];
@@ -60,6 +60,41 @@ function ResultCard({ r, rate, month, best, title }: { r: SimResult; rate?: Rate
   );
 }
 
+/** Mesma simulação com a taxa de cada banco (média do Banco Central ou informada pela equipe), do menor para o maior CET. */
+function BankCompare({ offers, modality, title }: { offers: BankOffer[]; modality: 'CDC' | 'LEASING'; title: string }) {
+  const list = offers.filter((o) => o.modality === modality);
+  if (!list.length) return null;
+  const best = list[0]!;
+  const period = list.find((o) => o.period)?.period;
+  return (
+    <div className="card card-pad stack sim-banks">
+      <div className="between"><h3>{title}</h3><span className="muted" style={{ fontSize: 13 }}>Do menor para o maior CET</span></div>
+      <div className="sim-banks-wrap">
+        <table className="sim-banks-table">
+          <thead><tr><th>Banco</th><th>Taxa a.m.</th><th>Parcela</th><th>Total pago</th><th>CET a.a.</th></tr></thead>
+          <tbody>
+            {list.map((o, i) => (
+              <tr key={`${o.id}-${o.modality}`} className={i === 0 && list.length > 1 ? 'best' : undefined}>
+                <td>
+                  <b>{o.name}</b>{i === 0 && list.length > 1 && <span className="sim-best-tag">Menor CET</span>}
+                  <small>{o.rateSource === 'bcb' ? `Média no Banco Central${o.institution ? ` (${o.institution})` : ''}` : 'Condição informada pela equipe'}{o.ownFees ? ' · tarifas do banco' : ''}</small>
+                </td>
+                <td>{pct(o.ratePct)}</td>
+                <td><b>{brl(o.installmentCents)}</b></td>
+                <td>{brl(o.totalPaidCents)}{i > 0 && <small>+{brl(o.totalPaidCents - best.totalPaidCents)}</small>}</td>
+                <td>{pct(o.cetAnnualPct)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted sim-rate-src">
+        São taxas médias{period ? ` (Banco Central, período iniciado em ${dateBr(period)})` : ''}, não ofertas: a taxa que você recebe depende da análise de crédito, da entrada, do prazo e do veículo. Peça a proposta e compare sempre pelo CET.
+      </p>
+    </div>
+  );
+}
+
 function Results({ data, loading, error, state }: { data: CalcResponse | null; loading: boolean; error: string | null; state: SimState }) {
   if (error && !data) return <Alert tone="warn" icon="alert-triangle" title="Confira os dados">{error}</Alert>;
   if (!data) return <div className="stack"><Skeleton h={120} r={16} /><Skeleton h={260} r={16} /></div>;
@@ -84,6 +119,12 @@ function Results({ data, loading, error, state }: { data: CalcResponse | null; l
         {cdc && <ResultCard r={cdc} rate={data.rates.cdc} month={data.referenceMonth} title="Financiamento CDC" best={cheaper === 'cdc'} />}
         {leasing && <ResultCard r={leasing} rate={data.rates.leasing} month={data.referenceMonth} title="Leasing" best={cheaper === 'leasing'} />}
       </div>
+      {data.banks && data.banks.length > 0 && (
+        <>
+          {cdc && <BankCompare offers={data.banks} modality="CDC" title={both ? 'Compare os bancos: CDC' : 'Compare os bancos'} />}
+          {leasing && <BankCompare offers={data.banks} modality="LEASING" title={both ? 'Compare os bancos: leasing' : 'Compare os bancos: leasing'} />}
+        </>
+      )}
     </div>
   );
 }

@@ -2254,6 +2254,8 @@ function humanMessage(code: string): string {
     OPINION_LINKS_NOT_ALLOWED: 'Não é permitido colocar links ou e-mails na opinião.',
     VERSION_NOT_FOUND: 'A versão escolhida não existe para este modelo.',
     SIMULATION_NOT_FOUND: 'Simulação não encontrada.',
+    BANK_EXISTS: 'Já existe um banco com esse nome.',
+    BANK_NOT_FOUND: 'Banco não encontrado.',
     BCB_UNAVAILABLE: 'Não foi possível consultar o Banco Central agora. As taxas atuais foram mantidas; tente novamente mais tarde.',
     VEHICLE_PLATE_UNAVAILABLE: 'A busca por placa está indisponível no momento. Busque pelo nome do modelo.',
     FIPE_PLATE_NOT_FOUND: 'Não identificamos um veículo para esta placa. Confira os dados e tente novamente.',

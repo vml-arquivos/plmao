@@ -17,8 +17,13 @@ export interface SimResult {
   costOverVehiclePct: number; cetMonthlyPct: number; cetAnnualPct: number; firstInstallmentDays: number; schedule: ScheduleRow[];
 }
 export interface RateInfo { pct: number; custom: boolean; note: string | null }
+export interface BankOffer {
+  id: string; name: string; modality: 'CDC' | 'LEASING'; ratePct: number; rateSource: 'manual' | 'bcb'; institution: string | null; period: string | null; ownFees: boolean;
+  installmentCents: number; totalPaidCents: number; interestCents: number; iofCents: number; feesTotalCents: number; principalCents: number; residualCents: number;
+  cetMonthlyPct: number; cetAnnualPct: number; costOverVehiclePct: number; annualRatePct: number;
+}
 export interface CalcResponse {
-  results: { cdc?: SimResult; leasing?: SimResult }; rates: { cdc?: RateInfo; leasing?: RateInfo }; errors: { cdc?: string; leasing?: string };
+  results: { cdc?: SimResult; leasing?: SimResult }; rates: { cdc?: RateInfo; leasing?: RateInfo }; errors: { cdc?: string; leasing?: string }; banks?: BankOffer[];
   generatedAt: string; referenceMonth: string; source: string;
 }
 export interface SimConfig {
