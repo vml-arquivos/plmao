@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { pool, tx } from '../db.js';
@@ -8,6 +8,7 @@ import { requirePermission } from '../permissions.js';
 import { BODY_TYPES, SPEC_FIELDS, SPEC_BY_KEY, TIP_CATEGORIES, cleanSpecs, normalizeText, slugify } from '../lib/vehicleSpecs.js';
 import { parseCsv } from '../lib/csvParse.js';
 import { csvEscape } from '../lib/br.js';
+import { SNAPSHOT_RE, parseSenatranCsv, rematchCatalog, upsertCatalog } from '../lib/catalog.js';
 
 /** Gestão do Guia de veículos no painel: modelos, versões (ficha técnica), opiniões, dicas e importação por planilha. */
 export const adminVehiclesRouter = Router();
@@ -34,6 +35,14 @@ const modelFields = {
   buyerTips: z.string().max(8000).default(''),
   imageUrl: httpsUrl.nullish().transform((v) => v || null),
   specSource: z.string().trim().max(300).nullish().transform((v) => v || null),
+  imageCredit: z.string().trim().max(200).nullish().transform((v) => v || null),
+  imageLicense: z.string().trim().max(120).nullish().transform((v) => v || null),
+  imageSourceUrl: httpsUrl.nullish().transform((v) => v || null),
+  featured: z.boolean().default(false),
+  featuredOrder: z.number().int().min(1).max(99).nullish(),
+  catalogBrands: z.array(z.string().trim().min(1).max(40)).max(8).default([]),
+  catalogNames: z.array(z.string().trim().min(1).max(60)).max(8).default([]),
+  catalogExclude: z.array(z.string().trim().min(1).max(40)).max(8).default([]),
   status: z.enum(['DRAFT', 'PUBLISHED']).default('DRAFT')
 };
 const modelCreate = z.object(modelFields).strict();
@@ -69,6 +78,9 @@ function specsOrThrow(input: unknown): Record<string, string | number | boolean>
 const presentModel = (m: Record<string, any>) => ({
   id: m.id, slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
   summary: m.summary, review: m.review, pros: m.pros ?? [], cons: m.cons ?? [], buyerTips: m.buyer_tips, imageUrl: m.image_url, specSource: m.spec_source ?? null, status: m.status,
+  imageCredit: m.image_credit ?? null, imageLicense: m.image_license ?? null, imageSourceUrl: m.image_source_url ?? null,
+  featured: Boolean(m.featured), featuredOrder: m.featured_order ?? null,
+  catalogBrands: m.catalog_brands ?? [], catalogNames: m.catalog_names ?? [], catalogExclude: m.catalog_exclude ?? [],
   archived: m.archived_at != null, createdAt: m.created_at, updatedAt: m.updated_at
 });
 const presentVersion = (v: Record<string, any>) => ({ id: v.id, modelId: v.model_id, name: v.name, yearModel: v.year_model, fuel: v.fuel, fipeCode: v.fipe_code, specs: v.specs ?? {}, displayOrder: v.display_order, active: v.active });
@@ -425,6 +437,81 @@ adminVehiclesRouter.delete('/consumption/:id', asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---------------------------------------------------------------- catálogo de frota (Senatran)
+adminVehiclesRouter.get('/catalog/summary', asyncRoute(async (_req, res) => {
+  const [snaps, totals, models] = await Promise.all([
+    pool.query(`SELECT snapshot,names,fleet_total,source_name,license,loaded_at FROM vehicle_catalog_snapshots ORDER BY snapshot DESC`),
+    pool.query(`SELECT count(*)::int AS names, coalesce(sum(fleet_total),0)::bigint AS fleet, count(*) FILTER (WHERE model_id IS NOT NULL)::int AS matched_names,
+        coalesce(sum(fleet_total) FILTER (WHERE model_id IS NOT NULL),0)::bigint AS matched_fleet FROM vehicle_catalog`),
+    pool.query(`SELECT m.id,m.brand,m.name,m.slug,count(c.id)::int AS names, coalesce(sum(c.fleet_total),0)::bigint AS fleet
+      FROM vehicle_models m LEFT JOIN vehicle_catalog c ON c.model_id=m.id WHERE m.archived_at IS NULL GROUP BY m.id ORDER BY fleet DESC, m.brand, m.name`)
+  ]);
+  const t = totals.rows[0]!;
+  res.json({
+    snapshots: snaps.rows.map((s2) => ({ snapshot: s2.snapshot, names: Number(s2.names), fleet: Number(s2.fleet_total), sourceName: s2.source_name, license: s2.license, loadedAt: s2.loaded_at })),
+    names: Number(t.names), fleet: Number(t.fleet), matchedNames: Number(t.matched_names), matchedFleet: Number(t.matched_fleet),
+    models: models.rows.map((m) => ({ id: m.id, brand: m.brand, name: m.name, slug: m.slug, names: Number(m.names), fleet: Number(m.fleet) }))
+  });
+}));
+
+adminVehiclesRouter.post('/catalog/rematch', asyncRoute(async (req, res) => {
+  const r = await rematchCatalog(pool);
+  await audit(req.user!.id, 'VEHICLE_CATALOG_REMATCHED', 'vehicle_catalog', null, r);
+  res.json(r);
+}));
+
+/** Importa um snapshot novo do Senatran (CSV `;`). Corpo JSON: { csv, snapshot: 'AAAA-MM', dryRun }. Nomes ausentes no arquivo novo ficam como estavam. */
+adminVehiclesRouter.post('/catalog/import', express.json({ limit: '12mb' }), asyncRoute(async (req, res) => {
+  const p = z.object({ csv: z.string().min(30).max(12_000_000), snapshot: z.string(), dryRun: z.boolean().default(true) }).strict().safeParse(req.body);
+  if (!p.success) throw bad('IMPORT_INVALID');
+  const { snapshot, dryRun } = p.data;
+  if (!SNAPSHOT_RE.test(snapshot)) throw bad('CATALOG_SNAPSHOT_INVALID');
+  const parsed = parseSenatranCsv(parseCsv(p.data.csv));
+  if (parsed.errors.length && !parsed.snapshot.rows.length) throw Object.assign(bad('IMPORT_INVALID'), { details: parsed.errors });
+  const names = parsed.snapshot.rows.map((r) => r.name);
+  let existing = 0;
+  for (let i = 0; i < names.length; i += 5000) {
+    const r = await pool.query(`SELECT count(*)::int AS n FROM vehicle_catalog WHERE raw_name = ANY($1::text[])`, [names.slice(i, i + 5000)]);
+    existing += Number(r.rows[0]?.n ?? 0);
+  }
+  const previous = await pool.query(`SELECT snapshot,names,fleet_total FROM vehicle_catalog_snapshots WHERE snapshot < $1 ORDER BY snapshot DESC LIMIT 1`, [snapshot]);
+  const report = {
+    dryRun, snapshot, names: names.length, fleet: parsed.snapshot.total, newNames: names.length - existing, existingNames: existing, errors: parsed.errors,
+    previous: previous.rows[0] ? { snapshot: previous.rows[0].snapshot, names: Number(previous.rows[0].names), fleet: Number(previous.rows[0].fleet_total) } : null,
+    matched: null as null | { matched: number; models: number }
+  };
+  if (!dryRun) {
+    if (parsed.errors.length) throw Object.assign(bad('IMPORT_HAS_ERRORS'), { details: parsed.errors });
+    report.matched = await tx(async (client) => {
+      await upsertCatalog(client, { snapshot, total: parsed.snapshot.total, rows: parsed.snapshot.rows });
+      return rematchCatalog(client);
+    });
+    await audit(req.user!.id, 'VEHICLE_CATALOG_IMPORTED', 'vehicle_catalog', null, { snapshot, names: report.names, fleet: report.fleet, newNames: report.newNames });
+  }
+  res.json(report);
+}));
+
+/** O que as pessoas procuram: escolhas no simulador, na busca, visitas às fichas e buscas sem resultado. */
+adminVehiclesRouter.get('/interest', asyncRoute(async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365);
+  const since = `now() - make_interval(days => ${days})`;
+  const [totals, picks, models, noResult] = await Promise.all([
+    pool.query(`SELECT event_type, count(*)::int AS n, count(DISTINCT session_key)::int AS sessions FROM vehicle_interest_events WHERE created_at > ${since} GROUP BY event_type`),
+    pool.query(`SELECT c.id,c.raw_name,c.fleet_total,e.event_type,count(*)::int AS n FROM vehicle_interest_events e JOIN vehicle_catalog c ON c.id=e.catalog_id
+      WHERE e.event_type IN ('SIMULATOR_PICK','SEARCH_PICK') AND e.created_at > ${since} GROUP BY c.id,c.raw_name,c.fleet_total,e.event_type ORDER BY n DESC, c.fleet_total DESC LIMIT 60`),
+    pool.query(`SELECT m.brand,m.name,m.slug,count(*)::int AS n FROM vehicle_interest_events e JOIN vehicle_models m ON m.id=e.model_id
+      WHERE e.event_type='MODEL_VIEW' AND e.created_at > ${since} GROUP BY m.id ORDER BY n DESC LIMIT 30`),
+    pool.query(`SELECT term,count(*)::int AS n FROM vehicle_interest_events WHERE event_type='SEARCH_NO_RESULT' AND created_at > ${since} GROUP BY term ORDER BY n DESC, term LIMIT 40`)
+  ]);
+  res.json({
+    days,
+    totals: Object.fromEntries(totals.rows.map((t) => [t.event_type, { events: Number(t.n), sessions: Number(t.sessions) }])),
+    picks: picks.rows.map((p2) => ({ id: Number(p2.id), name: p2.raw_name, fleet: Number(p2.fleet_total), type: p2.event_type, count: Number(p2.n) })),
+    models: models.rows.map((m) => ({ brand: m.brand, name: m.name, slug: m.slug, views: Number(m.n) })),
+    noResult: noResult.rows.map((t) => ({ term: t.term, count: Number(t.n) }))
+  });
+}));
+
 // ---------------------------------------------------------------- modelos
 adminVehiclesRouter.get('/', asyncRoute(async (req, res) => {
   const view = ['all', 'draft', 'published', 'archived'].includes(String(req.query.view)) ? String(req.query.view) : 'all';
@@ -440,12 +527,14 @@ adminVehiclesRouter.get('/', asyncRoute(async (req, res) => {
       (SELECT count(*) FROM vehicle_versions v WHERE v.model_id=m.id)::int AS versions,
       (SELECT count(*) FROM vehicle_opinions o WHERE o.model_id=m.id AND o.status='APPROVED')::int AS opinions,
       (SELECT count(*) FROM vehicle_opinions o WHERE o.model_id=m.id AND o.status='PENDING')::int AS pending_opinions,
-      (m.summary <> '' AND m.review <> '') AS has_text
+      (m.summary <> '' AND m.review <> '') AS has_text, m.featured, m.image_url IS NOT NULL AS has_image,
+      (SELECT sum(c.fleet_total) FROM vehicle_catalog c WHERE c.model_id=m.id)::bigint AS fleet
     FROM vehicle_models m WHERE ${where.join(' AND ')} ORDER BY m.brand, m.name LIMIT 500`, params);
   res.json({
     items: r.rows.map((m) => ({
       id: m.id, slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
-      status: m.status, archived: m.archived_at != null, updatedAt: m.updated_at, versions: Number(m.versions), opinions: Number(m.opinions), pendingOpinions: Number(m.pending_opinions), hasText: Boolean(m.has_text)
+      status: m.status, archived: m.archived_at != null, updatedAt: m.updated_at, versions: Number(m.versions), opinions: Number(m.opinions), pendingOpinions: Number(m.pending_opinions), hasText: Boolean(m.has_text),
+      featured: Boolean(m.featured), hasImage: Boolean(m.has_image), fleet: m.fleet === null ? null : Number(m.fleet)
     }))
   });
 }));
@@ -456,11 +545,13 @@ adminVehiclesRouter.post('/', asyncRoute(async (req, res) => {
   const d = p.data;
   const id = await tx(async (client) => {
     const slug = await uniqueSlug(client, d.brand, d.name);
-    const r = await client.query(`INSERT INTO vehicle_models(slug,brand,name,vehicle_type,body_type,year_from,year_to,summary,review,pros,cons,buyer_tips,image_url,status,created_by,spec_source)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16) RETURNING id`,
-      [slug, d.brand, d.name, d.vehicleType, d.bodyType, d.yearFrom ?? null, d.yearTo ?? null, d.summary, d.review, JSON.stringify(d.pros), JSON.stringify(d.cons), d.buyerTips, d.imageUrl, d.status, req.user!.id, d.specSource]);
+    const r = await client.query(`INSERT INTO vehicle_models(slug,brand,name,vehicle_type,body_type,year_from,year_to,summary,review,pros,cons,buyer_tips,image_url,status,created_by,spec_source,image_credit,image_license,image_source_url,featured,featured_order,catalog_brands,catalog_names,catalog_exclude)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id`,
+      [slug, d.brand, d.name, d.vehicleType, d.bodyType, d.yearFrom ?? null, d.yearTo ?? null, d.summary, d.review, JSON.stringify(d.pros), JSON.stringify(d.cons), d.buyerTips, d.imageUrl, d.status, req.user!.id, d.specSource,
+        d.imageCredit, d.imageLicense, d.imageSourceUrl, d.featured, d.featuredOrder ?? null, d.catalogBrands, d.catalogNames, d.catalogExclude]);
     return r.rows[0].id as string;
   });
+  await rematchCatalog(pool);
   await audit(req.user!.id, 'VEHICLE_MODEL_CREATED', 'vehicle_model', id, { brand: d.brand, name: d.name });
   res.status(201).json({ model: presentModel((await pool.query('SELECT * FROM vehicle_models WHERE id=$1', [id])).rows[0]) });
 }));
@@ -502,9 +593,18 @@ adminVehiclesRouter.patch('/:id', asyncRoute(async (req, res) => {
   if (d.buyerTips !== undefined) set('buyer_tips', d.buyerTips);
   if (d.imageUrl !== undefined) set('image_url', d.imageUrl);
   if (d.specSource !== undefined) set('spec_source', d.specSource);
+  if (d.imageCredit !== undefined) set('image_credit', d.imageCredit);
+  if (d.imageLicense !== undefined) set('image_license', d.imageLicense);
+  if (d.imageSourceUrl !== undefined) set('image_source_url', d.imageSourceUrl);
+  if (d.featured !== undefined) set('featured', d.featured);
+  if (d.featuredOrder !== undefined) set('featured_order', d.featuredOrder ?? null);
+  if (d.catalogBrands !== undefined) set('catalog_brands', d.catalogBrands);
+  if (d.catalogNames !== undefined) set('catalog_names', d.catalogNames);
+  if (d.catalogExclude !== undefined) set('catalog_exclude', d.catalogExclude);
   if (d.status !== undefined) { set('status', d.status); if (d.status === 'PUBLISHED') sets.push('archived_at=NULL'); }
   const r = await pool.query(`UPDATE vehicle_models SET ${sets.join(',')}, updated_at=now() WHERE id=$1 RETURNING *`, params);
   if (!r.rowCount) throw notFound('VEHICLE_NOT_FOUND');
+  if (['brand', 'name', 'catalogBrands', 'catalogNames', 'catalogExclude'].some((k) => k in d)) await rematchCatalog(pool);
   await audit(req.user!.id, 'VEHICLE_MODEL_UPDATED', 'vehicle_model', id, { fields: Object.keys(d) });
   res.json({ model: presentModel(r.rows[0]) });
 }));

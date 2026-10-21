@@ -10,7 +10,8 @@ import { Card, PageHead } from '../parts';
 interface SpecField { key: string; group: string; label: string; kind: 'number' | 'text' | 'bool'; unit?: string }
 interface Meta { models: number; published: number; pendingOpinions: number; tips: number; bodyTypes: string[]; specFields: SpecField[]; tipCategories: Array<{ key: string; label: string }> }
 interface ModelRow { id: string; slug: string; brand: string; name: string; vehicleType: string; bodyType: string | null; yearFrom: number | null; yearTo: number | null; status: 'DRAFT' | 'PUBLISHED'; archived: boolean; updatedAt: string; versions: number; opinions: number; pendingOpinions: number; hasText: boolean }
-interface Model { id: string; slug: string; brand: string; name: string; vehicleType: string; bodyType: string | null; yearFrom: number | null; yearTo: number | null; summary: string; review: string; pros: string[]; cons: string[]; buyerTips: string; imageUrl: string | null; status: 'DRAFT' | 'PUBLISHED'; archived: boolean }
+interface Model { id: string; slug: string; brand: string; name: string; vehicleType: string; bodyType: string | null; yearFrom: number | null; yearTo: number | null; summary: string; review: string; pros: string[]; cons: string[]; buyerTips: string; imageUrl: string | null; status: 'DRAFT' | 'PUBLISHED'; archived: boolean;
+  imageCredit: string | null; imageLicense: string | null; imageSourceUrl: string | null; featured: boolean; featuredOrder: number | null; catalogBrands: string[]; catalogNames: string[]; catalogExclude: string[] }
 interface Version { id: string; name: string; yearModel: number | null; fuel: string | null; fipeCode: string | null; specs: Record<string, string | number | boolean>; displayOrder: number; active: boolean }
 interface Opinion { id: string; status: 'PENDING' | 'APPROVED' | 'REJECTED'; rating: number; ratings: Record<string, number>; title: string; liked: string; disliked: string; comment: string; ownerSince: number | null; km: number | null; rejectReason: string | null; createdAt: string; model: { id: string; slug: string; label: string }; versionName: string | null; author: { id: string; name: string; email: string } }
 interface Tip { id: string; category: string; title: string; body: string; modelId: string | null; modelLabel: string | null; status: 'DRAFT' | 'PUBLISHED'; displayOrder: number; archived: boolean; updatedAt: string }
@@ -29,7 +30,7 @@ const errText = (e: unknown) => {
 export default function VehicleGuide() {
   usePageTitle('Guia de veículos');
   const [params, setParams] = useSearchParams();
-  const tab = (['models', 'opinions', 'tips', 'consumption', 'import'].includes(params.get('aba') ?? '') ? params.get('aba') : 'models') as 'models' | 'opinions' | 'tips' | 'consumption' | 'import';
+  const tab = (['models', 'opinions', 'tips', 'consumption', 'fleet', 'import'].includes(params.get('aba') ?? '') ? params.get('aba') : 'models') as 'models' | 'opinions' | 'tips' | 'consumption' | 'fleet' | 'import';
   const meta = useAsync(() => api.get<Meta>('/admin/vehicles/meta'));
   if (meta.loading && !meta.data) return <PageLoading />;
   if (meta.error || !meta.data) return <ErrorState error={meta.error} onRetry={meta.reload} />;
@@ -42,12 +43,14 @@ export default function VehicleGuide() {
         { id: 'opinions', label: m.pendingOpinions ? `Opiniões (${m.pendingOpinions} para revisar)` : 'Opiniões' },
         { id: 'tips', label: `Dicas e cuidados (${m.tips})` },
         { id: 'consumption', label: 'Consumo oficial' },
+        { id: 'fleet', label: 'Frota e interesse' },
         { id: 'import', label: 'Importar planilha' }
       ]} />
       {tab === 'models' && <ModelsTab meta={m} onChanged={meta.reload} />}
       {tab === 'opinions' && <OpinionsTab onChanged={meta.reload} />}
       {tab === 'tips' && <TipsTab meta={m} onChanged={meta.reload} />}
       {tab === 'consumption' && <ConsumptionTab />}
+      {tab === 'fleet' && <FleetTab />}
       {tab === 'import' && <ImportTab onDone={meta.reload} />}
     </>
   );
@@ -203,17 +206,21 @@ function ModelForm({ model, meta, onSaved, onSlugChanged }: { model: Model; meta
   const toast = useToast();
   const [f, setF] = useState({
     brand: model.brand, name: model.name, vehicleType: model.vehicleType, bodyType: model.bodyType ?? '', yearFrom: model.yearFrom ? String(model.yearFrom) : '', yearTo: model.yearTo ? String(model.yearTo) : '',
-    summary: model.summary, imageUrl: model.imageUrl ?? '', pros: model.pros.join('\n'), cons: model.cons.join('\n'), review: model.review, buyerTips: model.buyerTips, slug: model.slug
+    summary: model.summary, imageUrl: model.imageUrl ?? '', imageCredit: model.imageCredit ?? '', imageLicense: model.imageLicense ?? '', imageSourceUrl: model.imageSourceUrl ?? '',
+    featured: model.featured, featuredOrder: model.featuredOrder ? String(model.featuredOrder) : '',
+    catalogBrands: model.catalogBrands.join(', '), catalogNames: model.catalogNames.join(', '), catalogExclude: model.catalogExclude.join(', '), pros: model.pros.join('\n'), cons: model.cons.join('\n'), review: model.review, buyerTips: model.buyerTips, slug: model.slug
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
   const [busy, setBusy] = useState(false);
   const lines = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean);
+  const list = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean);
   async function save() {
     setBusy(true);
     try {
       await api.patch(`/admin/vehicles/${model.id}`, {
         brand: f.brand.trim(), name: f.name.trim(), vehicleType: f.vehicleType, bodyType: f.bodyType || null, yearFrom: f.yearFrom ? Number(f.yearFrom) : null, yearTo: f.yearTo ? Number(f.yearTo) : null,
-        summary: f.summary.trim(), imageUrl: f.imageUrl.trim() || null, pros: lines(f.pros), cons: lines(f.cons), review: f.review, buyerTips: f.buyerTips, ...(f.slug !== model.slug ? { slug: f.slug.trim() } : {})
+        summary: f.summary.trim(), imageUrl: f.imageUrl.trim() || null, imageCredit: f.imageCredit.trim() || null, imageLicense: f.imageLicense.trim() || null, imageSourceUrl: f.imageSourceUrl.trim() || null,
+        featured: f.featured, featuredOrder: f.featured && f.featuredOrder ? Number(f.featuredOrder) : null, catalogBrands: list(f.catalogBrands), catalogNames: list(f.catalogNames), catalogExclude: list(f.catalogExclude), pros: lines(f.pros), cons: lines(f.cons), review: f.review, buyerTips: f.buyerTips, ...(f.slug !== model.slug ? { slug: f.slug.trim() } : {})
       });
       toast.ok('Modelo salvo.'); onSaved(); if (f.slug !== model.slug) onSlugChanged();
     } catch (e) { toast.error(errText(e)); } finally { setBusy(false); }
@@ -236,7 +243,26 @@ function ModelForm({ model, meta, onSaved, onSlugChanged }: { model: Model; meta
         </div>
         <Field label="Review (só quem tem conta lê completo)" hint="Aceita **negrito**, listas com “-”, títulos com “##” e links. Escreva com texto próprio: não copie de outros sites."><Textarea rows={12} value={f.review} onChange={(e) => set('review', e.target.value)} maxLength={20000} /></Field>
         <Field label="O que olhar antes de comprar" hint="Pontos de inspeção, problemas conhecidos, itens de revisão."><Textarea rows={6} value={f.buyerTips} onChange={(e) => set('buyerTips', e.target.value)} maxLength={8000} /></Field>
-        <Field label="Foto de capa (endereço https)" hint="Use só imagens que você tem direito de usar (própria ou licenciada). Sem foto, o site mostra uma ilustração."><Input value={f.imageUrl} onChange={(e) => set('imageUrl', e.target.value)} placeholder="https://…" maxLength={500} /></Field>
+        <Field label="Foto de capa (endereço https)" hint="Use só imagens que você tem direito de usar (própria, licenciada ou de licença livre). Sem foto, o site mostra um painel com o nome do modelo."><Input value={f.imageUrl} onChange={(e) => set('imageUrl', e.target.value)} placeholder="https://…" maxLength={500} /></Field>
+        {f.imageUrl.trim() && (
+          <div className="form-grid cols-2">
+            <Field label="Crédito da foto" hint="Obrigatório em licenças como CC BY. Aparece no card e na ficha."><Input value={f.imageCredit} onChange={(e) => set('imageCredit', e.target.value)} maxLength={200} placeholder="Ex.: Nome do autor / Wikimedia Commons" /></Field>
+            <Field label="Licença"><Input value={f.imageLicense} onChange={(e) => set('imageLicense', e.target.value)} maxLength={120} placeholder="Ex.: CC BY-SA 4.0" /></Field>
+            <Field label="Página de origem da foto (https)"><Input value={f.imageSourceUrl} onChange={(e) => set('imageSourceUrl', e.target.value)} maxLength={500} placeholder="https://…" /></Field>
+          </div>
+        )}
+        <div className="form-grid cols-2">
+          <Field label="Destaque na home do guia" hint="Sem destaque marcado, a home mostra os modelos com mais veículos na frota (Senatran). No máximo 6 aparecem."><Switch checked={f.featured} onChange={(e) => set('featured', e.target.checked)} label="Destacar este modelo" /></Field>
+          {f.featured && <Field label="Posição" hint="1 aparece primeiro."><Input inputMode="numeric" value={f.featuredOrder} onChange={(e) => set('featuredOrder', e.target.value.replace(/\D/g, '').slice(0, 2))} /></Field>}
+        </div>
+        <details><summary className="link-btn">Avançado: ligação com a frota do Senatran</summary>
+          <p className="muted" style={{ fontSize: 13 }}>O Senatran escreve “CHEV/ONIX 10MT LT2”, “VW/POLO TRACK MA” etc. A ligação procura nomes que começam com a marca e o modelo. Só preencha se o nome estiver diferente do usual. Separe por vírgula.</p>
+          <div className="form-grid cols-2">
+            <Field label="Marcas extras (como o Senatran escreve)"><Input value={f.catalogBrands} onChange={(e) => set('catalogBrands', e.target.value)} placeholder="Ex.: chev, gm" /></Field>
+            <Field label="Nomes do modelo (se diferente)"><Input value={f.catalogNames} onChange={(e) => set('catalogNames', e.target.value)} placeholder="Ex.: t cross, tcross" /></Field>
+            <Field label="Palavras que NÃO pertencem a este modelo"><Input value={f.catalogExclude} onChange={(e) => set('catalogExclude', e.target.value)} placeholder="Ex.: plus" /></Field>
+          </div>
+        </details>
         <details><summary className="link-btn">Avançado: endereço (slug)</summary>
           <Field label="Endereço da página" hint="Mudar quebra links já compartilhados. Use só letras minúsculas, números e hífen."><Input value={f.slug} onChange={(e) => set('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} maxLength={90} /></Field>
         </details>
@@ -553,6 +579,104 @@ function ConsumptionTab() {
       </Card>
       {remove && <ConfirmDialog title="Apagar registro de consumo" message={<p>Apagar <b>{remove.brand} {remove.model} {remove.versionLabel}</b> ({remove.fuel})?</p>} confirmLabel="Apagar" danger
         onConfirm={async () => { try { await api.del(`/admin/vehicles/consumption/${remove.id}`); toast.ok('Registro apagado.'); list.reload(); } catch (e) { toast.error(errText(e)); throw e; } }} onClose={() => setRemove(null)} />}
+    </div>
+  );
+}
+
+/* ---------- Frota (Senatran) e interesse ---------- */
+interface CatalogSummary { snapshots: Array<{ snapshot: string; names: number; fleet: number; sourceName: string; license: string; loadedAt: string }>; names: number; fleet: number; matchedNames: number; matchedFleet: number; models: Array<{ id: string; brand: string; name: string; slug: string; names: number; fleet: number }> }
+interface CatalogImportReport { dryRun: boolean; snapshot: string; names: number; fleet: number; newNames: number; existingNames: number; errors: Array<{ line: number; message: string }>; previous: { snapshot: string; names: number; fleet: number } | null; matched: { matched: number; models: number } | null }
+interface InterestReport { days: number; totals: Record<string, { events: number; sessions: number }>; picks: Array<{ id: number; name: string; fleet: number; type: string; count: number }>; models: Array<{ brand: string; name: string; slug: string; views: number }>; noResult: Array<{ term: string; count: number }> }
+const nfAdmin = new Intl.NumberFormat('pt-BR');
+
+function FleetTab() {
+  const toast = useToast();
+  const summary = useAsync(() => api.get<CatalogSummary>('/admin/vehicles/catalog/summary'));
+  const [days, setDays] = useState(30);
+  const interest = useAsync(() => api.get<InterestReport>('/admin/vehicles/interest', { query: { days } }), [days]);
+  const [csv, setCsv] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [snapshot, setSnapshot] = useState('');
+  const [report, setReport] = useState<CatalogImportReport | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function run(dryRun: boolean) {
+    setBusy(true);
+    try {
+      const r = await api.post<CatalogImportReport>('/admin/vehicles/catalog/import', { csv, snapshot, dryRun });
+      if (dryRun) setReport(r); else { setReport(null); setCsv(''); setFileName(''); toast.ok(`Snapshot ${r.snapshot} importado: ${nfAdmin.format(r.newNames)} nome(s) novo(s).`); summary.reload(); }
+    } catch (e) { toast.error(errText(e)); } finally { setBusy(false); }
+  }
+  async function pick(file: File | undefined) {
+    if (!file) return;
+    setFileName(file.name); setReport(null); setCsv(await file.text());
+    const m = file.name.match(/(20\d{2})[-_ ]?(0[1-9]|1[0-2])/);
+    if (m && !snapshot) setSnapshot(`${m[1]}-${m[2]}`);
+  }
+  const t = (k: string) => interest.data?.totals[k];
+  return (
+    <div className="stack">
+      <Card title="Catálogo de frota (Senatran)">
+        {summary.loading && !summary.data ? <PageLoading /> : summary.error || !summary.data ? <ErrorState error={summary.error} onRetry={summary.reload} /> : (
+          <div className="stack">
+            <p style={{ margin: 0 }}><b>{nfAdmin.format(summary.data.names)}</b> nomes de veículos, somando <b>{nfAdmin.format(summary.data.fleet)}</b> veículos na frota. <b>{nfAdmin.format(summary.data.matchedNames)}</b> nomes ({nfAdmin.format(summary.data.matchedFleet)} veículos) estão ligados a modelos do guia.</p>
+            {summary.data.snapshots.map((s) => <p key={s.snapshot} className="muted small" style={{ margin: 0 }}>Snapshot {s.snapshot}: {nfAdmin.format(s.names)} nomes, carga em {dateTime(s.loadedAt)}. {s.sourceName}. Licença: {s.license}.</p>)}
+            <details><summary className="link-btn">Ligação por modelo do guia</summary>
+              <div className="table-wrap"><table className="table"><thead><tr><th>Modelo</th><th className="r">Nomes ligados</th><th className="r">Frota</th></tr></thead><tbody>
+                {summary.data.models.map((m) => <tr key={m.id}><td><Link to={`/guia/${m.id}`}>{m.brand} {m.name}</Link></td><td className="r">{m.names}</td><td className="r">{nfAdmin.format(m.fleet)}</td></tr>)}
+              </tbody></table></div>
+            </details>
+          </div>
+        )}
+      </Card>
+
+      <Card title="Importar um snapshot novo">
+        <p style={{ margin: 0 }}>Envie o CSV público do Senatran (separado por “;”, com as colunas <code>marca_modelo_original</code>, <code>ano_fabricacao_original</code> e <code>quantidade_veiculos_frota_…</code>). Nomes novos entram; nomes que já existem têm a frota atualizada; nomes que sumiram do arquivo ficam como estavam. Nada é “limpo” ou reescrito.</p>
+        <div className="row" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+          <label className="btn" style={{ cursor: 'pointer' }}>Escolher arquivo .csv<input type="file" accept=".csv,text/csv,text/plain" hidden onChange={(e) => void pick(e.target.files?.[0])} /></label>
+          {fileName && <span className="muted">{fileName}</span>}
+          <Input value={snapshot} onChange={(e) => setSnapshot(e.target.value.replace(/[^\d-]/g, '').slice(0, 7))} placeholder="Mês: 2026-09" aria-label="Mês do arquivo (AAAA-MM)" style={{ maxWidth: 150 }} />
+          <Button variant="primary" loading={busy && !report} disabled={!csv || !/^\d{4}-\d{2}$/.test(snapshot)} onClick={() => void run(true)}>Conferir arquivo</Button>
+          {report && <Button variant="primary" loading={busy} disabled={report.errors.length > 0} onClick={() => void run(false)}>Importar {nfAdmin.format(report.names)} nomes</Button>}
+        </div>
+        {report && (
+          <Alert tone={report.errors.length ? 'warn' : 'ok'} title="Prévia (nada foi gravado)">
+            {nfAdmin.format(report.names)} nomes · {nfAdmin.format(report.fleet)} veículos · {nfAdmin.format(report.newNames)} novos · {nfAdmin.format(report.existingNames)} já existentes.
+            {report.previous && <> Snapshot anterior ({report.previous.snapshot}): {nfAdmin.format(report.previous.names)} nomes, {nfAdmin.format(report.previous.fleet)} veículos.</>}
+            {report.errors.length > 0 && <><div style={{ marginTop: 6 }}><b>{report.errors.length} linha(s) com problema. Corrija o arquivo antes de importar:</b></div><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{report.errors.slice(0, 30).map((e) => <li key={e.line}>Linha {e.line}: {e.message}</li>)}</ul></>}
+          </Alert>
+        )}
+      </Card>
+
+      <Card title="O que as pessoas procuram" actions={<Select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Período" style={{ maxWidth: 170 }}><option value={7}>Últimos 7 dias</option><option value={30}>Últimos 30 dias</option><option value={90}>Últimos 90 dias</option></Select>}>
+        {interest.loading && !interest.data ? <PageLoading /> : interest.error || !interest.data ? <ErrorState error={interest.error} onRetry={interest.reload} /> : (
+          <div className="stack">
+            <p className="muted small" style={{ margin: 0 }}>Sem conta e sem dado pessoal: guardamos só qual veículo foi escolhido e uma identificação anônima da visita. Escolhas repetidas na mesma visita contam uma vez.</p>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 18 }}>
+              <span><b>{t('SIMULATOR_PICK')?.events ?? 0}</b> escolhas no simulador</span>
+              <span><b>{t('SEARCH_PICK')?.events ?? 0}</b> escolhas na busca</span>
+              <span><b>{t('MODEL_VIEW')?.events ?? 0}</b> fichas abertas</span>
+              <span><b>{t('SEARCH_NO_RESULT')?.events ?? 0}</b> buscas sem resultado</span>
+            </div>
+            <div className="form-grid cols-2" style={{ alignItems: 'start' }}>
+              <div>
+                <h4>Veículos mais escolhidos</h4>
+                {!interest.data.picks.length ? <p className="muted small">Ainda sem dados neste período.</p> : <div className="table-wrap"><table className="table"><thead><tr><th>Nome (Senatran)</th><th>Onde</th><th className="r">Vezes</th></tr></thead><tbody>
+                  {interest.data.picks.slice(0, 20).map((p) => <tr key={`${p.id}-${p.type}`}><td>{p.name}<div className="muted small">{nfAdmin.format(p.fleet)} na frota</div></td><td>{p.type === 'SIMULATOR_PICK' ? 'Simulador' : 'Busca'}</td><td className="r">{p.count}</td></tr>)}
+                </tbody></table></div>}
+              </div>
+              <div>
+                <h4>Fichas mais abertas</h4>
+                {!interest.data.models.length ? <p className="muted small">Ainda sem dados neste período.</p> : <div className="table-wrap"><table className="table"><thead><tr><th>Modelo</th><th className="r">Visitas</th></tr></thead><tbody>
+                  {interest.data.models.slice(0, 15).map((m) => <tr key={m.slug}><td>{m.brand} {m.name}</td><td className="r">{m.views}</td></tr>)}
+                </tbody></table></div>}
+                <h4 style={{ marginTop: 16 }}>Buscas sem resultado</h4>
+                {!interest.data.noResult.length ? <p className="muted small">Nenhuma neste período.</p> : <ul style={{ margin: 0, paddingLeft: 18 }}>{interest.data.noResult.slice(0, 15).map((n) => <li key={n.term}>{n.term} <span className="muted">({n.count})</span></li>)}</ul>}
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

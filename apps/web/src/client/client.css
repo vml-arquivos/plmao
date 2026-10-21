@@ -700,3 +700,70 @@
 .fuel-results small { color: var(--muted); font-size: 12.5px; }
 .fuel-verdict { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 800; color: var(--ok, #0a7a43); }
 .fuel-calc.compact .form-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+
+/* ---------- Guia de veículos: destaques com foto, busca na frota e escolha de veículo (1.5.0) ---------- */
+.guide-more-filters summary { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14px; color: var(--text-2); list-style: none; }
+.guide-more-filters summary::-webkit-details-marker { display: none; }
+.guide-more-filters[open] summary { color: var(--primary-ink); }
+.featured-head { align-items: end; flex-wrap: wrap; gap: 12px; }
+.featured-grid { display: grid; gap: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 960px) { .featured-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) {
+  .featured-grid { display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; margin: 0 -16px; padding: 4px 16px 14px; scrollbar-width: none; }
+  .featured-grid::-webkit-scrollbar { display: none; }
+  .featured-grid > .fcard { flex: 0 0 82%; scroll-snap-align: center; }
+  .featured-grid > .skeleton { flex: 0 0 82%; }
+}
+.fcard { display: flex; flex-direction: column; border-radius: 22px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); color: inherit; box-shadow: 0 1px 2px rgba(15, 30, 60, .04); transition: transform .2s, box-shadow .2s, border-color .2s; }
+.fcard:hover, .fcard:focus-visible { transform: translateY(-3px); box-shadow: 0 14px 34px rgba(15, 30, 60, .14); border-color: var(--border-strong); text-decoration: none; }
+.fcard-photo { position: relative; }
+.fcard-photo .guide-cover { aspect-ratio: 16 / 10; border-radius: 0; }
+.fcard-rank { position: absolute; left: 12px; top: 12px; width: 32px; height: 32px; border-radius: 50%; background: var(--surface); color: var(--primary-ink); font: 800 15px var(--font-display); display: grid; place-items: center; box-shadow: 0 2px 8px rgba(0, 0, 0, .25); z-index: 2; }
+.fcard-official { position: absolute; right: 12px; top: 12px; background: var(--surface); z-index: 2; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
+.fcard-body { padding: 16px 18px 18px; display: grid; gap: 6px; align-content: start; flex: 1; }
+.fcard-body h3 { font-size: 24px; line-height: 1.12; }
+.fcard-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13.5px; color: var(--text-2); margin-top: 4px; }
+.fcard-stats > span { display: inline-flex; align-items: center; gap: 5px; }
+.fcard-stats b { color: var(--text); font-family: var(--font-display); font-size: 15px; }
+.fcard-cta { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; font-weight: 800; color: var(--primary); font-size: 14.5px; }
+.fcard:hover .fcard-cta svg { transform: translateX(3px); }
+.fcard-cta svg { transition: transform .15s; }
+
+.guide-cover.no-photo { background: linear-gradient(135deg, hsl(var(--cover-h, 215) 55% 22%), hsl(calc(var(--cover-h, 215) + 28) 60% 32%)); color: rgba(255, 255, 255, .9); align-content: center; gap: 10px; padding: 14px; text-align: center; }
+.guide-cover.no-photo .cover-name { position: relative; z-index: 1; font: 800 clamp(16px, 2.4vw, 22px) var(--font-display); letter-spacing: .01em; opacity: .85; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.photo-credit { position: absolute; right: 0; bottom: 0; z-index: 2; max-width: 100%; padding: 3px 9px; font-size: 10.5px; line-height: 1.3; color: #fff; background: rgba(8, 16, 32, .6); border-top-left-radius: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guide-photo { display: grid; gap: 6px; align-content: start; }
+.photo-note { margin: 0; font-size: 12px; color: var(--muted); }
+.photo-note a { color: inherit; text-decoration: underline; }
+.fleet-line { display: flex; gap: 6px; align-items: flex-start; font-size: 14px; }
+.fleet-line svg { flex: none; margin-top: 3px; }
+
+.crow-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.crow { display: flex; align-items: center; justify-content: space-between; gap: 12px 18px; flex-wrap: wrap; padding: 12px 2px; border-bottom: 1px solid var(--border); }
+.crow:last-child { border-bottom: 0; }
+.crow-main { display: grid; gap: 2px; color: inherit; min-width: 0; flex: 1 1 260px; }
+.crow-main:hover { text-decoration: none; }
+.crow-main:hover b { color: var(--primary); }
+.crow-main b { font-size: 15.5px; overflow-wrap: anywhere; }
+.crow-main small { color: var(--muted); font-size: 13px; }
+.crow-act { display: inline-flex; align-items: center; gap: 5px; font-weight: 800; font-size: 13.5px; color: var(--primary); white-space: nowrap; }
+
+.catalog-stats { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.catalog-stats .card { display: grid; gap: 4px; }
+.catalog-stats b { font: 800 clamp(26px, 5vw, 34px) var(--font-display); color: var(--primary-ink); }
+.catalog-stats small { color: var(--muted); font-size: 13px; }
+.year-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.year-bars li { display: grid; grid-template-columns: 46px minmax(0, 1fr) 84px; align-items: center; gap: 10px; font-size: 13.5px; }
+.year-bars .bar { height: 10px; border-radius: 6px; background: var(--surface-2, #eef2f8); overflow: hidden; }
+.year-bars .bar i { display: block; height: 100%; background: var(--primary); border-radius: 6px; }
+.year-bars b { text-align: right; font-variant-numeric: tabular-nums; }
+
+.vpicker { position: relative; }
+.vpicker-list { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 6px); margin: 0; padding: 6px; list-style: none; background: var(--surface); border: 1px solid var(--border-strong, var(--border)); border-radius: 16px; box-shadow: 0 16px 40px rgba(15, 30, 60, .18); max-height: 340px; overflow: auto; }
+.vpicker-list li { display: grid; gap: 2px; padding: 9px 12px; border-radius: 10px; cursor: pointer; }
+.vpicker-list li.on, .vpicker-list li:hover { background: var(--primary-soft); }
+.vpicker-list li b { font-size: 14.5px; overflow-wrap: anywhere; }
+.vpicker-list li small { color: var(--muted); font-size: 12.5px; }
+.vpicker-list li.empty, .vpicker-list li.foot { cursor: default; color: var(--muted); font-size: 12.5px; }
+.vpicker-list li.empty:hover, .vpicker-list li.foot:hover { background: transparent; }
+.vpicker-picked { margin: 8px 0 0; font-size: 13.5px; color: var(--text-2); }

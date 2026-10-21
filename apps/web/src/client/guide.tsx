@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../shared/icons';
 import { Field, Input, Select } from '../shared/ui';
 import { api } from './api';
+import { funnelSessionId } from './funnel';
 
 /* ---------- Tipos do Guia de veículos ---------- */
 export interface SpecField { key: string; group: string; label: string; kind: 'number' | 'text' | 'bool'; unit?: string; better?: 'high' | 'low'; highlight?: boolean }
@@ -14,6 +15,7 @@ export type Specs = Record<string, string | number | boolean>;
 export interface GuideCard {
   slug: string; brand: string; name: string; vehicleType: 'CAR' | 'MOTORCYCLE' | 'TRUCK'; bodyType: string | null; yearFrom: number | null; yearTo: number | null; summary: string; imageUrl: string | null; versions: number; ratingCount: number; ratingAverage: number | null;
   fuel: string | null; officialConsumption: boolean;
+  imageCredit?: string | null; imageLicense?: string | null; imageSourceUrl?: string | null; fleet?: number | null;
   quick: { cityGasKml: number | null; cityEthKml: number | null; cityDieselKml: number | null; powerHp: number | null; trunkL: number | null };
 }
 export interface ConsumptionObs {
@@ -32,6 +34,23 @@ export interface GuideModel {
   rating: RatingSummary; locked: boolean; pros: string[]; cons: string[]; versions: GuideVersion[];
   reviewPreview?: string; review?: string; buyerTips?: string; tips?: GuideTip[]; opinionCount?: number; myOpinion?: MyOpinion | null;
   consumption: ConsumptionObs[];
+  fleet?: { total: number; names: number; snapshot: string } | null;
+  imageCredit?: string | null; imageLicense?: string | null; imageSourceUrl?: string | null;
+}
+export interface FeaturedCardData {
+  slug: string; brand: string; name: string; vehicleType: 'CAR' | 'MOTORCYCLE' | 'TRUCK'; bodyType: string | null; summary: string; imageUrl: string | null;
+  imageCredit: string | null; imageLicense: string | null; imageSourceUrl: string | null;
+  fleet: number | null; views: number; ratingCount: number; ratingAverage: number | null; officialConsumption: boolean; fuel: string | null; editorial: boolean;
+}
+export interface FeaturedList { key: 'FROTA' | 'CONSULTADOS' | 'AVALIADOS'; label: string; note: string; items: FeaturedCardData[] }
+export interface CatalogHit {
+  id: number; name: string; fleet: number; yearMin: number | null; yearMax: number | null; snapshot: string;
+  guide: { slug: string; brand: string; name: string; vehicleType: 'CAR' | 'MOTORCYCLE' | 'TRUCK' } | null;
+}
+export interface CatalogSearch { snapshot: { id: string; names: number; fleet: number } | null; items: CatalogHit[] }
+export interface CatalogDetail {
+  id: number; name: string; fleet: number; yearMin: number | null; yearMax: number | null; snapshot: string; years: Array<{ year: number; quantity: number }>; withoutYear: number;
+  source: { name: string; license: string; names: number; fleet: number } | null; guide: { slug: string; brand: string; name: string } | null;
 }
 export interface PublicOpinion { id: string; rating: number; ratings: Record<string, number>; title: string; liked: string; disliked: string; comment: string; ownerSince: number | null; km: number | null; versionName: string | null; createdAt: string; author: string }
 
@@ -108,12 +127,80 @@ export function RatingBars({ rating, categories }: { rating: RatingSummary; cate
   );
 }
 
-/* ---------- Capa (sem foto, usa ilustração por tipo) ---------- */
-export function GuideCover({ imageUrl, alt, type }: { imageUrl: string | null; alt: string; type: string }) {
+/* ---------- Capa (com foto, ou um painel de marca quando ainda não há foto) ---------- */
+const hueOf = (text: string) => { let h = 0; for (const ch of text) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; };
+const photoCredit = (credit?: string | null, license?: string | null) => (credit ? `Foto: ${credit}${license ? ` · ${license}` : ''}` : '');
+
+export function GuideCover({ imageUrl, alt, type, brand, name, credit, license }: { imageUrl: string | null; alt: string; type: string; brand?: string; name?: string; credit?: string | null; license?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [imageUrl]);
+  const show = imageUrl && !failed;
+  const hue = hueOf(`${brand ?? ''}${name ?? ''}`);
   return (
-    <div className="guide-cover">
-      {imageUrl ? <img src={imageUrl} alt={alt} loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <Icon name={type === 'MOTORCYCLE' ? 'zap' : 'car'} size={46} />}
+    <div className={`guide-cover${show ? '' : ' no-photo'}`} style={show ? undefined : ({ '--cover-h': hue } as CSSProperties)}>
+      {show ? <img src={imageUrl} alt={alt} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : (
+        <>
+          <Icon name={type === 'MOTORCYCLE' ? 'bike' : type === 'TRUCK' ? 'truck' : 'car'} size={44} />
+          {name && <span className="cover-name" aria-hidden="true">{brand ? `${brand} ` : ''}{name}</span>}
+        </>
+      )}
+      {show && credit && <span className="photo-credit">{photoCredit(credit, license)}</span>}
     </div>
+  );
+}
+
+/* ---------- Números da frota e registro de interesse ---------- */
+const nfInt = new Intl.NumberFormat('pt-BR');
+export const fleetLong = (n: number) => nfInt.format(n);
+export function fleetShort(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.', ',').replace(',0', '')} mi`;
+  if (n >= 1_000) return `${nfInt.format(Math.round(n / 1_000))} mil`;
+  return String(n);
+}
+export const snapshotLabel = (id: string) => id.split('-').reverse().join('/');
+export const fabYears = (min: number | null, max: number | null) => (min ? (max && max !== min ? `${min} a ${max}` : `${min}`) : 'sem ano informado');
+
+/** Registra o que a pessoa escolheu (sem conta, sem dado pessoal): ajuda a saber quais veículos são procurados. */
+export function logInterest(body: { type: 'SIMULATOR_PICK' | 'SEARCH_PICK' | 'MODEL_VIEW' | 'SEARCH_NO_RESULT'; catalogId?: number; modelSlug?: string; term?: string }): void {
+  try {
+    void fetch('/api/vehicles/interest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, sessionId: funnelSessionId() }), keepalive: true, cache: 'no-store' }).catch(() => undefined);
+  } catch { /* métrica auxiliar */ }
+}
+
+/** Card de destaque: foto grande, nome, números reais e um clique para a ficha. */
+export function FeaturedCard({ m, rank }: { m: FeaturedCardData; rank?: number }) {
+  const meta = [typeLabel(m.vehicleType), m.bodyType, m.fuel].filter(Boolean).join(' · ');
+  return (
+    <Link to={`/veiculos/${m.slug}`} className="fcard">
+      <div className="fcard-photo">
+        <GuideCover imageUrl={m.imageUrl} alt={`${m.brand} ${m.name}`} type={m.vehicleType} brand={m.brand} name={m.name} credit={m.imageCredit} license={m.imageLicense} />
+        {rank != null && <span className="fcard-rank" aria-label={`Posição ${rank}`}>{rank}</span>}
+        {m.officialConsumption && <span className="official-tag fcard-official" title="Consumo conferido com a tabela oficial do Inmetro"><Icon name="check-circle" size={13} /> Inmetro</span>}
+      </div>
+      <div className="fcard-body">
+        <span className="cat-tag">{m.brand}</span>
+        <h3>{m.name}</h3>
+        {meta && <p className="muted guide-meta">{meta}</p>}
+        <div className="fcard-stats">
+          {m.fleet != null && <span title="Veículos com esse nome na frota brasileira (Senatran), somando versões e anos"><Icon name="car" size={15} /><b>{fleetShort(m.fleet)}</b> na frota</span>}
+          {m.ratingCount > 0 && <span className="guide-rate"><Stars value={m.ratingAverage} size={13} /><b>{ratingText(m.ratingAverage)}</b><span>({m.ratingCount})</span></span>}
+        </div>
+        <span className="fcard-cta">Ver ficha <Icon name="arrow-right" size={15} /></span>
+      </div>
+    </Link>
+  );
+}
+
+/** Linha de veículo do catálogo da frota (ainda sem ficha no guia). */
+export function CatalogRow({ hit, onPick }: { hit: CatalogHit; onPick?: () => void }) {
+  return (
+    <li className="crow">
+      <Link to={`/veiculos/frota/${hit.id}`} onClick={onPick} className="crow-main">
+        <b>{hit.name}</b>
+        <small>{fleetLong(hit.fleet)} {hit.fleet === 1 ? 'veículo' : 'veículos'} na frota · fabricados {fabYears(hit.yearMin, hit.yearMax)}</small>
+      </Link>
+      <Link to={`/simulador?${new URLSearchParams({ n: hit.name.slice(0, 80) }).toString()}`} className="crow-act" onClick={onPick}>Simular financiamento <Icon name="arrow-right" size={14} /></Link>
+    </li>
   );
 }
 
@@ -126,7 +213,7 @@ export function ModelCard({ m }: { m: GuideCard }) {
   if (q.trunkL != null) facts.push(`${Math.round(q.trunkL)} L de porta-malas`);
   return (
     <Link to={`/veiculos/${m.slug}`} className="vcard">
-      {m.imageUrl && <GuideCover imageUrl={m.imageUrl} alt={`${m.brand} ${m.name}`} type={m.vehicleType} />}
+      {m.imageUrl && <GuideCover imageUrl={m.imageUrl} alt={`${m.brand} ${m.name}`} type={m.vehicleType} brand={m.brand} name={m.name} credit={m.imageCredit} license={m.imageLicense} />}
       <div className="vcard-body">
         <div className="vcard-top"><span className="cat-tag">{m.brand}</span>{m.officialConsumption && <span className="official-tag" title="Consumo conferido com a tabela oficial do Inmetro"><Icon name="check-circle" size={13} /> Inmetro</span>}</div>
         <h3>{m.name}</h3>

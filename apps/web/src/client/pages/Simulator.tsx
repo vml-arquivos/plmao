@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
-import { Alert, Badge, Button, Field, LinkButton, Select, Skeleton, Switch, Textarea, Input, useToast, usePageTitle } from '../../shared/ui';
+import { Alert, Badge, Button, Field, LinkButton, Select, Skeleton, Switch, Textarea, useToast, usePageTitle } from '../../shared/ui';
 import { api } from '../api';
+import { VehiclePicker } from '../vehiclePicker';
 import { errorMessage } from '../../shared/api';
 import { useSession } from '../session';
 import {
@@ -173,7 +174,7 @@ export default function Simulator() {
   const [mineTick, setMineTick] = useState(0);
 
   // trocou o tipo de veículo pela URL (/simulador/moto): reinicia com os valores típicos daquele tipo
-  useEffect(() => { setState((s) => (s.kind === kind ? s : { ...defaultState(kind), modality: s.modality })); }, [kind]);
+  useEffect(() => { setState((s) => (s.kind === kind ? s : { ...defaultState(kind), modality: s.modality, label: s.label })); }, [kind]);
   // mantém a simulação na URL (compartilhável e sobrevive ao login)
   useEffect(() => { const t = setTimeout(() => setParams(paramsFromState(state), { replace: true }), 400); return () => clearTimeout(t); }, [state, setParams]);
 
@@ -220,7 +221,8 @@ export default function Simulator() {
       <section className="section" style={{ paddingTop: 8 }}>
         <div className="container sim-layout">
           <form className="card card-pad sim-form" onSubmit={(e) => e.preventDefault()} aria-label="Dados da simulação">
-            <KindTabs value={state.kind} onChange={(k) => { nav(`/simulador/${kindByKey(k).slug}`, { replace: false }); }} />
+            <KindTabs value={state.kind} onChange={(k) => { nav(`/simulador/${kindByKey(k).slug}${state.label ? `?${new URLSearchParams({ n: state.label }).toString()}` : ''}`, { replace: false }); }} />
+            <VehiclePicker value={state.label} onChange={(v) => set('label', v)} />
 
             <div className="field">
               <span className="lbl">Modalidade</span>
@@ -307,7 +309,6 @@ export default function Simulator() {
                     {[30, 45, 60, 90, 120].map((g) => <option key={g} value={g}>{g} dias{g === 30 ? ' (padrão)' : ''}</option>)}
                   </Select>
                 </Field>
-                <Field label="Nome do veículo (aparece no PDF)"><Input value={state.label} maxLength={80} placeholder="Ex.: Honda Civic EXL 2020" onChange={(e) => set('label', e.target.value)} /></Field>
                 <Field label="Observações (aparece no PDF)"><Textarea rows={2} maxLength={400} value={state.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Ex.: vou comparar com a proposta do banco X" /></Field>
               </div>
             )}

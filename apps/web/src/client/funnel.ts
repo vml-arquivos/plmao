@@ -3,7 +3,7 @@ const SESSION_KEY = 'pnm_funnel_session';
 const ATTR_KEY = 'pnm_funnel_attribution';
 const ALLOWED = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'ref'] as const;
 
-function sessionId(): string {
+export function funnelSessionId(): string {
   try {
     const cur = localStorage.getItem(SESSION_KEY);
     if (cur && /^[a-zA-Z0-9-]{16,80}$/.test(cur)) return cur;
@@ -44,5 +44,5 @@ export function trackFunnel(event: FunnelEvent, metadata: Meta = {}): void {
       .map(([k, v]) => [k.slice(0, 60), typeof v === 'string' ? v.slice(0, 160) : v])
   );
   const path = /^\/[a-zA-Z0-9/_-]*$/.test(window.location.pathname) ? window.location.pathname : '/';
-  void fetch('/api/funnel/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event, sessionId: sessionId(), path, metadata: clean }), keepalive: true, cache: 'no-store' }).catch(() => undefined);
+  void fetch('/api/funnel/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event, sessionId: funnelSessionId(), path, metadata: clean }), keepalive: true, cache: 'no-store' }).catch(() => undefined);
 }

@@ -320,7 +320,8 @@ app.use(helmet({
 app.use(cors({ origin: env.WEB_ORIGIN, credentials: false }));
 app.use(express.json({
   limit: '256kb',
-  type: 'application/json',
+  // O import do catálogo de frota (CSV de vários MB) tem parser próprio na rota, com limite maior.
+  type: (req) => /^application\/json/i.test(req.headers['content-type'] ?? '') && !String(req.url).split('?')[0]!.endsWith('/admin/vehicles/catalog/import'),
   verify: (req, _res, body) => {
     if (req.url?.split('?')[0] === '/api/payments/mercadopago/webhook') {
       (req as RawBodyRequest).rawBody = Buffer.from(body);
@@ -2239,6 +2240,9 @@ function humanMessage(code: string): string {
     FIPE_PLATE_DATA_INVALID: 'Não foi possível identificar os dados do veículo para esta placa.',
     VEHICLE_NOT_FOUND: 'Não encontramos este veículo no guia.',
     CONSUMPTION_NOT_FOUND: 'Não encontramos este registro de consumo.',
+    CATALOG_NOT_FOUND: 'Não encontramos este veículo no catálogo.',
+    CATALOG_SNAPSHOT_INVALID: 'Informe o mês do arquivo no formato AAAA-MM, por exemplo 2026-09.',
+    IMPORT_HAS_ERRORS: 'O arquivo tem linhas inválidas. Corrija e rode a prévia de novo antes de importar.',
     INVALID_SPECS: 'Há campos da ficha técnica com valor inválido. Revise os campos indicados.',
     VEHICLE_HAS_OPINIONS: 'Este modelo já tem opiniões de donos. Arquive o modelo em vez de apagar.',
     SLUG_TAKEN: 'Já existe um modelo com este endereço (slug).',

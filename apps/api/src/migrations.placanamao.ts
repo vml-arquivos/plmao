@@ -1,6 +1,8 @@
 import type { Migration } from './migrations.js';
 import { SEED_SOURCE, VEHICLE_SEED } from './data/vehicleSeed.js';
 import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL, INMETRO_NAME, INMETRO_PBEV_2024_URL, COLLECTED_AT, type ConsumptionSeed } from './data/consumptionSeed.js';
+import { VEHICLE_PHOTOS, photoPage, photoUrl } from './data/vehiclePhotos.js';
+import { readBundledSnapshot, upsertCatalog, rematchCatalog } from './lib/catalog.js';
 import { SEED_ARTICLES, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
 
 /**
@@ -798,6 +800,83 @@ export const placaMigrations: Migration[] = [
         );
       };
       for (const o of [...CONSUMPTION_SEED, HONDA_CIVIC_OBS]) await link(o);
+    }
+  },
+  {
+    id: '023_vehicle_catalog',
+    name: 'Catálogo de frota (Senatran), ligação com o guia, destaques, créditos de foto e interesse por veículo',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS vehicle_catalog (
+          id bigserial PRIMARY KEY,
+          raw_name text NOT NULL UNIQUE,
+          search_text text NOT NULL,
+          fleet_total bigint NOT NULL DEFAULT 0 CHECK (fleet_total >= 0),
+          year_min integer,
+          year_max integer,
+          years jsonb NOT NULL DEFAULT '{}'::jsonb,
+          snapshot text NOT NULL,
+          model_id uuid REFERENCES vehicle_models(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_vehicle_catalog_fleet ON vehicle_catalog(fleet_total DESC);
+        CREATE INDEX IF NOT EXISTS idx_vehicle_catalog_model ON vehicle_catalog(model_id) WHERE model_id IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS vehicle_catalog_snapshots (
+          snapshot text PRIMARY KEY,
+          names integer NOT NULL,
+          fleet_total bigint NOT NULL,
+          source_name text NOT NULL,
+          license text NOT NULL,
+          loaded_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        ALTER TABLE vehicle_models
+          ADD COLUMN IF NOT EXISTS catalog_brands text[] NOT NULL DEFAULT '{}',
+          ADD COLUMN IF NOT EXISTS catalog_names text[] NOT NULL DEFAULT '{}',
+          ADD COLUMN IF NOT EXISTS catalog_exclude text[] NOT NULL DEFAULT '{}',
+          ADD COLUMN IF NOT EXISTS featured boolean NOT NULL DEFAULT false,
+          ADD COLUMN IF NOT EXISTS featured_order integer,
+          ADD COLUMN IF NOT EXISTS image_credit text,
+          ADD COLUMN IF NOT EXISTS image_license text,
+          ADD COLUMN IF NOT EXISTS image_source_url text;
+
+        CREATE TABLE IF NOT EXISTS vehicle_interest_events (
+          id bigserial PRIMARY KEY,
+          event_type text NOT NULL CHECK (event_type IN ('SIMULATOR_PICK','SEARCH_PICK','MODEL_VIEW','SEARCH_NO_RESULT')),
+          catalog_id bigint REFERENCES vehicle_catalog(id) ON DELETE SET NULL,
+          model_id uuid REFERENCES vehicle_models(id) ON DELETE SET NULL,
+          term text,
+          session_key text,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_vehicle_interest_created ON vehicle_interest_events(event_type, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_vehicle_interest_catalog ON vehicle_interest_events(catalog_id) WHERE catalog_id IS NOT NULL;
+      `);
+
+      // Nomes que o Senatran escreve de outro jeito ou que pertencem a outro modelo (todos conferidos no arquivo de set/2026).
+      await client.query(`UPDATE vehicle_models SET catalog_exclude='{plus}' WHERE slug='chevrolet-onix' AND catalog_exclude='{}'`);
+      await client.query(`UPDATE vehicle_models SET catalog_names='{onix plus}' WHERE slug='chevrolet-onix-sedan' AND catalog_names='{}'`);
+      await client.query(`UPDATE vehicle_models SET catalog_exclude='{cross}' WHERE slug='toyota-corolla' AND catalog_exclude='{}'`);
+      await client.query(`UPDATE vehicle_models SET catalog_exclude='{sw4}' WHERE slug='toyota-hilux' AND catalog_exclude='{}'`);
+      await client.query(`UPDATE vehicle_models SET catalog_names='{t cross,tcross}' WHERE slug='volkswagen-t-cross' AND catalog_names='{}'`);
+
+      const snap = readBundledSnapshot();
+      await upsertCatalog(client, snap);
+      await rematchCatalog(client);
+    }
+  },
+  {
+    id: '024_vehicle_photos_free_license',
+    name: 'Fotos de veículos com licença livre e crédito (só onde o modelo ainda não tem foto)',
+    up: async (client) => {
+      for (const p of VEHICLE_PHOTOS) {
+        await client.query(
+          `UPDATE vehicle_models SET image_url=$2, image_credit=$3, image_license=$4, image_source_url=$5 WHERE slug=$1 AND image_url IS NULL`,
+          [p.slug, photoUrl(p.file), p.credit, p.license, photoPage(p.file)]
+        );
+      }
     }
   }
 ];

@@ -7,7 +7,7 @@ import { ApiError, errorMessage } from '../../shared/api';
 import { dateOnly, isValidPlate, normalizePlate } from '../../shared/format';
 import { Markdown } from '../../shared/markdown';
 import { useSession } from '../session';
-import { ConsumptionSources, FuelCalc, GuideCover, ModelCard, RatingBars, StarPicker, Stars, formatSpec, kmlText, ratingText, typeLabel, useEconomy, useSpecMeta, versionLabel, yearsLabel, type GuideCard, type GuideModel, type GuideTip, type PublicOpinion, type SpecMeta, type Specs } from '../guide';
+import { CatalogRow, ConsumptionSources, FeaturedCard, FuelCalc, GuideCover, ModelCard, fabYears, fleetLong, logInterest, snapshotLabel, RatingBars, StarPicker, Stars, formatSpec, kmlText, ratingText, typeLabel, useEconomy, useSpecMeta, versionLabel, yearsLabel, type CatalogDetail, type CatalogHit, type CatalogSearch, type FeaturedList, type GuideCard, type GuideModel, type GuideTip, type PublicOpinion, type SpecMeta, type Specs } from '../guide';
 
 /* ========================================================================== */
 /*  /veiculos — busca                                                          */
@@ -38,38 +38,56 @@ export function GuideHome() {
   const [params] = useSearchParams();
   const [mode, setMode] = useState<'model' | 'plate'>('model');
   const [search, setSearch] = useState(params.get('q') ?? '');
-  const [debounced, setDebounced] = useState(search);
+  const [debounced, setDebounced] = useState(search.trim());
   const [brand, setBrand] = useState('');
   const [quick, setQuick] = useState('');
-  const [sort, setSort] = useState<'name' | 'rating'>('name');
   const [brands, setBrands] = useState<Array<{ brand: string; total: number }>>([]);
+  const [featured, setFeatured] = useState<FeaturedList[] | null>(null);
+  const [tab, setTab] = useState<FeaturedList['key']>('FROTA');
   const [items, setItems] = useState<GuideCard[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [fleetHits, setFleetHits] = useState<CatalogHit[]>([]);
+  const [fleetDone, setFleetDone] = useState(false);
   const [tips, setTips] = useState<GuideTip[]>([]);
   const [tipCat, setTipCat] = useState('');
   const { items: economy } = useEconomy();
-  const PAGE = 16;
+  const PAGE = 12;
 
   useEffect(() => { api.get<{ brands: Array<{ brand: string; total: number }> }>('/vehicles/brands').then((r) => setBrands(r.brands), () => undefined); }, []);
   useEffect(() => { api.get<{ tips: GuideTip[] }>('/vehicles/tips', { query: { limit: 30 } }).then((r) => setTips(r.tips), () => undefined); }, []);
+  useEffect(() => { api.get<{ lists: FeaturedList[] }>('/vehicles/featured').then((r) => setFeatured(r.lists), () => setFeatured([])); }, []);
   useEffect(() => { const t = setTimeout(() => setDebounced(search.trim()), 300); return () => clearTimeout(t); }, [search]);
 
+  const filtersOn = Boolean(debounced || brand || quick);
   const load = useCallback(async (offset: number) => {
+    if (!filtersOn) { setItems([]); setTotal(0); setLoading(false); return; }
     setLoading(true); setError(null);
     try {
       const qp = QUICK.find((x) => x.key === quick)?.params ?? {};
-      const r = await api.get<{ total: number; items: GuideCard[] }>('/vehicles', { query: { search: debounced, brand, type: qp.type ?? '', body: qp.body ?? '', sort, limit: PAGE, offset } });
+      const r = await api.get<{ total: number; items: GuideCard[] }>('/vehicles', { query: { search: debounced, brand, type: qp.type ?? '', body: qp.body ?? '', sort: 'name', limit: PAGE, offset } });
       setTotal(r.total); setItems((prev) => (offset ? [...prev, ...r.items] : r.items));
     } catch (e) { setError(e); } finally { setLoading(false); }
-  }, [debounced, brand, quick, sort]);
+  }, [debounced, brand, quick, filtersOn]);
   useEffect(() => { void load(0); }, [load]);
 
-  const filtersOn = Boolean(debounced || brand || quick);
+  // Frota do Senatran: só quando há texto (filtros de marca/tipo valem apenas para as fichas do guia).
+  useEffect(() => {
+    setFleetDone(false);
+    if (debounced.length < 2 || brand || quick) { setFleetHits([]); return; }
+    let alive = true;
+    api.get<CatalogSearch>('/vehicles/catalog/search', { query: { q: debounced, limit: 20 } }).then((r) => { if (alive) { setFleetHits(r.items.filter((h) => !h.guide)); setFleetDone(true); } }, () => { if (alive) { setFleetHits([]); setFleetDone(true); } });
+    return () => { alive = false; };
+  }, [debounced, brand, quick]);
+
+  const nothing = filtersOn && !loading && !error && !items.length && (brand || quick ? true : fleetDone && !fleetHits.length);
+  useEffect(() => { if (nothing && debounced.length >= 3 && !brand && !quick) logInterest({ type: 'SEARCH_NO_RESULT', term: debounced }); }, [nothing, debounced, brand, quick]);
+
   const tipList = tips.filter((t) => !tipCat || t.category === tipCat);
   const tipCats = useMemo(() => [...new Map(tips.map((t) => [t.category, t.categoryLabel])).entries()], [tips]);
   const top = useMemo(() => (economy ?? []).filter((e) => e.official && e.cityGasKml != null).sort((a, b) => (b.cityGasKml ?? 0) - (a.cityGasKml ?? 0)).slice(0, 5), [economy]);
+  const activeList = featured?.find((l) => l.key === tab) ?? featured?.[0] ?? null;
 
   return (
     <>
@@ -77,19 +95,21 @@ export function GuideHome() {
         <div className="container">
           <span className="eyebrow">Guia de veículos</span>
           <h1 style={{ maxWidth: '22ch' }}>Conheça o carro antes de comprar.</h1>
-          <p className="lead">Consumo oficial com a fonte à vista, ficha técnica, opinião de quem tem o carro e comparação lado a lado. Cadastro grátis para ver tudo.</p>
+          <p className="lead">Consumo oficial com a fonte à vista, ficha técnica, opinião de quem tem o carro e comparação lado a lado. Busque entre milhares de veículos da frota brasileira.</p>
           <div className="guide-search card card-pad stack">
             <Tabs label="Forma de busca" value={mode} onChange={setMode} items={[{ id: 'model', label: 'Por modelo' }, { id: 'plate', label: 'Por placa' }]} />
             {mode === 'model' ? (
               <>
-                <div className="guide-filters">
-                  <Input icon="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ex.: Tracker, Onix, CG 160…" aria-label="Buscar modelo" maxLength={80} />
-                  <Select value={brand} onChange={(e) => setBrand(e.target.value)} aria-label="Marca"><option value="">Todas as marcas</option>{brands.map((b) => <option key={b.brand} value={b.brand}>{b.brand} ({b.total})</option>)}</Select>
-                  <Select value={sort} onChange={(e) => setSort(e.target.value as 'name' | 'rating')} aria-label="Ordenar"><option value="name">Ordem alfabética</option><option value="rating">Mais bem avaliados</option></Select>
-                </div>
-                <div className="chips" role="group" aria-label="Tipo de veículo">
-                  {QUICK.map((q) => <button key={q.key} type="button" className="chip" aria-pressed={quick === q.key} onClick={() => setQuick(q.key)}>{q.label}</button>)}
-                </div>
+                <Input icon="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Digite a marca ou o modelo: Onix, Gol, Civic, CG 160…" aria-label="Buscar veículo" maxLength={80} />
+                <details className="guide-more-filters" open={Boolean(brand || quick)}>
+                  <summary><Icon name="filter" size={15} /> Filtrar fichas do guia por marca ou tipo</summary>
+                  <div className="guide-filters" style={{ marginTop: 10 }}>
+                    <Select value={brand} onChange={(e) => setBrand(e.target.value)} aria-label="Marca"><option value="">Todas as marcas</option>{brands.map((b) => <option key={b.brand} value={b.brand}>{b.brand} ({b.total})</option>)}</Select>
+                  </div>
+                  <div className="chips" role="group" aria-label="Tipo de veículo" style={{ marginTop: 10 }}>
+                    {QUICK.map((q) => <button key={q.key} type="button" className="chip" aria-pressed={quick === q.key} onClick={() => setQuick(q.key)}>{q.label}</button>)}
+                  </div>
+                </details>
               </>
             ) : <PlateSearch authed={status === 'authed'} />}
           </div>
@@ -98,18 +118,47 @@ export function GuideHome() {
 
       <section className="section" style={{ paddingTop: 8 }}>
         <div className="container stack-lg">
-          {mode === 'model' && (
-            <div className="stack">
-              {!loading && !error && <p className="muted" aria-live="polite">{total ? `${total} ${total === 1 ? 'veículo' : 'veículos'}${filtersOn ? ' encontrados' : ' no guia'}. O guia cresce a cada semana: ainda não temos todos os modelos do mercado.` : ''}</p>}
+          {mode === 'model' && filtersOn && (
+            <div className="stack" aria-live="polite">
               {error != null && <ErrorState error={error} onRetry={() => void load(0)} />}
-              {loading && !items.length && <div className="guide-grid"><Skeleton h={170} r={20} /><Skeleton h={170} r={20} /><Skeleton h={170} r={20} /><Skeleton h={170} r={20} /></div>}
-              {!loading && !error && !items.length && (
-                <EmptyState icon="car" title={filtersOn ? 'Nenhum veículo com esses filtros' : 'O guia está sendo montado'}>
-                  {filtersOn ? 'Tente outro nome ou limpe os filtros.' : 'Em breve teremos as primeiras fichas por aqui. Enquanto isso, consulte o valor FIPE ou a situação de um veículo pela placa.'}
+              {loading && !items.length && <div className="guide-grid"><Skeleton h={170} r={20} /><Skeleton h={170} r={20} /><Skeleton h={170} r={20} /></div>}
+              {items.length > 0 && (
+                <>
+                  <div className="between"><h2 style={{ fontSize: 22 }}>Fichas no guia <span className="muted" style={{ fontSize: 15, fontWeight: 500 }}>({total})</span></h2><Button size="sm" onClick={() => { setSearch(''); setBrand(''); setQuick(''); }}>Limpar busca</Button></div>
+                  <div className="guide-grid">{items.map((m) => <ModelCard key={m.slug} m={m} />)}</div>
+                  {items.length < total && <div style={{ textAlign: 'center' }}><Button loading={loading} onClick={() => void load(items.length)}>Ver mais fichas</Button></div>}
+                </>
+              )}
+              {fleetHits.length > 0 && (
+                <div className="card card-pad stack">
+                  <div><span className="eyebrow">Frota brasileira</span><h2 style={{ fontSize: 22, marginTop: 6 }}>Outros veículos que combinam com a busca</h2>
+                    <p className="muted" style={{ margin: '4px 0 0' }}>Ainda sem ficha no guia. Você já pode ver o tamanho da frota, simular o financiamento ou consultar a placa. Dados do Senatran, com o nome como o órgão cadastra.</p></div>
+                  <ul className="crow-list">{fleetHits.map((h) => <CatalogRow key={h.id} hit={h} onPick={() => logInterest({ type: 'SEARCH_PICK', catalogId: h.id })} />)}</ul>
+                </div>
+              )}
+              {nothing && (
+                <EmptyState icon="car" title="Nenhum veículo encontrado">
+                  {brand || quick ? 'Tente outro nome ou limpe os filtros.' : 'Confira a grafia, tente só a marca ou só o modelo. Anotamos as buscas sem resultado para ampliar o guia.'}
                 </EmptyState>
               )}
-              {items.length > 0 && <div className="guide-grid">{items.map((m) => <ModelCard key={m.slug} m={m} />)}</div>}
-              {items.length < total && <div style={{ textAlign: 'center' }}><Button loading={loading} onClick={() => void load(items.length)}>Ver mais veículos</Button></div>}
+            </div>
+          )}
+
+          {mode === 'model' && !filtersOn && (
+            <div className="stack">
+              {featured === null && <div className="featured-grid"><Skeleton h={280} r={20} /><Skeleton h={280} r={20} /><Skeleton h={280} r={20} /></div>}
+              {featured && activeList && (
+                <>
+                  <div className="between featured-head">
+                    <div><span className="eyebrow">Para começar</span><h2 style={{ marginTop: 6 }}>{activeList.label}</h2></div>
+                    {featured.length > 1 && <Tabs label="Critério dos destaques" value={tab} onChange={setTab} items={featured.map((l) => ({ id: l.key, label: l.label }))} />}
+                  </div>
+                  <p className="muted" style={{ margin: 0 }}>{activeList.note}</p>
+                  <div className="featured-grid">{activeList.items.map((m, i) => <FeaturedCard key={m.slug} m={m} rank={activeList.key === 'FROTA' ? undefined : i + 1} />)}</div>
+                  <p className="muted" style={{ fontSize: 13.5, margin: 0 }}>Não achou o seu? Digite o nome na busca acima: pesquisamos em toda a frota brasileira, não só nos modelos em destaque.</p>
+                </>
+              )}
+              {featured && !featured.length && <EmptyState icon="car" title="O guia está sendo montado">Use a busca acima para encontrar qualquer veículo da frota, ou consulte o valor FIPE e a situação pela placa.</EmptyState>}
             </div>
           )}
 
@@ -144,7 +193,7 @@ export function GuideHome() {
             </div>
           )}
 
-          {tipList.length > 0 && (
+          {tipList.length > 0 && !filtersOn && (
             <div className="stack" id="dicas">
               <div><span className="eyebrow">Dicas e cuidados</span><h2 style={{ marginTop: 6 }}>Cuide bem do seu veículo</h2></div>
               {tipCats.length > 1 && (
@@ -160,6 +209,7 @@ export function GuideHome() {
           <div className="card card-pad stack" id="fontes">
             <div><span className="eyebrow">Transparência</span><h2 style={{ fontSize: 22, marginTop: 6 }}>De onde vêm os números</h2></div>
             <div className="trust-grid">
+              <div><b>Frota</b><p className="muted">Dados públicos do Senatran (frota por marca/modelo e ano de fabricação). O nome aparece como o órgão cadastra, sem ajustes nossos. Não é ano-modelo.</p></div>
               <div><b>Consumo</b><p className="muted">Tabela oficial do Inmetro (PBE Veicular) e catálogos de fabricantes. Cada valor mostra a fonte, o ciclo e a data da conferência. Quando as fontes divergem, mostramos as duas.</p></div>
               <div><b>Ficha técnica</b><p className="muted">Fichas de referência de fabricantes. O que a fonte não informa fica em branco: nós não estimamos nem preenchemos por média.</p></div>
               <div><b>Opiniões</b><p className="muted">Escritas por donos com conta, uma por pessoa por modelo, revisadas pela equipe antes de aparecer. Não copiamos notas de outros sites.</p></div>
@@ -173,6 +223,64 @@ export function GuideHome() {
         </div>
       </section>
     </>
+  );
+}
+
+/* ========================================================================== */
+/*  /veiculos/frota/:id — veículo do catálogo da frota (sem ficha ainda)        */
+/* ========================================================================== */
+export function CatalogVehiclePage() {
+  const { id } = useParams();
+  const [data, setData] = useState<CatalogDetail | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  useEffect(() => {
+    setData(null); setError(null);
+    api.get<CatalogDetail>(`/vehicles/catalog/${encodeURIComponent(String(id))}`).then(setData, setError);
+  }, [id]);
+  usePageTitle(data ? `${data.name}: frota e anos de fabricação` : 'Veículo da frota');
+  if (error) return <section className="section"><div className="container"><ErrorState error={error} /></div></section>;
+  if (!data) return <PageLoading />;
+  const maxQ = Math.max(1, ...data.years.map((y) => y.quantity));
+  const shown = data.years.slice(0, 30);
+  const sim = `/simulador?${new URLSearchParams({ n: data.name.slice(0, 80) }).toString()}`;
+  return (
+    <section className="section">
+      <div className="container stack-lg" style={{ maxWidth: 880 }}>
+        <Link to="/veiculos" className="back-link"><Icon name="arrow-left" size={16} /> Voltar ao guia</Link>
+        <div className="stack">
+          <span className="eyebrow">Frota brasileira · Senatran {snapshotLabel(data.snapshot)}</span>
+          <h1 style={{ fontSize: 'clamp(26px, 5vw, 38px)' }}>{data.name}</h1>
+          <p className="muted" style={{ margin: 0 }}>Este é o nome como consta no cadastro da frota. O Senatran não separa marca, modelo e versão, então não ajustamos o texto.</p>
+        </div>
+        <div className="catalog-stats">
+          <div className="card card-pad"><span className="muted">Veículos na frota</span><b>{fleetLong(data.fleet)}</b><small>Todos os anos de fabricação somados</small></div>
+          <div className="card card-pad"><span className="muted">Anos de fabricação</span><b>{fabYears(data.yearMin, data.yearMax)}</b><small>Ano em que o veículo foi fabricado, não o ano-modelo</small></div>
+        </div>
+        {shown.length > 0 && (
+          <div className="card card-pad stack">
+            <h2 style={{ fontSize: 20 }}>Quantos há por ano de fabricação</h2>
+            <ul className="year-bars" aria-label="Frota por ano de fabricação">
+              {shown.map((y) => (
+                <li key={y.year}><span>{y.year}</span><span className="bar" aria-hidden="true"><i style={{ width: `${Math.max(2, (y.quantity / maxQ) * 100)}%` }} /></span><b>{fleetLong(y.quantity)}</b></li>
+              ))}
+            </ul>
+            {data.years.length > shown.length && <p className="muted" style={{ fontSize: 13, margin: 0 }}>Mostrando os {shown.length} anos mais recentes de {data.years.length}.</p>}
+            {data.withoutYear > 0 && <p className="muted" style={{ fontSize: 13, margin: 0 }}>{fleetLong(data.withoutYear)} {data.withoutYear === 1 ? 'veículo está' : 'veículos estão'} sem ano de fabricação informado no cadastro.</p>}
+          </div>
+        )}
+        <div className="card card-pad stack">
+          <h2 style={{ fontSize: 20 }}>O que fazer com este veículo</h2>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <LinkButton to={sim} variant="primary" iconRight="arrow-right" onClick={() => logInterest({ type: 'SEARCH_PICK', catalogId: data.id })}>Simular o financiamento</LinkButton>
+            <LinkButton to="/consultar">Consultar uma placa</LinkButton>
+            <LinkButton to="/fipe">Ver valor FIPE</LinkButton>
+            {data.guide && <LinkButton to={`/veiculos/${data.guide.slug}`}>Ver a ficha de {data.guide.brand} {data.guide.name}</LinkButton>}
+          </div>
+          {!data.guide && <p className="muted" style={{ margin: 0 }}>A ficha técnica deste veículo ainda não está no guia. Ela entra conforme conferimos as fontes oficiais.</p>}
+        </div>
+        {data.source && <p className="muted" style={{ fontSize: 13 }}>Fonte: {data.source.name}, snapshot {snapshotLabel(data.snapshot)}. Licença: {data.source.license}.</p>}
+      </div>
+    </section>
   );
 }
 
@@ -244,6 +352,7 @@ export function GuideModelPage() {
   // recarrega quando o login muda: o conteúdo completo depende da conta
   useEffect(() => { if (status !== 'loading') void reload(); }, [reload, status]);
   usePageTitle(model ? `${model.brand} ${model.name}` : 'Guia de veículos');
+  useEffect(() => { if (model?.slug) logInterest({ type: 'MODEL_VIEW', modelSlug: model.slug }); }, [model?.slug]);
   useEffect(() => {
     if (!model) return;
     const wanted = params.get('versao');
@@ -263,22 +372,26 @@ export function GuideModelPage() {
         <div className="container">
           <Link to="/veiculos" className="back-link"><Icon name="arrow-left" size={16} /> Guia de veículos</Link>
           <div className="guide-head">
-            <GuideCover imageUrl={model.imageUrl} alt={`${model.brand} ${model.name}`} type={model.vehicleType} />
+            <div className="guide-photo">
+              <GuideCover imageUrl={model.imageUrl} alt={`${model.brand} ${model.name}`} type={model.vehicleType} brand={model.brand} name={model.name} />
+              {model.imageUrl && model.imageCredit && <p className="photo-note">Foto: {model.imageSourceUrl ? <a href={model.imageSourceUrl} target="_blank" rel="noopener noreferrer">{model.imageCredit}</a> : model.imageCredit}{model.imageLicense ? ` · ${model.imageLicense}` : ''}</p>}
+            </div>
             <div className="stack-sm">
               <span className="cat-tag">{model.brand}</span>
               <h1 style={{ maxWidth: 'none' }}>{model.name}</h1>
               <p className="muted">{[typeLabel(model.vehicleType), model.bodyType, yearsLabel(model.yearFrom, model.yearTo)].filter(Boolean).join(' · ')}</p>
               <div className="guide-rate big"><Stars value={model.rating.average} size={22} /><b>{ratingText(model.rating.average)}</b><span className="muted">{model.rating.count ? `${model.rating.count} ${model.rating.count === 1 ? 'opinião de dono' : 'opiniões de donos'}` : 'Ainda sem opiniões'}</span></div>
+              {model.fleet && <p className="muted fleet-line" style={{ margin: 0 }}><Icon name="car" size={15} /> <b>{fleetLong(model.fleet.total)}</b> veículos com esse nome na frota brasileira (Senatran, {snapshotLabel(model.fleet.snapshot)}), somando todas as versões e anos de fabricação.</p>}
               {model.summary && <p className="lead" style={{ margin: 0 }}>{model.summary}</p>}
               <div className="row">
                 {authed ? <>
                   <LinkButton to={`/comparar${version ? `?ids=${version.id}` : ''}`} variant="primary" icon="bar-chart">Comparar com outro</LinkButton>
                   <Button icon="star" onClick={() => setEditing(true)}>{model.myOpinion ? 'Editar minha opinião' : 'Deixe sua opinião'}</Button>
-                  <LinkButton to={`/simulador/${simSlug(model)}`} icon="calculator">Simular financiamento</LinkButton>
+                  <LinkButton to={`/simulador/${simSlug(model)}?${new URLSearchParams({ n: `${model.brand} ${model.name}`.slice(0, 80) }).toString()}`} icon="calculator">Simular financiamento</LinkButton>
                 </> : <>
                   <LinkButton to={`/criar-conta?next=${encodeURIComponent(next)}`} variant="primary" icon="lock">Criar conta grátis e ver tudo</LinkButton>
                   <LinkButton to={`/entrar?next=${encodeURIComponent(next)}`}>Entrar</LinkButton>
-                  <LinkButton to={`/simulador/${simSlug(model)}`} icon="calculator">Simular financiamento</LinkButton>
+                  <LinkButton to={`/simulador/${simSlug(model)}?${new URLSearchParams({ n: `${model.brand} ${model.name}`.slice(0, 80) }).toString()}`} icon="calculator">Simular financiamento</LinkButton>
                 </>}
                 <LinkButton to="/fipe" icon="dollar">Valor na FIPE</LinkButton>
               </div>

@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.5.0 — Catálogo completo da frota, 6 destaques com foto e escolha de veículo no simulador
+
+### Adicionado
+
+- **Catálogo da frota brasileira (Senatran, set/2026)** (migrations `023_vehicle_catalog` e `024_vehicle_photos_free_license`): 40.571 nomes de veículos com a frota de cada um (136.424.856 no total) e a quantidade por **ano de fabricação** (não é ano-modelo). O nome fica como o Senatran cadastra; não há separação de marca/modelo/versão nem tipo de veículo, então nada é inferido. Carga embutida em `apps/api/assets/senatran/frota-2026-09.json.gz` (gerada por `scripts/build-senatran-seed.mjs`).
+- **Home do guia refeita**: busca no topo e **no máximo 6 destaques com foto**, sem a lista completa. A lista de destaques usa a presença na frota (Senatran) e os modelos marcados pela equipe. "Mais consultados" e "Mais bem avaliados" só aparecem quando há dado de verdade (20 visitas por modelo em 3 modelos, ou 3 opiniões aprovadas em 3 modelos). No celular os destaques viram carrossel. Ao digitar, aparecem as fichas do guia e, abaixo, "Outros veículos da frota" (ainda sem ficha).
+- **Página de veículo da frota** (`/veiculos/frota/:id`, fora do índice do Google): frota total, anos de fabricação com barras, fonte e licença, links para simular, consultar placa e FIPE.
+- **Simulador com escolha de veículo**: campo com busca na lista do Senatran (teclado e leitor de tela), campo livre se o nome não existir. O nome vai para o PDF. Os botões "Simular financiamento" do guia já abrem com o nome preenchido.
+- **Interesse por veículo** (tabela `vehicle_interest_events`): grava escolha no simulador, escolha na busca, visita à ficha e busca sem resultado, sem conta e sem dado pessoal (só um hash da visita; repetição em 30 min não conta; termos com cara de placa, e-mail ou número longo são descartados).
+- **Fotos com licença livre e crédito** nos 6 destaques de partida (Strada, Onix, HB20, Corolla, Polo, Hilux), do Wikimedia Commons, com autor, licença e link da página de origem exibidos no card e na ficha. Novos campos por modelo: crédito, licença, página de origem, destaque editorial e posição.
+- **Ficha do modelo** mostra a frota brasileira do nome (soma das versões e anos) com a data do snapshot.
+- **Painel › Guia de veículos › Frota e interesse**: resumo do catálogo, importação de snapshot novo (CSV do Senatran, com prévia e bloqueio por erro de linha), ligação por modelo e relatório do que as pessoas escolhem e digitam. Na ficha de cada modelo: foto/crédito, destaque, e regras de ligação com o nome do Senatran (marcas extras, nomes alternativos, palavras excluídas).
+- `ROADMAP-CRESCIMENTO.md`: análise da estratégia de crescimento e funções inteligentes propostas.
+
+### Atenção
+
+- A ligação entre nome do Senatran e modelo do guia é por regra de texto (marca + modelo no início do nome); "Onix Plus" e "Corolla Cross" ficam de fora de "Onix" e "Corolla", por exemplo. Revise no painel quando entrar modelo novo.
+- As fotos são servidas direto do Wikimedia Commons (carregam do navegador do visitante). Para tráfego alto ou foto sem depender de terceiro, troque pela sua própria foto no painel. O crédito é obrigatório nas licenças CC BY e CC BY-SA.
+- "Mais buscados" e "mais confiáveis" não são exibidos como rótulo enquanto não existir dado próprio suficiente.
+
 ## 1.4.0 — Guia de veículos reorganizado, consumo oficial com fonte e ferramentas de combustível
 
 ### Adicionado

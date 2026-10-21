@@ -36,7 +36,7 @@ const pageMeta: Record<string, SeoMeta> = {
 
 /** Páginas públicas indexáveis (entram no sitemap). Telas de conta e do app ficam de fora. */
 export const SITEMAP_PATHS: string[] = Object.keys(pageMeta).filter((p) => !['/entrar', '/criar-conta', '/comparar'].includes(p));
-const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|validar|validar-relatorio|consultar|comparar)(\/|$)/;
+const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|validar|validar-relatorio|consultar|comparar|veiculos\/frota)(\/|$)/;
 
 export interface SeoOverride { title?: string; description?: string; jsonLd?: unknown[] }
 

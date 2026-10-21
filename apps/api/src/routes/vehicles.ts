@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { auth, optionalAuth } from '../auth.js';
 import { appError, asyncRoute } from '../lib/http.js';
+import { hashIp } from '../lib/totpFlow.js';
+import { likeEscape, normalizeCatalog, searchTerms } from '../lib/catalog.js';
 import { RATING_CATEGORIES, SPEC_FIELDS, SPEC_GROUPS, TIP_CATEGORIES, bestIndexes, computeWinners } from '../lib/vehicleSpecs.js';
 
 /**
@@ -99,7 +101,8 @@ publicVehiclesRouter.get('/vehicles', asyncRoute(async (req, res) => {
     LEFT JOIN LATERAL (SELECT v.fuel, v.specs FROM vehicle_versions v WHERE v.model_id=m.id AND v.active ORDER BY v.year_model DESC NULLS LAST, v.display_order, v.name LIMIT 1) fv ON true
     WHERE ${where.join(' AND ')}`;
   const [rows, total] = await Promise.all([
-    pool.query(`SELECT m.slug,m.brand,m.name,m.vehicle_type,m.body_type,m.year_from,m.year_to,m.summary,m.image_url,
+    pool.query(`SELECT m.slug,m.brand,m.name,m.vehicle_type,m.body_type,m.year_from,m.year_to,m.summary,m.image_url,m.image_credit,m.image_license,m.image_source_url,
+        (SELECT sum(c.fleet_total) FROM vehicle_catalog c WHERE c.model_id=m.id)::bigint AS fleet,
         (SELECT count(*) FROM vehicle_versions v WHERE v.model_id=m.id AND v.active)::int AS versions,
         coalesce(r.rating_count,0) AS rating_count, r.rating_avg, fv.fuel AS top_fuel, fv.specs AS top_specs,
         EXISTS (SELECT 1 FROM vehicle_consumption_obs o WHERE o.model_id=m.id AND o.status='CONFERIDO') AS has_official
@@ -112,7 +115,7 @@ publicVehiclesRouter.get('/vehicles', asyncRoute(async (req, res) => {
     total: Number(total.rows[0]?.n ?? 0),
     items: rows.rows.map((m) => ({
       slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
-      summary: m.summary, imageUrl: m.image_url, versions: Number(m.versions), ratingCount: Number(m.rating_count), ratingAverage: num(m.rating_avg),
+      summary: m.summary, imageUrl: m.image_url, imageCredit: m.image_credit ?? null, imageLicense: m.image_license ?? null, imageSourceUrl: m.image_source_url ?? null, fleet: m.fleet === null ? null : Number(m.fleet), versions: Number(m.versions), ratingCount: Number(m.rating_count), ratingAverage: num(m.rating_avg),
       fuel: m.top_fuel ?? null, officialConsumption: Boolean(m.has_official),
       quick: { cityGasKml: num(m.top_specs?.cons_city_gas_kml), cityEthKml: num(m.top_specs?.cons_city_eth_kml), cityDieselKml: num(m.top_specs?.cons_city_diesel_kml), powerHp: num(m.top_specs?.power_hp), trunkL: num(m.top_specs?.trunk_l) }
     }))
@@ -171,6 +174,138 @@ publicVehiclesRouter.get('/vehicles/tips', asyncRoute(async (req, res) => {
   res.json({ tips: r.rows.map((t) => ({ id: t.id, category: t.category, categoryLabel: tipLabel.get(t.category) ?? t.category, title: t.title, body: t.body })) });
 }));
 
+// ---------------------------------------------------------------- catálogo de frota (Senatran) e destaques
+const catalogLimiter = rateLimit({
+  windowMs: 60 * 1000, limit: 90, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'TOO_MANY_ATTEMPTS', message: 'Muitas buscas em pouco tempo. Aguarde um instante e tente de novo.' }
+});
+
+/** Busca no catálogo: cada palavra digitada precisa começar uma palavra do nome; vence a maior frota. */
+publicVehiclesRouter.get('/vehicles/catalog/search', catalogLimiter, asyncRoute(async (req, res) => {
+  const text = typeof req.query.q === 'string' ? req.query.q.slice(0, 80) : '';
+  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 20);
+  const terms = text.trim().length >= 2 ? searchTerms(text) : [];
+  const snap = await pool.query(`SELECT snapshot,names,fleet_total FROM vehicle_catalog_snapshots ORDER BY snapshot DESC LIMIT 1`);
+  const snapshot = snap.rows[0] ? { id: String(snap.rows[0].snapshot), names: Number(snap.rows[0].names), fleet: Number(snap.rows[0].fleet_total) } : null;
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  if (!terms.length) return res.json({ snapshot, items: [] });
+  const params: unknown[] = [];
+  const where = terms.map((t) => { params.push(`${likeEscape(t)}%`, `% ${likeEscape(t)}%`); return `(c.search_text LIKE $${params.length - 1} OR c.search_text LIKE $${params.length})`; });
+  const r = await pool.query(`SELECT c.id,c.raw_name,c.fleet_total,c.year_min,c.year_max,c.snapshot,m.slug,m.brand,m.name AS model_name,m.vehicle_type
+    FROM vehicle_catalog c LEFT JOIN vehicle_models m ON m.id=c.model_id AND m.status='PUBLISHED' AND m.archived_at IS NULL
+    WHERE ${where.join(' AND ')} ORDER BY c.fleet_total DESC, c.raw_name LIMIT ${limit}`, params);
+  res.json({
+    snapshot,
+    items: r.rows.map((c) => ({
+      id: Number(c.id), name: c.raw_name, fleet: Number(c.fleet_total), yearMin: c.year_min, yearMax: c.year_max, snapshot: c.snapshot,
+      guide: c.slug ? { slug: c.slug, brand: c.brand, name: c.model_name, vehicleType: c.vehicle_type } : null
+    }))
+  });
+}));
+
+publicVehiclesRouter.get('/vehicles/catalog/:id', catalogLimiter, asyncRoute(async (req, res) => {
+  if (!/^\d{1,12}$/.test(String(req.params.id))) throw bad();
+  const r = await pool.query(`SELECT c.*,m.slug,m.brand,m.name AS model_name FROM vehicle_catalog c LEFT JOIN vehicle_models m ON m.id=c.model_id AND m.status='PUBLISHED' AND m.archived_at IS NULL WHERE c.id=$1`, [req.params.id]);
+  if (!r.rowCount) throw notFound('CATALOG_NOT_FOUND');
+  const c = r.rows[0]!;
+  const info = await pool.query(`SELECT * FROM vehicle_catalog_snapshots WHERE snapshot=$1`, [c.snapshot]);
+  const years = Object.entries((c.years ?? {}) as Record<string, number>).map(([y, q]) => ({ year: Number(y), quantity: Number(q) })).sort((a, b) => b.year - a.year);
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.json({
+    id: Number(c.id), name: c.raw_name, fleet: Number(c.fleet_total), yearMin: c.year_min, yearMax: c.year_max, snapshot: c.snapshot,
+    years: years.filter((y) => y.year > 0), withoutYear: years.find((y) => y.year === 0)?.quantity ?? 0,
+    source: info.rows[0] ? { name: info.rows[0].source_name, license: info.rows[0].license, names: Number(info.rows[0].names), fleet: Number(info.rows[0].fleet_total) } : null,
+    guide: c.slug ? { slug: c.slug, brand: c.brand, name: c.model_name } : null
+  });
+}));
+
+/** Limiares para só mostrar "mais consultados" e "mais bem avaliados" quando existe dado suficiente de verdade. */
+export const FEATURED_RULES = { viewsDays: 30, minViewsPerModel: 20, minModels: 3, minOpinionsPerModel: 3 } as const;
+
+/**
+ * Destaques da home do guia (no máximo 6 por lista). Três critérios, todos reais:
+ *  - FROTA: soma da frota dos nomes do Senatran ligados ao modelo (sempre existe quando o catálogo está carregado);
+ *  - CONSULTADOS: visitas à ficha nos últimos 30 dias (só aparece com volume mínimo);
+ *  - AVALIADOS: nota média de opiniões APROVADAS (só aparece com opiniões mínimas em modelos suficientes).
+ * Modelos marcados como destaque editorial no painel vêm primeiro na lista FROTA ("Em destaque").
+ */
+publicVehiclesRouter.get('/vehicles/featured', asyncRoute(async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 6, 1), 6);
+  const rows = await pool.query(`SELECT m.id,m.slug,m.brand,m.name,m.vehicle_type,m.body_type,m.summary,m.image_url,m.image_credit,m.image_license,m.image_source_url,m.featured,m.featured_order,
+      (SELECT sum(c.fleet_total) FROM vehicle_catalog c WHERE c.model_id=m.id)::bigint AS fleet,
+      (SELECT count(*) FROM vehicle_interest_events e WHERE e.model_id=m.id AND e.event_type='MODEL_VIEW' AND e.created_at > now() - interval '${FEATURED_RULES.viewsDays} days')::int AS views,
+      r.rating_count, r.rating_avg,
+      EXISTS (SELECT 1 FROM vehicle_consumption_obs o WHERE o.model_id=m.id AND o.status='CONFERIDO') AS has_official,
+      (SELECT fv.fuel FROM vehicle_versions fv WHERE fv.model_id=m.id AND fv.active ORDER BY fv.year_model DESC NULLS LAST, fv.display_order, fv.name LIMIT 1) AS fuel
+    FROM vehicle_models m
+    LEFT JOIN (SELECT model_id, count(*)::int AS rating_count, round(avg(rating)::numeric,1) AS rating_avg FROM vehicle_opinions WHERE status='APPROVED' GROUP BY model_id) r ON r.model_id=m.id
+    WHERE ${PUBLISHED}`);
+  const snap = await pool.query(`SELECT snapshot FROM vehicle_catalog_snapshots ORDER BY snapshot DESC LIMIT 1`);
+  const card = (m: Record<string, any>) => ({
+    slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, summary: m.summary, imageUrl: m.image_url,
+    imageCredit: m.image_credit ?? null, imageLicense: m.image_license ?? null, imageSourceUrl: m.image_source_url ?? null,
+    fleet: m.fleet === null ? null : Number(m.fleet), views: Number(m.views), ratingCount: Number(m.rating_count ?? 0), ratingAverage: num(m.rating_avg),
+    officialConsumption: Boolean(m.has_official), fuel: m.fuel ?? null, editorial: Boolean(m.featured)
+  });
+  const all = rows.rows as Array<Record<string, any>>;
+  const byFleet = all.filter((m) => m.fleet !== null || m.featured).sort((a, b) => {
+    if (a.featured !== b.featured) return a.featured ? -1 : 1;
+    if (a.featured && b.featured) return (a.featured_order ?? 999) - (b.featured_order ?? 999);
+    return Number(b.fleet ?? 0) - Number(a.fleet ?? 0) || String(a.name).localeCompare(String(b.name));
+  });
+  const viewed = all.filter((m) => Number(m.views) >= FEATURED_RULES.minViewsPerModel).sort((a, b) => Number(b.views) - Number(a.views));
+  const rated = all.filter((m) => Number(m.rating_count ?? 0) >= FEATURED_RULES.minOpinionsPerModel)
+    .sort((a, b) => Number(b.rating_avg) - Number(a.rating_avg) || Number(b.rating_count) - Number(a.rating_count));
+  const lists = [
+    { key: 'FROTA', label: 'Em destaque', note: snap.rows[0] ? `Ordem pela presença na frota brasileira (Senatran, ${String(snap.rows[0].snapshot).split('-').reverse().join('/')}), com os marcados pela equipe primeiro.` : 'Modelos escolhidos pela equipe.', items: byFleet.slice(0, limit).map(card) },
+    ...(viewed.length >= FEATURED_RULES.minModels ? [{ key: 'CONSULTADOS', label: 'Mais consultados', note: `Fichas mais abertas nos últimos ${FEATURED_RULES.viewsDays} dias.`, items: viewed.slice(0, limit).map(card) }] : []),
+    ...(rated.length >= FEATURED_RULES.minModels ? [{ key: 'AVALIADOS', label: 'Mais bem avaliados', note: `Nota média das opiniões de donos aprovadas (mínimo de ${FEATURED_RULES.minOpinionsPerModel} por modelo).`, items: rated.slice(0, limit).map(card) }] : [])
+  ].filter((l) => l.items.length);
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  res.json({ lists });
+}));
+
+const interestSchema = z.object({
+  type: z.enum(['SIMULATOR_PICK', 'SEARCH_PICK', 'MODEL_VIEW', 'SEARCH_NO_RESULT']),
+  catalogId: z.number().int().positive().max(2_000_000_000).optional(),
+  modelSlug: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).max(90).optional(),
+  term: z.string().trim().max(60).optional(),
+  sessionId: z.string().regex(/^[a-zA-Z0-9-]{16,80}$/)
+}).strict();
+
+/**
+ * Registra interesse por veículo (sem conta, sem dado pessoal): escolha no simulador, escolha na busca, visita à ficha
+ * e buscas sem resultado. Serve para saber o que as pessoas procuram. Termos com cara de placa, e-mail ou número longo são descartados.
+ */
+publicVehiclesRouter.post('/vehicles/interest', rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false, message: { error: 'TOO_MANY_ATTEMPTS', message: 'Muitos registros em pouco tempo.' } }), asyncRoute(async (req, res) => {
+  const p = interestSchema.safeParse(req.body);
+  if (!p.success) throw bad();
+  const d = p.data;
+  const session = hashIp(d.sessionId);
+  let catalogId: number | null = null; let modelId: string | null = null; let term: string | null = null;
+  if (d.type === 'MODEL_VIEW') {
+    if (!d.modelSlug) throw bad();
+    const m = await pool.query(`SELECT m.id FROM vehicle_models m WHERE m.slug=$1 AND ${PUBLISHED}`, [d.modelSlug]);
+    if (!m.rowCount) return res.status(202).json({ accepted: false });
+    modelId = String(m.rows[0].id);
+  } else if (d.type === 'SEARCH_NO_RESULT') {
+    const t = normalizeCatalog(d.term ?? '');
+    const looksPersonal = /\d{4,}/.test(t) || /[a-z]{3} ?\d ?[a-z0-9] ?\d{2}/.test(t) || /@/.test(d.term ?? '') || t.length < 3;
+    if (looksPersonal) return res.status(202).json({ accepted: false });
+    term = t.slice(0, 60);
+  } else {
+    if (!d.catalogId) throw bad();
+    const c = await pool.query(`SELECT c.id,c.model_id FROM vehicle_catalog c WHERE c.id=$1`, [d.catalogId]);
+    if (!c.rowCount) return res.status(202).json({ accepted: false });
+    catalogId = Number(c.rows[0].id); modelId = c.rows[0].model_id ? String(c.rows[0].model_id) : null;
+  }
+  // Mesma pessoa repetindo o mesmo gesto em seguida não conta duas vezes.
+  const dup = await pool.query(`SELECT 1 FROM vehicle_interest_events WHERE session_key=$1 AND event_type=$2 AND coalesce(catalog_id,0)=coalesce($3::bigint,0)
+      AND coalesce(model_id::text,'')=coalesce($4::text,'') AND coalesce(term,'')=coalesce($5::text,'') AND created_at > now() - interval '30 minutes' LIMIT 1`, [session, d.type, catalogId, modelId, term]);
+  if (!dup.rowCount) await pool.query(`INSERT INTO vehicle_interest_events(event_type,catalog_id,model_id,term,session_key) VALUES($1,$2,$3,$4,$5)`, [d.type, catalogId, modelId, term, session]);
+  res.status(202).json({ accepted: true });
+}));
+
 // ---------------------------------------------------------------- comparador (exige conta)
 publicVehiclesRouter.get('/vehicles/compare', auth, asyncRoute(async (req, res) => {
   const ids = String(req.query.ids ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -223,8 +358,10 @@ publicVehiclesRouter.get('/vehicles/:slug', optionalAuth, asyncRoute(async (req,
     fuel: o.fuel, cityKml: num(o.city_kml), roadKml: num(o.road_kml), cycle: o.cycle, sourceKind: o.source_kind, sourceName: o.source_name, sourceUrl: o.source_url,
     collectedAt: o.collected_at instanceof Date ? o.collected_at.toISOString().slice(0, 10) : String(o.collected_at).slice(0, 10), note: o.note
   }));
+  const fl = await pool.query(`SELECT sum(fleet_total)::bigint AS total, count(*)::int AS names, max(snapshot) AS snapshot FROM vehicle_catalog WHERE model_id=$1`, [m.id]);
+  const fleet = fl.rows[0] && fl.rows[0].total !== null ? { total: Number(fl.rows[0].total), names: Number(fl.rows[0].names), snapshot: String(fl.rows[0].snapshot) } : null;
   const base = {
-    consumption,
+    consumption, fleet, imageCredit: m.image_credit ?? null, imageLicense: m.image_license ?? null, imageSourceUrl: m.image_source_url ?? null,
     slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
     summary: m.summary, imageUrl: m.image_url, specSource: m.spec_source ?? null, updatedAt: m.updated_at, rating: summaries.get(String(m.id)) ?? emptySummary(), locked: !unlocked
   };
