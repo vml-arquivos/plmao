@@ -13,7 +13,7 @@ export interface ScheduleRow { n: number; dueDate: string; installmentCents: num
 export interface SimResult {
   modality: 'CDC' | 'LEASING'; vehicleValueCents: number; downPaymentCents: number; downPaymentPct: number; loanNetCents: number;
   fees: FeeLine[]; feesTotalCents: number; iofCents: number; principalCents: number; months: number; monthlyRatePct: number; annualRatePct: number;
-  installmentCents: number; residualCents: number; installmentsTotalCents: number; totalPaidCents: number; totalCostCents: number; interestCents: number;
+  amortization?: 'PRICE' | 'SAC'; installmentCents: number; firstInstallmentCents?: number; lastInstallmentCents?: number; residualCents: number; installmentsTotalCents: number; totalPaidCents: number; totalCostCents: number; interestCents: number;
   costOverVehiclePct: number; cetMonthlyPct: number; cetAnnualPct: number; firstInstallmentDays: number; schedule: ScheduleRow[];
 }
 export interface RateInfo { pct: number; custom: boolean; note: string | null }
@@ -40,7 +40,7 @@ export interface SimConfig {
 export interface SimState {
   kind: Kind; modality: Modality; person: Person; condition: Condition;
   value: number; down: number; months: number;
-  customRate: string; residual: number; financeFees: boolean; grace: number;
+  customRate: string; residual: number; financeFees: boolean; grace: number; amortization: 'PRICE' | 'SAC';
   fees: { cadastro: number | null; avaliacao: number | null; registro: number | null; insurance: number | null };
   label: string; notes: string;
 }
@@ -63,7 +63,7 @@ const DEFAULTS: Record<Kind, { value: number; down: number; months: number; pers
 
 export function defaultState(kind: Kind): SimState {
   const d = DEFAULTS[kind];
-  return { kind, modality: 'BOTH', person: d.person, condition: kind === 'TRUCK' ? 'NEW' : 'USED', value: d.value, down: d.down, months: d.months, customRate: '', residual: 20, financeFees: true, grace: 30, fees: { cadastro: null, avaliacao: null, registro: null, insurance: null }, label: '', notes: '' };
+  return { kind, modality: 'BOTH', person: d.person, condition: kind === 'TRUCK' ? 'NEW' : 'USED', value: d.value, down: d.down, months: d.months, customRate: '', residual: 20, financeFees: true, grace: 30, amortization: 'PRICE', fees: { cadastro: null, avaliacao: null, registro: null, insurance: null }, label: '', notes: '' };
 }
 
 const num = (v: string | null): number | null => { if (v == null || v === '') return null; const n = Number(v.replace(',', '.')); return Number.isFinite(n) ? n : null; };
@@ -81,6 +81,7 @@ export function stateFromParams(kind: Kind, p: URLSearchParams): SimState {
   const res = num(p.get('res')); if (res !== null && res >= 0 && res <= 60) s.residual = res;
   const g = num(p.get('g')); if (g && g >= 30 && g <= 120) s.grace = Math.round(g);
   if (p.get('ff') === '0') s.financeFees = false;
+  if (p.get('am') === 'sac') s.amortization = 'SAC';
   const label = p.get('n'); if (label) s.label = label.slice(0, 80);
   return s;
 }
@@ -95,6 +96,7 @@ export function paramsFromState(s: SimState): Record<string, string> {
   if (s.modality !== 'CDC' && s.residual !== 20) out.res = String(s.residual);
   if (s.grace !== 30) out.g = String(s.grace);
   if (!s.financeFees) out.ff = '0';
+  if (s.amortization === 'SAC') out.am = 'sac';
   if (s.label) out.n = s.label;
   return out;
 }
@@ -109,7 +111,7 @@ export function toBody(s: SimState): Record<string, unknown> {
   return {
     modality: s.modality, personType: s.person, vehicleKind: s.kind, condition: s.condition,
     vehicleValueCents: Math.round(s.value * 100), downPaymentCents: Math.round(s.down * 100), months: s.months,
-    ratePct: rate && rate > 0 ? rate : null, residualPct: s.residual, financeFees: s.financeFees, firstInstallmentDays: s.grace,
+    ratePct: rate && rate > 0 ? rate : null, residualPct: s.residual, amortization: s.amortization, financeFees: s.financeFees, firstInstallmentDays: s.grace,
     vehicleLabel: s.label.trim(), notes: s.notes.trim(), fees
   };
 }

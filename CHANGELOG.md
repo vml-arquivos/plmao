@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.8.0 — Comparativo CDC x leasing com primeira e última parcela, parcelas decrescentes e perguntas e respostas
+
+### Adicionado
+
+- **Simulador**: o quadro lado a lado mostra taxa, **primeira parcela, última parcela**, valor residual do leasing, total pago, custo do crédito e CET, com a diferença em cada linha. Abaixo, "Por que a parcela é diferente?" explica o motivo com os valores da simulação (no leasing, parte do valor fica para o final como residual).
+- **Tipo de parcela**: fixas (padrão, tabela Price) ou **decrescentes** (SAC: a primeira é a mais alta e a parcela cai todo mês). Campo `amortization` (`PRICE` | `SAC`) em `/simulator/calculate` e `/simulator/pdf`; parâmetro `am=sac` na URL; botão "Ver com parcelas decrescentes" no quadro. Resultados novos: `firstInstallmentCents`, `lastInstallmentCents`, `amortization`. O CET é calculado sobre as parcelas reais de cada mês.
+- **Ícone "i"** (passar o mouse, tocar ou focar) explicando CDC, leasing e parcelas fixas/decrescentes, no quadro, nos cartões de resultado e no formulário. Componente `InfoTip`.
+- **Perguntas e respostas** sobre diferença entre CDC e leasing, por que a parcela do leasing é menor, parcelas fixas ou decrescentes, qual é mais vantajoso, atraso, inadimplência e venda do veículo. Aparecem no simulador e no FAQ do site (migration `025_financing_faqs`, categoria "Financiamento", sem duplicar se rodar de novo).
+- PDF: primeira e última parcela quando decrescente, e a frase do motivo da diferença no quadro CDC x leasing.
+
+### Atenção
+
+- Nada muda nas simulações existentes: sem `amortization`, o cálculo é o mesmo de antes (parcelas fixas).
+- Os textos de atraso e inadimplência são informativos e gerais; as regras exatas estão no contrato de cada instituição.
+
 ## 1.7.0 — Senha de 8 caracteres, 2FA opcional, campo único de veículo e CDC x leasing lado a lado
 
 ### Alterado

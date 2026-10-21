@@ -44,6 +44,47 @@ export function IconButton({ icon, label, ...rest }: ButtonHTMLAttributes<HTMLBu
   return <button type="button" className="icon-btn" aria-label={label} title={label} {...rest}><Icon name={icon} /></button>;
 }
 
+/* ---------- Dica com ícone "i" (passa o mouse, toca ou foca) ---------- */
+export function InfoTip({ label, children }: { label: string; children: ReactNode }) {
+  const id = useId();
+  const btn = useRef<HTMLButtonElement>(null);
+  const [hover, setHover] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const open = hover || pinned;
+  useEffect(() => {
+    if (!open || !btn.current) { setPos(null); return; }
+    const r = btn.current.getBoundingClientRect();
+    const w = Math.min(300, window.innerWidth - 24);
+    setPos({ top: r.bottom + 8, left: Math.max(12, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 12)) });
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => { setHover(false); setPinned(false); };
+    const away = (e: Event) => { if (!btn.current?.contains(e.target as Node)) close(); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', key);
+    const t0 = Date.now();
+    const onScroll = () => { if (Date.now() - t0 > 500) close(); };
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', close);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', key); window.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', close); };
+  }, [open]);
+  return (
+    <span className="infotip">
+      <button
+        ref={btn} type="button" className="infotip-btn" aria-label={label} aria-expanded={open} aria-describedby={open ? id : undefined}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPinned((v) => !v); }}
+        onPointerEnter={(e) => { if (e.pointerType === 'mouse') setHover(true); }}
+        onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHover(false); }}
+        onFocus={() => setHover(true)} onBlur={() => setHover(false)}
+      >i</button>
+      {open && pos && <span id={id} role="tooltip" className="infotip-pop" style={{ top: pos.top, left: pos.left }}>{children}</span>}
+    </span>
+  );
+}
+
 /* ---------- Campos ---------- */
 export function Field({ label, hint, error, children, className }: { label: string; hint?: ReactNode; error?: string; children: ReactNode; className?: string }) {
   return (

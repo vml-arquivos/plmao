@@ -22,6 +22,8 @@ export const simulationBody = z.object({
   /** taxa mensal própria (ex.: a da proposta do banco), em % ao mês */
   ratePct: z.number().min(0).max(100).nullish(),
   residualPct: z.number().min(0).max(100).default(20),
+  /** PRICE: parcelas fixas. SAC: parcelas decrescentes. */
+  amortization: z.enum(['PRICE', 'SAC']).default('PRICE'),
   financeFees: z.boolean().default(true),
   /** dias até a 1ª parcela (30 = padrão; mais que isso é carência, com juros capitalizados) */
   firstInstallmentDays: z.number().int().min(30).max(120).default(30),
@@ -75,6 +77,7 @@ function toInput(body: SimulationBody, modality: Modality, settings: FinancingSe
       monthlyRatePct: pct,
       residualPct: isLeasing ? body.residualPct : 0,
       financeFees: body.financeFees,
+      amortization: body.amortization,
       firstInstallmentDays: body.firstInstallmentDays,
       iof: settings.iof,
       fees: {

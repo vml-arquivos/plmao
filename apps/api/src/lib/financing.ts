@@ -2,7 +2,7 @@
  * Simulador de financiamento de veículos (CDC e leasing).
  *
  * Premissas (todas mostradas ao cliente na tela e no PDF):
- * - Tabela Price (parcelas fixas), taxa efetiva mensal, primeira parcela em 30 dias.
+ * - Tabela Price (parcelas fixas, padrão) ou SAC (amortização constante: parcelas decrescentes), taxa efetiva mensal, primeira parcela em 30 dias.
  * - IOF de crédito calculado por parcela: alíquota diária × dias (limitado a 365 dias) sobre cada amortização
  *   + alíquota adicional sobre o principal. O IOF é financiado junto (cálculo "por dentro").
  * - Tarifas (cadastro, avaliação do bem, registro do contrato) entram no financiamento ou são pagas à vista.
@@ -12,6 +12,7 @@
  */
 
 export type Modality = 'CDC' | 'LEASING';
+export type Amortization = 'PRICE' | 'SAC';
 export type PersonType = 'PF' | 'PJ';
 export type VehicleKind = 'CAR' | 'MOTORCYCLE' | 'TRUCK' | 'UTILITY';
 export type VehicleCondition = 'NEW' | 'USED';
@@ -36,6 +37,8 @@ export interface FinancingInput {
   financeFees: boolean;
   firstInstallmentDays: number;
   iof: IofRates;
+  /** PRICE: parcelas fixas (padrão). SAC: a parcela começa maior e diminui a cada mês. */
+  amortization?: Amortization;
   /** data de contratação (para os vencimentos); padrão: hoje */
   startDate?: Date;
 }
@@ -60,7 +63,11 @@ export interface FinancingResult {
   months: number;
   monthlyRatePct: number;
   annualRatePct: number;
+  amortization: Amortization;
+  /** primeira parcela (nas parcelas fixas, é o valor de todas) */
   installmentCents: number;
+  firstInstallmentCents: number;
+  lastInstallmentCents: number;
   residualCents: number;
   installmentsTotalCents: number;
   /** tudo que sai do bolso se ficar com o veículo: entrada + à vista + parcelas + residual */
@@ -101,18 +108,23 @@ function pmt(principal: number, i: number, n: number, residual: number): number 
   return ((principal - pvResidual) * i) / (1 - Math.pow(1 + i, -n));
 }
 
-interface RawSchedule { pmt: number; rows: Array<{ interest: number; principal: number; balance: number }> }
-function rawSchedule(principal: number, i: number, n: number, residual: number): RawSchedule {
-  const p = pmt(principal, i, n, residual);
+interface RawSchedule { pmt: number; rows: Array<{ payment: number; interest: number; principal: number; balance: number }> }
+/** PRICE: parcela fixa. SAC: amortização constante (principal − residual) / n e juros sobre o saldo, então a parcela cai todo mês. */
+function rawSchedule(principal: number, i: number, n: number, residual: number, amortization: Amortization = 'PRICE'): RawSchedule {
+  const fixed = pmt(principal, i, n, residual);
+  const flat = (principal - residual) / n;
   const rows: RawSchedule['rows'] = [];
   let balance = principal;
+  let first = fixed;
   for (let k = 1; k <= n; k++) {
     const interest = balance * i;
-    const amort = p - interest;
+    const payment = amortization === 'SAC' ? flat + interest : fixed;
+    const amort = payment - interest;
+    if (k === 1) first = payment;
     balance -= amort;
-    rows.push({ interest, principal: amort, balance: k === n ? residual : balance });
+    rows.push({ payment, interest, principal: amort, balance: k === n ? residual : balance });
   }
-  return { pmt: p, rows };
+  return { pmt: first, rows };
 }
 
 /** IOF de crédito: alíquota diária (máx. capDays) sobre cada amortização + adicional sobre o principal. */
@@ -129,11 +141,12 @@ export function computeIof(principal: number, sched: RawSchedule, residual: numb
   return iof;
 }
 
-/** Resolve a taxa r (mensal, fração) tal que liberado = Σ parcela/(1+r)^t + residual/(1+r)^t_n. */
-export function solveCet(released: number, payment: number, months: number, residual: number, firstDays: number): number {
+/** Resolve a taxa r (mensal, fração) tal que liberado = Σ parcela/(1+r)^t + residual/(1+r)^t_n. `payment` pode ser um valor fixo ou a lista de parcelas. */
+export function solveCet(released: number, payment: number | number[], months: number, residual: number, firstDays: number): number {
+  const list = Array.isArray(payment) ? payment : Array.from({ length: months }, () => payment);
   const npv = (r: number) => {
     let v = 0;
-    for (let k = 1; k <= months; k++) v += payment / Math.pow(1 + r, (firstDays + 30 * (k - 1)) / 30);
+    for (let k = 1; k <= months; k++) v += (list[k - 1] ?? 0) / Math.pow(1 + r, (firstDays + 30 * (k - 1)) / 30);
     if (residual > 0) v += residual / Math.pow(1 + r, (firstDays + 30 * (months - 1)) / 30);
     return v;
   };
@@ -176,6 +189,7 @@ export function simulate(input: FinancingInput): FinancingResult {
   const isLeasing = input.modality === 'LEASING';
   const i = input.monthlyRatePct / 100;
   const n = input.months;
+  const amortization: Amortization = input.amortization === 'SAC' ? 'SAC' : 'PRICE';
   const loanNet = input.vehicleValueCents - input.downPaymentCents;
   const residual = isLeasing ? roundCents(input.vehicleValueCents * input.residualPct / 100) : 0;
 
@@ -196,16 +210,15 @@ export function simulate(input: FinancingInput): FinancingResult {
   let principal = loanNet + feesFinanced;
   let iof = 0;
   for (let it = 0; it < 60; it++) {
-    const sched = rawSchedule(principal * growth, i, n, residual);
+    const sched = rawSchedule(principal * growth, i, n, residual, amortization);
     sched.rows.forEach((row) => { row.principal /= growth; });
     iof = computeIof(principal, sched, residual, input.firstInstallmentDays, dailyPct, input.iof.additionalPct, input.iof.capDays);
     const next = loanNet + feesFinanced + iof;
     if (Math.abs(next - principal) < 0.001) { principal = next; break; }
     principal = next;
   }
-  const finalSched = rawSchedule(principal * growth, i, n, residual);
+  const finalSched = rawSchedule(principal * growth, i, n, residual, amortization);
   const carencyInterest = principal * (growth - 1);
-  const installment = roundCents(finalSched.pmt);
 
   const start = input.startDate ?? new Date();
   const schedule: ScheduleRow[] = finalSched.rows.map((row, idx) => {
@@ -213,20 +226,23 @@ export function simulate(input: FinancingInput): FinancingResult {
     return {
       n: idx + 1,
       dueDate: due.toISOString().slice(0, 10),
-      installmentCents: installment,
+      installmentCents: roundCents(row.payment),
       interestCents: roundCents(row.interest + (idx === 0 ? carencyInterest : 0)),
       principalCents: roundCents(idx === 0 ? row.principal - carencyInterest : row.principal),
       balanceCents: Math.max(0, roundCents(row.balance))
     };
   });
 
-  const installmentsTotal = installment * n;
+  const payments = schedule.map((r) => r.installmentCents);
+  const installment = payments[0] ?? 0;
+  const lastInstallment = payments[payments.length - 1] ?? 0;
+  const installmentsTotal = payments.reduce((a, b) => a + b, 0);
   const totalPaid = input.downPaymentCents + feesUpfront + installmentsTotal + residual;
   const totalCost = totalPaid - input.vehicleValueCents;
   const iofRounded = roundCents(iof);
   const interest = Math.max(0, roundCents(installmentsTotal + residual - principal));
   const firstInstallmentDays = input.firstInstallmentDays;
-  const cet = solveCet(loanNet - feesUpfront, installment, n, residual, input.firstInstallmentDays);
+  const cet = solveCet(loanNet - feesUpfront, payments, n, residual, input.firstInstallmentDays);
 
   return {
     modality: input.modality,
@@ -243,7 +259,10 @@ export function simulate(input: FinancingInput): FinancingResult {
     months: n,
     monthlyRatePct: input.monthlyRatePct,
     annualRatePct: round2(annualFromMonthly(input.monthlyRatePct)),
+    amortization,
     installmentCents: installment,
+    firstInstallmentCents: installment,
+    lastInstallmentCents: lastInstallment,
     residualCents: residual,
     installmentsTotalCents: installmentsTotal,
     totalPaidCents: totalPaid,

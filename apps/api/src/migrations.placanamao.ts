@@ -3,7 +3,7 @@ import { SEED_SOURCE, VEHICLE_SEED } from './data/vehicleSeed.js';
 import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL, INMETRO_NAME, INMETRO_PBEV_2024_URL, COLLECTED_AT, type ConsumptionSeed } from './data/consumptionSeed.js';
 import { VEHICLE_PHOTOS, photoPage, photoUrl } from './data/vehiclePhotos.js';
 import { readBundledSnapshot, upsertCatalog, rematchCatalog } from './lib/catalog.js';
-import { SEED_ARTICLES, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
+import { FINANCING_FAQS, SEED_ARTICLES, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
 
 /**
  * Migrações do produto Placa na Mão (010+): configurações de pagamento, comissões/repasses,
@@ -876,6 +876,18 @@ export const placaMigrations: Migration[] = [
           `UPDATE vehicle_models SET image_url=$2, image_credit=$3, image_license=$4, image_source_url=$5 WHERE slug=$1 AND image_url IS NULL`,
           [p.slug, photoUrl(p.file), p.credit, p.license, photoPage(p.file)]
         );
+      }
+    }
+  },
+  {
+    id: '025_financing_faqs',
+    name: 'Perguntas e respostas sobre CDC x leasing, atraso e inadimplência',
+    up: async (client) => {
+      const max = await client.query('SELECT coalesce(max(display_order),0) AS m FROM faqs');
+      let order = Number(max.rows[0].m) + 10;
+      for (const f of FINANCING_FAQS) {
+        const r = await client.query('INSERT INTO faqs(category,question,answer,display_order) SELECT $1,$2,$3,$4 WHERE NOT EXISTS (SELECT 1 FROM faqs WHERE question=$2)', [f.category, f.question, f.answer, order]);
+        if (r.rowCount) order += 10;
       }
     }
   }

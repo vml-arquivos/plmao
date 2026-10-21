@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
-import { Alert, Badge, Button, Field, LinkButton, Select, Skeleton, Switch, Textarea, useToast, usePageTitle } from '../../shared/ui';
+import { Alert, Badge, Button, Field, InfoTip, LinkButton, Select, Skeleton, Switch, Textarea, useToast, usePageTitle } from '../../shared/ui';
 import { api } from '../api';
 import { FipePicker } from '../fipePicker';
 import { errorMessage } from '../../shared/api';
@@ -14,6 +14,12 @@ import {
 const PRAZOS = [12, 24, 36, 48, 60, 72, 84];
 const ENTRADAS = [0, 10, 20, 30, 40, 50];
 
+const TIP_CDC = <><b>CDC</b>O banco empresta o valor e o veículo fica no seu nome, com o banco como garantidor (alienação fiduciária) até a última parcela. Você paga só as parcelas; ao quitar, o veículo é seu e não há mais nada a pagar.</>;
+const TIP_LEASING = <><b>Leasing</b>A arrendadora compra o veículo e você o usa pagando parcelas; ele fica no nome dela. Parte do valor fica para o final (valor residual), por isso a parcela é menor. No fim, você paga o residual para ficar com o veículo.</>;
+const TIP_PARCELAS = <><b>Fixas ou decrescentes</b>Fixas: o mesmo valor do primeiro ao último mês (o mais comum). Decrescentes: a primeira é a mais alta e a parcela cai todo mês. Costuma custar menos no total, mas pede mais no começo.</>;
+const firstOf = (r: SimResult) => r.firstInstallmentCents ?? r.installmentCents;
+const lastOf = (r: SimResult) => r.lastInstallmentCents ?? r.installmentCents;
+
 /* ========================================================================== */
 /*  Resultado                                                                  */
 /* ========================================================================== */
@@ -23,13 +29,13 @@ function ResultCard({ r, rate, month, best, title }: { r: SimResult; rate?: Rate
   return (
     <article className={`sim-result card ${best ? 'best' : ''}`} aria-label={title}>
       <header className="between">
-        <h3>{title}</h3>
+        <h3>{title}<InfoTip label={`O que é ${r.modality === 'CDC' ? 'CDC' : 'leasing'}`}>{r.modality === 'CDC' ? TIP_CDC : TIP_LEASING}</InfoTip></h3>
         {best && <Badge tone="ok" dot>Menor custo total</Badge>}
       </header>
       <div className="sim-hero-num">
-        <span className="lbl">Parcela mensal estimada</span>
-        <strong>{brl(r.installmentCents)}</strong>
-        <small>{r.months} parcelas fixas{r.residualCents ? ` + residual de ${brl(r.residualCents)} no final (opcional)` : ''}</small>
+        <span className="lbl">{r.amortization === 'SAC' ? 'Primeira parcela' : 'Parcela mensal estimada'}</span>
+        <strong>{brl(firstOf(r))}</strong>
+        <small>{r.amortization === 'SAC' ? `cai todo mês até ${brl(lastOf(r))} na última · ${r.months} parcelas` : `${r.months} parcelas fixas`}{r.residualCents ? ` + residual de ${brl(r.residualCents)} no final (opcional)` : ''}</small>
       </div>
       <div className="sim-stats">
         <div><span>Total pago ao final</span><b>{brl(r.totalPaidCents)}</b></div>
@@ -61,15 +67,30 @@ function ResultCard({ r, rate, month, best, title }: { r: SimResult; rate?: Rate
   );
 }
 
-function Versus({ cdc, leasing }: { cdc: SimResult; leasing: SimResult }) {
+function Versus({ cdc, leasing, onAmortization }: { cdc: SimResult; leasing: SimResult; onAmortization: (a: 'PRICE' | 'SAC') => void }) {
   const win = cdc.totalPaidCents <= leasing.totalPaidCents ? 'CDC' : 'Leasing';
-  const rows: Array<{ label: string; c: number; l: number; fmt: (n: number) => string }> = [
-    { label: 'Parcela mensal', c: cdc.installmentCents, l: leasing.installmentCents, fmt: brl },
-    { label: 'Total pago', c: cdc.totalPaidCents, l: leasing.totalPaidCents, fmt: brl },
-    { label: 'Custo do crédito', c: cdc.totalCostCents, l: leasing.totalCostCents, fmt: brl },
-    { label: 'CET ao ano', c: cdc.cetAnnualPct, l: leasing.cetAnnualPct, fmt: (n) => pct(n) }
+  const sac = cdc.amortization === 'SAC';
+  type Row = { label: string; c: number; l: number; fmt: (n: number) => string; best?: boolean; plain?: boolean };
+  const money = (n: number) => (n > 0 ? brl(n) : '—');
+  const rows: Row[] = [
+    { label: 'Taxa de juros', c: cdc.monthlyRatePct, l: leasing.monthlyRatePct, fmt: (n) => `${pct(n)} a.m.`, plain: true },
+    { label: 'Primeira parcela', c: firstOf(cdc), l: firstOf(leasing), fmt: brl, best: true },
+    { label: 'Última parcela', c: lastOf(cdc), l: lastOf(leasing), fmt: brl, best: true },
+    { label: 'Residual no final (opcional)', c: cdc.residualCents, l: leasing.residualCents, fmt: money, plain: true },
+    { label: 'Total pago', c: cdc.totalPaidCents, l: leasing.totalPaidCents, fmt: brl, best: true },
+    { label: 'Custo do crédito', c: cdc.totalCostCents, l: leasing.totalCostCents, fmt: brl, best: true },
+    { label: 'CET ao ano', c: cdc.cetAnnualPct, l: leasing.cetAnnualPct, fmt: (n) => pct(n), best: true }
   ];
-  const cell = (c: number, l: number, fmt: (n: number) => string, who: 'c' | 'l') => <td className={(who === 'c' ? c < l : l < c) ? 'win' : ''}>{fmt(who === 'c' ? c : l)}</td>;
+  const cls = (r: Row, who: 'c' | 'l') => (r.best && (who === 'c' ? r.c < r.l : r.l < r.c) ? 'win' : '');
+  const diffFirst = firstOf(cdc) - firstOf(leasing);
+  const resPct = Math.round(leasing.residualCents / leasing.vehicleValueCents * 100);
+  const why: string[] = [];
+  if (leasing.residualCents > 0 && diffFirst > 0) why.push(`A primeira parcela do leasing é ${brl(diffFirst)} menor porque ${resPct}% do valor do veículo (${brl(leasing.residualCents)}) fica para o final. Se quiser ficar com o veículo, você paga esse valor de uma vez no fim.`);
+  else if (leasing.residualCents > 0) why.push(`Neste cenário a parcela do leasing não ficou menor${leasing.monthlyRatePct > cdc.monthlyRatePct ? `: a taxa dele (${pct(leasing.monthlyRatePct)} a.m.) é maior que a do CDC (${pct(cdc.monthlyRatePct)} a.m.) e pesa mais que o residual de ${brl(leasing.residualCents)}` : ''}.`);
+  else why.push('Sem valor residual, a diferença entre as parcelas vem só da taxa e das tarifas.');
+  why.push(sac
+    ? `Parcelas decrescentes: todo mês você amortiza o mesmo valor do principal e os juros caem junto com o saldo. No CDC a parcela vai de ${brl(firstOf(cdc))} a ${brl(lastOf(cdc))}; no leasing, de ${brl(firstOf(leasing))} a ${brl(lastOf(leasing))}.`
+    : 'Parcelas fixas: o valor é o mesmo do primeiro ao último mês, no CDC e no leasing.');
   return (
     <section className="card card-pad stack sim-vs" aria-label="CDC e leasing lado a lado">
       <div className="sim-vs-verdict">
@@ -78,26 +99,41 @@ function Versus({ cdc, leasing }: { cdc: SimResult; leasing: SimResult }) {
         <span>{brl(Math.abs(cdc.totalPaidCents - leasing.totalPaidCents))} a menos</span>
       </div>
       <table>
-        <thead><tr><th scope="col"><span className="sr-only">Item</span></th><th scope="col">CDC</th><th scope="col">Leasing</th><th scope="col">Diferença</th></tr></thead>
+        <thead><tr>
+          <th scope="col"><span className="sr-only">Item</span></th>
+          <th scope="col">CDC<InfoTip label="O que é CDC">{TIP_CDC}</InfoTip></th>
+          <th scope="col">Leasing<InfoTip label="O que é leasing">{TIP_LEASING}</InfoTip></th>
+          <th scope="col" className="diff">Diferença</th>
+        </tr></thead>
         <tbody>
           {rows.map((r) => {
             const d = r.l - r.c;
+            const hide = r.label.startsWith('Residual') || (r.label.startsWith('Residual') && r.c === 0);
+            const gap = hide ? null : Math.abs(d) < 0.005 ? 'igual' : (
+              <>{r.label.startsWith('Taxa') ? pct(Math.abs(d)) : r.fmt(Math.abs(d))}<small>{d < 0 ? 'menor no leasing' : 'menor no CDC'}</small></>
+            );
             return (
               <tr key={r.label}>
-                <th scope="row">{r.label}</th>
-                {cell(r.c, r.l, r.fmt, 'c')}{cell(r.c, r.l, r.fmt, 'l')}
-                <td className="diff">{Math.abs(d) < 0.005 ? 'igual' : <>{r.fmt(Math.abs(d))}<small>{d < 0 ? 'menor no leasing' : 'menor no CDC'}</small></>}</td>
+                <th scope="row">{r.label}{gap && <span className="diff-m">{gap}</span>}</th>
+                <td className={cls(r, 'c')}>{r.fmt(r.c)}</td>
+                <td className={cls(r, 'l')}>{r.fmt(r.l)}</td>
+                <td className="diff">{gap}</td>
               </tr>
             );
           })}
         </tbody>
       </table>
+      <div className="sim-why">
+        <h4>Por que a parcela é diferente?</h4>
+        {why.map((t) => <p key={t}>{t}</p>)}
+        <button type="button" className="link-btn" onClick={() => onAmortization(sac ? 'PRICE' : 'SAC')}>{sac ? 'Voltar para parcelas fixas' : 'Ver com parcelas decrescentes'}</button>
+      </div>
       {leasing.residualCents > 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}>No leasing, o total inclui o valor residual de {brl(leasing.residualCents)} para ficar com o veículo.</p>}
     </section>
   );
 }
 
-function Results({ data, loading, error, state }: { data: CalcResponse | null; loading: boolean; error: string | null; state: SimState }) {
+function Results({ data, loading, error, onAmortization }: { data: CalcResponse | null; loading: boolean; error: string | null; onAmortization: (a: 'PRICE' | 'SAC') => void }) {
   if (error && !data) return <Alert tone="warn" icon="alert-triangle" title="Confira os dados">{error}</Alert>;
   if (!data) return <div className="stack"><Skeleton h={120} r={16} /><Skeleton h={260} r={16} /></div>;
   const { cdc, leasing } = data.results;
@@ -108,7 +144,7 @@ function Results({ data, loading, error, state }: { data: CalcResponse | null; l
       {error && <Alert tone="warn" icon="alert-triangle">{error}</Alert>}
       {data.errors.leasing && <Alert tone="warn" icon="info" title="Leasing não disponível neste cenário">{data.errors.leasing}</Alert>}
       {data.errors.cdc && <Alert tone="warn" icon="info" title="CDC não disponível neste cenário">{data.errors.cdc}</Alert>}
-      {both && <Versus cdc={cdc!} leasing={leasing!} />}
+      {both && <Versus cdc={cdc!} leasing={leasing!} onAmortization={onAmortization} />}
       <div className={both ? 'sim-two' : undefined}>
         {cdc && <ResultCard r={cdc} rate={data.rates.cdc} month={data.referenceMonth} title="Financiamento CDC" best={cheaper === 'cdc'} />}
         {leasing && <ResultCard r={leasing} rate={data.rates.leasing} month={data.referenceMonth} title="Leasing" best={cheaper === 'leasing'} />}
@@ -218,7 +254,7 @@ export default function Simulator() {
                   <button key={k} type="button" role="radio" aria-checked={state.modality === k} onClick={() => setState((s) => ({ ...s, modality: k, months: setMonthsFor(k, s.months) }))}>{l}</button>
                 ))}
               </div>
-              <span className="hint">{state.modality === 'CDC' ? 'CDC: o veículo fica alienado ao banco até quitar.' : state.modality === 'LEASING' ? 'Leasing: parcelas menores e valor residual no final, se quiser ficar com o veículo.' : 'Vamos calcular os dois cenários lado a lado.'}</span>
+              <span className="hint">O que é cada um: CDC<InfoTip label="O que é CDC">{TIP_CDC}</InfoTip> Leasing<InfoTip label="O que é leasing">{TIP_LEASING}</InfoTip></span>
             </div>
 
             <div className="grid-2">
@@ -252,6 +288,13 @@ export default function Simulator() {
               </div>
               {state.modality !== 'CDC' && <span className="hint">Leasing: prazo de 24 a 60 meses.</span>}
             </Field>
+
+            <div className="field">
+              <span className="lbl">Tipo de parcela<InfoTip label="Parcelas fixas ou decrescentes">{TIP_PARCELAS}</InfoTip></span>
+              <div className="seg" role="radiogroup" aria-label="Tipo de parcela">
+                {([['PRICE', 'Fixas'], ['SAC', 'Decrescentes']] as const).map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={state.amortization === k} onClick={() => set('amortization', k)}>{l}</button>)}
+              </div>
+            </div>
 
             {state.modality !== 'CDC' && (
               <Field label={`Valor residual (VRG): ${state.residual}% do veículo`} hint="Pago no final somente se você quiser ficar com o veículo. Quanto maior, menor a parcela.">
@@ -302,7 +345,7 @@ export default function Simulator() {
           </form>
 
           <div className="stack-lg sim-side">
-            <Results data={calc.data} loading={calc.loading} error={calc.error} state={state} />
+            <Results data={calc.data} loading={calc.loading} error={calc.error} onAmortization={(a) => set('amortization', a)} />
 
             <div className="card card-pad sim-actions">
               {status === 'authed' ? (
@@ -334,15 +377,21 @@ export default function Simulator() {
 function HowItWorks({ cfg }: { cfg: SimConfig | null }) {
   const iof = cfg?.iof;
   const items = useMemo(() => [
+    { q: "Qual a diferença entre CDC e leasing?", a: "No CDC o banco empresta o valor e o veículo fica no seu nome, com alienação fiduciária (o banco mantém a garantia) até a última parcela. Ao quitar, ele é seu. No leasing a arrendadora compra o veículo e o disponibiliza para você; ele fica no nome dela e, no fim do contrato, você paga o valor residual para ficar com ele." },
+    { q: "Por que a parcela do leasing costuma ser menor?", a: "Porque parte do valor do veículo (o valor residual) fica para o final em vez de entrar nas parcelas. Você paga menos por mês, mas, se quiser ficar com o veículo, paga esse valor de uma vez. Compare sempre o total pago e o CET, não só a parcela." },
+    { q: "A parcela é sempre a mesma do começo ao fim?", a: "Na maioria dos contratos de veículo, sim (parcelas fixas, tabela Price). Em alguns, as parcelas são decrescentes (SAC): a primeira é a mais alta e a última a mais baixa, porque todo mês você amortiza o mesmo valor e os juros caem junto com o saldo. O total de juros costuma ser menor, mas o começo pesa mais no orçamento. No simulador, escolha em “Tipo de parcela”." },
+    { q: "Qual é o mais vantajoso: CDC ou leasing?", a: "Depende do que pesa mais para você. No custo, compare o total pago e o CET (no leasing, inclua o residual se for ficar com o veículo). No orçamento mensal, a parcela menor do leasing ajuda, mas deixa um valor grande para o final. Na segurança e na continuidade do pagamento, veja as respostas sobre atraso e sobre vender o veículo." },
+    { q: "O que acontece se eu atrasar as parcelas?", a: "Em qualquer financiamento, o atraso gera multa, juros de mora e correção, e o nome pode ser negativado. No CDC, o veículo é a garantia: se a dívida não for regularizada depois da notificação, o banco pode pedir a busca e apreensão e vender o veículo para abater a dívida. Se sobrar valor, ele volta para você; se faltar, a diferença continua sendo cobrada. No leasing, o veículo é da arrendadora, que pode rescindir o contrato e pedir a reintegração de posse. O que já foi pago e o que ainda é devido seguem o contrato." },
+    { q: "E se eu não conseguir continuar pagando?", a: "Procure o banco antes de atrasar. Renegociar o prazo ou vender o veículo para quitar costuma custar menos do que a retomada. Nos dois tipos, você pode antecipar parcelas ou quitar antes, com redução proporcional dos juros (Código de Defesa do Consumidor, art. 52, § 2º)." },
+    { q: "Posso vender ou trocar o veículo antes de terminar de pagar?", a: "No CDC, só quitando a dívida ou com a autorização do banco, porque há alienação fiduciária. No leasing, o veículo é da arrendadora até você exercer a compra no final. Nos dois casos, combine com a instituição antes de anunciar." },
     { q: 'De onde vêm as taxas?', a: `Usamos a taxa média mensal de juros de aquisição de veículos divulgada pelo Banco Central do Brasil${cfg ? ` (referência ${monthRef(cfg.referenceMonth)})` : ''}. É uma média de mercado: a sua taxa pode ser menor ou maior conforme perfil, entrada, prazo e instituição. Se você já tem uma proposta, informe a taxa dela.` },
     { q: 'Como o IOF é calculado?', a: iof ? `Para pessoa física, ${String(iof.pfDailyPct).replace('.', ',')}% ao dia sobre cada parcela do principal (limitado a ${iof.capDays} dias) mais ${String(iof.additionalPct).replace('.', ',')}% sobre o valor. Para empresas, ${String(iof.pjDailyPct).replace('.', ',')}% ao dia. O IOF é financiado junto com o veículo, por isso entra no valor das parcelas.` : 'Calculamos o IOF de crédito por parcela, com limite de 365 dias, e financiamos junto com o veículo.' },
     { q: 'O que é o CET?', a: 'Custo Efetivo Total: a taxa que reúne juros, IOF, tarifas e seguros. É o número certo para comparar propostas. Peça sempre o CET no contrato.' },
     { q: 'Quais tarifas entram?', a: 'Cadastro, avaliação do bem (usados) e registro do contrato/gravame, com valores de referência que você pode ajustar. Os valores reais variam por banco e estado: confirme na proposta.' },
-    { q: 'CDC ou leasing?', a: 'No CDC o veículo é seu e fica alienado ao banco até quitar. No leasing o veículo fica em nome da arrendadora e, no fim, você paga o valor residual se quiser ficar com ele. Para pessoa física o leasing de veículos é pouco ofertado hoje.' }
   ], [cfg, iof]);
   return (
     <section className="card card-pad stack" aria-labelledby="how-h">
-      <h3 id="how-h">Como calculamos</h3>
+      <h3 id="how-h">Perguntas e respostas</h3>
       {items.map((i) => <details key={i.q} className="faq-item"><summary>{i.q}</summary><p className="muted">{i.a}</p></details>)}
       <p className="muted" style={{ fontSize: 13 }}>Simulação informativa. Não é proposta nem oferta de crédito. A Placa na Mão não é instituição financeira. <Link to="/consultar">Consulte a placa</Link> do veículo antes de fechar negócio.</p>
     </section>

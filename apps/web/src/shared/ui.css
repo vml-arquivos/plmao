@@ -171,3 +171,11 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; min-width
 .copy-field .input { font-family: var(--font-mono); font-size: 14px; }
 
 @media print { .no-print { display: none !important; } }
+
+/* Dica com ícone "i" */
+.infotip { display: inline-flex; vertical-align: middle; margin-left: 6px; }
+.infotip-btn { width: 20px; height: 20px; min-width: 20px; padding: 0; border-radius: 50%; border: 1.5px solid var(--primary, #1f6feb); background: transparent; color: var(--primary, #1f6feb); font: 700 12px/1 var(--font-display, inherit); font-style: italic; cursor: pointer; display: inline-grid; place-items: center; text-transform: none; letter-spacing: 0; }
+.infotip-btn:hover, .infotip-btn[aria-expanded="true"] { background: var(--primary, #1f6feb); color: #fff; }
+.infotip-btn:focus-visible { outline: 2px solid var(--primary, #1f6feb); outline-offset: 2px; }
+.infotip-pop { position: fixed; z-index: 1000; width: min(300px, calc(100vw - 24px)); padding: 12px 14px; border-radius: 12px; background: var(--surface, #fff); color: var(--text, #111); border: 1px solid var(--border, #d0d7de); box-shadow: 0 10px 30px rgba(0,0,0,.18); font: 400 13.5px/1.45 var(--font-body, inherit); font-style: normal; text-transform: none; letter-spacing: 0; text-align: left; }
+.infotip-pop b { display: block; margin-bottom: 4px; font-family: var(--font-display, inherit); }

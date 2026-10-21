@@ -215,7 +215,9 @@ function modalityBlock(d: Doc, out: SimulationOutput, r: FinancingResult, meta: 
   d.ensure(330);
   sectionTitle(d, many ? MODALITY_NAME[r.modality] : 'Resultado da simulação', many ? undefined : MODALITY_NAME[r.modality]);
   tiles(d, [
-    { label: 'Parcela mensal', value: brlFromCents(r.installmentCents), sub: r.residualCents ? `${r.months} parcelas + residual ${brlFromCents(r.residualCents)} (opcional)` : `${r.months} parcelas fixas` },
+    r.amortization === 'SAC'
+      ? { label: 'Primeira parcela', value: brlFromCents(r.firstInstallmentCents), sub: `cai até ${brlFromCents(r.lastInstallmentCents)} na última${r.residualCents ? ` + residual ${brlFromCents(r.residualCents)} (opcional)` : ''}` }
+      : { label: 'Parcela mensal', value: brlFromCents(r.installmentCents), sub: r.residualCents ? `${r.months} parcelas + residual ${brlFromCents(r.residualCents)} (opcional)` : `${r.months} parcelas fixas` },
     { label: 'Total pago ao final', value: brlFromCents(r.totalPaidCents), sub: r.residualCents ? 'entrada + parcelas + residual' : 'entrada + parcelas' },
     { label: 'CET', value: `${pct(r.cetAnnualPct)} a.a.`, sub: `${pct(r.cetMonthlyPct)} ao mês` }
   ]);
@@ -307,7 +309,9 @@ export async function renderSimulationPdf(out: SimulationOutput, meta: Simulatio
     sectionTitle(d, 'CDC x Leasing lado a lado');
     const rowsCmp: Array<[string, string, string, boolean?]> = [
       ['Taxa de juros', `${pct(a.monthlyRatePct)} a.m.`, `${pct(b.monthlyRatePct)} a.m.`],
-      ['Parcela mensal', brlFromCents(a.installmentCents), brlFromCents(b.installmentCents), true],
+      ...(a.amortization === 'SAC'
+        ? [['Primeira parcela', brlFromCents(a.firstInstallmentCents), brlFromCents(b.firstInstallmentCents), true] as [string, string, string, boolean], ['Última parcela', brlFromCents(a.lastInstallmentCents), brlFromCents(b.lastInstallmentCents)] as [string, string, string]]
+        : [['Parcela mensal', brlFromCents(a.installmentCents), brlFromCents(b.installmentCents), true] as [string, string, string, boolean]]),
       ['Valor residual no final (opcional)', '—', b.residualCents ? brlFromCents(b.residualCents) : '—'],
       ['IOF', brlFromCents(a.iofCents), brlFromCents(b.iofCents)],
       ['Tarifas e seguros', brlFromCents(a.feesTotalCents), brlFromCents(b.feesTotalCents)],
@@ -337,7 +341,7 @@ export async function renderSimulationPdf(out: SimulationOutput, meta: Simulatio
     const cheaper = a.totalPaidCents <= b.totalPaidCents ? 'CDC' : 'Leasing';
     const diffInstallment = Math.abs(a.installmentCents - b.installmentCents);
     d.y -= 6;
-    const cmpText = diff === 0 ? 'Os dois cenários custam o mesmo no total.' : `Neste cenário, o ${cheaper} sai ${brlFromCents(diff)} mais barato no total (considerando que você fique com o veículo; no leasing, pagando o valor residual). A parcela mensal difere em ${brlFromCents(diffInstallment)}. Condições reais variam por instituição.`;
+    const cmpText = diff === 0 ? 'Os dois cenários custam o mesmo no total.' : `Neste cenário, o ${cheaper} sai ${brlFromCents(diff)} mais barato no total (considerando que você fique com o veículo; no leasing, pagando o valor residual). A parcela mensal difere em ${brlFromCents(diffInstallment)}. ${b.residualCents && b.installmentCents < a.installmentCents ? ' A parcela do leasing é menor porque parte do valor fica para o residual, que só é pago no fim.' : ''} Condições reais variam por instituição.`;
     for (const l of d.wrap(cmpText, d.dm500, 8.5, CW - 8)) { d.text(l, M + 4, d.y - 9, 8.5, d.dm500, C.text); d.y -= 11; }
     d.y -= 14;
     sectionTitle(d, 'Dados em comum');
@@ -361,7 +365,7 @@ export async function renderSimulationPdf(out: SimulationOutput, meta: Simulatio
   sectionTitle(d, 'Como calculamos e o que você precisa saber');
   const notesList = [
     `Taxa: média de mercado do Banco Central do Brasil (${meta.rateSource.replace(/^Banco Central do Brasil \(/, '').replace(/\)$/, '')}), referência ${monthRef(meta.referenceMonth)}, ou a taxa que você informou. A taxa que você receberá depende de análise de crédito, entrada, prazo, idade do veículo e instituição.`,
-    'Parcelas fixas (tabela Price). IOF calculado sobre cada parcela do principal, com limite de 365 dias, mais a alíquota adicional, e financiado junto com o valor. Valores de tarifas e seguros são referências editáveis, não ofertas.',
+    `${out.body.amortization === 'SAC' ? 'Parcelas decrescentes (SAC): a parte do principal é igual todo mês e os juros diminuem, então a parcela cai.' : 'Parcelas fixas (tabela Price).'} IOF calculado sobre cada parcela do principal, com limite de 365 dias, mais a alíquota adicional, e financiado junto com o valor. Valores de tarifas e seguros são referências editáveis, não ofertas.`,
     'CET (Custo Efetivo Total): taxa que iguala o dinheiro liberado a tudo que você paga (parcelas, tarifas à vista e valor residual). Compare propostas pelo CET e peça sempre o contrato com o CET discriminado.',
     'Leasing: o veículo fica em nome da arrendadora até o fim do contrato; no fim você decide se paga o valor residual para ficar com ele. Para pessoa física é uma modalidade pouco ofertada atualmente.',
     'Esta simulação é informativa. Não é proposta, oferta de crédito, promessa de aprovação nem aconselhamento financeiro. A Placa na Mão não é instituição financeira e não concede crédito.'
