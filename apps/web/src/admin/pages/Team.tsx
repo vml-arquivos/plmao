@@ -25,7 +25,7 @@ export default function Team() {
 
   return (
     <>
-      <PageHead title="Equipe e acessos" sub="Pessoas que trabalham no painel. Cada uma entra com e-mail, senha e verificação em duas etapas, e só vê o que o nível de acesso permite."
+      <PageHead title="Equipe e acessos" sub="Pessoas que trabalham no painel. Cada uma entra com e-mail e senha (a verificação em duas etapas é opcional) e só vê o que o nível de acesso permite."
         actions={<Button variant="primary" icon="plus" onClick={() => setCreating(true)}>Novo membro da equipe</Button>} />
       <Tabs label="Equipe" value={tab} onChange={setTab} items={[{ id: 'members', label: 'Membros' }, { id: 'roles', label: 'Níveis de acesso' }]} />
       {tab === 'roles' ? (
@@ -57,7 +57,7 @@ export default function Team() {
       )}
       {creating && roles.data && <MemberForm roles={roles.data.roles} onClose={(created) => {
         setCreating(false);
-        if (created) { team.reload(); if (created.temporaryPassword) setSecret({ title: 'Membro criado', text: `Envie para ${created.email} por um canal seguro. No primeiro acesso a pessoa cadastra o aplicativo de verificação em duas etapas e deve trocar a senha em “Minha conta”.`, value: created.temporaryPassword }); }
+        if (created) { team.reload(); if (created.temporaryPassword) setSecret({ title: 'Membro criado', text: `Envie para ${created.email} por um canal seguro. No primeiro acesso a pessoa deve trocar a senha em “Minha conta”; a verificação em duas etapas é opcional.`, value: created.temporaryPassword }); }
       }} />}
       {edit && roles.data && <MemberForm member={edit} roles={roles.data.roles} onClose={() => { setEdit(null); team.reload(); }}
         onAction={(kind) => { setConfirm({ kind, m: edit }); setEdit(null); }} />}
@@ -66,7 +66,7 @@ export default function Team() {
       {confirm?.kind === 'password' && <ConfirmDialog title="Redefinir senha?" confirmLabel="Gerar nova senha" message={`${confirm.m.name} perde a senha atual e todas as sessões abertas. Uma senha temporária será gerada.`} onConfirm={async () => {
         try { const r = await api.post<{ temporaryPassword: string }>(`/admin/team/${confirm.m.id}/reset-password`); setSecret({ title: 'Nova senha', text: `Envie para ${confirm.m.email} por um canal seguro.`, value: r.temporaryPassword }); } catch (e) { toast.error(errorMessage(e)); throw e; }
       }} onClose={() => setConfirm(null)} />}
-      {confirm?.kind === '2fa' && <ConfirmDialog title="Zerar verificação em duas etapas?" confirmLabel="Zerar" danger message={`${confirm.m.name} terá de cadastrar o aplicativo de verificação de novo no próximo acesso. As sessões abertas são encerradas.`} onConfirm={async () => {
+      {confirm?.kind === '2fa' && <ConfirmDialog title="Zerar verificação em duas etapas?" confirmLabel="Zerar" danger message={`${confirm.m.name} terá a verificação desativada e pode ativar de novo em “Minha conta”. As sessões abertas são encerradas.`} onConfirm={async () => {
         try { await api.post(`/admin/team/${confirm.m.id}/reset-2fa`); toast.ok('Verificação zerada.'); team.reload(); } catch (e) { toast.error(errorMessage(e)); throw e; }
       }} onClose={() => setConfirm(null)} />}
       {confirm?.kind === 'remove' && <ConfirmDialog title="Remover da equipe?" confirmLabel="Remover" danger message={`${confirm.m.name} perde o acesso ao painel imediatamente. O que essa pessoa fez continua registrado na auditoria.`} onConfirm={async () => {
@@ -116,7 +116,7 @@ function MemberForm({ member, roles, onClose, onAction }: {
             <Button size="sm" variant="ghost" icon="smartphone" onClick={() => onAction('2fa')}>Zerar verificação em 2 etapas</Button>
           </div>
         )}
-        {!member && <p className="muted" style={{ fontSize: 13 }}>O sistema gera uma senha temporária que aparece uma única vez. No primeiro acesso a pessoa cadastra a verificação em duas etapas.</p>}
+        {!member && <p className="muted" style={{ fontSize: 13 }}>O sistema gera uma senha temporária que aparece uma única vez. A verificação em duas etapas é opcional.</p>}
       </div>
     </Modal>
   );

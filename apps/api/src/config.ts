@@ -39,7 +39,6 @@ function validateProductionConfig(value: ParsedEnv): void {
   requireProduction(Boolean(value.ADMIN_JWT_SECRET) && (value.ADMIN_JWT_SECRET?.length ?? 0) >= 64 && value.ADMIN_JWT_SECRET !== value.JWT_SECRET && !isExampleValue(value.ADMIN_JWT_SECRET), 'ADMIN_JWT_SECRET_STRONG_AND_DISTINCT_REQUIRED', issues);
   requireProduction(Boolean(value.DATA_ENCRYPTION_KEY) && (value.DATA_ENCRYPTION_KEY?.length ?? 0) >= 32 && !isExampleValue(value.DATA_ENCRYPTION_KEY), 'DATA_ENCRYPTION_KEY_REQUIRED', issues);
   requireProduction(Boolean(value.ADMIN_HOSTS) || isHttpsUrl(value.ADMIN_URL), 'ADMIN_HOSTS_OR_ADMIN_URL_REQUIRED', issues);
-  requireProduction(value.TEAM_TOTP_REQUIRED !== false, 'ADMIN_TOTP_CANNOT_BE_DISABLED', issues);
   requireProduction(value.DATA_PROVIDER !== 'mock', 'DATA_PROVIDER_MOCK_FORBIDDEN', issues);
   requireProduction(value.PAYMENT_PROVIDER !== 'sandbox', 'PAYMENT_PROVIDER_SANDBOX_FORBIDDEN', issues);
   requireProduction(!value.SANDBOX_SEED_ENABLED, 'SANDBOX_SEED_FORBIDDEN', issues);
@@ -66,7 +65,7 @@ function validateProductionConfig(value: ParsedEnv): void {
   }
   if (value.ADMIN_BOOTSTRAP_EMAIL || value.ADMIN_BOOTSTRAP_PASSWORD) {
     requireProduction(Boolean(value.ADMIN_BOOTSTRAP_EMAIL) && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value.ADMIN_BOOTSTRAP_EMAIL ?? ''), 'ADMIN_BOOTSTRAP_EMAIL_INVALID', issues);
-    requireProduction((value.ADMIN_BOOTSTRAP_PASSWORD?.length ?? 0) >= 12 && !isExampleValue(value.ADMIN_BOOTSTRAP_PASSWORD), 'ADMIN_BOOTSTRAP_PASSWORD_MIN_12_CHARS', issues);
+    requireProduction((value.ADMIN_BOOTSTRAP_PASSWORD?.length ?? 0) >= 8 && !isExampleValue(value.ADMIN_BOOTSTRAP_PASSWORD), 'ADMIN_BOOTSTRAP_PASSWORD_MIN_8_CHARS', issues);
   }
   if (value.SUPER_ADMIN_BOOTSTRAP_ENABLED) {
     requireProduction(Boolean(value.SUPER_ADMIN_BOOTSTRAP_EMAIL), 'SUPER_ADMIN_BOOTSTRAP_EMAIL_REQUIRED', issues);
@@ -122,7 +121,7 @@ const envSchema = z.object({
   ADMIN_HOSTS: optionalString,
   ADMIN_ALLOWED_IPS: optionalString,
   // Mantida por compatibilidade de variável; o 2FA de equipe é SEMPRE exigido (valor ignorado).
-  TEAM_TOTP_REQUIRED: booleanFromEnv.default(true),
+  TEAM_TOTP_REQUIRED: booleanFromEnv.default(false),
   // Chave AES-256-GCM (>=32 caracteres) para JSON bruto do provedor e dados sensíveis em repouso.
   DATA_ENCRYPTION_KEY: optionalString,
   // Mascaramento LGPD: documentos e nomes mascarados por padrão.
@@ -183,7 +182,7 @@ const envSchema = z.object({
   SUPER_ADMIN_BOOTSTRAP_EMAIL: optionalString,
 
   // Primeiro administrador criado no startup: só age se ainda NÃO existir nenhum SUPER_ADMIN ativo (idempotente; nunca sobrescreve).
-  // Depois do primeiro acesso, REMOVA ADMIN_BOOTSTRAP_PASSWORD do ambiente. O 2FA é cadastrado no primeiro login.
+  // Depois do primeiro acesso, REMOVA ADMIN_BOOTSTRAP_PASSWORD do ambiente. O 2FA (aplicativo autenticador) é opcional: cada pessoa ativa em "Minha conta". Com TEAM_TOTP_REQUIRED=true ele passa a ser obrigatório.
   ADMIN_BOOTSTRAP_EMAIL: optionalString,
   ADMIN_BOOTSTRAP_PASSWORD: optionalString,
   ADMIN_BOOTSTRAP_NAME: optionalString,

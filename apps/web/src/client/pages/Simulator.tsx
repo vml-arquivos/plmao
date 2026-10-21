@@ -3,13 +3,12 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { Icon } from '../../shared/icons';
 import { Alert, Badge, Button, Field, LinkButton, Select, Skeleton, Switch, Textarea, useToast, usePageTitle } from '../../shared/ui';
 import { api } from '../api';
-import { VehiclePicker } from '../vehiclePicker';
 import { FipePicker } from '../fipePicker';
 import { errorMessage } from '../../shared/api';
 import { useSession } from '../session';
 import {
   CostBar, KindTabs, KINDS, MoneyInput, ScheduleTable, brl, dateBr, defaultState, kindBySlug, kindByKey, monthRef, paramsFromState, pct, reais,
-  stateFromParams, toBody, useCalculation, useSimConfig, type BankOffer, type CalcResponse, type Kind, type Modality, type RateInfo, type SimConfig, type SimResult, type SimState
+  stateFromParams, toBody, useCalculation, useSimConfig, type CalcResponse, type Kind, type Modality, type RateInfo, type SimConfig, type SimResult, type SimState
 } from '../simulator';
 
 const PRAZOS = [12, 24, 36, 48, 60, 72, 84];
@@ -62,38 +61,39 @@ function ResultCard({ r, rate, month, best, title }: { r: SimResult; rate?: Rate
   );
 }
 
-/** Mesma simulação com a taxa de cada banco (média do Banco Central ou informada pela equipe), do menor para o maior CET. */
-function BankCompare({ offers, modality, title }: { offers: BankOffer[]; modality: 'CDC' | 'LEASING'; title: string }) {
-  const list = offers.filter((o) => o.modality === modality);
-  if (!list.length) return null;
-  const best = list[0]!;
-  const period = list.find((o) => o.period)?.period;
+function Versus({ cdc, leasing }: { cdc: SimResult; leasing: SimResult }) {
+  const win = cdc.totalPaidCents <= leasing.totalPaidCents ? 'CDC' : 'Leasing';
+  const rows: Array<{ label: string; c: number; l: number; fmt: (n: number) => string }> = [
+    { label: 'Parcela mensal', c: cdc.installmentCents, l: leasing.installmentCents, fmt: brl },
+    { label: 'Total pago', c: cdc.totalPaidCents, l: leasing.totalPaidCents, fmt: brl },
+    { label: 'Custo do crédito', c: cdc.totalCostCents, l: leasing.totalCostCents, fmt: brl },
+    { label: 'CET ao ano', c: cdc.cetAnnualPct, l: leasing.cetAnnualPct, fmt: (n) => pct(n) }
+  ];
+  const cell = (c: number, l: number, fmt: (n: number) => string, who: 'c' | 'l') => <td className={(who === 'c' ? c < l : l < c) ? 'win' : ''}>{fmt(who === 'c' ? c : l)}</td>;
   return (
-    <div className="card card-pad stack sim-banks">
-      <div className="between"><h3>{title}</h3><span className="muted" style={{ fontSize: 13 }}>Do menor para o maior CET</span></div>
-      <div className="sim-banks-wrap">
-        <table className="sim-banks-table">
-          <thead><tr><th>Banco</th><th>Taxa a.m.</th><th>Parcela</th><th>Total pago</th><th>CET a.a.</th></tr></thead>
-          <tbody>
-            {list.map((o, i) => (
-              <tr key={`${o.id}-${o.modality}`} className={i === 0 && list.length > 1 ? 'best' : undefined}>
-                <td>
-                  <b>{o.name}</b>{i === 0 && list.length > 1 && <span className="sim-best-tag">Menor CET</span>}
-                  <small>{o.rateSource === 'bcb' ? `Média no Banco Central${o.institution ? ` (${o.institution})` : ''}` : 'Condição informada pela equipe'}{o.ownFees ? ' · tarifas do banco' : ''}</small>
-                </td>
-                <td>{pct(o.ratePct)}</td>
-                <td><b>{brl(o.installmentCents)}</b></td>
-                <td>{brl(o.totalPaidCents)}{i > 0 && <small>+{brl(o.totalPaidCents - best.totalPaidCents)}</small>}</td>
-                <td>{pct(o.cetAnnualPct)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <section className="card card-pad stack sim-vs" aria-label="CDC e leasing lado a lado">
+      <div className="sim-vs-verdict">
+        <span className="lbl">Mais vantajoso no total</span>
+        <strong>{win}</strong>
+        <span>{brl(Math.abs(cdc.totalPaidCents - leasing.totalPaidCents))} a menos</span>
       </div>
-      <p className="muted sim-rate-src">
-        São taxas médias{period ? ` (Banco Central, período iniciado em ${dateBr(period)})` : ''}, não ofertas: a taxa que você recebe depende da análise de crédito, da entrada, do prazo e do veículo. Peça a proposta e compare sempre pelo CET.
-      </p>
-    </div>
+      <table>
+        <thead><tr><th scope="col"><span className="sr-only">Item</span></th><th scope="col">CDC</th><th scope="col">Leasing</th><th scope="col">Diferença</th></tr></thead>
+        <tbody>
+          {rows.map((r) => {
+            const d = r.l - r.c;
+            return (
+              <tr key={r.label}>
+                <th scope="row">{r.label}</th>
+                {cell(r.c, r.l, r.fmt, 'c')}{cell(r.c, r.l, r.fmt, 'l')}
+                <td className="diff">{Math.abs(d) < 0.005 ? 'igual' : <>{r.fmt(Math.abs(d))}<small>{d < 0 ? 'menor no leasing' : 'menor no CDC'}</small></>}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {leasing.residualCents > 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}>No leasing, o total inclui o valor residual de {brl(leasing.residualCents)} para ficar com o veículo.</p>}
+    </section>
   );
 }
 
@@ -108,25 +108,11 @@ function Results({ data, loading, error, state }: { data: CalcResponse | null; l
       {error && <Alert tone="warn" icon="alert-triangle">{error}</Alert>}
       {data.errors.leasing && <Alert tone="warn" icon="info" title="Leasing não disponível neste cenário">{data.errors.leasing}</Alert>}
       {data.errors.cdc && <Alert tone="warn" icon="info" title="CDC não disponível neste cenário">{data.errors.cdc}</Alert>}
-      {both && (
-        <div className="sim-compare card card-pad">
-          <div className="between"><h3>CDC x Leasing</h3><span className="muted" style={{ fontSize: 13 }}>{state.person === 'PF' ? 'Pessoa física' : 'Pessoa jurídica'}</span></div>
-          <p>
-            Neste cenário o <b>{cheaper === 'cdc' ? 'CDC' : 'Leasing'}</b> sai <b>{brl(Math.abs(cdc!.totalPaidCents - leasing!.totalPaidCents))}</b> mais barato no total
-            {' '}(no leasing, contando o valor residual de {brl(leasing!.residualCents)} para ficar com o veículo). A parcela do leasing é {brl(Math.abs(cdc!.installmentCents - leasing!.installmentCents))} {leasing!.installmentCents < cdc!.installmentCents ? 'menor' : 'maior'}.
-          </p>
-        </div>
-      )}
+      {both && <Versus cdc={cdc!} leasing={leasing!} />}
       <div className={both ? 'sim-two' : undefined}>
         {cdc && <ResultCard r={cdc} rate={data.rates.cdc} month={data.referenceMonth} title="Financiamento CDC" best={cheaper === 'cdc'} />}
         {leasing && <ResultCard r={leasing} rate={data.rates.leasing} month={data.referenceMonth} title="Leasing" best={cheaper === 'leasing'} />}
       </div>
-      {data.banks && data.banks.length > 0 && (
-        <>
-          {cdc && <BankCompare offers={data.banks} modality="CDC" title={both ? 'Compare os bancos: CDC' : 'Compare os bancos'} />}
-          {leasing && <BankCompare offers={data.banks} modality="LEASING" title={both ? 'Compare os bancos: leasing' : 'Compare os bancos: leasing'} />}
-        </>
-      )}
     </div>
   );
 }
@@ -223,8 +209,7 @@ export default function Simulator() {
         <div className="container sim-layout">
           <form className="card card-pad sim-form" onSubmit={(e) => e.preventDefault()} aria-label="Dados da simulação">
             <KindTabs value={state.kind} onChange={(k) => { nav(`/simulador/${kindByKey(k).slug}${state.label ? `?${new URLSearchParams({ n: state.label }).toString()}` : ''}`, { replace: false }); }} />
-            <VehiclePicker value={state.label} onChange={(v) => set('label', v)} />
-            <FipePicker vehicleType={state.kind === 'MOTORCYCLE' ? 'motorcycles' : state.kind === 'TRUCK' ? 'trucks' : 'cars'} valueCents={state.value * 100} onUseValue={(cents) => set('value', Math.round(cents / 100))} onLabel={(l) => set('label', l)} />
+            <FipePicker vehicleType={state.kind === 'MOTORCYCLE' ? 'motorcycles' : state.kind === 'TRUCK' ? 'trucks' : 'cars'} label={state.label} onLabel={(l) => set('label', l)} onUseValue={(cents) => set('value', Math.round(cents / 100))} />
 
             <div className="field">
               <span className="lbl">Modalidade</span>

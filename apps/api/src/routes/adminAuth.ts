@@ -6,13 +6,13 @@ import { adminAuth, isTeamRole, issueSession, revokeSession, type AuthUser } fro
 import { env } from '../config.js';
 import { pool } from '../db.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
-import { completeTotpEnrollment, completeTotpLogin, startAdminTotpStep } from '../lib/totpFlow.js';
+import { beginTotpSetup, completeTotpEnrollment, completeTotpLogin, disableTotp, enableTotp, startAdminTotpStep } from '../lib/totpFlow.js';
 import { permissionsFor } from '../permissions.js';
 
 const loginSchema = z.object({ email: z.string().trim().email().max(254), password: z.string().min(1).max(128) }).strict();
 const challengeSchema = z.object({ challenge: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/), code: z.string().trim().min(6).max(16) }).strict();
 const enrollSchema = z.object({ challenge: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/), code: z.string().trim().regex(/^\d{6}$/) }).strict();
-const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(12).max(128) }).strict();
+const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(8).max(128) }).strict();
 
 const limiter = rateLimit({ windowMs: env.RATE_LIMIT_WINDOW_MS, limit: env.LOGIN_RATE_LIMIT_MAX, standardHeaders: true, legacyHeaders: false, skip: () => !env.RATE_LIMIT_ENABLED, message: { error: 'TOO_MANY_REQUESTS' } });
 
@@ -39,6 +39,13 @@ adminAuthRouter.post('/login', limiter, asyncRoute(async (req, res) => {
   await pool.query('UPDATE users SET failed_login_attempts=0, locked_until=NULL WHERE id=$1', [user.id]);
   const step = await startAdminTotpStep(user, req.ip ?? 'unknown');
   await audit(user.id, 'ADMIN_LOGIN_PASSWORD_OK', 'USER', user.id, { requestId: requestId(req), step: step.totpRequired });
+  if (step.totpRequired === 'NONE') {
+    // 2FA opcional e desligado nesta conta: a senha basta.
+    await pool.query('UPDATE users SET last_login_at=now() WHERE id=$1', [user.id]);
+    const issued = await issueSession(user, { flow: 'admin_password_login', requestId: requestId(req), totpVerified: false }, 'admin');
+    await audit(user.id, 'ADMIN_LOGIN', 'USER', user.id, { requestId: requestId(req), twoFactor: false });
+    return res.json({ totpRequired: 'NONE', token: issued.token, user, permissions: permissionsFor(user.role) });
+  }
   res.json({ user: { name: user.name, email: user.email }, ...step });
 }));
 
@@ -66,7 +73,34 @@ adminAuthRouter.post('/totp/enroll/confirm', limiter, asyncRoute(async (req, res
 
 adminAuthRouter.get('/me', adminAuth, asyncRoute(async (req, res) => {
   const recovery = await pool.query('SELECT count(*)::int AS remaining FROM team_totp_recovery_codes WHERE user_id=$1 AND used_at IS NULL', [req.user!.id]);
-  res.json({ user: req.user, permissions: permissionsFor(req.user!.role), recoveryCodesRemaining: Number(recovery.rows[0]?.remaining ?? 0) });
+  const totp = await pool.query('SELECT 1 FROM team_totp WHERE user_id=$1 AND enabled_at IS NOT NULL', [req.user!.id]);
+  res.json({ user: req.user, permissions: permissionsFor(req.user!.role), recoveryCodesRemaining: Number(recovery.rows[0]?.remaining ?? 0), totpEnabled: Boolean(totp.rowCount), totpRequired: env.TEAM_TOTP_REQUIRED });
+}));
+
+// 2FA opcional: a própria pessoa liga e desliga o aplicativo autenticador em "Minha conta".
+adminAuthRouter.post('/totp/setup', limiter, adminAuth, asyncRoute(async (req, res) => {
+  const setup = await beginTotpSetup(req.user!);
+  await audit(req.user!.id, 'ADMIN_TOTP_SETUP_STARTED', 'USER', req.user!.id, { requestId: requestId(req) });
+  res.json({ setup });
+}));
+
+adminAuthRouter.post('/totp/enable', limiter, adminAuth, asyncRoute(async (req, res) => {
+  const parsed = z.object({ code: z.string().trim().regex(/^\d{6}$/) }).strict().safeParse(req.body);
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const { recoveryCodes } = await enableTotp(req.user!.id, req.sessionId, parsed.data.code);
+  await audit(req.user!.id, 'ADMIN_TOTP_ENABLED', 'USER', req.user!.id, { requestId: requestId(req) });
+  res.json({ recoveryCodes });
+}));
+
+adminAuthRouter.post('/totp/disable', limiter, adminAuth, asyncRoute(async (req, res) => {
+  const parsed = z.object({ password: z.string().min(1).max(128), code: z.string().trim().min(6).max(16) }).strict().safeParse(req.body);
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  if (env.TEAM_TOTP_REQUIRED) throw appError('TOTP_REQUIRED_BY_POLICY', { code: 'TOTP_REQUIRED_BY_POLICY', http: 403, expose: true });
+  const result = await pool.query('SELECT password_hash FROM users WHERE id=$1 AND active=true', [req.user!.id]);
+  if (!result.rowCount || !(await bcrypt.compare(parsed.data.password, String(result.rows[0].password_hash)))) throw appError('INVALID_CREDENTIALS', { code: 'INVALID_CREDENTIALS', http: 401, expose: true });
+  await disableTotp(req.user!.id, req.sessionId, parsed.data.code);
+  await audit(req.user!.id, 'ADMIN_TOTP_DISABLED', 'USER', req.user!.id, { requestId: requestId(req) });
+  res.status(204).end();
 }));
 
 adminAuthRouter.post('/logout', adminAuth, asyncRoute(async (req, res) => {

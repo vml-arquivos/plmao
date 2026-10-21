@@ -768,12 +768,21 @@
 .vpicker-list li.empty:hover, .vpicker-list li.foot:hover { background: transparent; }
 .vpicker-picked { margin: 8px 0 0; font-size: 13.5px; color: var(--text-2); }
 
-/* Escolha pela Tabela FIPE (simulador) */
-.fipe-pick { display: grid; gap: 14px; padding: 16px; border: 1px dashed var(--border-strong, var(--border)); border-radius: 18px; background: var(--surface-2, var(--surface)); }
-.fipe-pick .field .input-group { margin-bottom: 8px; }
-.fipe-price { display: grid; gap: 4px; padding: 14px 16px; border-radius: 14px; background: var(--primary-soft); border: 1px solid var(--border); }
-.fipe-price-v { font-size: 28px; line-height: 1.15; }
-.fipe-price small { color: var(--text-2); overflow-wrap: anywhere; }
-.fipe-price small.muted { color: var(--muted); }
+/* Escolha do veículo (simulador) */
+.fipe-pick { display: grid; gap: 10px; }
+.fipe-selects { display: grid; gap: 8px; }
+.fipe-price { display: grid; gap: 4px; padding: 12px 14px; border-radius: 14px; background: var(--primary-soft); border: 1px solid var(--border); }
+.fipe-price-v { font-size: 26px; line-height: 1.15; }
 .cmp-cascade { margin-top: 8px; }
 .cmp-cascade .field { margin: 0; }
+
+/* CDC x leasing lado a lado */
+.sim-vs-verdict { display: grid; gap: 2px; padding: 14px 16px; border-radius: 14px; background: var(--primary-soft); }
+.sim-vs-verdict strong { font-size: 28px; line-height: 1.1; }
+.sim-vs table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.sim-vs th, .sim-vs td { padding: 10px 6px; text-align: right; border-top: 1px solid var(--border); font-size: 14.5px; }
+.sim-vs thead th { border-top: 0; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.sim-vs tbody th { text-align: left; font-weight: 500; color: var(--text-2); }
+.sim-vs td.win { font-weight: 700; color: var(--ok, #0a7a4b); }
+.sim-vs td.diff small { display: block; color: var(--muted); font-size: 11.5px; font-weight: 400; }
+@media (max-width: 520px) { .sim-vs th, .sim-vs td { padding: 9px 4px; font-size: 13px; } }

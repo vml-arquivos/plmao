@@ -36,7 +36,7 @@ DATABASE_SSL=false
 JWT_SECRET=<≥64 caracteres>
 ADMIN_JWT_SECRET=<≥64 caracteres, diferente do JWT_SECRET>
 DATA_ENCRYPTION_KEY=<≥32 caracteres; guarde em cofre>
-TEAM_TOTP_REQUIRED=true
+TEAM_TOTP_REQUIRED=false   # true torna o 2FA obrigatório para toda a equipe
 PII_REVEAL_ENABLED=true
 
 DATA_PROVIDER=real
@@ -75,7 +75,7 @@ Para colocar o sistema no ar antes de contratar as APIs, use `DATA_PROVIDER=disa
 **Opção B — pelo terminal:**
 
 1. Abra o terminal da aplicação no Coolify e rode `node apps/api/dist/cli.js admin:create voce@empresa.com.br "Seu Nome"`. A senha provisória aparece **uma única vez**.
-2. Acesse `https://admin.placanamao.com.br`, entre com a senha e cadastre o 2FA (guarde os códigos de recuperação).
+2. Acesse `https://admin.placanamao.com.br`, entre com a senha. Se quiser, ative o 2FA em "Minha conta" (guarde os códigos de recuperação).
 3. Em **Preços**, informe o custo do provedor e os preços de referência de mercado; confira os preços de venda provisórios.
 4. Em **Pagamentos**, confirme Pix e crédito à vista e preencha as alíquotas **validadas pelo seu contador** (o painel exibe aviso fiscal).
 5. Cadastre os webhooks no gateway: `${APP_URL}/api/payments/asaas/webhook` (ou `/mercadopago/webhook`).

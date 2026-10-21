@@ -87,7 +87,7 @@ test('produção valida o administrador por variáveis (e-mail válido e senha f
   const bad = spawnSync(process.execPath, [probe], { env: { ...baseEnv, ADMIN_BOOTSTRAP_EMAIL: 'nao-e-email', ADMIN_BOOTSTRAP_PASSWORD: 'curta' }, encoding: 'utf8' });
   assert.notEqual(bad.status, 0);
   assert.match(bad.stderr, /ADMIN_BOOTSTRAP_EMAIL_INVALID/);
-  assert.match(bad.stderr, /ADMIN_BOOTSTRAP_PASSWORD_MIN_12_CHARS/);
+  assert.match(bad.stderr, /ADMIN_BOOTSTRAP_PASSWORD_MIN_8_CHARS/);
   assert.doesNotMatch(bad.stderr, /curta/);
   const ok = spawnSync(process.execPath, [probe], { env: { ...baseEnv, ADMIN_BOOTSTRAP_EMAIL: 'dono@empresa.com.br', ADMIN_BOOTSTRAP_PASSWORD: 'Uma-Senha-Forte-2026' }, encoding: 'utf8' });
   assert.equal(ok.status, 0, ok.stderr);

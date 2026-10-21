@@ -45,7 +45,7 @@ import { adminPeopleRouter } from './routes/adminPeople.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
 import { adminVehiclesRouter } from './routes/adminVehicles.js';
 import { publicVehiclesRouter } from './routes/vehicles.js';
-import { fipeBrands, fipeModels, fipeYears, fipeSearch } from './lib/fipeLookup.js';
+import { fipeBrands, fipeModels, fipeYears, fipeSearch, getFipePrice } from './lib/fipeLookup.js';
 import { adminSimulatorRouter } from './routes/adminSimulator.js';
 import { simulatorRouter } from './routes/simulator.js';
 import { scoreModelMatch } from './lib/vehicleSpecs.js';
@@ -83,7 +83,7 @@ const plateSchema = z.string().trim().min(7).max(16).transform((value) => value.
 const registerSchema = z.object({
   name: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(254),
-  password: z.string().min(10).max(128),
+  password: z.string().min(8).max(128),
   acceptTerms: z.literal(true),
   acceptPrivacy: z.literal(true),
   marketingOptIn: z.boolean().optional().default(false),
@@ -103,7 +103,7 @@ const fipeSelectionSchema = z.object({
   plate: z.string().trim().max(16).optional()
 }).refine((input) => Boolean(input.plate) || Boolean(input.vehicleType && input.brand && input.model && input.year), 'FIPE_SELECTION_REQUIRED');
 const sandboxCreditSchema = z.object({ amountCents: z.number().int().min(1000).max(1000000) }).strict();
-const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128).optional(), newPassword: z.string().min(10).max(128) }).strict();
+const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128).optional(), newPassword: z.string().min(8).max(128) }).strict();
 const profileUpdateSchema = z.object({
   name: z.string().trim().min(2).max(120),
   cpfCnpj: z.string().trim().max(30).optional(),
@@ -114,7 +114,7 @@ const profileUpdateSchema = z.object({
   marketingOptIn: z.boolean().optional()
 });
 const forgotPasswordSchema = z.object({ email: z.string().trim().email().max(254) }).strict();
-  const resetPasswordSchema = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/), newPassword: z.string().min(10).max(128) }).strict();
+  const resetPasswordSchema = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/), newPassword: z.string().min(8).max(128) }).strict();
   const totpChallengeSchema = z.object({ challenge: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/), code: z.string().trim().min(6).max(16) }).strict();
   const totpEnrollmentSchema = z.object({ challenge: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/), code: z.string().trim().regex(/^\d{6}$/) }).strict();
   const reportFieldAdminSchema = z.object({ key: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9_.]{0,119}$/), label: z.string().trim().min(1).max(120), visible: z.boolean().optional().default(true) }).strict().refine((field) => !/(owner|cpf|cnpj|document|address|endereco|logradouro|phone|telefone|email)/i.test(field.key), 'PRIVATE_FIELD_FORBIDDEN');
@@ -934,21 +934,15 @@ api.get('/fipe/price', fipeLookupLimiter, asyncRoute(async (req, res) => {
   const modelCode = fipeCodeSchema.safeParse(req.query.modelCode);
   const yearCode = fipeCodeSchema.safeParse(req.query.yearCode);
   if (!vehicleType.success || !brandCode.success || !modelCode.success || !yearCode.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const input = { vehicleType: vehicleType.data, brand: { code: brandCode.data, name: 'selected' }, model: { code: modelCode.data, name: 'selected' }, year: { code: yearCode.data, name: 'selected' } };
   try {
     const startedAt = Date.now();
-    const cachedResult = await findCachedFipeResult(input);
-    // "Não existe" no provedor principal vale como resposta final; só falha de rede/limite tenta o secundário.
-    const result = cachedResult ?? await getFipeProvider('parallelum').quote(input).catch((error: unknown) => {
-      if (error instanceof Error && 'code' in error && error.code === 'FIPE_NOT_FOUND') throw error;
-      return getFipeProvider('brasilapi').quote(input).catch(() => { throw error; });
-    });
-    if (!cachedResult) { await cacheFipeResult(result); await recordProviderHealth(result.provider, 'SUCCESS', Date.now() - startedAt); }
+    const { result, cached: cachedResult } = await getFipePrice(vehicleType.data, brandCode.data, modelCode.data, yearCode.data);
+    if (!cachedResult) await recordProviderHealth(result.provider, 'SUCCESS', Date.now() - startedAt);
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.json({
       valueCents: result.valueCents, valueLabel: result.valueLabel, referenceMonth: result.referenceMonth, fipeCode: result.fipeCode,
       brand: result.brand, model: result.model, year: result.year, fuel: result.fuel ?? null, modelYear: result.modelYear ?? null,
-      source: result.source, cached: Boolean(cachedResult)
+      source: result.source, cached: cachedResult
     });
   } catch (error) { throw fipeProviderError(error); }
 }));

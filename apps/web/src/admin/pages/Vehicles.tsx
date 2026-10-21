@@ -105,6 +105,53 @@ function ModelsTab({ meta, onChanged }: { meta: Meta; onChanged: () => void }) {
   );
 }
 
+
+/* ---------- Preencher a partir da lista de veículos (FIPE) ---------- */
+interface FipeItem { code: string; name: string }
+interface FipeFilled { brand: string; model: string; year: number | null; fuel: string | null; fipeCode: string | null }
+const fipeTypeOf = (t?: string) => (t === 'MOTORCYCLE' ? 'motorcycles' : t === 'TRUCK' ? 'trucks' : 'cars');
+const cleanBrand = (n: string) => n.replace(/^[A-Z]{2,4}\s+-\s+/, '').trim();
+
+function FipeFill({ vehicleType, withYear, onPick }: { vehicleType?: string; withYear?: boolean; onPick: (d: FipeFilled) => void }) {
+  const toast = useToast();
+  const vt = fipeTypeOf(vehicleType);
+  const [q, setQ] = useState('');
+  const [hits, setHits] = useState<{ items: Array<{ brand: FipeItem; model: FipeItem }>; year: number | null } | null>(null);
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<{ brand: FipeItem; model: FipeItem } | null>(null);
+  const [years, setYears] = useState<FipeItem[]>([]);
+  useEffect(() => {
+    const t = q.trim();
+    if (t.length < 2) { setHits(null); return; }
+    let alive = true;
+    const h = setTimeout(() => { api.get<{ items: Array<{ brand: FipeItem; model: FipeItem }>; year: number | null }>('/admin/vehicles/fipe/search', { query: { vehicleType: vt, q: t } }).then((r) => { if (alive) setHits(r); }, () => { if (alive) setHits(null); }); }, 300);
+    return () => { alive = false; clearTimeout(h); };
+  }, [q, vt]);
+  async function price(h: { brand: FipeItem; model: FipeItem }, yearCode: string) {
+    try {
+      const p = await api.get<{ fipeCode: string; fuel: string | null; modelYear: number | null }>('/admin/vehicles/fipe/price', { query: { vehicleType: vt, brandCode: h.brand.code, modelCode: h.model.code, yearCode } });
+      onPick({ brand: cleanBrand(h.brand.name), model: h.model.name, year: p.modelYear && p.modelYear > 1950 && p.modelYear < 2100 ? p.modelYear : null, fuel: p.fuel, fipeCode: p.fipeCode });
+    } catch (e) { toast.error(errText(e)); }
+  }
+  async function choose(h: { brand: FipeItem; model: FipeItem }, wanted: number | null) {
+    setOpen(false); setQ(`${cleanBrand(h.brand.name)} ${h.model.name}`); setPicked(h); setYears([]);
+    if (!withYear) { onPick({ brand: cleanBrand(h.brand.name), model: h.model.name, year: null, fuel: null, fipeCode: null }); return; }
+    try {
+      const r = await api.get<{ years: FipeItem[] }>('/admin/vehicles/fipe/years', { query: { vehicleType: vt, brandCode: h.brand.code, modelCode: h.model.code } });
+      setYears(r.years);
+      const m = wanted ? r.years.filter((y) => y.name.startsWith(String(wanted))) : [];
+      if (m.length === 1) await price(h, m[0]!.code);
+    } catch (e) { toast.error(errText(e)); }
+  }
+  return (
+    <div className="stack-sm fipe-fill">
+      <Field label="Buscar veículo na lista"><Input icon="search" value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder="Ex.: Onix 2020" autoComplete="off" maxLength={80} /></Field>
+      {open && hits && hits.items.length > 0 && <ul className="fipe-fill-list" role="listbox">{hits.items.map((h) => <li key={`${h.brand.code}-${h.model.code}`}><button type="button" onClick={() => void choose(h, hits.year)}>{cleanBrand(h.brand.name)} {h.model.name}</button></li>)}</ul>}
+      {withYear && picked && years.length > 0 && <Field label="Ano"><Select defaultValue="" onChange={(e) => e.target.value && void price(picked, e.target.value)}><option value="">Selecione o ano</option>{years.map((y) => <option key={y.code} value={y.code}>{y.name}</option>)}</Select></Field>}
+    </div>
+  );
+}
+
 function NewModel({ meta, onClose }: { meta: Meta; onClose: () => void }) {
   const nav = useNavigate();
   const toast = useToast();
@@ -118,6 +165,7 @@ function NewModel({ meta, onClose }: { meta: Meta; onClose: () => void }) {
     <Modal title="Novo modelo" onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={busy} disabled={brand.trim().length < 2 || !name.trim()} onClick={() => void create()}>Criar e preencher ficha</Button></>}>
       <div className="stack">
         <p className="muted">Crie o modelo e, na próxima tela, preencha resumo, review e as versões com a ficha técnica. Ele nasce como rascunho: só aparece no site quando você publicar.</p>
+        <FipeFill vehicleType={type} onPick={(d) => { setBrand(d.brand.slice(0, 60)); setName(d.model.slice(0, 80)); }} />
         <div className="form-grid cols-2">
           <Field label="Marca"><Input value={brand} onChange={(e) => setBrand(e.target.value)} maxLength={60} placeholder="Ex.: Chevrolet" /></Field>
           <Field label="Modelo"><Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="Ex.: Tracker" /></Field>
@@ -197,7 +245,7 @@ export function VehicleEdit() {
         </div>
         <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>Arquivar tira do site sem perder nada. Apagar só é possível quando não há opiniões de donos.</p>
       </Card>
-      {versionEdit && <VersionModal modelId={id} version={versionEdit === 'new' ? null : versionEdit} fields={fields} onClose={(changed) => { setVersionEdit(null); if (changed) res.reload(); }} />}
+      {versionEdit && <VersionModal modelId={id} vehicleType={res.data?.model.vehicleType} version={versionEdit === 'new' ? null : versionEdit} fields={fields} onClose={(changed) => { setVersionEdit(null); if (changed) res.reload(); }} />}
       {removeVersion && <ConfirmDialog danger title="Apagar versão?" confirmLabel="Apagar" message={`“${removeVersion.name}” sai do guia e do comparador. Se só quer esconder, edite a versão e desmarque “Ativa”.`}
         onConfirm={async () => { try { await api.del(`/admin/vehicles/versions/${removeVersion.id}`); toast.ok('Versão apagada.'); res.reload(); } catch (e) { toast.error(errText(e)); throw e; } }} onClose={() => setRemoveVersion(null)} />}
     </>
@@ -273,7 +321,7 @@ function ModelForm({ model, meta, onSaved, onSlugChanged }: { model: Model; meta
   );
 }
 
-function VersionModal({ modelId, version, fields, onClose }: { modelId: string; version: Version | null; fields: SpecField[]; onClose: (changed: boolean) => void }) {
+function VersionModal({ modelId, vehicleType, version, fields, onClose }: { modelId: string; vehicleType?: string; version: Version | null; fields: SpecField[]; onClose: (changed: boolean) => void }) {
   const toast = useToast();
   const initial = useMemo(() => Object.fromEntries(fields.map((f) => {
     const v = version?.specs[f.key];
@@ -301,6 +349,7 @@ function VersionModal({ modelId, version, fields, onClose }: { modelId: string; 
       footer={<><Button variant="ghost" onClick={() => onClose(false)}>Cancelar</Button><Button variant="primary" loading={busy} disabled={!name.trim()} onClick={() => void save()}>Salvar versão</Button></>}>
       <div className="stack" ref={top}>
         {err && <Alert tone="danger">{err}</Alert>}
+        {!version && <FipeFill vehicleType={vehicleType} withYear onPick={(d) => { setName(d.model.slice(0, 120)); if (d.year) setYear(String(d.year)); if (d.fuel) setFuel(d.fuel.slice(0, 40)); if (d.fipeCode) setFipe(d.fipeCode.slice(0, 20)); }} />}
         <div className="form-grid cols-2">
           <Field label="Nome da versão" hint="Ex.: Premier 1.4 Turbo 16V Flex Aut."><Input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} /></Field>
           <Field label="Ano-modelo"><Input inputMode="numeric" value={year} onChange={(e) => setYear(e.target.value.replace(/\D/g, '').slice(0, 4))} /></Field>

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { after, before, describe, it } from 'node:test';
 import { integration, loadCore, useTestEnv } from './helpers/db.mjs';
-import { startServer } from './helpers/server.mjs';
+import { adminSession, startServer } from './helpers/server.mjs';
 
 useTestEnv();
 
@@ -45,7 +45,6 @@ describe('FIPE: busca por texto, seletores em cascata e preço automático', { .
   after(async () => {
     await app?.stop(); fipe?.server.close();
     await pool?.query(`DELETE FROM fipe_cache WHERE brand_id='9023'`);
-    await pool?.end();
   });
   const get = async (path) => { const r = await app.request(path); return { status: r.status, json: await r.json().catch(() => ({})) }; };
 
@@ -119,5 +118,34 @@ describe('FIPE: recurso desligado', { ...integration }, () => {
         assert.ok([403, 404, 503].includes(r.status), `${p} -> ${r.status}`);
       }
     } finally { await app.stop(); }
+  });
+});
+
+describe('FIPE no painel (preencher modelo e versão)', { ...integration }, () => {
+  let app; let fipe; let pool; let adm; let op;
+  before(async () => {
+    ({ pool } = await loadCore());
+    fipe = await mockFipe();
+    await pool.query(`DELETE FROM fipe_cache WHERE brand_id='9023'`);
+    app = await startServer({ ADMIN_HOSTS: 'admin.placanamao.test', FEATURE_FREE_FIPE: 'true', FIPE_PRIMARY_BASE_URL: fipe.url, FIPE_SECONDARY_BASE_URL: 'http://127.0.0.1:9' });
+    adm = await adminSession({ server: app, pool, role: 'CONTEUDO' });
+    op = await adminSession({ server: app, pool, role: 'OPERADOR' });
+  });
+  after(async () => { await app?.stop(); fipe?.server.close(); await pool?.query(`DELETE FROM fipe_cache WHERE brand_id='9023'`); await pool?.end(); });
+
+  it('busca, anos e preço funcionam no host do painel e respeitam a permissão', async () => {
+    assert.equal((await op.call('/api/admin/vehicles/fipe/search?q=onix')).status, 403);
+    const s = await adm.call('/api/admin/vehicles/fipe/search?q=' + encodeURIComponent('onix 2020'));
+    assert.equal(s.status, 200);
+    assert.equal(s.json.year, 2020);
+    assert.equal(s.json.items[0].model.code, '95940');
+    const y = await adm.call('/api/admin/vehicles/fipe/years?brandCode=9023&modelCode=95940');
+    assert.deepEqual(y.json.years.map((i) => i.code), ['2020-1', '2019-1']);
+    const p = await adm.call('/api/admin/vehicles/fipe/price?brandCode=9023&modelCode=95940&yearCode=2020-1');
+    assert.equal(p.status, 200);
+    assert.equal(p.json.fipeCode, '004472-1');
+    assert.equal(p.json.modelYear, 2020);
+    assert.equal((await adm.call('/api/admin/vehicles/fipe/price?brandCode=9023&modelCode=00000&yearCode=2020-1')).status, 404);
+    assert.equal((await adm.call('/api/admin/vehicles/fipe/price?brandCode=x;y&modelCode=1&yearCode=2')).status, 400);
   });
 });

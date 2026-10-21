@@ -27,6 +27,8 @@ export async function startAdminTotpStep(user: AuthUser, ip: string): Promise<Re
     const challenge = await createAuthChallenge(user.id, 'TOTP_LOGIN', ip);
     return { totpRequired: 'VERIFY', challenge, expiresInSeconds: 600 };
   }
+  // 2FA opcional: sem aplicativo ativado e sem exigência da política, entra só com a senha.
+  if (!env.TEAM_TOTP_REQUIRED) return { totpRequired: 'NONE' };
   const setup = generateTotpSetup(user.email);
   await pool.query(`INSERT INTO team_totp(user_id,encrypted_secret,enabled_at) VALUES($1,$2,NULL)
     ON CONFLICT(user_id) DO UPDATE SET encrypted_secret=EXCLUDED.encrypted_secret,enabled_at=NULL,updated_at=now()`, [user.id, encryptTotpSecret(setup.secret)]);
@@ -73,5 +75,51 @@ export async function completeTotpLogin(challenge: string, code: string): Promis
     await client.query('UPDATE auth_challenges SET used_at=now() WHERE id=$1', [row.id]);
     await client.query('UPDATE team_totp SET last_verified_at=now() WHERE user_id=$1', [row.user_id]);
     return { user: { id: String(row.uid), email: String(row.email), name: String(row.name), role: String(row.role) } as AuthUser, recoveryCodeUsed };
+  });
+}
+
+/** Ativação opcional pela própria pessoa, já logada: gera o segredo (ainda desativado) e devolve a chave/QR. */
+export async function beginTotpSetup(user: AuthUser): Promise<{ secret: string; otpauthUrl: string }> {
+  const existing = await pool.query('SELECT enabled_at FROM team_totp WHERE user_id=$1', [user.id]);
+  if (existing.rowCount && existing.rows[0].enabled_at) throw appError('TOTP_ALREADY_ENABLED', { code: 'TOTP_ALREADY_ENABLED', http: 409, expose: true });
+  const setup = generateTotpSetup(user.email);
+  await pool.query(`INSERT INTO team_totp(user_id,encrypted_secret,enabled_at) VALUES($1,$2,NULL)
+    ON CONFLICT(user_id) DO UPDATE SET encrypted_secret=EXCLUDED.encrypted_secret,enabled_at=NULL,updated_at=now()`, [user.id, encryptTotpSecret(setup.secret)]);
+  return setup;
+}
+
+/** Confirma o código do aplicativo e liga o 2FA. A sessão atual passa a valer como verificada; as outras são encerradas. */
+export async function enableTotp(userId: string, sessionId: string | undefined, code: string): Promise<{ recoveryCodes: string[] }> {
+  return tx(async (client) => {
+    const found = await client.query('SELECT encrypted_secret,enabled_at FROM team_totp WHERE user_id=$1 FOR UPDATE', [userId]);
+    if (!found.rowCount) throw appError('TOTP_SETUP_REQUIRED', { code: 'TOTP_SETUP_REQUIRED', http: 409, expose: true });
+    if (found.rows[0].enabled_at) throw appError('TOTP_ALREADY_ENABLED', { code: 'TOTP_ALREADY_ENABLED', http: 409, expose: true });
+    let valid = false;
+    try { valid = verifyTotpCode(decryptTotpSecret(String(found.rows[0].encrypted_secret)), code); } catch { valid = false; }
+    if (!valid) throw appError('TOTP_CODE_INVALID', { code: 'TOTP_CODE_INVALID', http: 401, expose: true });
+    const recoveryCodes = generateRecoveryCodes();
+    await client.query('UPDATE team_totp SET enabled_at=now(),last_verified_at=now(),updated_at=now() WHERE user_id=$1', [userId]);
+    await client.query('DELETE FROM team_totp_recovery_codes WHERE user_id=$1', [userId]);
+    for (const c of recoveryCodes) await client.query('INSERT INTO team_totp_recovery_codes(user_id,code_hash) VALUES($1,$2)', [userId, hashRecoveryCode(c)]);
+    if (sessionId) await client.query(`UPDATE user_sessions SET metadata=coalesce(metadata,'{}'::jsonb) || '{"totpVerified":true}'::jsonb WHERE id=$1`, [sessionId]);
+    await client.query('UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND id <> $2 AND revoked_at IS NULL', [userId, sessionId ?? '00000000-0000-0000-0000-000000000000']);
+    return { recoveryCodes };
+  });
+}
+
+/** Desligamento pela própria pessoa: exige o código atual (aplicativo ou recuperação). A senha é conferida na rota. */
+export async function disableTotp(userId: string, sessionId: string | undefined, code: string): Promise<void> {
+  await tx(async (client) => {
+    const found = await client.query('SELECT encrypted_secret,enabled_at FROM team_totp WHERE user_id=$1 FOR UPDATE', [userId]);
+    if (!found.rowCount || !found.rows[0].enabled_at) return;
+    let valid = false;
+    try { valid = verifyTotpCode(decryptTotpSecret(String(found.rows[0].encrypted_secret)), code); } catch { valid = false; }
+    if (!valid) {
+      const recovery = await client.query('SELECT id FROM team_totp_recovery_codes WHERE user_id=$1 AND used_at IS NULL AND code_hash=$2 LIMIT 1 FOR UPDATE', [userId, hashRecoveryCode(code)]);
+      if (!recovery.rowCount) throw appError('TOTP_CODE_INVALID', { code: 'TOTP_CODE_INVALID', http: 401, expose: true });
+    }
+    await client.query('DELETE FROM team_totp_recovery_codes WHERE user_id=$1', [userId]);
+    await client.query('DELETE FROM team_totp WHERE user_id=$1', [userId]);
+    await client.query('UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND id <> $2 AND revoked_at IS NULL', [userId, sessionId ?? '00000000-0000-0000-0000-000000000000']);
   });
 }

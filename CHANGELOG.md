@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.7.0 — Senha de 8 caracteres, 2FA opcional, campo único de veículo e CDC x leasing lado a lado
+
+### Alterado
+
+- **Senha mínima de 8 caracteres** para clientes, equipe, criação de admin e senha inicial (`ADMIN_BOOTSTRAP_PASSWORD`; o código de erro virou `ADMIN_BOOTSTRAP_PASSWORD_MIN_8_CHARS`). Antes: 10 (clientes) e 12 (equipe).
+- **2FA por aplicativo opcional no painel.** Sem aplicativo ativado, entra só com a senha. Em "Minha conta", a pessoa ativa (QR code, confirmação por código, códigos de recuperação) e desativa (senha + código). Ao ativar, as outras sessões abertas são encerradas. `TEAM_TOTP_REQUIRED` agora vale `false` por padrão; com `true` volta a ser obrigatório e a desativação é bloqueada. A exigência em produção (`ADMIN_TOTP_CANNOT_BE_DISABLED`) foi removida. Contas que já tinham 2FA continuam com ele ligado até desativarem.
+- **Simulador**: um único campo "Qual veículo você quer financiar?". Digite e escolha na lista (ex.: "onix 2020") ou escolha marca, modelo e ano; aparece o valor FIPE com o botão "Usar este valor". Sem textos de fonte ou explicação.
+- **Simulador abre comparando CDC e leasing**, com quadro lado a lado (parcela, total pago, custo do crédito, CET), a diferença em cada linha e qual sai mais vantajoso no total. A comparação por banco saiu da tela do simulador.
+
+### Adicionado
+
+- Busca por texto na página `/fipe` (por marca e modelo).
+- Painel › Guia de veículos: ao criar modelo ou versão, "Buscar veículo na lista" preenche marca, nome, ano, combustível e código FIPE (`/admin/vehicles/fipe/search|years|price`).
+
+### Atenção
+
+- Senha de 8 caracteres e 2FA opcional reduzem a proteção. Mantidos: bloqueio por 15 minutos após 5 erros, host dedicado do painel e `ADMIN_ALLOWED_IPS`. Recomendado ativar o 2FA nas contas de super admin.
+- O registro "escolhas no simulador" do painel (Frota e interesse) deixa de receber dados, porque o campo do simulador não usa mais a lista do Senatran.
+
 ## 1.6.0 — Escolha de veículo pela Tabela FIPE, valor FIPE automático no simulador e lista completa da frota no painel
 
 ### Adicionado

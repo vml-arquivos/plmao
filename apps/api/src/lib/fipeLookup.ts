@@ -1,3 +1,5 @@
+import { env } from '../config.js';
+import { pool } from '../db.js';
 import { getFipeProvider } from '../providers/fipeProvider.js';
 import type { FipeSelectionItem, FipeVehicleType } from '../types.js';
 import { normalizeCatalog } from './catalog.js';
@@ -103,4 +105,25 @@ export function pickYear(years: FipeSelectionItem[], year: number | null): FipeS
   if (!year) return null;
   const hits = years.filter((y) => y.code.startsWith(`${year}-`) || y.name.startsWith(String(year)));
   return hits.length === 1 ? hits[0]! : null;
+}
+
+/** Valor FIPE de um veículo escolhido (cache do mês; principal e depois secundário). "Não existe" no principal vale como resposta final. */
+export async function getFipePrice(vt: FipeVehicleType, brandCode: string, modelCode: string, yearCode: string) {
+  const input = { vehicleType: vt, brand: { code: brandCode, name: 'selected' }, model: { code: modelCode, name: 'selected' }, year: { code: yearCode, name: 'selected' } };
+  const prefix = `parallelum:${vt}:${brandCode}:${modelCode}:${yearCode}:%`;
+  const hit = await pool.query('SELECT payload FROM fipe_cache WHERE cache_key LIKE $1 AND expires_at > now() ORDER BY updated_at DESC LIMIT 1', [prefix]);
+  type Result = Awaited<ReturnType<ReturnType<typeof getFipeProvider>['quote']>>;
+  if (hit.rowCount) return { result: hit.rows[0].payload as Result, cached: true };
+  const result = await getFipeProvider('parallelum').quote(input).catch((error: unknown) => {
+    if (error instanceof Error && 'code' in error && error.code === 'FIPE_NOT_FOUND') throw error;
+    return getFipeProvider('brasilapi').quote(input).catch(() => { throw error; });
+  });
+  const now = new Date();
+  const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const ttl = new Date(now.getTime() + env.FIPE_CACHE_TTL_DAYS * 86400000);
+  await pool.query(`INSERT INTO fipe_cache(cache_key,provider,vehicle_type,brand_id,model_id,year_id,reference_code,reference_month,payload,expires_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)
+    ON CONFLICT(cache_key) DO UPDATE SET payload=EXCLUDED.payload,reference_code=EXCLUDED.reference_code,reference_month=EXCLUDED.reference_month,expires_at=EXCLUDED.expires_at,updated_at=now()`,
+    [result.cacheKey, result.provider, result.vehicleType, result.brand.code, result.model.code, result.year.code, result.referenceCode ?? null, result.referenceMonth, JSON.stringify(result), ttl < nextMonth ? ttl : nextMonth]);
+  return { result, cached: false };
 }

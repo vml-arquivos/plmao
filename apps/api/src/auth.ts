@@ -58,13 +58,14 @@ async function verify(req: Request, audience: Audience): Promise<{ user: AuthUse
   if (audience === 'admin' && (!claims.sid || !isTeamRole(String(claims.role)))) return { error: 'INVALID_TOKEN', status: 401 };
   if (audience === 'client' && isTeamRole(String(claims.role))) return { error: 'INVALID_TOKEN', status: 401 };
   if (claims.sid) {
-    const session = await pool.query(`SELECT s.metadata,s.audience,u.active,u.role FROM user_sessions s JOIN users u ON u.id=s.user_id
+    const session = await pool.query(`SELECT s.metadata,s.audience,u.active,u.role,EXISTS (SELECT 1 FROM team_totp t WHERE t.user_id=u.id AND t.enabled_at IS NOT NULL) AS has_totp FROM user_sessions s JOIN users u ON u.id=s.user_id
       WHERE s.id=$1 AND s.user_id=$2 AND s.revoked_at IS NULL AND s.expires_at > now()`, [claims.sid, claims.id]);
     if (!session.rowCount) return { error: 'INVALID_TOKEN', status: 401 };
-    const row = session.rows[0] as { metadata: Record<string, unknown> | null; audience: string; active: boolean; role: string };
+    const row = session.rows[0] as { metadata: Record<string, unknown> | null; audience: string; active: boolean; role: string; has_totp: boolean };
     if (row.audience !== audience || !row.active) return { error: 'INVALID_TOKEN', status: 401 };
     // o papel vem SEMPRE do banco: rebaixamento de papel vale imediatamente, sem esperar o token expirar.
-    if (audience === 'admin' && (!isTeamRole(row.role) || row.metadata?.totpVerified !== true)) return { error: 'TOTP_REQUIRED', status: 401 };
+    // O 2FA é opcional: só exige verificação quando a conta ativou o aplicativo (ou quando TEAM_TOTP_REQUIRED=true).
+    if (audience === 'admin' && (!isTeamRole(row.role) || ((row.has_totp || env.TEAM_TOTP_REQUIRED) && row.metadata?.totpVerified !== true))) return { error: 'TOTP_REQUIRED', status: 401 };
     claims.role = row.role;
   }
   return { user: { id: claims.id, email: claims.email, name: claims.name, role: claims.role }, sid: claims.sid };

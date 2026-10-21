@@ -27,7 +27,7 @@ function PasswordField({ label, name, value, onChange, autoComplete, minLength, 
   const [show, setShow] = useState(false);
   const s = strength(value);
   return (
-    <Field label={label} hint={meter ? 'Mínimo de 10 caracteres. Use letras, números e símbolos.' : undefined}>
+    <Field label={label} hint={meter ? 'Mínimo de 8 caracteres.' : undefined}>
       <span className="pw-wrap">
         <input className="input" name={name} type={show ? 'text' : 'password'} value={value} onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete} minLength={minLength} required placeholder={placeholder} />
         <button type="button" className="icon-btn" aria-label={show ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setShow(!show)}><Icon name={show ? 'eye-off' : 'eye'} size={18} /></button>
@@ -66,7 +66,7 @@ export default function Auth({ initial }: { initial: Mode }) {
     e.preventDefault();
     setError(''); setNotice('');
     if (mode === 'register' || mode === 'reset') {
-      if (f.password.length < 10) return setError('Crie uma senha com pelo menos 10 caracteres.');
+      if (f.password.length < 8) return setError('Crie uma senha com pelo menos 8 caracteres.');
       if (f.password !== f.confirm) return setError('As senhas não conferem.');
     }
     if (mode === 'register' && !f.terms) return setError('Para criar sua conta, aceite os Termos de Uso e a Política de Privacidade.');
@@ -97,7 +97,7 @@ export default function Auth({ initial }: { initial: Mode }) {
   }
 
   const heading = { login: 'Que bom ver você de volta.', register: 'Crie sua conta grátis.', forgot: 'Vamos recuperar seu acesso.', reset: 'Defina sua nova senha.' }[mode];
-  const sub = { login: 'Entre para consultar placas e acessar seus relatórios salvos.', register: 'Sem mensalidade. Você só paga pela consulta que fizer.', forgot: 'Informe seu e-mail e enviaremos as instruções.', reset: 'Escolha uma senha forte com pelo menos 10 caracteres.' }[mode];
+  const sub = { login: 'Entre para consultar placas e acessar seus relatórios salvos.', register: 'Sem mensalidade. Você só paga pela consulta que fizer.', forgot: 'Informe seu e-mail e enviaremos as instruções.', reset: 'Escolha uma nova senha com pelo menos 8 caracteres.' }[mode];
 
   return (
     <div className="auth-shell">
@@ -132,8 +132,8 @@ export default function Auth({ initial }: { initial: Mode }) {
             )}
             {mode === 'register' && <Field label="Nome completo"><Input name="name" value={f.name} onChange={(e) => set('name')(e.target.value)} autoComplete="name" minLength={2} required placeholder="Como devemos chamar você?" /></Field>}
             {mode !== 'reset' && <Field label="E-mail"><Input name="email" type="email" value={f.email} onChange={(e) => set('email')(e.target.value)} autoComplete="email" required placeholder="voce@exemplo.com" icon="mail" /></Field>}
-            {mode !== 'forgot' && <PasswordField label={mode === 'reset' ? 'Nova senha' : 'Senha'} name="password" value={f.password} onChange={set('password') as (v: string) => void} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'login' ? 1 : 10} meter={mode !== 'login'} />}
-            {(mode === 'register' || mode === 'reset') && <PasswordField label="Confirmar senha" name="confirm" value={f.confirm} onChange={set('confirm') as (v: string) => void} autoComplete="new-password" minLength={10} />}
+            {mode !== 'forgot' && <PasswordField label={mode === 'reset' ? 'Nova senha' : 'Senha'} name="password" value={f.password} onChange={set('password') as (v: string) => void} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'login' ? 1 : 8} meter={mode !== 'login'} />}
+            {(mode === 'register' || mode === 'reset') && <PasswordField label="Confirmar senha" name="confirm" value={f.confirm} onChange={set('confirm') as (v: string) => void} autoComplete="new-password" minLength={8} />}
             {mode === 'register' && (
               <div className="stack-sm">
                 <Check checked={f.terms} onChange={(e) => set('terms')(e.target.checked)} required>Li e aceito os <Link to="/termos" target="_blank">Termos de Uso</Link> e a <Link to="/privacidade" target="_blank">Política de Privacidade</Link>.</Check>

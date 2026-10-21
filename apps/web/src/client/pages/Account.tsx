@@ -30,7 +30,7 @@ export default function Account() {
   }
   async function changePw(e: FormEvent) {
     e.preventDefault(); setPwErr('');
-    if (pw.next.length < 10) return setPwErr('A nova senha precisa ter pelo menos 10 caracteres.');
+    if (pw.next.length < 8) return setPwErr('A nova senha precisa ter pelo menos 8 caracteres.');
     if (pw.next !== pw.confirm) return setPwErr('As senhas não conferem.');
     setPwBusy(true);
     try { await api.post('/auth/change-password', { ...(me!.profile.passwordEnabled ? { currentPassword: pw.current } : {}), newPassword: pw.next }); setPw({ current: '', next: '', confirm: '' }); toast.ok('Senha alterada.'); }
@@ -58,8 +58,8 @@ export default function Account() {
         {!p.passwordEnabled && <Alert tone="info">Você entra com uma conta social. Se quiser, crie também uma senha para entrar com e-mail.</Alert>}
         <div className="form-grid cols-3">
           {p.passwordEnabled && <Field label="Senha atual"><Input type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} autoComplete="current-password" required /></Field>}
-          <Field label="Nova senha" hint="Mínimo de 10 caracteres."><Input type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} autoComplete="new-password" minLength={10} required /></Field>
-          <Field label="Confirmar nova senha"><Input type="password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} autoComplete="new-password" minLength={10} required /></Field>
+          <Field label="Nova senha" hint="Mínimo de 8 caracteres."><Input type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} autoComplete="new-password" minLength={8} required /></Field>
+          <Field label="Confirmar nova senha"><Input type="password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} autoComplete="new-password" minLength={8} required /></Field>
         </div>
         {pwErr && <Alert tone="danger">{pwErr}</Alert>}
         <div><Button type="submit" loading={pwBusy}>Atualizar senha</Button></div>

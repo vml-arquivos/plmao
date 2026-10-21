@@ -39,7 +39,7 @@ const teamCreateSchema = z.object({
   name: z.string().trim().min(2).max(120),
   email: emailField,
   role: z.enum(['SUPER_ADMIN', 'ADMIN', 'FINANCEIRO', 'OPERADOR', 'SUPORTE', 'CONTEUDO']),
-  password: z.string().min(12).max(128).optional()
+  password: z.string().min(8).max(128).optional()
 }).strict();
 const teamUpdateSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
@@ -179,7 +179,7 @@ const customerFields = {
 const customerCreateSchema = z.object({
   ...customerFields,
   portalAccess: z.boolean().default(true),
-  password: z.string().min(10).max(128).optional()
+  password: z.string().min(8).max(128).optional()
 }).strict().superRefine((v, ctx) => {
   if (v.type === 'EMPRESA' && v.cpfCnpj && documentKind(v.cpfCnpj) !== 'CNPJ') ctx.addIssue({ code: 'custom', path: ['cpfCnpj'], message: 'EMPRESA_REQUIRES_CNPJ' });
   if (v.type === 'PARTICULAR' && v.cpfCnpj && documentKind(v.cpfCnpj) !== 'CPF') ctx.addIssue({ code: 'custom', path: ['cpfCnpj'], message: 'PARTICULAR_REQUIRES_CPF' });

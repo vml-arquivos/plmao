@@ -11,7 +11,7 @@ type Step =
   | { kind: 'enroll'; challenge: string; secret: string; qr: string }
   | { kind: 'recovery'; token: string; codes: string[] };
 
-interface LoginResponse { totpRequired: 'VERIFY' | 'ENROLL'; challenge: string; setup?: { secret: string; otpauthUrl: string } }
+interface LoginResponse { totpRequired: 'VERIFY' | 'ENROLL' | 'NONE'; challenge: string; token?: string; setup?: { secret: string; otpauthUrl: string } }
 
 export default function Login() {
   usePageTitle('Entrar no painel');
@@ -31,6 +31,7 @@ export default function Login() {
   const submitPassword = (ev: React.FormEvent) => { ev.preventDefault(); void run(async () => {
     const r = await api.post<LoginResponse>('/admin/auth/login', { email: email.trim(), password });
     setPassword(''); setCode('');
+    if (r.totpRequired === 'NONE' && r.token) { await establish(r.token); return; }
     if (r.totpRequired === 'ENROLL' && r.setup) setStep({ kind: 'enroll', challenge: r.challenge, secret: r.setup.secret, qr: await QRCode.toDataURL(r.setup.otpauthUrl, { margin: 1, width: 200 }) });
     else setStep({ kind: 'verify', challenge: r.challenge });
   }); };

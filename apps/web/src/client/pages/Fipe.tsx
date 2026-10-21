@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
-import { Alert, Button, Field, LinkButton, PlateBadge, Select, Tabs, usePageTitle, useToast } from '../../shared/ui';
+import { Alert, Button, Field, Input, LinkButton, PlateBadge, Select, Tabs, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { isValidPlate, money, normalizePlate } from '../../shared/format';
 import { api } from '../api';
@@ -26,9 +26,41 @@ export default function Fipe() {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [enabled, setEnabled] = useState(true);
   useEffect(() => { trackFunnel('FIPE_PAGE_VIEW', {}); api.get<{ enabled: boolean }>('/fipe/status').then((s) => setEnabled(s.enabled), () => undefined); }, []);
+  // escolha vinda da busca por texto: aplica modelo e ano quando as listas chegam
+  const pending = useRef<{ model: string; year: number | null } | null>(null);
+  const [q, setQ] = useState(''); const [hits, setHits] = useState<{ items: Array<{ brand: Item; model: Item }>; year: number | null } | null>(null); const [openList, setOpenList] = useState(false);
   useEffect(() => { if (mode !== 'select') return; setBrand(''); setModel(''); setYear(''); setModels([]); setYears([]); api.get<{ brands: Item[] }>('/fipe/brands', { query: { vehicleType: vt } }).then((r) => setBrands(r.brands), (e) => setErr(errorMessage(e))); }, [mode, vt]);
-  useEffect(() => { setModel(''); setYear(''); setYears([]); if (!brand) return setModels([]); api.get<{ models: Item[] }>('/fipe/models', { query: { vehicleType: vt, brandCode: brand } }).then((r) => setModels(r.models), (e) => setErr(errorMessage(e))); }, [brand, vt]);
-  useEffect(() => { setYear(''); if (!brand || !model) return setYears([]); api.get<{ years: Item[] }>('/fipe/years', { query: { vehicleType: vt, brandCode: brand, modelCode: model } }).then((r) => setYears(r.years), (e) => setErr(errorMessage(e))); }, [model, brand, vt]);
+  useEffect(() => {
+    setYear(''); setYears([]);
+    if (!brand) { setModel(''); return setModels([]); }
+    const want = pending.current;
+    if (!want) setModel('');
+    api.get<{ models: Item[] }>('/fipe/models', { query: { vehicleType: vt, brandCode: brand } }).then((r) => { setModels(r.models); if (want) setModel(want.model); }, (e) => setErr(errorMessage(e)));
+  }, [brand, vt]);
+  useEffect(() => {
+    setYear('');
+    if (!brand || !model) return setYears([]);
+    const want = pending.current;
+    if (want && model !== want.model) return;
+    pending.current = null;
+    api.get<{ years: Item[] }>('/fipe/years', { query: { vehicleType: vt, brandCode: brand, modelCode: model } }).then((r) => {
+      setYears(r.years);
+      const m = want?.year ? r.years.filter((y) => y.name.startsWith(String(want.year))) : [];
+      if (m.length === 1) setYear(m[0]!.code);
+    }, (e) => setErr(errorMessage(e)));
+  }, [model, brand, vt]);
+  useEffect(() => {
+    const text = q.trim();
+    if (mode !== 'select' || text.length < 2) { setHits(null); return; }
+    let alive = true;
+    const t = setTimeout(() => { api.get<{ items: Array<{ brand: Item; model: Item }>; year: number | null }>('/fipe/search', { query: { vehicleType: vt, q: text } }).then((r) => { if (alive) setHits(r); }, () => { if (alive) setHits(null); }); }, 300);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q, vt, mode]);
+  const pickHit = (h: { brand: Item; model: Item }, y: number | null) => {
+    pending.current = { model: h.model.code, year: y };
+    setOpenList(false); setQ(`${h.brand.name.replace(/^[A-Z]{2,4}\s+-\s+/, '')} ${h.model.name}`);
+    if (brand === h.brand.code) { setModel(h.model.code); } else setBrand(h.brand.code);
+  };
 
   async function submit() {
     setBusy(true); setErr(''); setQuote(null);
@@ -57,6 +89,10 @@ export default function Fipe() {
               <div className="plate-input-wrap"><div className="plate-input"><input value={plate} onChange={(e) => setPlate(normalizePlate(e.target.value))} placeholder="ABC1D23" aria-label="Placa" maxLength={8} autoComplete="off" autoCapitalize="characters" /></div></div>
             ) : (
               <div className="form-grid cols-2">
+                <div style={{ gridColumn: '1 / -1', position: 'relative' }}>
+                  <Field label="Digite o veículo"><Input icon="search" value={q} onChange={(e) => { setQ(e.target.value); setOpenList(true); }} onFocus={() => setOpenList(true)} placeholder="Ex.: Onix 2020, Civic, CG 160" autoComplete="off" maxLength={80} /></Field>
+                  {openList && hits && hits.items.length > 0 && <ul className="vpicker-list" role="listbox">{hits.items.map((h) => <li key={`${h.brand.code}-${h.model.code}`} role="option" aria-selected={false} onMouseDown={(e) => { e.preventDefault(); pickHit(h, hits.year); }}><b>{h.brand.name.replace(/^[A-Z]{2,4}\s+-\s+/, '')} {h.model.name}</b></li>)}</ul>}
+                </div>
                 <Field label="Tipo"><Select value={vt} onChange={(e) => setVt(e.target.value as VType)}><option value="cars">Carro</option><option value="motorcycles">Moto</option><option value="trucks">Caminhão</option></Select></Field>
                 <Field label="Marca"><Select value={brand} onChange={(e) => setBrand(e.target.value)}><option value="">Selecione</option>{brands.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}</Select></Field>
                 <Field label="Modelo"><Select value={model} onChange={(e) => setModel(e.target.value)} disabled={!brand}><option value="">Selecione</option>{models.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}</Select></Field>

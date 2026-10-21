@@ -63,7 +63,7 @@ const DEFAULTS: Record<Kind, { value: number; down: number; months: number; pers
 
 export function defaultState(kind: Kind): SimState {
   const d = DEFAULTS[kind];
-  return { kind, modality: 'CDC', person: d.person, condition: kind === 'TRUCK' ? 'NEW' : 'USED', value: d.value, down: d.down, months: d.months, customRate: '', residual: 20, financeFees: true, grace: 30, fees: { cadastro: null, avaliacao: null, registro: null, insurance: null }, label: '', notes: '' };
+  return { kind, modality: 'BOTH', person: d.person, condition: kind === 'TRUCK' ? 'NEW' : 'USED', value: d.value, down: d.down, months: d.months, customRate: '', residual: 20, financeFees: true, grace: 30, fees: { cadastro: null, avaliacao: null, registro: null, insurance: null }, label: '', notes: '' };
 }
 
 const num = (v: string | null): number | null => { if (v == null || v === '') return null; const n = Number(v.replace(',', '.')); return Number.isFinite(n) ? n : null; };
@@ -88,7 +88,7 @@ export function stateFromParams(kind: Kind, p: URLSearchParams): SimState {
 export function paramsFromState(s: SimState): Record<string, string> {
   const d = defaultState(s.kind);
   const out: Record<string, string> = { v: String(s.value), e: String(s.down), m: String(s.months) };
-  if (s.modality !== 'CDC') out.mod = s.modality;
+  if (s.modality !== 'BOTH') out.mod = s.modality;
   if (s.person !== d.person) out.pf = s.person;
   if (s.condition !== d.condition) out.c = s.condition;
   if (s.customRate) out.r = s.customRate;

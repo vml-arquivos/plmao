@@ -8,6 +8,7 @@ import { requirePermission } from '../permissions.js';
 import { BODY_TYPES, SPEC_FIELDS, SPEC_BY_KEY, TIP_CATEGORIES, cleanSpecs, normalizeText, slugify } from '../lib/vehicleSpecs.js';
 import { parseCsv } from '../lib/csvParse.js';
 import { csvEscape, toCsv } from '../lib/br.js';
+import { fipeSearch, fipeYears, getFipePrice } from '../lib/fipeLookup.js';
 import { SNAPSHOT_RE, likeEscape, parseSenatranCsv, rematchCatalog, searchTerms, upsertCatalog } from '../lib/catalog.js';
 
 /** Gestão do Guia de veículos no painel: modelos, versões (ficha técnica), opiniões, dicas e importação por planilha. */
@@ -435,6 +436,32 @@ adminVehiclesRouter.delete('/consumption/:id', asyncRoute(async (req, res) => {
   if (!r.rowCount) throw notFound('CONSUMPTION_NOT_FOUND');
   await audit(req.user!.id, 'VEHICLE_CONSUMPTION_DELETED', 'vehicle_consumption_obs', id, {});
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- busca na FIPE para preencher modelo e versão
+const fipeTypeSchema = z.enum(['cars', 'motorcycles', 'trucks']);
+const fipeCode = z.string().regex(/^[A-Za-z0-9._-]{1,24}$/);
+adminVehiclesRouter.get('/fipe/search', asyncRoute(async (req, res) => {
+  const vt = fipeTypeSchema.safeParse(req.query.vehicleType ?? 'cars');
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
+  if (!vt.success || q.length < 2) throw bad();
+  try { res.json(await fipeSearch(vt.data, q)); } catch { throw appError('FIPE_PROVIDER_UNAVAILABLE', { code: 'FIPE_PROVIDER_UNAVAILABLE', http: 502, expose: true }); }
+}));
+adminVehiclesRouter.get('/fipe/years', asyncRoute(async (req, res) => {
+  const vt = fipeTypeSchema.safeParse(req.query.vehicleType ?? 'cars'); const b = fipeCode.safeParse(req.query.brandCode); const m = fipeCode.safeParse(req.query.modelCode);
+  if (!vt.success || !b.success || !m.success) throw bad();
+  try { res.json({ years: await fipeYears(vt.data, b.data, m.data) }); } catch { throw appError('FIPE_PROVIDER_UNAVAILABLE', { code: 'FIPE_PROVIDER_UNAVAILABLE', http: 502, expose: true }); }
+}));
+adminVehiclesRouter.get('/fipe/price', asyncRoute(async (req, res) => {
+  const vt = fipeTypeSchema.safeParse(req.query.vehicleType ?? 'cars'); const b = fipeCode.safeParse(req.query.brandCode); const m = fipeCode.safeParse(req.query.modelCode); const y = fipeCode.safeParse(req.query.yearCode);
+  if (!vt.success || !b.success || !m.success || !y.success) throw bad();
+  try {
+    const { result } = await getFipePrice(vt.data, b.data, m.data, y.data);
+    res.json({ valueCents: result.valueCents, valueLabel: result.valueLabel, referenceMonth: result.referenceMonth, fipeCode: result.fipeCode, brand: result.brand, model: result.model, year: result.year, fuel: result.fuel ?? null, modelYear: result.modelYear ?? null });
+  } catch (error) {
+    const notFound = error instanceof Error && 'code' in error && error.code === 'FIPE_NOT_FOUND';
+    throw appError(notFound ? 'FIPE_NOT_FOUND' : 'FIPE_PROVIDER_UNAVAILABLE', { code: notFound ? 'FIPE_NOT_FOUND' : 'FIPE_PROVIDER_UNAVAILABLE', http: notFound ? 404 : 502, expose: true });
+  }
 }));
 
 // ---------------------------------------------------------------- catálogo de frota (Senatran)

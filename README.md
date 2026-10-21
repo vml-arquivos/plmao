@@ -1,6 +1,6 @@
 # Placa na Mão
 
-Plataforma brasileira de consulta veicular por placa: o cliente digita a placa, paga só pelo que consulta e recebe um relatório claro, com veredito, alertas explicados e versão para impressão/PDF. A equipe opera tudo (preços, margens, pagamentos, comissões, repasses, LGPD) em um painel separado, protegido por 2FA.
+Plataforma brasileira de consulta veicular por placa: o cliente digita a placa, paga só pelo que consulta e recebe um relatório claro, com veredito, alertas explicados e versão para impressão/PDF. A equipe opera tudo (preços, margens, pagamentos, comissões, repasses, LGPD) em um painel separado (2FA opcional).
 
 > Domínios previstos (provisórios, configuráveis por variável): site `placanamao.com.br` e painel `admin.placanamao.com.br`.
 
@@ -37,8 +37,8 @@ npm run dev                     # API :4000 + Vite :5173
 Com `SANDBOX_SEED_ENABLED=true` (somente fora de produção) são criadas contas e placas fictícias de demonstração (cliente `cliente@demo.local`, equipe `admin@demo.local`). Em produção o seed é proibido e o primeiro administrador é criado pelo CLI:
 
 ```bash
-npm run admin:create -- voce@empresa.com.br "Seu Nome"   # senha provisória exibida uma única vez; 2FA é cadastrado no primeiro acesso
-npm run admin:reset-2fa -- voce@empresa.com.br           # recuperação do 2FA (auditada)
+npm run admin:create -- voce@empresa.com.br "Seu Nome"   # senha provisória exibida uma única vez; o 2FA é opcional (Minha conta)
+npm run admin:reset-2fa -- voce@empresa.com.br           # desativa o 2FA da conta (auditado)
 ```
 
 ## Comandos

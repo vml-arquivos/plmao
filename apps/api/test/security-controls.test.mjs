@@ -30,6 +30,7 @@ test('retenção exige prévia por padrão e só permite execução administrati
 test('middleware admin exige sessão persistida, audiência admin e TOTP verificado', () => {
   assert.match(auth, /audience === 'admin' && \(!claims\.sid \|\| !isTeamRole\(String\(claims\.role\)\)\)/);
   assert.match(auth, /metadata\?\.totpVerified !== true/);
+  assert.match(auth, /has_totp/);
 });
 
 test('rotas de contato não expõem conteúdo sem permissão de suporte', () => {
@@ -39,9 +40,9 @@ test('rotas de contato não expõem conteúdo sem permissão de suporte', () => 
   assert.match(server, /api\.post\('\/account\/contact', auth, contactRateLimit/);
 });
 
-test('TOTP da equipe é obrigatório por padrão e não pode ser desligado em produção', () => {
-  assert.match(config, /TEAM_TOTP_REQUIRED: booleanFromEnv\.default\(true\)/);
-  assert.match(config, /ADMIN_TOTP_CANNOT_BE_DISABLED/);
+test('TOTP da equipe é opcional por padrão (TEAM_TOTP_REQUIRED=true torna obrigatório)', () => {
+  assert.match(config, /TEAM_TOTP_REQUIRED: booleanFromEnv\.default\(false\)/);
+  assert.doesNotMatch(config, /ADMIN_TOTP_CANNOT_BE_DISABLED/);
   assert.match(server, /if \(isTeamRole\(user\.role\)\) throw appError\('INVALID_CREDENTIALS'/);
 });
 
