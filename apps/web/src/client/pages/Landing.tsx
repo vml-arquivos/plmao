@@ -10,6 +10,7 @@ import PlateSearch from '../components/PlateSearch';
 import { PackageCards, ProductCards, SmartPicker } from '../components/Catalog';
 import Faq from '../components/Faq';
 import { LatestPosts } from './Content';
+import { HomeGuide, HomeSimulator } from '../components/HomeTools';
 
 const STRIP: Array<{ icon: IconName; t: string; s: string }> = [
   { icon: 'car', t: 'Dados do veículo', s: 'marca, modelo, ano, cor e município' },
@@ -73,6 +74,9 @@ export default function Landing() {
           {STRIP.map((s) => <div className="item" key={s.t}><span className="ib"><Icon name={s.icon} size={22} /></span><div><b>{s.t}</b><span className="s">{s.s}</span></div></div>)}
         </div></div>
       </section>
+
+      <HomeGuide />
+      <HomeSimulator />
 
       <section className="section" id="como-funciona">
         <div className="container">

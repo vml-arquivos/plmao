@@ -55,8 +55,8 @@ export function createApi(opts: ApiClientOptions) {
   }
 
   /** Baixa um arquivo autenticado (PDF/CSV) e dispara o download no navegador. */
-  async function download(path: string, filename: string, o: RequestOptions = {}): Promise<void> {
-    const res = await raw('GET', path, { ...o, headers: { Accept: '*/*', ...o.headers } });
+  async function download(path: string, filename: string, o: RequestOptions & { method?: 'GET' | 'POST' } = {}): Promise<void> {
+    const res = await raw(o.method ?? 'GET', path, { ...o, headers: { Accept: '*/*', ...o.headers } });
     if (!res.ok) {
       let message = 'Não foi possível baixar o arquivo agora.';
       try { const d = await res.json() as { message?: string }; if (d.message) message = d.message; } catch { /* corpo não-JSON */ }

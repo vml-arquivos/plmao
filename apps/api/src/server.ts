@@ -45,6 +45,8 @@ import { adminPeopleRouter } from './routes/adminPeople.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
 import { adminVehiclesRouter } from './routes/adminVehicles.js';
 import { publicVehiclesRouter } from './routes/vehicles.js';
+import { adminSimulatorRouter } from './routes/adminSimulator.js';
+import { simulatorRouter } from './routes/simulator.js';
 import { scoreModelMatch } from './lib/vehicleSpecs.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
@@ -66,6 +68,7 @@ api.use('/admin/finance', partnersRouter);
 api.use('/admin/queries', adminQueriesRouter);
 api.use('/admin/content', adminContentRouter);
 api.use('/admin/vehicles', adminVehiclesRouter);
+api.use('/admin/simulator', adminSimulatorRouter);
 api.use('/admin', adminPeopleRouter);
 api.use('/admin', adminBillingRouter);
 api.use((_req, res, next) => {
@@ -1099,6 +1102,7 @@ api.post('/vehicles/by-plate', auth, asyncRoute(async (req, res) => {
   });
 }));
 api.use(publicVehiclesRouter);
+api.use(simulatorRouter);
 
 api.get('/fipe/offers', asyncRoute(async (_req, res) => {
   const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,
@@ -2197,7 +2201,7 @@ app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
   const code = known.code ?? 'INTERNAL_ERROR';
   log('error', 'request_failed', { requestId: requestId(req), path: req.path, method: req.method, status, code, message: error instanceof Error ? error.message : 'Unknown error' });
   const details = known.expose ? (known as AppError & { details?: unknown }).details : undefined;
-  res.status(status).json({ error: code, message: known.expose ? humanMessage(code) : 'Não foi possível concluir esta operação agora. Tente novamente.', ...(Array.isArray(details) ? { details } : {}) });
+  res.status(status).json({ error: code, message: known.expose ? (code.startsWith('SIM_') ? known.message : humanMessage(code)) : 'Não foi possível concluir esta operação agora. Tente novamente.', ...(Array.isArray(details) ? { details } : {}) });
 });
 
 function parseOAuthProvider(value: string): OAuthProvider {
@@ -2249,6 +2253,8 @@ function humanMessage(code: string): string {
     OPINION_TOO_SHORT: 'Conte um pouco mais: escreva ao menos 20 caracteres entre o que gostou, o que não gostou e o comentário.',
     OPINION_LINKS_NOT_ALLOWED: 'Não é permitido colocar links ou e-mails na opinião.',
     VERSION_NOT_FOUND: 'A versão escolhida não existe para este modelo.',
+    SIMULATION_NOT_FOUND: 'Simulação não encontrada.',
+    BCB_UNAVAILABLE: 'Não foi possível consultar o Banco Central agora. As taxas atuais foram mantidas; tente novamente mais tarde.',
     VEHICLE_PLATE_UNAVAILABLE: 'A busca por placa está indisponível no momento. Busque pelo nome do modelo.',
     FIPE_PLATE_NOT_FOUND: 'Não identificamos um veículo para esta placa. Confira os dados e tente novamente.',
     FIPE_PLATE_UNAVAILABLE: 'Não foi possível consultar os dados do veículo agora. Tente novamente em instantes.',

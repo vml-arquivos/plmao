@@ -191,7 +191,7 @@ publicVehiclesRouter.get('/vehicles/:slug', optionalAuth, asyncRoute(async (req,
   const cons: string[] = Array.isArray(m.cons) ? m.cons : [];
   const base = {
     slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
-    summary: m.summary, imageUrl: m.image_url, updatedAt: m.updated_at, rating: summaries.get(String(m.id)) ?? emptySummary(), locked: !unlocked
+    summary: m.summary, imageUrl: m.image_url, specSource: m.spec_source ?? null, updatedAt: m.updated_at, rating: summaries.get(String(m.id)) ?? emptySummary(), locked: !unlocked
   };
   res.setHeader('Cache-Control', 'private, no-store');
   if (!unlocked) {

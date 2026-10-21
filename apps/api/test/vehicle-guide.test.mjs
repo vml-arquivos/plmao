@@ -105,7 +105,7 @@ describe('guia de veículos: API pública e painel', integration, () => {
   it('publicar libera busca por texto, marca e tipo; visitante vê só o resumo da ficha', async () => {
     assert.equal((await cont.call(`/api/admin/vehicles/${modelA}`, { method: 'PATCH', body: { status: 'PUBLISHED' } })).status, 200);
     const byText = await pub('/api/vehicles?search=tracker premier');
-    assert.deepEqual(byText.json.items.map((i) => i.slug), [slugA]); // casa pelo nome da versão
+    assert.deepEqual(byText.json.items.map((i) => i.slug).filter((x) => x.startsWith('teste-')), [slugA]); // casa pelo nome da versão (a carga inicial tem outro Tracker)
     assert.equal((await pub('/api/vehicles?brand=teste hyundai')).json.items.length, 1);
     assert.equal((await pub('/api/vehicles?type=MOTORCYCLE&search=TESTE')).json.items.length, 0);
     assert.equal((await pub('/api/vehicles?search=%25')).status, 200); // curinga literal, sem erro
@@ -296,7 +296,7 @@ describe('guia de veículos: API pública e painel', integration, () => {
   it('arquivar tira do público; restaurar não republica sozinho; apagar só sem opiniões; sitemap lista só publicados', async () => {
     assert.equal((await cont.call(`/api/admin/vehicles/${modelB}/archive`, { method: 'POST', body: { archived: true } })).status, 200);
     assert.equal((await pub('/api/vehicles/teste-hyundai-creta')).status, 404);
-    assert.ok(!(await pub('/api/vehicles?search=creta')).json.items.length);
+    assert.ok(!(await pub('/api/vehicles?search=creta')).json.items.some((i) => i.slug.startsWith('teste-')));
     const archivedList = await cont.call('/api/admin/vehicles?view=archived');
     assert.ok(archivedList.json.items.some((i) => i.id === modelB));
     assert.equal((await cont.call(`/api/admin/vehicles/${modelB}/archive`, { method: 'POST', body: { archived: false } })).status, 200);

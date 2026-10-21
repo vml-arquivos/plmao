@@ -16,6 +16,7 @@ import Support from './pages/Support';
 import Audit from './pages/Audit';
 import Finance from './pages/Finance';
 import Pricing from './pages/Pricing';
+import Simulator from './pages/Simulator';
 import Catalog from './pages/Catalog';
 import Faqs from './pages/Faqs';
 import VehicleGuide, { VehicleEdit } from './pages/Vehicles';
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="suporte" element={<Support />} />
         <Route path="financeiro" element={<Finance />} />
         <Route path="precos" element={<Pricing />} />
+        <Route path="simulador" element={<Simulator />} />
         <Route path="catalogo" element={<Catalog />} />
         <Route path="guia" element={<VehicleGuide />} />
         <Route path="guia/:id" element={<VehicleEdit />} />

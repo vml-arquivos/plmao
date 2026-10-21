@@ -24,6 +24,7 @@ export const GROUPS: Array<{ title: string; items: NavItem[] }> = [
     { to: '/pagamentos', label: 'Pagamentos', icon: 'credit-card', perm: 'MANAGE_BILLING' },
     { to: '/notas-fiscais', label: 'Notas fiscais', icon: 'file-text', perm: 'MANAGE_FISCAL' },
     { to: '/precos', label: 'Preços e margens', icon: 'tag', perm: 'MANAGE_PRICING' },
+    { to: '/simulador', label: 'Simulador de financiamento', icon: 'calculator', perm: 'MANAGE_BILLING' },
     { to: '/cupons', label: 'Cupons', icon: 'percent', perm: 'MANAGE_BILLING' },
     { to: '/parceiros', label: 'Parceiros e repasses', icon: 'wallet', perm: 'MANAGE_BILLING' }
   ] },

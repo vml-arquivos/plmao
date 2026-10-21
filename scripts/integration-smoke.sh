@@ -10,6 +10,9 @@ json_field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
 assert_contains() { grep -Fq "$2" "$1" || fail "esperado encontrar '$2' em $1"; }
 
 curl -fsS "$BASE_URL/health" >"$TMP_DIR/health.json"
+curl -fsS -X POST "$BASE_URL/api/simulator/calculate" -H 'Content-Type: application/json' \
+  -d '{"modality":"CDC","personType":"PF","vehicleKind":"CAR","condition":"USED","vehicleValueCents":8000000,"downPaymentCents":2000000,"months":48}' >"$TMP_DIR/simulator.json"
+node -e "const r=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));if(!r.results||!r.results.cdc||!(r.results.cdc.installmentCents>0))process.exit(1)" "$TMP_DIR/simulator.json"
 assert_contains "$TMP_DIR/health.json" '"ok":true'
 assert_contains "$TMP_DIR/health.json" '"database":"ok"'
 

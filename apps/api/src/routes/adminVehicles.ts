@@ -33,6 +33,7 @@ const modelFields = {
   pros: stringList, cons: stringList,
   buyerTips: z.string().max(8000).default(''),
   imageUrl: httpsUrl.nullish().transform((v) => v || null),
+  specSource: z.string().trim().max(300).nullish().transform((v) => v || null),
   status: z.enum(['DRAFT', 'PUBLISHED']).default('DRAFT')
 };
 const modelCreate = z.object(modelFields).strict();
@@ -67,7 +68,7 @@ function specsOrThrow(input: unknown): Record<string, string | number | boolean>
 
 const presentModel = (m: Record<string, any>) => ({
   id: m.id, slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
-  summary: m.summary, review: m.review, pros: m.pros ?? [], cons: m.cons ?? [], buyerTips: m.buyer_tips, imageUrl: m.image_url, status: m.status,
+  summary: m.summary, review: m.review, pros: m.pros ?? [], cons: m.cons ?? [], buyerTips: m.buyer_tips, imageUrl: m.image_url, specSource: m.spec_source ?? null, status: m.status,
   archived: m.archived_at != null, createdAt: m.created_at, updatedAt: m.updated_at
 });
 const presentVersion = (v: Record<string, any>) => ({ id: v.id, modelId: v.model_id, name: v.name, yearModel: v.year_model, fuel: v.fuel, fipeCode: v.fipe_code, specs: v.specs ?? {}, displayOrder: v.display_order, active: v.active });
@@ -313,9 +314,9 @@ adminVehiclesRouter.post('/', asyncRoute(async (req, res) => {
   const d = p.data;
   const id = await tx(async (client) => {
     const slug = await uniqueSlug(client, d.brand, d.name);
-    const r = await client.query(`INSERT INTO vehicle_models(slug,brand,name,vehicle_type,body_type,year_from,year_to,summary,review,pros,cons,buyer_tips,image_url,status,created_by)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15) RETURNING id`,
-      [slug, d.brand, d.name, d.vehicleType, d.bodyType, d.yearFrom ?? null, d.yearTo ?? null, d.summary, d.review, JSON.stringify(d.pros), JSON.stringify(d.cons), d.buyerTips, d.imageUrl, d.status, req.user!.id]);
+    const r = await client.query(`INSERT INTO vehicle_models(slug,brand,name,vehicle_type,body_type,year_from,year_to,summary,review,pros,cons,buyer_tips,image_url,status,created_by,spec_source)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16) RETURNING id`,
+      [slug, d.brand, d.name, d.vehicleType, d.bodyType, d.yearFrom ?? null, d.yearTo ?? null, d.summary, d.review, JSON.stringify(d.pros), JSON.stringify(d.cons), d.buyerTips, d.imageUrl, d.status, req.user!.id, d.specSource]);
     return r.rows[0].id as string;
   });
   await audit(req.user!.id, 'VEHICLE_MODEL_CREATED', 'vehicle_model', id, { brand: d.brand, name: d.name });
@@ -358,6 +359,7 @@ adminVehiclesRouter.patch('/:id', asyncRoute(async (req, res) => {
   if (d.cons !== undefined) set('cons', JSON.stringify(d.cons), '::jsonb');
   if (d.buyerTips !== undefined) set('buyer_tips', d.buyerTips);
   if (d.imageUrl !== undefined) set('image_url', d.imageUrl);
+  if (d.specSource !== undefined) set('spec_source', d.specSource);
   if (d.status !== undefined) { set('status', d.status); if (d.status === 'PUBLISHED') sets.push('archived_at=NULL'); }
   const r = await pool.query(`UPDATE vehicle_models SET ${sets.join(',')}, updated_at=now() WHERE id=$1 RETURNING *`, params);
   if (!r.rowCount) throw notFound('VEHICLE_NOT_FOUND');

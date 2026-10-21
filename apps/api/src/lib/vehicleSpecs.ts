@@ -38,6 +38,8 @@ export const SPEC_FIELDS: SpecField[] = [
   n('cons_road_gas_kml', 'Consumo', 'Estrada (gasolina)', 'km/l', 'high', { max: 60 }),
   n('cons_city_eth_kml', 'Consumo', 'Cidade (etanol)', 'km/l', 'high', { max: 60 }),
   n('cons_road_eth_kml', 'Consumo', 'Estrada (etanol)', 'km/l', 'high', { max: 60 }),
+  n('cons_city_diesel_kml', 'Consumo', 'Cidade (diesel)', 'km/l', 'high', { max: 60 }),
+  n('cons_road_diesel_kml', 'Consumo', 'Estrada (diesel)', 'km/l', 'high', { max: 60 }),
   n('tank_l', 'Consumo', 'Tanque', 'L', 'high', { max: 1000 }),
 
   n('length_mm', 'Dimensões e capacidades', 'Comprimento', 'mm', undefined, { max: 30000 }),

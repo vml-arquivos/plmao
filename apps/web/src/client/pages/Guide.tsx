@@ -209,9 +209,11 @@ export function GuideModelPage() {
                 {authed ? <>
                   <LinkButton to={`/comparar${version ? `?ids=${version.id}` : ''}`} variant="primary" icon="bar-chart">Comparar com outro</LinkButton>
                   <Button icon="star" onClick={() => setEditing(true)}>{model.myOpinion ? 'Editar minha opinião' : 'Deixe sua opinião'}</Button>
+                  <LinkButton to={`/simulador/${simSlug(model)}`} icon="calculator">Simular financiamento</LinkButton>
                 </> : <>
                   <LinkButton to={`/criar-conta?next=${encodeURIComponent(next)}`} variant="primary" icon="lock">Criar conta grátis e ver tudo</LinkButton>
                   <LinkButton to={`/entrar?next=${encodeURIComponent(next)}`}>Entrar</LinkButton>
+                  <LinkButton to={`/simulador/${simSlug(model)}`} icon="calculator">Simular financiamento</LinkButton>
                 </>}
                 <LinkButton to="/fipe" icon="dollar">Valor na FIPE</LinkButton>
               </div>
@@ -236,6 +238,7 @@ export function GuideModelPage() {
                     <LockCard what="a ficha técnica completa" next={next} />
                   </>
                 )}
+                {model.specSource && <p className="muted spec-source">Fonte: {model.specSource}</p>}
               </div>
             )}
 
@@ -295,6 +298,13 @@ function LockCard({ what, next }: { what: string; next: string }) {
       <div className="row"><LinkButton to={`/criar-conta?next=${encodeURIComponent(next)}`} variant="primary" size="sm">Criar conta grátis</LinkButton><LinkButton to={`/entrar?next=${encodeURIComponent(next)}`} size="sm">Entrar</LinkButton></div>
     </div>
   );
+}
+
+/** Tipo do simulador que combina com o modelo (picape/van/utilitário caem em "utilitário"). */
+function simSlug(m: { vehicleType: string; bodyType: string | null }): string {
+  if (m.vehicleType === 'MOTORCYCLE') return 'moto';
+  if (m.vehicleType === 'TRUCK') return 'caminhao';
+  return ['Picape', 'Utilitário', 'Van'].includes(m.bodyType ?? '') ? 'utilitario' : 'carro';
 }
 
 export function SpecSheet({ meta, specs }: { meta: SpecMeta; specs: Specs }) {

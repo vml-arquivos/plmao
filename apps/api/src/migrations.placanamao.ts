@@ -1,4 +1,5 @@
 import type { Migration } from './migrations.js';
+import { SEED_SOURCE, VEHICLE_SEED } from './data/vehicleSeed.js';
 import { SEED_ARTICLES, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
 
 /**
@@ -592,6 +593,81 @@ export const placaMigrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_vehicle_tips_list ON vehicle_tips(status, archived_at, category, display_order);
       `);
     }
-  }
+  },
+  {
+    id: '019_financing_simulator',
+    name: 'Simulador de financiamento: taxas de mercado (Banco Central), tarifas de referência e simulações salvas',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS financing_settings (
+          id smallint PRIMARY KEY CHECK (id = 1),
+          cdc_pf_pct numeric(7,4) NOT NULL DEFAULT 1.97,
+          cdc_pj_pct numeric(7,4) NOT NULL DEFAULT 1.45,
+          leasing_pf_pct numeric(7,4),
+          leasing_pj_pct numeric(7,4) NOT NULL DEFAULT 1.37,
+          rates_reference_month text NOT NULL DEFAULT '2026-08',
+          rates_source text NOT NULL DEFAULT 'Banco Central do Brasil (SGS 25471, 25447, 25450)',
+          auto_refresh boolean NOT NULL DEFAULT true,
+          rates_refreshed_at timestamptz,
+          rates_refresh_error text,
+          fee_cadastro_cents integer NOT NULL DEFAULT 60000 CHECK (fee_cadastro_cents >= 0),
+          fee_avaliacao_cents integer NOT NULL DEFAULT 40000 CHECK (fee_avaliacao_cents >= 0),
+          fee_registro_cents integer NOT NULL DEFAULT 25000 CHECK (fee_registro_cents >= 0),
+          iof_pf_daily_pct numeric(8,5) NOT NULL DEFAULT 0.0082,
+          iof_pj_daily_pct numeric(8,5) NOT NULL DEFAULT 0.0041,
+          iof_additional_pct numeric(6,3) NOT NULL DEFAULT 0.38,
+          iof_cap_days integer NOT NULL DEFAULT 365,
+          updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        INSERT INTO financing_settings(id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
+        CREATE TABLE IF NOT EXISTS financing_simulations (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          code text NOT NULL UNIQUE,
+          user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          modality text NOT NULL,
+          vehicle_kind text NOT NULL,
+          person_type text NOT NULL,
+          vehicle_value_cents bigint NOT NULL,
+          down_payment_cents bigint NOT NULL,
+          months integer NOT NULL,
+          monthly_rate_pct numeric(7,4) NOT NULL,
+          installment_cents bigint NOT NULL,
+          total_paid_cents bigint NOT NULL,
+          cet_annual_pct numeric(8,2),
+          input jsonb NOT NULL DEFAULT '{}'::jsonb,
+          output jsonb,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        ALTER TABLE financing_simulations ADD COLUMN IF NOT EXISTS output jsonb;
+        CREATE INDEX IF NOT EXISTS idx_financing_simulations_created ON financing_simulations(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_financing_simulations_user ON financing_simulations(user_id, created_at DESC);
+      `);
+    }
+  },
+  {
+    id: '020_vehicle_seed',
+    name: 'Guia de veículos: fonte da ficha técnica e carga inicial de modelos muito vendidos',
+    up: async (client) => {
+      await client.query('ALTER TABLE vehicle_models ADD COLUMN IF NOT EXISTS spec_source text');
+      // Idempotente e sem sobrescrever: se a equipe já cadastrou ou editou o modelo, nada é alterado.
+      for (const model of VEHICLE_SEED) {
+        const inserted = await client.query(
+          `INSERT INTO vehicle_models(slug,brand,name,vehicle_type,body_type,year_from,summary,status,spec_source)
+           VALUES($1,$2,$3,$4,$5,$6,$7,'PUBLISHED',$8) ON CONFLICT (slug) DO NOTHING RETURNING id`,
+          [model.slug, model.brand, model.name, model.vehicleType, model.bodyType, model.yearFrom ?? null, `${model.brand} ${model.name}: ficha técnica de referência, sem opiniões ainda. Seja o primeiro a avaliar.`, SEED_SOURCE]
+        );
+        const modelId = inserted.rows[0]?.id as string | undefined;
+        if (!modelId) continue;
+        let order = 0;
+        for (const v of model.versions) {
+          await client.query(
+            `INSERT INTO vehicle_versions(model_id,name,year_model,fuel,specs,display_order) VALUES($1,$2,$3,$4,$5::jsonb,$6) ON CONFLICT DO NOTHING`,
+            [modelId, v.name, v.yearModel, v.fuel, JSON.stringify(v.specs), order++]
+          );
+        }
+      }
+    }
+  }
 ];

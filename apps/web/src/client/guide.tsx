@@ -15,7 +15,7 @@ export interface GuideVersion { id: string; name: string; yearModel: number | nu
 export interface GuideTip { id: string; category: string; categoryLabel: string; title: string; body: string }
 export interface MyOpinion { id: string; rating: number; ratings: Record<string, number>; title: string; liked: string; disliked: string; comment: string; ownerSince: number | null; km: number | null; versionId: string | null; versionName: string | null; status: 'PENDING' | 'APPROVED' | 'REJECTED'; rejectReason: string | null; createdAt: string }
 export interface GuideModel {
-  slug: string; brand: string; name: string; vehicleType: 'CAR' | 'MOTORCYCLE' | 'TRUCK'; bodyType: string | null; yearFrom: number | null; yearTo: number | null; summary: string; imageUrl: string | null;
+  slug: string; brand: string; name: string; vehicleType: 'CAR' | 'MOTORCYCLE' | 'TRUCK'; bodyType: string | null; yearFrom: number | null; yearTo: number | null; summary: string; imageUrl: string | null; specSource?: string | null;
   rating: RatingSummary; locked: boolean; pros: string[]; cons: string[]; versions: GuideVersion[];
   reviewPreview?: string; review?: string; buyerTips?: string; tips?: GuideTip[]; opinionCount?: number; myOpinion?: MyOpinion | null;
 }

@@ -21,8 +21,8 @@ export interface ReportMeta {
 const FONT_DIR = new URL('../../assets/fonts/', import.meta.url);
 const font = (name: string) => readFileSync(new URL(name, FONT_DIR));
 
-const W = 595.28; const H = 841.89; const M = 40; const CW = W - M * 2;
-const C = {
+export const W = 595.28; export const H = 841.89; export const M = 40; export const CW = W - M * 2;
+export const C = {
   ink: rgb(0.059, 0.059, 0.078), text: rgb(0.122, 0.145, 0.19), muted: rgb(0.42, 0.45, 0.5), line: rgb(0.9, 0.91, 0.935), soft: rgb(0.965, 0.96, 0.99),
   violet: rgb(0.545, 0.361, 0.965), lilac: rgb(0.753, 0.518, 0.988), blue: rgb(0.231, 0.51, 0.965), white: rgb(1, 1, 1),
   green: rgb(0.086, 0.6, 0.36), greenBg: rgb(0.9, 0.97, 0.93), amber: rgb(0.8, 0.5, 0.04), amberBg: rgb(1, 0.96, 0.87), red: rgb(0.85, 0.2, 0.2), redBg: rgb(1, 0.92, 0.92), grayBg: rgb(0.94, 0.945, 0.955)
@@ -36,9 +36,9 @@ const VERDICT_STYLE = {
 } as const;
 
 
-interface RectOpts { x: number; y: number; width: number; height: number; color?: RGB; borderColor?: RGB; borderWidth?: number; borderRadius?: number }
+export interface RectOpts { x: number; y: number; width: number; height: number; color?: RGB; borderColor?: RGB; borderWidth?: number; borderRadius?: number }
 /** pdf-lib não tem cantos arredondados nativos: desenha via caminho SVG (origem no canto superior esquerdo). */
-function rect(page: PDFPage, o: RectOpts) {
+export function rect(page: PDFPage, o: RectOpts) {
   const r = Math.min(o.borderRadius ?? 0, o.width / 2, o.height / 2);
   if (!r) { page.drawRectangle({ x: o.x, y: o.y, width: o.width, height: o.height, color: o.color, borderColor: o.borderColor, borderWidth: o.borderWidth }); return; }
   const { width: w, height: h } = o;
@@ -46,7 +46,7 @@ function rect(page: PDFPage, o: RectOpts) {
   page.drawSvgPath(path, { x: o.x, y: o.y + h, color: o.color, borderColor: o.borderColor, borderWidth: o.borderWidth });
 }
 
-class Doc {
+export class Doc {
   pdf!: PDFDocument; page!: PDFPage; y = 0; pages: PDFPage[] = [];
   jx800!: PDFFont; jx700!: PDFFont; jx600!: PDFFont; dm400!: PDFFont; dm500!: PDFFont; dm700!: PDFFont;
   static async create(): Promise<Doc> {
@@ -78,14 +78,14 @@ class Doc {
 }
 
 /** remove caracteres que as fontes embutidas (latin) não cobrem */
-const clean = (t: string) => String(t ?? '').normalize('NFC').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^\x20-\x7E -ſ]/g, '');
-function fit(f: PDFFont, t: string, size: number, maxWidth: number): string {
+export const clean = (t: string) => String(t ?? '').normalize('NFC').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^\x20-\x7E -ſ]/g, '');
+export function fit(f: PDFFont, t: string, size: number, maxWidth: number): string {
   if (f.widthOfTextAtSize(t, size) <= maxWidth) return t;
   let s = t; while (s.length > 1 && f.widthOfTextAtSize(`${s}…`.replace('…', '...'), size) > maxWidth) s = s.slice(0, -1);
   return `${s.trimEnd()}...`;
 }
 
-function drawLogo(d: Doc, x: number, y: number, size: number, dark: boolean) {
+export function drawLogo(d: Doc, x: number, y: number, size: number, dark: boolean) {
   // marca: placa estilizada (retângulo com faixa azul) dentro de um quadrado violeta
   const p = d.page;
   rect(p, { x, y, width: size, height: size, color: C.violet, borderRadius: size * 0.26 });
@@ -239,7 +239,7 @@ function debtsBlock(d: Doc, report: ReportV2) {
   } else d.y -= 4;
 }
 
-async function qr(d: Doc, url: string, x: number, y: number, size: number) {
+export async function qr(d: Doc, url: string, x: number, y: number, size: number) {
   const code = QRCode.create(url, { errorCorrectionLevel: 'M' });
   const n = code.modules.size; const cell = size / n; const p = d.page;
   rect(p, { x: x - 4, y: y - 4, width: size + 8, height: size + 8, color: C.white, borderColor: C.line, borderWidth: 1, borderRadius: 6 });

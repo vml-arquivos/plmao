@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3.0 — Simulador de financiamento e carga inicial do guia
+
+### Adicionado
+
+- **Simulador de financiamento** (`/simulador`, `/simulador/carro|moto|caminhao|utilitario`): CDC e leasing, pessoa física ou empresa, veículo novo ou usado, qualquer valor (R$ 5 mil a R$ 20 milhões), entrada, prazo (CDC 6–84 meses, leasing 24–60 com valor residual), taxa de mercado do Banco Central ou a taxa da proposta do cliente. O resultado traz parcela, total pago, juros, **IOF** (por parcela, financiado, com teto de 365 dias), tarifas (cadastro, avaliação do bem em usados, registro/gravame no CDC), **CET** mensal e anual, custo sobre o valor do veículo, carência opcional e a tabela completa de parcelas. Modo "Comparar os dois" mostra CDC × leasing lado a lado. A simulação fica na URL, então sobrevive a login e cadastro.
+- **Taxas reais**: séries do Banco Central (SGS 25471, 25447, 25450 e 25474), atualizadas sozinhas a cada 24 horas (ou pelo botão no painel). Se o Banco Central estiver fora do ar, o simulador segue com a última taxa. Leasing de pessoa física quase não existe (o BC registra 0%): usa a média de leasing de empresa e avisa o cliente.
+- **PDF da simulação** (para quem tem conta gratuita): capa com dados do cliente, comparação CDC × leasing, composição do custo, tabela de todas as parcelas, "como calculamos" e avisos, com links clicáveis. Cada PDF fica salvo (`SIM-XXXXXXXX`) e pode ser reimpresso na íntegra, com a data e as taxas da época.
+- **Página inicial**: seção "Guia de veículos" (busca, diferenciais e modelos em destaque) e seção "Simulador" com a calculadora resumida. Botão "Simular financiamento" em cada modelo do guia. Menu e rodapé com o Simulador.
+- **Painel › Simulador de financiamento** (permissão Financeiro): taxas, tarifas de referência, IOF, atualização automática, "Atualizar pelo Banco Central", indicadores e lista de PDFs gerados. Alterações auditadas (`FINANCING_SETTINGS_UPDATED`).
+- **Guia de veículos com dados**: migration `020_vehicle_seed` publica 20 modelos muito vendidos (21 versões 2025) com ficha técnica de referência e **fonte registrada** em cada modelo, exibida no site. Só entram valores que a fonte informava; nenhuma opinião, nota ou review é criada. Campos novos de consumo a diesel. A carga é idempotente e nunca sobrescreve o que a equipe editou. O restante do catálogo entra pela importação CSV do painel.
+- SEO: títulos e descrições próprios do simulador (por tipo de veículo) e entrada no sitemap.
+- Migrations `019_financing_simulator` e `020_vehicle_seed`.
+
+### Atenção
+
+- As **tarifas** (cadastro R$ 500, avaliação R$ 300, registro R$ 200) são valores de referência editáveis: variam por banco e por estado. O cliente pode ajustá-las na tela.
+- A simulação é **informativa**; não é proposta nem oferta de crédito.
+
 ## 1.2.0 — Guia de veículos e comparador
 
 ### Adicionado
