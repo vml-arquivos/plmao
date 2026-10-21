@@ -7,8 +7,8 @@ import { appError, asyncRoute, audit } from '../lib/http.js';
 import { requirePermission } from '../permissions.js';
 import { BODY_TYPES, SPEC_FIELDS, SPEC_BY_KEY, TIP_CATEGORIES, cleanSpecs, normalizeText, slugify } from '../lib/vehicleSpecs.js';
 import { parseCsv } from '../lib/csvParse.js';
-import { csvEscape } from '../lib/br.js';
-import { SNAPSHOT_RE, parseSenatranCsv, rematchCatalog, upsertCatalog } from '../lib/catalog.js';
+import { csvEscape, toCsv } from '../lib/br.js';
+import { SNAPSHOT_RE, likeEscape, parseSenatranCsv, rematchCatalog, searchTerms, upsertCatalog } from '../lib/catalog.js';
 
 /** Gestão do Guia de veículos no painel: modelos, versões (ficha técnica), opiniões, dicas e importação por planilha. */
 export const adminVehiclesRouter = Router();
@@ -452,6 +452,53 @@ adminVehiclesRouter.get('/catalog/summary', asyncRoute(async (_req, res) => {
     names: Number(t.names), fleet: Number(t.fleet), matchedNames: Number(t.matched_names), matchedFleet: Number(t.matched_fleet),
     models: models.rows.map((m) => ({ id: m.id, brand: m.brand, name: m.name, slug: m.slug, names: Number(m.names), fleet: Number(m.fleet) }))
   });
+}));
+
+/** Filtros comuns da lista e da exportação: palavras do nome, ligado ao guia (sim/não) e modelo do guia. */
+function catalogFilter(q: Record<string, unknown>): { where: string; params: unknown[] } {
+  const params: unknown[] = []; const where: string[] = [];
+  for (const t of searchTerms(typeof q.q === 'string' ? q.q.slice(0, 80) : '')) {
+    params.push(`%${likeEscape(t)}%`); where.push(`c.search_text LIKE $${params.length}`);
+  }
+  if (q.matched === 'yes') where.push('c.model_id IS NOT NULL'); else if (q.matched === 'no') where.push('c.model_id IS NULL');
+  if (typeof q.modelId === 'string' && /^[0-9a-f-]{36}$/i.test(q.modelId)) { params.push(q.modelId); where.push(`c.model_id=$${params.length}`); }
+  return { where: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
+}
+const CATALOG_ORDER: Record<string, string> = { fleet: 'c.fleet_total DESC, c.raw_name', name: 'c.raw_name', year: 'c.year_max DESC NULLS LAST, c.fleet_total DESC' };
+
+/** Lista paginada de todos os veículos do catálogo (cada nome como o Senatran cadastra), com a ligação ao guia. */
+adminVehiclesRouter.get('/catalog/list', asyncRoute(async (req, res) => {
+  const { where, params } = catalogFilter(req.query);
+  const pageSize = Math.min(Math.max(Number(req.query.pageSize) || 50, 10), 100);
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const order = CATALOG_ORDER[String(req.query.sort)] ?? CATALOG_ORDER.fleet;
+  const [count, rows] = await Promise.all([
+    pool.query(`SELECT count(*)::int AS n, coalesce(sum(c.fleet_total),0)::bigint AS fleet FROM vehicle_catalog c ${where}`, params),
+    pool.query(`SELECT c.id,c.raw_name,c.fleet_total,c.year_min,c.year_max,c.years,c.snapshot,c.model_id,m.brand,m.name AS model_name,m.slug
+      FROM vehicle_catalog c LEFT JOIN vehicle_models m ON m.id=c.model_id ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, params)
+  ]);
+  res.json({
+    total: Number(count.rows[0]!.n), fleet: Number(count.rows[0]!.fleet), page, pageSize,
+    items: rows.rows.map((c) => ({
+      id: Number(c.id), name: c.raw_name, prefix: String(c.raw_name).includes('/') ? String(c.raw_name).split('/')[0] : null,
+      fleet: Number(c.fleet_total), yearMin: c.year_min, yearMax: c.year_max, years: c.years as Record<string, number>, snapshot: c.snapshot,
+      guide: c.model_id ? { id: c.model_id, brand: c.brand, name: c.model_name, slug: c.slug } : null
+    }))
+  });
+}));
+
+/** Exporta o catálogo (com os mesmos filtros) em CSV: uma linha por nome, com a frota por ano de fabricação em colunas. */
+adminVehiclesRouter.get('/catalog/export', asyncRoute(async (req, res) => {
+  const { where, params } = catalogFilter(req.query);
+  const r = await pool.query(`SELECT c.raw_name,c.fleet_total,c.year_min,c.year_max,c.years,c.snapshot,m.brand,m.name AS model_name
+    FROM vehicle_catalog c LEFT JOIN vehicle_models m ON m.id=c.model_id ${where} ORDER BY c.fleet_total DESC, c.raw_name LIMIT 60000`, params);
+  const csv = toCsv(['nome_senatran', 'frota_total', 'fabricacao_de', 'fabricacao_ate', 'frota_por_ano_fabricacao', 'snapshot', 'marca_guia', 'modelo_guia'],
+    r.rows.map((c) => [c.raw_name, c.fleet_total, c.year_min ?? '', c.year_max ?? '',
+      Object.entries(c.years as Record<string, number>).sort(([a], [b]) => Number(a) - Number(b)).map(([y, n]) => `${y === '0' ? 'sem ano' : y}:${n}`).join(' '), c.snapshot, c.brand ?? '', c.model_name ?? '']));
+  await audit(req.user!.id, 'VEHICLE_CATALOG_EXPORTED', 'vehicle_catalog', null, { rows: r.rowCount });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="catalogo-frota.csv"');
+  res.send(csv);
 }));
 
 adminVehiclesRouter.post('/catalog/rematch', asyncRoute(async (req, res) => {

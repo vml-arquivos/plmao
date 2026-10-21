@@ -767,3 +767,13 @@
 .vpicker-list li.empty, .vpicker-list li.foot { cursor: default; color: var(--muted); font-size: 12.5px; }
 .vpicker-list li.empty:hover, .vpicker-list li.foot:hover { background: transparent; }
 .vpicker-picked { margin: 8px 0 0; font-size: 13.5px; color: var(--text-2); }
+
+/* Escolha pela Tabela FIPE (simulador) */
+.fipe-pick { display: grid; gap: 14px; padding: 16px; border: 1px dashed var(--border-strong, var(--border)); border-radius: 18px; background: var(--surface-2, var(--surface)); }
+.fipe-pick .field .input-group { margin-bottom: 8px; }
+.fipe-price { display: grid; gap: 4px; padding: 14px 16px; border-radius: 14px; background: var(--primary-soft); border: 1px solid var(--border); }
+.fipe-price-v { font-size: 28px; line-height: 1.15; }
+.fipe-price small { color: var(--text-2); overflow-wrap: anywhere; }
+.fipe-price small.muted { color: var(--muted); }
+.cmp-cascade { margin-top: 8px; }
+.cmp-cascade .field { margin: 0; }

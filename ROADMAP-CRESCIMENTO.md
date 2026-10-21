@@ -7,7 +7,7 @@ Base: a estratégia `estrategia_crescimento_placa_na_mao.md` (21/10/2026) cruzad
 | Ponto da estratégia | Situação na 1.5.0 |
 |---|---|
 | "O guia só tem 20 modelos" | Guia com cerca de 22 fichas **e** catálogo da frota com 40.571 nomes (Senatran, set/2026). A busca acha qualquer veículo; só 6 destaques aparecem na home. |
-| "Conectar guia e simulador" | Primeiro elo feito: o simulador tem busca de veículo (lista do Senatran) e os botões do guia abrem o simulador com o nome preenchido. Falta puxar o valor FIPE confirmado. |
+| "Conectar guia e simulador" | Primeiro elo feito: o simulador tem busca de veículo (lista do Senatran) e os botões do guia abrem o simulador com o nome preenchido. Na 1.6.0 o simulador também mostra o valor FIPE do mês depois de escolher marca, modelo e ano (seletor FIPE); falta ligar a versão do guia ao código FIPE. |
 | "Medir o que a pessoa procura" | Passa a ser gravado, sem conta e sem dado pessoal: escolha no simulador, escolha na busca, visita à ficha e busca sem resultado. Relatório na aba **Frota e interesse** do painel. |
 | Comparativo de bancos pelo CET | Já existe (1.3.1). |
 | Compra sem surpresa, Minha garagem, seguro, peças, B2B | Ainda não feitos. Ordem e MVP abaixo. |

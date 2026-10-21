@@ -45,6 +45,7 @@ import { adminPeopleRouter } from './routes/adminPeople.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
 import { adminVehiclesRouter } from './routes/adminVehicles.js';
 import { publicVehiclesRouter } from './routes/vehicles.js';
+import { fipeBrands, fipeModels, fipeYears, fipeSearch } from './lib/fipeLookup.js';
 import { adminSimulatorRouter } from './routes/adminSimulator.js';
 import { simulatorRouter } from './routes/simulator.js';
 import { scoreModelMatch } from './lib/vehicleSpecs.js';
@@ -880,8 +881,7 @@ api.get('/fipe/brands', asyncRoute(async (req, res) => {
   if (!env.FEATURE_FREE_FIPE) throw fipeUnavailable();
   const vehicleType = fipeVehicleTypeSchema.safeParse(req.query.vehicleType);
   if (!vehicleType.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const providerName = 'parallelum';
-  try { res.json({ brands: await getFipeProvider(providerName).brands(vehicleType.data, typeof req.query.reference === 'string' ? req.query.reference : undefined) }); }
+  try { res.json({ brands: await fipeBrands(vehicleType.data, typeof req.query.reference === 'string' ? req.query.reference : undefined) }); }
   catch (error) { throw fipeProviderError(error); }
 }));
 
@@ -890,8 +890,7 @@ api.get('/fipe/models', asyncRoute(async (req, res) => {
   const vehicleType = fipeVehicleTypeSchema.safeParse(req.query.vehicleType);
   const brandCode = typeof req.query.brandCode === 'string' ? req.query.brandCode : '';
   if (!vehicleType.success || !brandCode) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const providerName = 'parallelum';
-  try { res.json({ models: await getFipeProvider(providerName).models(vehicleType.data, { code: brandCode, name: 'selected' }, typeof req.query.reference === 'string' ? req.query.reference : undefined) }); }
+  try { res.json({ models: await fipeModels(vehicleType.data, brandCode, typeof req.query.reference === 'string' ? req.query.reference : undefined) }); }
   catch (error) { throw fipeProviderError(error); }
 }));
 
@@ -901,9 +900,57 @@ api.get('/fipe/years', asyncRoute(async (req, res) => {
   const brandCode = typeof req.query.brandCode === 'string' ? req.query.brandCode : '';
   const modelCode = typeof req.query.modelCode === 'string' ? req.query.modelCode : '';
   if (!vehicleType.success || !brandCode || !modelCode) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const providerName = 'parallelum';
-  try { res.json({ years: await getFipeProvider(providerName).years(vehicleType.data, { code: brandCode, name: 'selected' }, { code: modelCode, name: 'selected' }, typeof req.query.reference === 'string' ? req.query.reference : undefined) }); }
+  try { res.json({ years: await fipeYears(vehicleType.data, brandCode, modelCode, typeof req.query.reference === 'string' ? req.query.reference : undefined) }); }
   catch (error) { throw fipeProviderError(error); }
+}));
+
+const fipeLookupLimiter = rateLimit({
+  windowMs: 60 * 1000, limit: 90, standardHeaders: true, legacyHeaders: false, skip: () => !env.RATE_LIMIT_ENABLED,
+  message: { error: 'TOO_MANY_ATTEMPTS', message: 'Muitas consultas em pouco tempo. Aguarde um instante e tente de novo.' }
+});
+const fipeCodeSchema = z.string().regex(/^[A-Za-z0-9._-]{1,24}$/);
+
+/** Busca por texto na própria Tabela FIPE: "onix 2020", "honda cg 160", "chevrolet onix". Devolve modelos (com a marca) e o ano digitado, se houver. */
+api.get('/fipe/search', fipeLookupLimiter, asyncRoute(async (req, res) => {
+  if (!env.FEATURE_FREE_FIPE) throw fipeUnavailable();
+  const vehicleType = fipeVehicleTypeSchema.safeParse(req.query.vehicleType ?? 'cars');
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
+  if (!vehicleType.success || q.length < 2) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  try {
+    const found = await fipeSearch(vehicleType.data, q);
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.json(found);
+  } catch (error) { throw fipeProviderError(error); }
+}));
+
+/**
+ * Valor FIPE de um veículo já escolhido (marca, modelo, ano), para mostrar no simulador.
+ * Não gasta a cota da consulta gratuita e não cria relatório: é só leitura de preço, com cache do mês.
+ */
+api.get('/fipe/price', fipeLookupLimiter, asyncRoute(async (req, res) => {
+  if (!env.FEATURE_FREE_FIPE) throw fipeUnavailable();
+  const vehicleType = fipeVehicleTypeSchema.safeParse(req.query.vehicleType ?? 'cars');
+  const brandCode = fipeCodeSchema.safeParse(req.query.brandCode);
+  const modelCode = fipeCodeSchema.safeParse(req.query.modelCode);
+  const yearCode = fipeCodeSchema.safeParse(req.query.yearCode);
+  if (!vehicleType.success || !brandCode.success || !modelCode.success || !yearCode.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const input = { vehicleType: vehicleType.data, brand: { code: brandCode.data, name: 'selected' }, model: { code: modelCode.data, name: 'selected' }, year: { code: yearCode.data, name: 'selected' } };
+  try {
+    const startedAt = Date.now();
+    const cachedResult = await findCachedFipeResult(input);
+    // "Não existe" no provedor principal vale como resposta final; só falha de rede/limite tenta o secundário.
+    const result = cachedResult ?? await getFipeProvider('parallelum').quote(input).catch((error: unknown) => {
+      if (error instanceof Error && 'code' in error && error.code === 'FIPE_NOT_FOUND') throw error;
+      return getFipeProvider('brasilapi').quote(input).catch(() => { throw error; });
+    });
+    if (!cachedResult) { await cacheFipeResult(result); await recordProviderHealth(result.provider, 'SUCCESS', Date.now() - startedAt); }
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.json({
+      valueCents: result.valueCents, valueLabel: result.valueLabel, referenceMonth: result.referenceMonth, fipeCode: result.fipeCode,
+      brand: result.brand, model: result.model, year: result.year, fuel: result.fuel ?? null, modelYear: result.modelYear ?? null,
+      source: result.source, cached: Boolean(cachedResult)
+    });
+  } catch (error) { throw fipeProviderError(error); }
 }));
 
 api.post('/fipe/quote', asyncRoute(async (req, res) => {

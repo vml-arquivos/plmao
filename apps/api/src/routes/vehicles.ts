@@ -156,6 +156,22 @@ publicVehiclesRouter.get('/vehicles/search-versions', asyncRoute(async (req, res
   res.json({ items: r.rows.map((v) => ({ versionId: v.id, slug: v.slug, label: `${v.brand} ${v.model_name} ${v.name}${v.year_model ? ` ${v.year_model}` : ''}`.replace(/\s+/g, ' ').trim(), fuel: v.fuel })) });
 }));
 
+/** Árvore marca > modelo > versão (com ano) do guia, para os seletores em cascata do comparador. */
+publicVehiclesRouter.get('/vehicles/version-tree', asyncRoute(async (_req, res) => {
+  const r = await pool.query(`SELECT v.id, v.name, v.year_model, v.fuel, m.slug, m.brand, m.name AS model_name FROM vehicle_versions v JOIN vehicle_models m ON m.id=v.model_id
+    WHERE ${PUBLISHED} AND v.active ORDER BY m.brand, m.name, v.name, v.year_model DESC NULLS LAST, v.display_order LIMIT 3000`);
+  type Ver = { id: string; name: string; fuel: string | null; yearModel: number | null };
+  const brands = new Map<string, Map<string, { slug: string; name: string; versions: Ver[] }>>();
+  for (const v of r.rows) {
+    const models = brands.get(v.brand) ?? new Map();
+    const model = models.get(v.slug) ?? { slug: v.slug, name: v.model_name, versions: [] as Ver[] };
+    model.versions.push({ id: v.id, name: v.name, fuel: v.fuel ?? null, yearModel: v.year_model ?? null });
+    models.set(v.slug, model); brands.set(v.brand, models);
+  }
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  res.json({ brands: [...brands.entries()].map(([name, models]) => ({ name, models: [...models.values()] })) });
+}));
+
 /** Rótulos de versões já escolhidas (usado pelo comparador para montar os "slots" a partir da URL). */
 publicVehiclesRouter.get('/vehicles/version-labels', asyncRoute(async (req, res) => {
   const ids = String(req.query.ids ?? '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 3);

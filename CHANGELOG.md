@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.0 — Escolha de veículo pela Tabela FIPE, valor FIPE automático no simulador e lista completa da frota no painel
+
+### Adicionado
+
+- **Simulador**: além do campo de nome (busca na frota do Senatran), um bloco **"Ou escolha pela Tabela FIPE"**: digite marca, modelo e ano (ex.: "onix 2020") ou escolha **marca, modelo/versão e ano** nas listas (com filtro de modelos). Ao escolher o ano, aparece o **valor FIPE do mês** (com mês de referência e código FIPE), o nome do veículo vai para o campo e para o PDF, e um botão "Usar como valor do veículo" preenche o valor. O valor digitado pela pessoa nunca é trocado sozinho; a tela só informa quanto ele está acima ou abaixo da FIPE. Se a FIPE estiver fora do ar, o simulador segue normalmente com valor digitado.
+- **Comparador**: abaixo da busca por texto, "Ou escolher por marca, modelo, versão e ano" (listas em cascata com os veículos que têm ficha no guia). Nova rota pública `GET /vehicles/version-tree`.
+- **API**: `GET /fipe/search` (busca por texto na própria FIPE, aceita apelidos como vw e chev e o ano digitado) e `GET /fipe/price` (valor FIPE de marca/modelo/ano já escolhidos; usa o cache do mês e **não gasta a cota da consulta gratuita nem cria relatório**). Ambas com limite de 90 por minuto por IP e desligadas junto com `FEATURE_FREE_FIPE`.
+- **Listas da FIPE em cache de 6 horas na memória** (marcas, modelos, anos) com troca automática para o provedor secundário se o principal falhar. Reduz a chamada ao provedor e acelera o seletor, inclusive na página `/fipe`.
+- **Painel › Guia de veículos › Todos os veículos**: lista paginada e pesquisável dos 40.571 nomes do catálogo (nome, frota, anos de fabricação, ficha do guia ligada), filtro "com/sem ficha", ordenação, detalhe da frota por ano e **exportação em CSV** (auditada).
+
+### Atenção
+
+- O Senatran publica nomes inteiros (marca/modelo/versão juntos). A separação em marca, modelo, versão e ano vem da **Tabela FIPE** (seletor) e das fichas do guia; o painel mostra o nome do Senatran como está.
+- O catálogo só aparece no painel depois que a migração `023_vehicle_catalog` rodar no servidor (ela roda sozinha na inicialização). Se a lista estiver vazia, confira o log de inicialização e reimplante.
+- O comparador compara só veículos com ficha no guia; veículos que só existem na FIPE aparecem no simulador e na consulta FIPE, não no comparador.
+
 ## 1.5.0 — Catálogo completo da frota, 6 destaques com foto e escolha de veículo no simulador
 
 ### Adicionado

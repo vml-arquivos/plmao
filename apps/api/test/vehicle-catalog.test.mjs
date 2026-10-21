@@ -195,4 +195,33 @@ describe('catálogo de frota: API pública, destaques, interesse e painel', inte
     assert.ok(sum.models.find((m) => m.slug === 'fiat-strada').names > 100);
     assert.equal((await cont.call('/api/admin/vehicles/catalog/rematch', { method: 'POST', body: {} })).status, 200);
   });
+  it('painel: lista paginada de todos os veículos, filtros, exportação CSV e permissão', async () => {
+    assert.equal((await op.call('/api/admin/vehicles/catalog/list')).status, 403);
+    assert.equal((await op.call('/api/admin/vehicles/catalog/export')).status, 403);
+    const all = (await cont.call('/api/admin/vehicles/catalog/list?pageSize=50')).json;
+    assert.ok(all.total >= 40571);
+    assert.equal(all.items.length, 50);
+    assert.ok(all.items[0].fleet >= all.items[1].fleet, 'padrão: maior frota primeiro');
+    assert.ok(all.items[0].years && all.items[0].snapshot);
+    const onix = (await cont.call('/api/admin/vehicles/catalog/list?q=' + encodeURIComponent('chev onix') + '&matched=yes')).json;
+    assert.ok(onix.total > 5 && onix.items.every((i) => i.guide && /onix/i.test(i.name)));
+    const unmatched = (await cont.call('/api/admin/vehicles/catalog/list?matched=no&sort=name&pageSize=10')).json;
+    assert.ok(unmatched.items.every((i) => i.guide === null));
+    assert.ok(unmatched.items[0].name <= unmatched.items[1].name);
+    const page2 = (await cont.call('/api/admin/vehicles/catalog/list?page=2&pageSize=50')).json;
+    assert.notEqual(page2.items[0].id, all.items[0].id);
+    const csv = await cont.call('/api/admin/vehicles/catalog/export?q=' + encodeURIComponent('chev onix'));
+    assert.equal(csv.status, 200);
+    assert.match(csv.text, /nome_senatran;frota_total;fabricacao_de/);
+    assert.match(csv.text, /CHEV\/ONIX/);
+  });
+
+  it('comparador: árvore marca > modelo > versão do guia', async () => {
+    const r = await pub('/api/vehicles/version-tree');
+    assert.equal(r.status, 200);
+    const brands = r.json.brands;
+    assert.ok(brands.length > 3);
+    const any = brands[0].models[0];
+    assert.ok(any.slug && any.versions.length > 0 && any.versions[0].id);
+  });
 });

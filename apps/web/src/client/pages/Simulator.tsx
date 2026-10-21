@@ -4,6 +4,7 @@ import { Icon } from '../../shared/icons';
 import { Alert, Badge, Button, Field, LinkButton, Select, Skeleton, Switch, Textarea, useToast, usePageTitle } from '../../shared/ui';
 import { api } from '../api';
 import { VehiclePicker } from '../vehiclePicker';
+import { FipePicker } from '../fipePicker';
 import { errorMessage } from '../../shared/api';
 import { useSession } from '../session';
 import {
@@ -223,6 +224,7 @@ export default function Simulator() {
           <form className="card card-pad sim-form" onSubmit={(e) => e.preventDefault()} aria-label="Dados da simulação">
             <KindTabs value={state.kind} onChange={(k) => { nav(`/simulador/${kindByKey(k).slug}${state.label ? `?${new URLSearchParams({ n: state.label }).toString()}` : ''}`, { replace: false }); }} />
             <VehiclePicker value={state.label} onChange={(v) => set('label', v)} />
+            <FipePicker vehicleType={state.kind === 'MOTORCYCLE' ? 'motorcycles' : state.kind === 'TRUCK' ? 'trucks' : 'cars'} valueCents={state.value * 100} onUseValue={(cents) => set('value', Math.round(cents / 100))} onLabel={(l) => set('label', l)} />
 
             <div className="field">
               <span className="lbl">Modalidade</span>

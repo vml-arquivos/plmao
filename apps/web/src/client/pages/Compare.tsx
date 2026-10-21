@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
-import { Alert, Button, EmptyState, ErrorState, Input, LinkButton, PageLoading, Skeleton, Switch, usePageTitle, useToast } from '../../shared/ui';
+import { Alert, Button, EmptyState, ErrorState, Field, Input, LinkButton, PageLoading, Select, Skeleton, Switch, usePageTitle, useToast } from '../../shared/ui';
 import { api } from '../api';
 import { useSession } from '../session';
 import { Stars, formatSpec, ratingText, type RatingCategory, type RatingSummary, type SpecField, type Specs } from '../guide';
@@ -110,6 +110,7 @@ function VehiclePicker({ exclude, onPick, index }: { exclude: string[]; onPick: 
   const [results, setResults] = useState<Array<{ versionId: string; label: string }>>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cascade, setCascade] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -128,6 +129,8 @@ function VehiclePicker({ exclude, onPick, index }: { exclude: string[]; onPick: 
     <div className="cmp-slot picker" ref={box}>
       <span className="cat-tag">Veículo {index + 1}</span>
       <Input icon="search" value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder="Buscar modelo ou versão" aria-label={`Buscar veículo ${index + 1}`} maxLength={80} autoComplete="off" />
+      <button type="button" className="link-btn" onClick={() => setCascade((v) => !v)} aria-expanded={cascade}>{cascade ? 'Fechar a escolha por listas' : 'Ou escolher por marca, modelo, versão e ano'}</button>
+      {cascade && <VersionSelects exclude={exclude} onPick={(id) => { setCascade(false); onPick(id); }} />}
       {open && (
         <ul className="picker-list" role="listbox">
           {busy && <li className="muted">Buscando…</li>}
@@ -135,6 +138,35 @@ function VehiclePicker({ exclude, onPick, index }: { exclude: string[]; onPick: 
           {results.map((r) => <li key={r.versionId} role="option" aria-selected={false}><button type="button" onClick={() => { setOpen(false); setQ(''); onPick(r.versionId); }}>{r.label}</button></li>)}
         </ul>
       )}
+    </div>
+  );
+}
+
+interface TreeVersion { id: string; name: string; fuel: string | null; yearModel: number | null }
+interface Tree { brands: Array<{ name: string; models: Array<{ slug: string; name: string; versions: TreeVersion[] }> }> }
+
+/** Escolha em cascata: marca, modelo, versão e ano (só o que existe no guia). */
+function VersionSelects({ exclude, onPick }: { exclude: string[]; onPick: (id: string) => void }) {
+  const [tree, setTree] = useState<Tree | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [brand, setBrand] = useState(''); const [slug, setSlug] = useState(''); const [ver, setVer] = useState('');
+  useEffect(() => { api.get<Tree>('/vehicles/version-tree').then(setTree, () => setFailed(true)); }, []);
+  const models = tree?.brands.find((b) => b.name === brand)?.models ?? [];
+  const allVersions = models.find((m) => m.slug === slug)?.versions ?? [];
+  const versions = allVersions.filter((v) => !exclude.includes(v.id));
+  const verKey = (v: TreeVersion) => `${v.name}|${v.fuel ?? ''}`;
+  const names = [...new Map(versions.map((v) => [verKey(v), v])).values()];
+  const years = versions.filter((v) => verKey(v) === ver);
+  const pickVersion = (key: string) => { setVer(key); const list = versions.filter((v) => verKey(v) === key); if (list.length === 1) onPick(list[0]!.id); };
+  if (failed) return <p className="muted" style={{ fontSize: 13 }}>Não foi possível carregar as listas agora. Use a busca acima.</p>;
+  if (!tree) return <p className="muted" style={{ fontSize: 13 }}>Carregando…</p>;
+  return (
+    <div className="stack-sm cmp-cascade">
+      <Field label="Marca"><Select value={brand} onChange={(e) => { setBrand(e.target.value); setSlug(''); setVer(''); }}><option value="">Selecione</option>{tree.brands.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}</Select></Field>
+      <Field label="Modelo"><Select value={slug} onChange={(e) => { setSlug(e.target.value); setVer(''); }} disabled={!brand}><option value="">Selecione</option>{models.map((m) => <option key={m.slug} value={m.slug}>{m.name}</option>)}</Select></Field>
+      <Field label="Versão"><Select value={ver} onChange={(e) => pickVersion(e.target.value)} disabled={!slug}><option value="">Selecione</option>{names.map((v) => <option key={verKey(v)} value={verKey(v)}>{v.name}{v.fuel ? ` · ${v.fuel}` : ''}</option>)}</Select></Field>
+      <Field label="Ano"><Select value="" onChange={(e) => e.target.value && onPick(e.target.value)} disabled={years.length < 2}><option value="">{years.length === 1 ? 'Único ano cadastrado' : 'Selecione'}</option>{years.map((v) => <option key={v.id} value={v.id}>{v.yearModel ?? 'Ano não informado'}</option>)}</Select></Field>
+      {slug && !names.length && <p className="muted" style={{ fontSize: 13 }}>{allVersions.length ? 'Todas as versões deste modelo já estão na comparação.' : 'Este modelo ainda não tem versões cadastradas para comparar.'}</p>}
     </div>
   );
 }

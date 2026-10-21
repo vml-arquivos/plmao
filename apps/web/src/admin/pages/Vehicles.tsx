@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { Alert, Badge, Button, ConfirmDialog, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Select, Switch, Tabs, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
@@ -30,7 +30,7 @@ const errText = (e: unknown) => {
 export default function VehicleGuide() {
   usePageTitle('Guia de veículos');
   const [params, setParams] = useSearchParams();
-  const tab = (['models', 'opinions', 'tips', 'consumption', 'fleet', 'import'].includes(params.get('aba') ?? '') ? params.get('aba') : 'models') as 'models' | 'opinions' | 'tips' | 'consumption' | 'fleet' | 'import';
+  const tab = (['models', 'opinions', 'tips', 'consumption', 'catalog', 'fleet', 'import'].includes(params.get('aba') ?? '') ? params.get('aba') : 'models') as 'models' | 'opinions' | 'tips' | 'consumption' | 'catalog' | 'fleet' | 'import';
   const meta = useAsync(() => api.get<Meta>('/admin/vehicles/meta'));
   if (meta.loading && !meta.data) return <PageLoading />;
   if (meta.error || !meta.data) return <ErrorState error={meta.error} onRetry={meta.reload} />;
@@ -43,6 +43,7 @@ export default function VehicleGuide() {
         { id: 'opinions', label: m.pendingOpinions ? `Opiniões (${m.pendingOpinions} para revisar)` : 'Opiniões' },
         { id: 'tips', label: `Dicas e cuidados (${m.tips})` },
         { id: 'consumption', label: 'Consumo oficial' },
+        { id: 'catalog', label: 'Todos os veículos' },
         { id: 'fleet', label: 'Frota e interesse' },
         { id: 'import', label: 'Importar planilha' }
       ]} />
@@ -50,6 +51,7 @@ export default function VehicleGuide() {
       {tab === 'opinions' && <OpinionsTab onChanged={meta.reload} />}
       {tab === 'tips' && <TipsTab meta={m} onChanged={meta.reload} />}
       {tab === 'consumption' && <ConsumptionTab />}
+      {tab === 'catalog' && <CatalogTab />}
       {tab === 'fleet' && <FleetTab />}
       {tab === 'import' && <ImportTab onDone={meta.reload} />}
     </>
@@ -579,6 +581,63 @@ function ConsumptionTab() {
       </Card>
       {remove && <ConfirmDialog title="Apagar registro de consumo" message={<p>Apagar <b>{remove.brand} {remove.model} {remove.versionLabel}</b> ({remove.fuel})?</p>} confirmLabel="Apagar" danger
         onConfirm={async () => { try { await api.del(`/admin/vehicles/consumption/${remove.id}`); toast.ok('Registro apagado.'); list.reload(); } catch (e) { toast.error(errText(e)); throw e; } }} onClose={() => setRemove(null)} />}
+    </div>
+  );
+}
+
+/* ---------- Todos os veículos do catálogo ---------- */
+interface CatalogRowAdmin { id: number; name: string; prefix: string | null; fleet: number; yearMin: number | null; yearMax: number | null; years: Record<string, number>; snapshot: string; guide: { id: string; brand: string; name: string; slug: string } | null }
+interface CatalogList { total: number; fleet: number; page: number; pageSize: number; items: CatalogRowAdmin[] }
+
+function CatalogTab() {
+  const toast = useToast();
+  const [q, setQ] = useState(''); const [term, setTerm] = useState('');
+  const [matched, setMatched] = useState(''); const [sort, setSort] = useState('fleet'); const [page, setPage] = useState(1);
+  const [open, setOpen] = useState<number | null>(null);
+  useEffect(() => { const t = setTimeout(() => { setTerm(q); setPage(1); }, 300); return () => clearTimeout(t); }, [q]);
+  const list = useAsync(() => api.get<CatalogList>('/admin/vehicles/catalog/list', { query: { q: term, matched, sort, page } }), [term, matched, sort, page]);
+  const d = list.data;
+  const pages = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1;
+  return (
+    <div className="stack">
+      <Card title="Todos os veículos da frota (Senatran)" actions={<Button icon="download" size="sm" onClick={() => void api.download(`/admin/vehicles/catalog/export?${new URLSearchParams({ q: term, matched }).toString()}`, 'catalogo-frota.csv').catch((e) => toast.error(errText(e)))}>Baixar CSV</Button>}>
+        <p className="muted small" style={{ margin: 0 }}>Cada linha é um nome como o Senatran cadastra (marca/modelo/versão juntos) com a frota por ano de <b>fabricação</b>. O arquivo não separa marca, modelo e versão: o que é separado e confirmado fica na ficha do guia e na Tabela FIPE.</p>
+        <div className="row" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+          <Input icon="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar nome (ex.: onix lt, cg 160)" aria-label="Buscar no catálogo" style={{ maxWidth: 320 }} />
+          <Select value={matched} onChange={(e) => { setMatched(e.target.value); setPage(1); }} aria-label="Ligação com o guia" style={{ maxWidth: 220 }}><option value="">Todos</option><option value="yes">Com ficha no guia</option><option value="no">Sem ficha no guia</option></Select>
+          <Select value={sort} onChange={(e) => { setSort(e.target.value); setPage(1); }} aria-label="Ordenar" style={{ maxWidth: 200 }}><option value="fleet">Maior frota</option><option value="name">Nome (A–Z)</option><option value="year">Mais novos</option></Select>
+        </div>
+        {list.loading && !d ? <PageLoading /> : list.error || !d ? <ErrorState error={list.error} onRetry={list.reload} /> : (
+          <>
+            <p style={{ margin: '12px 0 8px' }}><b>{nfAdmin.format(d.total)}</b> {d.total === 1 ? 'nome' : 'nomes'} · {nfAdmin.format(d.fleet)} veículos na frota</p>
+            {d.total === 0 && <Alert tone="info">Nada encontrado. Se o catálogo estiver vazio, a carga inicial (migração 023) ainda não rodou neste ambiente: publique a versão nova e confira em “Frota e interesse”.</Alert>}
+            <div className="table-wrap"><table className="table"><thead><tr><th>Nome no Senatran</th><th className="r">Frota</th><th>Fabricação</th><th>Ficha no guia</th></tr></thead><tbody>
+              {d.items.map((c) => (
+                <Fragment key={c.id}>
+                  <tr onClick={() => setOpen(open === c.id ? null : c.id)} style={{ cursor: 'pointer' }} aria-expanded={open === c.id}>
+                    <td><b>{c.name}</b></td><td className="r">{nfAdmin.format(c.fleet)}</td>
+                    <td>{c.yearMin ? (c.yearMin === c.yearMax ? c.yearMin : `${c.yearMin} a ${c.yearMax}`) : 'sem ano'}</td>
+                    <td>{c.guide ? <Link to={`/guia/${c.guide.id}`} onClick={(e) => e.stopPropagation()}>{c.guide.brand} {c.guide.name}</Link> : <span className="muted">sem ficha</span>}</td>
+                  </tr>
+                  {open === c.id && (
+                    <tr><td colSpan={4}>
+                      <div className="stack-sm">
+                        <span className="muted small">Cadastro: prefixo “{c.prefix ?? 'não informado'}” · snapshot {c.snapshot} · código interno {c.id}</span>
+                        <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>{Object.entries(c.years).sort(([a], [b]) => Number(b) - Number(a)).map(([y, n]) => <span key={y} className="chip">{y === '0' ? 'Sem ano' : y}: <b>{nfAdmin.format(n)}</b></span>)}</div>
+                      </div>
+                    </td></tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody></table></div>
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <Button size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Anterior</Button>
+              <span className="muted">Página {page} de {nfAdmin.format(pages)}</span>
+              <Button size="sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>Próxima</Button>
+            </div>
+          </>
+        )}
+      </Card>
     </div>
   );
 }
