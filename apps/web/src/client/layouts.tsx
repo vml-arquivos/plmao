@@ -110,6 +110,7 @@ export function PublicLayout() {
 const ITEMS: Array<{ to: string; label: string; icon: IconName; end?: boolean }> = [
   { to: '/app', label: 'Painel', icon: 'home', end: true },
   { to: '/app/historico', label: 'Histórico', icon: 'clock' },
+  { to: '/app/garagem', label: 'Minha garagem', icon: 'car' },
   { to: '/veiculos', label: 'Guia de veículos', icon: 'car' },
   { to: '/app/carteira', label: 'Carteira', icon: 'wallet' },
   { to: '/app/parceiro', label: 'Parceiro', icon: 'users' },

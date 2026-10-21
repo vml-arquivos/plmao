@@ -6,12 +6,14 @@ import { money, num } from '../../shared/format';
 import { BarChart, Card, Kpi, PageHead, asNumber } from '../parts';
 
 interface Overview { [k: string]: unknown; daily: Array<{ date: string; queries: number; successful_queries: number; sales: number; revenue_cents: number; users: number }> }
+interface Funnel { visitors: number; plate_searches: number; signups: number; checkouts_started: number; payments_paid: number; reports_delivered: number; reports_opened: number; failed_or_refunded: number; refunded_orders: number; disputes: number; repeat_buyers: number; buyers: number }
 interface Checklist { ready: boolean; items: Array<{ key: string; ok: boolean; severity: 'BLOCKER' | 'WARNING'; title: string }> }
 
 export default function Dashboard() {
   usePageTitle('Painel');
   const { can } = useAdminSession();
   const ov = useAsync(() => api.get<Overview>('/admin/overview'));
+  const fun = useAsync(() => api.get<Funnel>('/admin/funnel'));
   const chk = useAsync(() => (can('MANAGE_BILLING') ? api.get<Checklist>('/admin/finance/setup-checklist') : Promise.resolve(null)), [can('MANAGE_BILLING')]);
   if (ov.loading && !ov.data) return <PageLoading />;
   if (ov.error || !ov.data) return <ErrorState error={ov.error} onRetry={ov.reload} />;
@@ -53,6 +55,22 @@ export default function Dashboard() {
           <Kpi label="Checkouts iniciados" value={num(n('checkout_starts_30d'))} sub={`Cadastro: ${n('visitor_registration_rate_pct')}% dos visitantes`} />
         </div>
       </Card>
+      {fun.data && (() => {
+        const f = fun.data;
+        const steps: Array<[string, number]> = [['Visitantes', f.visitors], ['Buscaram uma placa', f.plate_searches], ['Cadastros', f.signups], ['Checkouts iniciados', f.checkouts_started], ['Pagamentos confirmados', f.payments_paid], ['Relatórios entregues', f.reports_delivered], ['Relatórios abertos', f.reports_opened]];
+        const pctOf = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 100)}% da etapa anterior` : undefined);
+        return (
+          <Card title="Funil completo (30 dias)">
+            <div className="adm-grid-4">
+              {steps.map(([label, v], i) => <Kpi key={label} label={label} value={num(v)} sub={i > 0 ? pctOf(v, steps[i - 1]![1]) : undefined} />)}
+              <Kpi label="Falhas ou estornos de consulta" value={num(f.failed_or_refunded)} tone={f.failed_or_refunded > 0 ? 'warn' : undefined} sub={`${num(f.refunded_orders)} pedido(s) reembolsado(s)`} />
+              <Kpi label="Dados contestados" value={num(f.disputes)} sub="pelos clientes, no relatório" />
+              <Kpi label="Clientes que compraram de novo" value={`${num(f.repeat_buyers)} de ${num(f.buyers)}`} sub={f.buyers > 0 ? `${Math.round((f.repeat_buyers / f.buyers) * 100)}% dos compradores` : undefined} />
+            </div>
+            <p className="muted" style={{ fontSize: 13 }}>As etapas contam eventos do período, não a mesma pessoa de uma etapa à outra.</p>
+          </Card>
+        );
+      })()}
       <Card title="Funil da consulta FIPE grátis">
         <div className="adm-grid-4">
           <Kpi label="Iniciadas" value={num(n('fipe_started'))} />

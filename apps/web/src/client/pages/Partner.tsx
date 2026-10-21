@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from '../../shared/icons';
 import { Alert, Button, CopyField, ErrorState, Field, Input, PageLoading, Stat, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
@@ -6,7 +6,19 @@ import { bpsToPercent, money } from '../../shared/format';
 import { api } from '../api';
 
 interface Affiliate { id: string; name: string; email: string; code: string; commissionBps: number; active: boolean }
-interface Stats { affiliate: { id: string; code: string } | null; shareUrl?: string; totals: { commissions: number; pendingCents: number; paidCents: number; referredUsers?: number } }
+interface Stats { affiliate: { id: string; code: string } | null; shareUrl?: string; links?: Array<{ key: string; label: string; url: string }>; performance?: { clicks30d: number; paidPayments: number; reversedCommissions: number }; totals: { commissions: number; pendingCents: number; paidCents: number; referredUsers?: number } }
+
+function LinkQr({ url, name }: { url: string; name: string }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => { let alive = true; import('qrcode').then((m) => m.default.toDataURL(url, { margin: 2, width: 360, errorCorrectionLevel: 'M' })).then((d) => { if (alive) setSrc(d); }, () => { if (alive) setSrc(''); }); return () => { alive = false; }; }, [url]);
+  if (!src) return null;
+  return (
+    <div className="stack" style={{ alignItems: 'start' }}>
+      <img src={src} alt="QR code do link selecionado" width={180} height={180} style={{ borderRadius: 12, border: '1px solid var(--border)' }} />
+      <a className="btn" style={{ alignSelf: 'start' }} href={src} download={`${name}.png`}><Icon name="download" size={16} /> Baixar QR code</a>
+    </div>
+  );
+}
 
 export default function Partner() {
   usePageTitle('Parceiro');
@@ -14,6 +26,7 @@ export default function Partner() {
   const me = useAsync(() => api.get<{ affiliate: Affiliate | null }>('/affiliate/me'), []);
   const stats = useAsync(() => api.get<Stats>('/affiliate/stats'), []);
   const [code, setCode] = useState('');
+  const [linkKey, setLinkKey] = useState('home');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   if (me.loading && !me.data) return <PageLoading />;
@@ -48,16 +61,33 @@ export default function Partner() {
       <div className="page-head"><div><h1>Programa de parceiros</h1><p>Sua comissão atual é de <b>{bpsToPercent(aff.commissionBps)}</b> sobre cada pagamento confirmado dos seus indicados.</p></div></div>
       {!aff.active && <Alert tone="warn" title="Seu cadastro de parceiro está inativo.">Fale com o suporte para reativar.</Alert>}
       <div className="stat-grid">
+        <Stat label="Visitas (30 dias)" value={stats.data?.performance?.clicks30d ?? 0} sub="pessoas que chegaram pelo seu link" />
         <Stat label="Indicados" value={t?.referredUsers ?? 0} sub="cadastros pelo seu link" />
-        <Stat label="Comissões" value={t?.commissions ?? 0} sub="geradas" />
+        <Stat label="Pagamentos" value={stats.data?.performance?.paidPayments ?? 0} sub={(stats.data?.performance?.reversedCommissions ?? 0) > 0 ? `${stats.data?.performance?.reversedCommissions} estornado(s) ou cancelado(s)` : 'confirmados'} />
         <Stat label="A receber" value={money(t?.pendingCents ?? 0)} sub="em liberação ou liberadas" />
         <Stat highlight label="Já pago" value={money(t?.paidCents ?? 0)} sub="repassado a você" />
       </div>
       <section className="card card-pad stack">
-        <h2 style={{ fontSize: 18 }}>Seu link de indicação</h2>
-        <CopyField value={stats.data?.shareUrl ?? `${window.location.origin}/?ref=${aff.code}`} label="Link de indicação" />
-        <p className="muted" style={{ fontSize: 14 }}>Seu código: <b className="mono">{aff.code}</b>. Compartilhe o link em redes sociais, grupos e com sua equipe.</p>
+        <h2 style={{ fontSize: 18 }}>Seu código</h2>
+        {!stats.data?.links?.length && <CopyField value={stats.data?.shareUrl ?? `${window.location.origin}/?ref=${aff.code}`} label="Link de indicação" />}
+        <p className="muted" style={{ fontSize: 14 }}><b className="mono">{aff.code}</b>. Compartilhe os links abaixo em redes sociais, grupos e com sua equipe.</p>
       </section>
+      {stats.data?.links && stats.data.links.length > 0 && (() => {
+        const cur = stats.data.links.find((l) => l.key === linkKey) ?? stats.data.links[0]!;
+        return (
+          <section className="card card-pad stack">
+            <h2 style={{ fontSize: 18 }}>Links por destino e QR code</h2>
+            <p className="muted" style={{ fontSize: 14, margin: 0 }}>Leve a pessoa direto para a ferramenta que resolve o problema dela. Todos os links levam o seu código.</p>
+            <Field label="Destino">
+              <select className="input" value={cur.key} onChange={(e) => setLinkKey(e.target.value)} aria-label="Destino do link">
+                {stats.data.links.map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
+              </select>
+            </Field>
+            <CopyField value={cur.url} label={`Link: ${cur.label}`} />
+            <LinkQr url={cur.url} name={`placa-na-mao-${cur.key}`} />
+          </section>
+        );
+      })()}
       <Alert tone="info" title="Como funciona o repasse.">As comissões ficam em análise por alguns dias após o pagamento (proteção contra estorno). Depois disso, a equipe agrupa e repassa os valores. Em caso de estorno do pagamento, a comissão correspondente é revertida.</Alert>
     </div>
   );

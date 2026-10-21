@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.9.0 — Minha garagem, contestação de dado, funil completo, parceiros com QR e ferramentas no SEO
+
+### Adicionado
+
+- **Minha garagem** (`/app/garagem`): a pessoa guarda até 10 veículos, vê os relatórios de cada placa, cria **lembretes por data ou quilometragem** (vencido / em breve), registra manutenções e gastos, exporta tudo em JSON e apaga. O que ela digita é marcado como informado por ela. Botão "Guardar na garagem" no relatório. API `/garage/*`; migration `026_garage` (colunas em `saved_vehicles` e tabela `garage_items`).
+- **Informar dado incorreto** no relatório: vira chamado no Suporte com placa e código de verificação (`POST /queries/:id/report/dispute`, até 5 por dia).
+- **Funil completo no painel** (30 dias): visitantes, busca de placa, cadastros, checkouts, pagamentos, relatórios entregues e abertos, falhas/estornos, contestações e quem comprou de novo (`GET /admin/funnel`; novo evento `REPORT_OPENED`).
+- **Parceiros**: links por destino (início, consulta, FIPE, simulador, comparador, guia), **QR code** para baixar, visitas dos últimos 30 dias, pagamentos e estornos.
+- **Páginas de SEO** com atalhos para FIPE, simulador, comparador e guia; simulador com "Copiar link desta simulação".
+
+### Corrigido
+
+- Links de indicação do parceiro usavam `APP_URL` direto e davam erro 500 quando a variável não estava definida; agora usam o endereço público padrão.
+- `qrcode` passou a ter chunk próprio e público: sem isso, a página do parceiro carregava o arquivo do painel e quebrava. `release-verify` agora falha se qualquer arquivo público importar arquivo do painel.
+
+### Não feito (de propósito)
+
+- Seguro e autopeças: exigem parceiro habilitado e validação jurídica. Prévia antes do pagamento e fonte por seção do relatório dependem do contrato do provedor.
+
 ## 1.8.0 — Comparativo CDC x leasing com primeira e última parcela, parcelas decrescentes e perguntas e respostas
 
 ### Adicionado

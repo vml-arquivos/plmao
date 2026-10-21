@@ -29,6 +29,18 @@ if (existsSync(publicIndex)) {
   const refs = readFileSync(publicIndex, 'utf8').match(/assets\/admin-[^"']+/g);
   if (refs) throw new Error(`RELEASE_PUBLIC_INDEX_REFERENCES_ADMIN_ASSETS:${[...new Set(refs)].join(',')}`);
   console.info(JSON.stringify({ publicIndex: 'sem_dependencia_do_painel' }));
+  // Também nenhum chunk público (carregado sob demanda) pode importar arquivo do painel.
+  const assetsDir = join(root, 'apps/web/dist/assets');
+  if (existsSync(assetsDir)) {
+    const leaks = [];
+    for (const f of readdirSync(assetsDir)) {
+      if (f.startsWith('admin-') || !f.endsWith('.js')) continue;
+      const hits = readFileSync(join(assetsDir, f), 'utf8').match(/\.\/admin-[A-Za-z0-9_.-]+\.js/g);
+      if (hits) leaks.push(`${f}->${[...new Set(hits)].join('|')}`);
+    }
+    if (leaks.length) throw new Error(`RELEASE_PUBLIC_CHUNK_REFERENCES_ADMIN_ASSETS:${leaks.join(',')}`);
+    console.info(JSON.stringify({ publicChunks: 'sem_dependencia_do_painel' }));
+  }
 }
 
 const forbiddenFiles = [];

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
-import { Alert, Badge, Button, ErrorState, LinkButton, PageLoading, PlateBadge, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { Alert, Badge, Button, ErrorState, Field, Input, LinkButton, Modal, PageLoading, PlateBadge, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { ApiError, errorMessage } from '../../shared/api';
 import { dateTime, money } from '../../shared/format';
 import ReportView from '../../shared/ReportView';
@@ -12,11 +12,32 @@ import { STATUS, type QuerySummary } from '../components/QueryRow';
 interface FipeQuote { documentCode: string; consultedAt: string; referenceMonth: string; brand: { name: string }; model: { name: string }; year: { name: string }; fuel?: string; fipeCode: string; valueLabel: string; blocks: Array<{ key: string; label: string; message: string }> }
 type Detail = QuerySummary & { result?: QuerySummary['result'] & { fipe?: FipeQuote } };
 
+function DisputeModal({ queryId, onClose }: { queryId: string; onClose: () => void }) {
+  const toast = useToast();
+  const [field, setField] = useState(''); const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  async function send() {
+    setBusy(true); setError('');
+    try { await api.post(`/queries/${queryId}/report/dispute`, { field, message }); toast.ok('Recebemos. A equipe vai conferir e responder por e-mail.'); onClose(); }
+    catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
+  }
+  return (
+    <Modal title="Informar dado incorreto" onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={busy} onClick={() => void send()}>Enviar</Button></>}>
+      <div className="stack">
+        <Field label="Qual campo (opcional)"><Input value={field} onChange={(e) => setField(e.target.value)} maxLength={80} placeholder="Ex.: Cor, ano, débitos" /></Field>
+        <Field label="O que parece errado"><Textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={800} rows={4} placeholder="Descreva o dado e o que você encontrou." /></Field>
+        {error && <Alert tone="warn" icon="alert-triangle">{error}</Alert>}
+      </div>
+    </Modal>
+  );
+}
+
 export default function QueryDetail() {
   const { id = '' } = useParams();
   const nav = useNavigate();
   const toast = useToast();
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [dispute, setDispute] = useState(false);
   usePageTitle('Relatório');
   const { data, error, loading, reload } = useAsync(async () => {
     const summary = await api.get<Detail>(`/queries/${id}`);
@@ -58,7 +79,10 @@ export default function QueryDetail() {
         <div className="row no-print" style={{ marginTop: 22 }}>
           <LinkButton to={`/app/consultar?placa=${summary.plate}`} icon="refresh">Consultar de novo</LinkButton>
           <LinkButton to="/app/consultar" variant="ghost" icon="search">Outra placa</LinkButton>
+          <Button variant="ghost" icon="car" onClick={() => void api.post('/garage/vehicles', { plate: summary.plate, modelLabel: [report.headline.brand, report.headline.model].filter(Boolean).join(' ').slice(0, 80), modelYear: Number(report.headline.modelYear) || null }).then(() => { toast.ok('Guardado na sua garagem.'); nav('/app/garagem'); }, (e) => { if (e instanceof ApiError && e.status === 409) { toast.ok('Já está na sua garagem.'); nav('/app/garagem'); } else toast.error(errorMessage(e)); })}>Guardar na garagem</Button>
+          <Button variant="ghost" icon="alert-triangle" onClick={() => setDispute(true)}>Informar dado incorreto</Button>
         </div>
+        {dispute && <DisputeModal queryId={id} onClose={() => setDispute(false)} />}
       </div>
     );
   }

@@ -8,6 +8,13 @@ import { useSession } from '../session';
 import PlateSearch from '../components/PlateSearch';
 import { useFaqs } from '../components/Faq';
 
+const TOOLS = [
+  { to: '/fipe', icon: 'tag', title: 'Valor FIPE', text: 'Preço médio do veículo, grátis.' },
+  { to: '/simulador', icon: 'calculator', title: 'Simular financiamento', text: 'CDC e leasing lado a lado.' },
+  { to: '/comparar', icon: 'list', title: 'Comparar versões', text: 'Consumo, custos e ficha.' },
+  { to: '/veiculos', icon: 'car', title: 'Guia de veículos', text: 'Ficha técnica e opiniões.' }
+] as const;
+
 export default function SeoPage({ path }: { path: string }) {
   const page = SEO_BY_PATH.get(path)!;
   const { status } = useSession();
@@ -30,6 +37,17 @@ export default function SeoPage({ path }: { path: string }) {
       <section className="section" style={{ paddingTop: 24 }}>
         <div className="container">
           <div className="why-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>{page.points.map((p) => <div className="why-card" key={p.title}><span className="wi"><Icon name="check-circle" size={24} /></span><h3>{p.title}</h3><p>{p.text}</p></div>)}</div>
+        </div>
+      </section>
+      <section className="section" style={{ paddingTop: 0 }}>
+        <div className="container">
+          <div className="why-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+            {TOOLS.map((t) => (
+              <Link key={t.to} to={t.to} className="why-card" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'seo_tools', target: t.to, landing: path })}>
+                <span className="wi"><Icon name={t.icon} size={24} /></span><h3>{t.title}</h3><p>{t.text}</p>
+              </Link>
+            ))}
+          </div>
         </div>
       </section>
       <section className="section alt">

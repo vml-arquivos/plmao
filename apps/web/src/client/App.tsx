@@ -25,6 +25,8 @@ const History = lazy(() => import('./pages/History'));
 const QueryDetail = lazy(() => import('./pages/QueryDetail'));
 const Wallet = lazy(() => import('./pages/Wallet'));
 const Partner = lazy(() => import('./pages/Partner'));
+const Garage = lazy(() => import('./pages/Garage'));
+const GarageVehicle = lazy(() => import('./pages/Garage').then((m) => ({ default: m.GarageVehicle })));
 const FaqPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.FaqPage })));
 const BlogPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.BlogPage })));
 const BlogPostPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.BlogPostPage })));
@@ -94,6 +96,8 @@ export default function App() {
             <Route path="historico" element={<History />} />
             <Route path="consulta/:id" element={<QueryDetail />} />
             <Route path="carteira" element={<Wallet />} />
+            <Route path="garagem" element={<Garage />} />
+            <Route path="garagem/:id" element={<GarageVehicle />} />
             <Route path="parceiro" element={<Partner />} />
             <Route path="api" element={<Navigate to="/app" replace />} />
             <Route path="conta" element={<Account />} />

@@ -890,5 +890,34 @@ export const placaMigrations: Migration[] = [
         if (r.rowCount) order += 10;
       }
     }
+  },
+  {
+    id: '026_garage',
+    name: 'Minha garagem: veículos salvos com quilometragem e itens (lembretes, manutenções e gastos informados pela pessoa)',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE saved_vehicles ADD COLUMN IF NOT EXISTS model_label text;
+        ALTER TABLE saved_vehicles ADD COLUMN IF NOT EXISTS model_year integer CHECK (model_year IS NULL OR model_year BETWEEN 1950 AND 2100);
+        ALTER TABLE saved_vehicles ADD COLUMN IF NOT EXISTS km integer CHECK (km IS NULL OR km BETWEEN 0 AND 3000000);
+        ALTER TABLE saved_vehicles ADD COLUMN IF NOT EXISTS km_updated_at timestamptz;
+        CREATE TABLE IF NOT EXISTS garage_items (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          vehicle_id uuid NOT NULL REFERENCES saved_vehicles(id) ON DELETE CASCADE,
+          kind text NOT NULL CHECK (kind IN ('REMINDER','MAINTENANCE','EXPENSE')),
+          title text NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
+          due_date date,
+          due_km integer CHECK (due_km IS NULL OR due_km BETWEEN 0 AND 3000000),
+          event_date date,
+          km integer CHECK (km IS NULL OR km BETWEEN 0 AND 3000000),
+          amount_cents integer CHECK (amount_cents IS NULL OR amount_cents BETWEEN 0 AND 1000000000),
+          done_at timestamptz,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_garage_items_vehicle ON garage_items(vehicle_id, kind, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_garage_items_user ON garage_items(user_id);
+        CREATE INDEX IF NOT EXISTS idx_vehicle_queries_user_plate ON vehicle_queries(user_id, plate);
+      `);
+    }
   }
 ];

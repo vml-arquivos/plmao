@@ -32,6 +32,8 @@ export default defineConfig({
           // Código compartilhado fica num chunk público: o chunk do painel (admin-*) só é servido no host do painel.
           if (id.includes('/src/shared/')) return 'shared';
           if (id.includes('/src/admin/')) return 'admin-app';
+          // QR code é usado no painel e no app do cliente: chunk próprio e público, para o app do cliente nunca importar o chunk do painel.
+          if (/node_modules\/(qrcode|pngjs|dijkstrajs|encode-utf8)\//.test(id)) return 'qrcode';
           if (id.includes('node_modules/react') || id.includes('node_modules/scheduler') || id.includes('node_modules/react-router') || id.includes('node_modules/@remix-run')) return 'vendor';
           return undefined;
         }

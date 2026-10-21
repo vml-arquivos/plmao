@@ -67,7 +67,7 @@ function ResultCard({ r, rate, month, best, title }: { r: SimResult; rate?: Rate
   );
 }
 
-function Versus({ cdc, leasing, onAmortization }: { cdc: SimResult; leasing: SimResult; onAmortization: (a: 'PRICE' | 'SAC') => void }) {
+function Versus({ cdc, leasing, onAmortization, onCopied }: { cdc: SimResult; leasing: SimResult; onAmortization: (a: 'PRICE' | 'SAC') => void; onCopied: () => void }) {
   const win = cdc.totalPaidCents <= leasing.totalPaidCents ? 'CDC' : 'Leasing';
   const sac = cdc.amortization === 'SAC';
   type Row = { label: string; c: number; l: number; fmt: (n: number) => string; best?: boolean; plain?: boolean };
@@ -126,14 +126,17 @@ function Versus({ cdc, leasing, onAmortization }: { cdc: SimResult; leasing: Sim
       <div className="sim-why">
         <h4>Por que a parcela é diferente?</h4>
         {why.map((t) => <p key={t}>{t}</p>)}
-        <button type="button" className="link-btn" onClick={() => onAmortization(sac ? 'PRICE' : 'SAC')}>{sac ? 'Voltar para parcelas fixas' : 'Ver com parcelas decrescentes'}</button>
+        <div className="row" style={{ gap: 16 }}>
+          <button type="button" className="link-btn" onClick={() => onAmortization(sac ? 'PRICE' : 'SAC')}>{sac ? 'Voltar para parcelas fixas' : 'Ver com parcelas decrescentes'}</button>
+          <button type="button" className="link-btn" onClick={() => { void navigator.clipboard.writeText(window.location.href).then(() => onCopied(), () => undefined); }}>Copiar link desta simulação</button>
+        </div>
       </div>
       {leasing.residualCents > 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}>No leasing, o total inclui o valor residual de {brl(leasing.residualCents)} para ficar com o veículo.</p>}
     </section>
   );
 }
 
-function Results({ data, loading, error, onAmortization }: { data: CalcResponse | null; loading: boolean; error: string | null; onAmortization: (a: 'PRICE' | 'SAC') => void }) {
+function Results({ data, loading, error, onAmortization, onCopied }: { data: CalcResponse | null; loading: boolean; error: string | null; onAmortization: (a: 'PRICE' | 'SAC') => void; onCopied: () => void }) {
   if (error && !data) return <Alert tone="warn" icon="alert-triangle" title="Confira os dados">{error}</Alert>;
   if (!data) return <div className="stack"><Skeleton h={120} r={16} /><Skeleton h={260} r={16} /></div>;
   const { cdc, leasing } = data.results;
@@ -144,7 +147,7 @@ function Results({ data, loading, error, onAmortization }: { data: CalcResponse 
       {error && <Alert tone="warn" icon="alert-triangle">{error}</Alert>}
       {data.errors.leasing && <Alert tone="warn" icon="info" title="Leasing não disponível neste cenário">{data.errors.leasing}</Alert>}
       {data.errors.cdc && <Alert tone="warn" icon="info" title="CDC não disponível neste cenário">{data.errors.cdc}</Alert>}
-      {both && <Versus cdc={cdc!} leasing={leasing!} onAmortization={onAmortization} />}
+      {both && <Versus cdc={cdc!} leasing={leasing!} onAmortization={onAmortization} onCopied={onCopied} />}
       <div className={both ? 'sim-two' : undefined}>
         {cdc && <ResultCard r={cdc} rate={data.rates.cdc} month={data.referenceMonth} title="Financiamento CDC" best={cheaper === 'cdc'} />}
         {leasing && <ResultCard r={leasing} rate={data.rates.leasing} month={data.referenceMonth} title="Leasing" best={cheaper === 'leasing'} />}
@@ -345,7 +348,7 @@ export default function Simulator() {
           </form>
 
           <div className="stack-lg sim-side">
-            <Results data={calc.data} loading={calc.loading} error={calc.error} onAmortization={(a) => set('amortization', a)} />
+            <Results data={calc.data} loading={calc.loading} error={calc.error} onAmortization={(a) => set('amortization', a)} onCopied={() => toast.ok('Link copiado.')} />
 
             <div className="card card-pad sim-actions">
               {status === 'authed' ? (

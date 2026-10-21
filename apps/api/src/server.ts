@@ -20,7 +20,7 @@ import { enforceMarginFloor } from './pricing/guard.js';
 import { partnersRouter, releaseCommissions } from './routes/partners.js';
 import { adminQueriesRouter } from './routes/adminQueries.js';
 import { completeAuthorization, consumeLoginTicket, createAuthorizationRequest, oauthErrorUrl, oauthSuccessUrl, socialProviderStatus, type OAuthProvider } from './oauth.js';
-import { adminHosts, env } from './config.js';
+import { adminHosts, env, publicAppUrl } from './config.js';
 import { sendContactConfirmationEmail, sendContactMessageEmail, sendPasswordResetEmail, isEmailConfigured } from './email.js';
 import { pool, tx } from './db.js';
 import type { PoolClient } from 'pg';
@@ -47,6 +47,7 @@ import { adminVehiclesRouter } from './routes/adminVehicles.js';
 import { publicVehiclesRouter } from './routes/vehicles.js';
 import { fipeBrands, fipeModels, fipeYears, fipeSearch, getFipePrice } from './lib/fipeLookup.js';
 import { adminSimulatorRouter } from './routes/adminSimulator.js';
+import { garageRouter } from './routes/garage.js';
 import { simulatorRouter } from './routes/simulator.js';
 import { scoreModelMatch } from './lib/vehicleSpecs.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
@@ -1145,6 +1146,7 @@ api.post('/vehicles/by-plate', auth, asyncRoute(async (req, res) => {
 }));
 api.use(publicVehiclesRouter);
 api.use(simulatorRouter);
+api.use(garageRouter);
 
 api.get('/fipe/offers', asyncRoute(async (_req, res) => {
   const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,
@@ -1288,7 +1290,25 @@ async function vehicleReportForQuery(queryId: string, userId: string) {
 
 api.get('/queries/:id/report', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
   const { report, meta } = await vehicleReportForQuery(String(req.params.id), req.user!.id);
+  await recordFunnelEvent(req.user!.id, req, 'REPORT_OPENED', { queryId: String(req.params.id) });
   res.json({ report, verificationCode: meta.verificationCode, verificationUrl: meta.verificationUrl, consultedAt: meta.consultedAt, productName: meta.productName });
+}));
+
+const disputeBody = z.object({ field: z.string().trim().max(80).default(''), message: z.string().trim().min(10).max(800) }).strict();
+/** Contestação: a pessoa aponta um dado que parece errado; vira um chamado no Suporte com a placa e o código do relatório. */
+api.post('/queries/:id/report/dispute', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const parsed = disputeBody.safeParse(req.body);
+  if (!parsed.success) throw appError('Descreva o que parece errado (mínimo 10 caracteres).', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const { report, meta } = await vehicleReportForQuery(String(req.params.id), req.user!.id);
+  const recent = await pool.query(`SELECT count(*)::int AS n FROM contact_messages WHERE user_id=$1 AND subject LIKE 'Contestação de dado%' AND created_at > now() - interval '1 day'`, [req.user!.id]);
+  if (Number(recent.rows[0].n) >= 5) throw appError('Você já enviou várias contestações hoje. Aguarde o retorno do suporte.', { code: 'TOO_MANY_ATTEMPTS', http: 429, expose: true });
+  const ticket = await createContactTicket(req.user!.id, {
+    name: req.user!.name, email: req.user!.email, category: 'SUPPORT',
+    subject: `Contestação de dado - placa ${report.plate} - código ${meta.verificationCode}`,
+    message: `${parsed.data.field ? `Campo: ${parsed.data.field}\n` : ''}${parsed.data.message}\n\nProduto: ${meta.productName}\nConsultado em: ${meta.consultedAt}`
+  });
+  await recordFunnelEvent(req.user!.id, req, 'REPORT_DISPUTED', { productName: meta.productName });
+  res.status(201).json({ id: ticket.id });
 }));
 
 api.get('/queries/:id/report/pdf', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
@@ -1651,6 +1671,24 @@ api.get('/admin/overview', adminAuth, requirePermission('VIEW_DASHBOARD'), async
   res.json({ ...summary.rows[0], daily: daily.rows });
 }));
 
+/** Funil completo dos últimos 30 dias: visita -> busca de placa -> cadastro -> checkout -> pagamento -> relatório entregue e aberto -> retorno. */
+api.get('/admin/funnel', adminAuth, requirePermission('VIEW_DASHBOARD'), asyncRoute(async (_req, res) => {
+  const r = await pool.query(`SELECT
+    (SELECT count(DISTINCT session_key) FROM funnel_events WHERE event_type IN ('HOME_PAGE_VIEW','SEO_PAGE_VIEW','FIPE_PAGE_VIEW') AND created_at >= now() - interval '30 days')::int AS visitors,
+    (SELECT count(DISTINCT session_key) FROM funnel_events WHERE event_type='PLATE_CAPTURED' AND created_at >= now() - interval '30 days')::int AS plate_searches,
+    (SELECT count(*) FROM users WHERE created_at >= now() - interval '30 days' AND deleted_at IS NULL)::int AS signups,
+    (SELECT count(*) FROM funnel_events WHERE event_type='CHECKOUT_STARTED' AND created_at >= now() - interval '30 days')::int AS checkouts_started,
+    (SELECT count(*) FROM payments WHERE status='PAID' AND paid_at >= now() - interval '30 days')::int AS payments_paid,
+    (SELECT count(*) FROM vehicle_queries WHERE status='SUCCESS' AND created_at >= now() - interval '30 days')::int AS reports_delivered,
+    (SELECT count(DISTINCT metadata->>'queryId') FROM funnel_events WHERE event_type='REPORT_OPENED' AND created_at >= now() - interval '30 days')::int AS reports_opened,
+    (SELECT count(*) FROM vehicle_queries WHERE status IN ('FAILED','REFUNDED') AND created_at >= now() - interval '30 days')::int AS failed_or_refunded,
+    (SELECT count(*) FROM payment_orders WHERE status='REFUNDED' AND updated_at >= now() - interval '30 days')::int AS refunded_orders,
+    (SELECT count(*) FROM funnel_events WHERE event_type='REPORT_DISPUTED' AND created_at >= now() - interval '30 days')::int AS disputes,
+    (SELECT count(*) FROM (SELECT user_id FROM payments WHERE status='PAID' GROUP BY user_id HAVING count(*) >= 2) t)::int AS repeat_buyers,
+    (SELECT count(DISTINCT user_id) FROM payments WHERE status='PAID')::int AS buyers`);
+  res.json(r.rows[0]);
+}));
+
 api.get('/admin/overview/series', adminAuth, requirePermission('VIEW_DASHBOARD'), asyncRoute(async (_req, res) => {
   const daily = await pool.query(`WITH days AS (
     SELECT generate_series(current_date - interval '29 days', current_date, interval '1 day')::date AS day
@@ -1815,7 +1853,7 @@ api.post('/affiliate/activate', auth, asyncRoute(async (req, res) => {
 api.get('/affiliate/link', auth, asyncRoute(async (req, res) => {
   const result = await pool.query('SELECT code,active FROM affiliates WHERE user_id=$1', [req.user!.id]);
   if (!result.rowCount || !result.rows[0].active) throw appError('AFFILIATE_NOT_ACTIVE', { code: 'AFFILIATE_NOT_ACTIVE', http: 404, expose: true });
-  const link = new URL('/?ref=' + encodeURIComponent(String(result.rows[0].code)), env.APP_URL).toString();
+  const link = new URL('/?ref=' + encodeURIComponent(String(result.rows[0].code)), publicAppUrl()).toString();
   res.json({ code: result.rows[0].code, link });
 }));
 
@@ -1828,8 +1866,21 @@ api.get('/affiliate/stats', auth, asyncRoute(async (req, res) => {
       (SELECT count(*)::int FROM users WHERE affiliate_id=$1) AS referred_users
     FROM affiliate_commissions WHERE affiliate_id=$1`, [affiliate.rows[0].id]);
   const code = String(affiliate.rows[0].code);
-  const shareUrl = new URL('/?ref=' + encodeURIComponent(code), env.APP_URL).toString();
-  res.json({ affiliate: { id: affiliate.rows[0].id, code }, shareUrl, totals: { commissions: Number(totals.rows[0].commissions), pendingCents: Number(totals.rows[0].pending_cents), paidCents: Number(totals.rows[0].paid_cents), referredUsers: Number(totals.rows[0].referred_users) } });
+  const shareUrl = new URL('/?ref=' + encodeURIComponent(code), publicAppUrl()).toString();
+  const perf = await pool.query(`SELECT
+      (SELECT count(DISTINCT session_key) FROM funnel_events WHERE upper(metadata->>'ref')=$2 AND created_at >= now() - interval '30 days')::int AS clicks_30d,
+      (SELECT count(*) FROM payments p JOIN users u ON u.id=p.user_id WHERE u.affiliate_id=$1 AND p.status='PAID')::int AS paid_payments,
+      (SELECT count(*) FROM affiliate_commissions WHERE affiliate_id=$1 AND status IN ('CANCELLED','REVERSED'))::int AS reversed`, [affiliate.rows[0].id, code.toUpperCase()]);
+  const to = (path: string) => new URL(`${path}${path.includes('?') ? '&' : '?'}ref=${encodeURIComponent(code)}`, publicAppUrl()).toString();
+  const links = [
+    { key: 'home', label: 'Página inicial', url: to('/') },
+    { key: 'consulta', label: 'Consultar placa', url: to('/consultar') },
+    { key: 'fipe', label: 'FIPE grátis', url: to('/fipe') },
+    { key: 'simulador', label: 'Simulador de financiamento', url: to('/simulador') },
+    { key: 'comparar', label: 'Comparar veículos', url: to('/comparar') },
+    { key: 'guia', label: 'Guia de veículos', url: to('/veiculos') }
+  ];
+  res.json({ affiliate: { id: affiliate.rows[0].id, code }, shareUrl, links, performance: { clicks30d: Number(perf.rows[0].clicks_30d), paidPayments: Number(perf.rows[0].paid_payments), reversedCommissions: Number(perf.rows[0].reversed) }, totals: { commissions: Number(totals.rows[0].commissions), pendingCents: Number(totals.rows[0].pending_cents), paidCents: Number(totals.rows[0].paid_cents), referredUsers: Number(totals.rows[0].referred_users) } });
 }));
 
 api.get('/admin/organizations/:id/members', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {

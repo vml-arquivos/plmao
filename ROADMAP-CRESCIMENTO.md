@@ -10,7 +10,12 @@ Base: a estratégia `estrategia_crescimento_placa_na_mao.md` (21/10/2026) cruzad
 | "Conectar guia e simulador" | Primeiro elo feito: o simulador tem busca de veículo (lista do Senatran) e os botões do guia abrem o simulador com o nome preenchido. Na 1.6.0 o simulador também mostra o valor FIPE do mês depois de escolher marca, modelo e ano (seletor FIPE); falta ligar a versão do guia ao código FIPE. |
 | "Medir o que a pessoa procura" | Passa a ser gravado, sem conta e sem dado pessoal: escolha no simulador, escolha na busca, visita à ficha e busca sem resultado. Relatório na aba **Frota e interesse** do painel. |
 | Comparativo de bancos pelo CET | Já existe (1.3.1). |
-| Compra sem surpresa, Minha garagem, seguro, peças, B2B | Ainda não feitos. Ordem e MVP abaixo. |
+| Compra sem surpresa | Parcial (1.9.0): relatório com `CLEAR`/`ALERT`/`NOT_PROVIDED`, cobertura, data e código de validação já existiam; entra o botão **Informar dado incorreto** (vira chamado no Suporte). Falta a prévia antes do pagamento e a fonte por seção: dependem do contrato do provedor. |
+| Jornada de decisão | Parcial (1.9.0): guia, FIPE, simulador (CDC x leasing) e comparador se ligam; entra "Copiar link desta simulação" e ferramentas nas páginas de SEO. |
+| Minha garagem | **Feito (1.9.0)**: veículos, lembretes por data ou km, manutenções e gastos informados pela pessoa, relatórios da placa, exportar e apagar. Alertas automáticos por e-mail e de fonte oficial: não feitos. |
+| Parceiros medidos | **Feito (1.9.0)**: links por destino, QR code, visitas, pagamentos e estornos. Painel por parceiro de cliques por campanha e antifraude: não feitos. |
+| Funil completo | **Feito (1.9.0)** no painel: visita, busca de placa, cadastro, checkout, pagamento, relatório entregue e aberto, falhas, contestações e recompra. |
+| Seguro e autopeças | **Não feitos de propósito**: exigem parceiro habilitado (corretora/seguradora; vendedor com compatibilidade verificada) e validação jurídica. |
 
 ## 2. O que a base nova destrava (dado real, já no banco)
 
