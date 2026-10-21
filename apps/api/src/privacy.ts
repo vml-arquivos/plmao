@@ -1,5 +1,5 @@
 import type { NormalizedVehicle } from './types.js';
-import { viewReport } from './report/normalizeV2.js';
+import { viewReport, type ViewTemplate } from './report/normalizeV2.js';
 import type { Tier } from './report/catalog.js';
 
 /**
@@ -9,9 +9,9 @@ import type { Tier } from './report/catalog.js';
  * identificador nominal ou documental do proprietário deve atravessar as
  * rotas de histórico, consulta ou exportação do cliente.
  */
-export function publicVehicleResult(vehicle: NormalizedVehicle, tier: Tier = 3, sections?: string[] | null): Omit<NormalizedVehicle, 'owner'> {
+export function publicVehicleResult(vehicle: NormalizedVehicle, tier: Tier = 3, sections?: string[] | null, template?: ViewTemplate | null): Omit<NormalizedVehicle, 'owner'> {
   const { owner: _owner, v2, ...publicResult } = vehicle;
-  return v2 ? { ...publicResult, v2: viewReport(v2, { audience: 'client', tier, sections }) } : publicResult;
+  return v2 ? { ...publicResult, v2: viewReport(v2, { audience: 'client', tier, sections, template }) } : publicResult;
 }
 
 /**

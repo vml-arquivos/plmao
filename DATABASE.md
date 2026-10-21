@@ -63,3 +63,16 @@ Também `023_vehicle_catalog`: `vehicle_catalog` (um registro por nome do Senatr
 Também `021_financing_banks`: `financing_banks` (nome, trecho do nome no Banco Central, taxas manuais CDC PF/PJ e leasing PJ, tarifas próprias em centavos, observação, ativo e ordem) e `financing_bank_rates` (média por instituição vinda do Banco Central: segmento, modalidade, instituição, taxa a.m./a.a., posição e período), mais `banks_refreshed_at` e `banks_refresh_error` em `financing_settings`. Os 12 bancos de partida entram sem taxa.
 
 Também `020_vehicle_seed`: coluna `vehicle_models.spec_source` (fonte e data da conferência da ficha técnica, mostrada no site) e carga inicial de 20 modelos publicados com suas versões. Usa `ON CONFLICT DO NOTHING`: pode rodar de novo sem duplicar e não altera modelos já editados pela equipe.
+
+Migrações 027 a 034 (todas reversíveis com `npm run db:rollback -- N`; faça backup antes):
+
+- `027_report_scope_publications`: publicações versionadas do escopo do relatório por produto.
+- `028_email_outbox_secure_links`: `email_outbox`, `email_events`, `secure_links` (só o hash SHA-256 do token; finalidade, expiração, usos máximos, revogação).
+- `029_cnpj_cache`: cache de consulta de CNPJ com TTL.
+- `030_contracts`: `contract_templates`, `contract_template_versions`, `contracts`, `contract_signers`, `contract_events` (imutável por gatilho).
+- `031_payment_refunds`: solicitações de estorno com chave de idempotência.
+- `032_fiscal_queue`: `fiscal_jobs` e `fiscal_events`.
+- `033_support_chat`: `support_conversations`, `support_messages` (nota interna só de atendente), `support_attachments` (bytea, ≤ 2 MB, tipos permitidos), `support_events`.
+- `034_testimonials`: `testimonials` (consentimento, hash do conteúdo, uma ativa por cliente) e `testimonial_events`.
+
+Retenção: remoção ou retirada de depoimento apaga nome, texto e hash; anexos do chat ficam no banco (avaliar armazenamento de objetos e antivírus antes de volume alto).

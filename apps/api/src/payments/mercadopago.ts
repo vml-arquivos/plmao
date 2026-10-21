@@ -9,7 +9,8 @@ import type {
   PaymentWebhookRequest
 } from './types.js';
 
-const MERCADO_PAGO_API = 'https://api.mercadopago.com';
+const DEFAULT_API = 'https://api.mercadopago.com';
+const api = () => (env.MP_API_BASE_URL ?? DEFAULT_API).replace(/\/+$/, '');
 
 type MercadoPagoPreferenceResponse = {
   id?: string;
@@ -112,7 +113,7 @@ export class MercadoPagoProvider implements PaymentCheckoutProvider {
 
   async createCheckout(input: CheckoutInput): Promise<CheckoutResult> {
     const origin = publicAppUrl();
-    const response = await requestJson<MercadoPagoPreferenceResponse>(`${MERCADO_PAGO_API}/checkout/preferences`, {
+    const response = await requestJson<MercadoPagoPreferenceResponse>(`${api()}/checkout/preferences`, {
       method: 'POST',
       headers: {
         accept: 'application/json',
@@ -135,13 +136,40 @@ export class MercadoPagoProvider implements PaymentCheckoutProvider {
           pending: `${origin}/?checkout=pending&provider=mercadopago`
         },
         auto_return: 'approved',
+        ...(env.MP_BINARY_MODE ? { binary_mode: true } : {}),
+        ...(env.MP_STATEMENT_DESCRIPTOR ? { statement_descriptor: env.MP_STATEMENT_DESCRIPTOR } : {}),
+        ...(env.MP_EXPIRES_MINUTES > 0 ? { expires: true, expiration_date_from: new Date().toISOString(), expiration_date_to: new Date(Date.now() + env.MP_EXPIRES_MINUTES * 60_000).toISOString() } : {}),
         notification_url: `${origin}/api/payments/mercadopago/webhook`,
         payer: { name: input.customer.name, email: input.customer.email }
       })
     });
-    const link = response.body.init_point ?? response.body.sandbox_init_point;
+    // credenciais de teste (TEST-...) usam o link de sandbox
+    const link = this.accessToken().startsWith('TEST-') ? (response.body.sandbox_init_point ?? response.body.init_point) : (response.body.init_point ?? response.body.sandbox_init_point);
     if (!response.ok || !response.body.id || !link) throw codedError('PAYMENT_PROVIDER_REQUEST_FAILED');
     return { id: response.body.id, link, status: 'ACTIVE' };
+  }
+
+  /** Estorno total pela API (POST /v1/payments/{id}/refunds). O pedido só é revertido quando o webhook confirmar o estorno. */
+  async refundPayment(externalPaymentId: string, idempotencyKey: string): Promise<{ refundId: string | null; status: string | null }> {
+    const response = await requestJson<{ id?: number | string; status?: string }>(`${api()}/v1/payments/${encodeURIComponent(externalPaymentId)}/refunds`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json', authorization: `Bearer ${this.accessToken()}`, 'x-idempotency-key': idempotencyKey },
+      body: JSON.stringify({})
+    });
+    if (!response.ok) throw codedError('PAYMENT_REFUND_REJECTED');
+    return { refundId: response.body.id != null ? String(response.body.id) : null, status: response.body.status ?? null };
+  }
+
+  /** Pagamentos de um pedido (GET /v1/payments/search?external_reference=...), do mais antigo ao mais novo. */
+  async searchPaymentsByReference(reference: string): Promise<Array<PaymentStatusResult & { id: string }>> {
+    const response = await requestJson<{ results?: Array<MercadoPagoPaymentResponse & { id?: number | string }> }>(
+      `${api()}/v1/payments/search?external_reference=${encodeURIComponent(reference)}&sort=date_created&criteria=asc`,
+      { headers: { accept: 'application/json', authorization: `Bearer ${this.accessToken()}` } });
+    if (!response.ok || !Array.isArray(response.body.results)) throw codedError('PAYMENT_PROVIDER_REQUEST_FAILED');
+    return response.body.results.filter((r) => r.id != null && typeof r.status === 'string').map((r) => {
+      const fees = (r.fee_details ?? []).map((f) => toCents(f.amount)).filter((v): v is number => v !== null);
+      return { id: String(r.id), status: r.status as string, externalReference: r.external_reference ?? null, paymentType: r.payment_type_id ?? null, feeCents: fees.length ? fees.reduce((a, b) => a + b, 0) : null, netCents: toCents(r.transaction_details?.net_received_amount) };
+    });
   }
 
   isValidWebhookSignature(request: PaymentWebhookRequest): boolean {
@@ -167,7 +195,7 @@ export class MercadoPagoProvider implements PaymentCheckoutProvider {
   }
 
   async fetchPaymentStatus(externalPaymentId: string): Promise<PaymentStatusResult | null> {
-    const response = await requestJson<MercadoPagoPaymentResponse>(`${MERCADO_PAGO_API}/v1/payments/${encodeURIComponent(externalPaymentId)}`, {
+    const response = await requestJson<MercadoPagoPaymentResponse>(`${api()}/v1/payments/${encodeURIComponent(externalPaymentId)}`, {
       headers: { accept: 'application/json', authorization: `Bearer ${this.accessToken()}` }
     });
     if (!response.ok || typeof response.body.status !== 'string') throw codedError('PAYMENT_PROVIDER_REQUEST_FAILED');

@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { api } from '../api';
 import { useAdminSession } from '../session';
-import { Badge, Button, EmptyState, ErrorState, PageLoading, Select, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { Badge, Button, EmptyState, ErrorState, PageLoading, Select, Tabs, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { dateTime } from '../../shared/format';
 import { Card, PageHead } from '../parts';
+import SupportChat from './SupportChat';
 
 interface M { id: string; name: string; email: string; subject: string; message: string; category: string; status: 'OPEN' | 'IN_PROGRESS' | 'CLOSED'; createdAt: string; closedAt: string | null }
 const STATUS = { OPEN: { l: 'Aberto', t: 'warn' }, IN_PROGRESS: { l: 'Em atendimento', t: 'info' }, CLOSED: { l: 'Encerrado', t: 'ok' } } as const;
 const CATEGORY: Record<string, string> = { SUPPORT: 'Suporte', PRIVACY: 'Privacidade', LGPD: 'LGPD', COMMERCIAL: 'Comercial' };
 
-export default function Support() {
-  usePageTitle('Suporte');
+function ContactMessages() {
   const { can } = useAdminSession();
   const toast = useToast();
   const list = useAsync(() => api.get<M[]>('/admin/contact-messages'));
@@ -20,7 +20,7 @@ export default function Support() {
   async function set(m: M, s: M['status']) { try { await api.patch(`/admin/contact-messages/${m.id}`, { status: s }); toast.ok('Chamado atualizado.'); list.reload(); } catch (e) { toast.error(errorMessage(e)); } }
   return (
     <>
-      <PageHead title="Suporte" sub="Mensagens enviadas pelo formulário de contato. Solicitações de LGPD têm prazo legal: priorize." />
+      <p className="muted">Mensagens enviadas pelo formulário de contato. Solicitações de LGPD têm prazo legal: priorize.</p>
       <div className="toolbar"><Select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">Todos</option><option value="OPEN">Abertos</option><option value="IN_PROGRESS">Em atendimento</option><option value="CLOSED">Encerrados</option></Select><Button variant="ghost" icon="refresh" onClick={list.reload}>Atualizar</Button></div>
       {list.loading && !list.data ? <PageLoading /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : !rows.length ? <EmptyState icon="mail" title="Nenhuma mensagem" /> : (
         <div className="stack">{rows.map((m) => (
@@ -31,6 +31,18 @@ export default function Support() {
           </Card>
         ))}</div>
       )}
+    </>
+  );
+}
+
+export default function Support() {
+  usePageTitle('Suporte');
+  const [tab, setTab] = useState<'chat' | 'form'>('chat');
+  return (
+    <>
+      <PageHead title="Suporte" sub="Conversas dos clientes e mensagens do formulário de contato." />
+      <Tabs label="Tipo de atendimento" value={tab} onChange={setTab} items={[{ id: 'chat', label: 'Chat' }, { id: 'form', label: 'Formulário de contato' }]} />
+      {tab === 'chat' ? <SupportChat /> : <ContactMessages />}
     </>
   );
 }

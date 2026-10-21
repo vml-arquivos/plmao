@@ -114,6 +114,7 @@ const ITEMS: Array<{ to: string; label: string; icon: IconName; end?: boolean }>
   { to: '/veiculos', label: 'Guia de veículos', icon: 'car' },
   { to: '/app/carteira', label: 'Carteira', icon: 'wallet' },
   { to: '/app/parceiro', label: 'Parceiro', icon: 'users' },
+  { to: '/app/suporte', label: 'Suporte', icon: 'mail' },
   { to: '/app/conta', label: 'Minha conta', icon: 'user' }
 ];
 

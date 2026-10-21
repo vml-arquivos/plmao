@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.10.0 — Integrações preparadas, contratos, fiscal, e-mail seguro, chat de suporte e depoimentos
+
+Nada aqui liga cobrança, consulta paga ou emissão real por conta própria: tudo nasce desligado e só funciona com credenciais e decisões registradas em `PENDENCIAS-PRODUCAO.md`. Migrações 027 a 034 (todas com `down`; `npm run db:rollback -- 8` reverte as oito).
+
+### Adicionado
+
+- **Escopo do relatório por produto** (027): campos e seções configuráveis por produto, com publicação versionada, refletidos no relatório, na API pública e no PDF.
+- **Consulta veicular via Credify** (adaptador preparado): `VEHICLE_API_PROVIDER=credify`. O corpo da requisição vem de `CREDIFY_QUERY_BODY_TEMPLATE`; sem ele, nada é consultado.
+- **CNPJ no servidor** (029): preenchimento revisável por BrasilAPI (`CNPJ_PROVIDER`, desligado por padrão), cache, limite por solicitante, só campos mínimos e auditoria.
+- **Fila de e-mail e links seguros** (028): outbox idempotente com tentativas e espera crescente, webhook de entrega assinado (HMAC), reenvio/cancelamento no painel. Contratos e documentos fiscais saem por link seguro e expirável, nunca anexados.
+- **Contratos versionados** (030): minutas de cliente, empresa e parceiro; DRAFT → revisão → aprovação (precisa de referência da revisão jurídica e de outra pessoa) → publicação. Contrato: rascunho → aprovação → assinatura → assinado, com trilha imutável. Aplicar preços e comissões é uma ação à parte, depois da assinatura.
+- **Mercado Pago completo** (031): estorno total idempotente, conciliação por `external_reference`, tratamento de reembolso parcial e disputa (revisão manual), host oficial obrigatório em produção.
+- **Fila fiscal** (032): provedor `disabled`/`manual`/`mock` (mock proibido em produção), idempotência, tentativas, e-mail do documento só depois de emitido.
+- **Chat de suporte** (033): conversas ligadas à conta e, se quiser, a uma consulta ou pagamento; assistente que só responde com perguntas frequentes publicadas e sempre oferece "Falar com uma pessoa"; assuntos de reembolso, cobrança, fraude e LGPD vão direto para a equipe; número de cartão é ocultado; anexos validados pelo conteúdo (PNG, JPG, WebP, PDF até 2 MB); notas internas invisíveis ao cliente; atribuição, transferência, prioridade e auditoria. Avisos por e-mail sem o conteúdo da conversa.
+- **Depoimentos autorizados** (034): o cliente verificado envia com consentimento registrado; a equipe aprova e publica; texto não editável pelo painel; cadastro manual exige comprovante e outra pessoa para aprovar; ocultar, remover e retirada pelo cliente apagam o texto; a home só mostra depoimentos publicados e íntegros (e some se não houver).
+- **Operação**: `GET /ready` (banco e migrações), checklist de implantação ampliado (e-mail, contratos, assinatura, fiscal, Mercado Pago, fonte de consulta, CNPJ, MFA, taxas do simulador, perguntas frequentes) e aviso de taxas defasadas no simulador.
+
+### Corrigido
+
+- `/comparar` volta a ser indexável (sitemap, robots, sem noindex); páginas inexistentes respondem 404 com noindex e título próprio.
+- HTML inicial com conteúdo semântico (título, descrição, navegação, perguntas frequentes) para quem não executa JavaScript.
+- Corpo grande demais em anexos responde 413 (antes, 500).
+
 ## 1.9.0 — Minha garagem, contestação de dado, funil completo, parceiros com QR e ferramentas no SEO
 
 ### Adicionado

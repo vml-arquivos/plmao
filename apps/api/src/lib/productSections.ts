@@ -1,24 +1,17 @@
-import { pool } from '../db.js';
+import { refreshScopes, scopeForProduct } from './reportScope.js';
 
 /**
- * Seções do relatório liberadas por produto (configuradas no painel).
+ * Seções e campos do relatório liberados por produto (configurados no painel).
  * Cache em memória (leitura síncrona nos serializadores): recarregado na partida, a cada 30 s e após edição no painel.
- * `null` = sem lista configurada → vale a regra por nível (tier) do produto.
+ * Sem modelo publicado, vale a lista de seções do produto; sem lista, a regra por nível (tier).
  */
-let cache = new Map<string, string[] | null>();
-
-export async function refreshProductSections(): Promise<void> {
-  const rows = await pool.query('SELECT id, report_sections FROM query_products');
-  const next = new Map<string, string[] | null>();
-  for (const r of rows.rows) next.set(String(r.id), Array.isArray(r.report_sections) && r.report_sections.length ? (r.report_sections as string[]) : null);
-  cache = next;
-}
+export const refreshProductSections = refreshScopes;
 
 export function sectionsForProduct(productId: string | null | undefined): string[] | null {
-  return cache.get(String(productId ?? '')) ?? null;
+  return scopeForProduct(productId).sections;
 }
 
 export function startProductSectionsRefresh(): void {
-  const timer = setInterval(() => { refreshProductSections().catch(() => undefined); }, 30_000);
+  const timer = setInterval(() => { refreshScopes().catch(() => undefined); }, 30_000);
   timer.unref();
 }

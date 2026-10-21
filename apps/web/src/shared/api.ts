@@ -69,8 +69,21 @@ export function createApi(opts: ApiClientOptions) {
     setTimeout(() => URL.revokeObjectURL(href), 10_000);
   }
 
+  /** Envia um arquivo como corpo bruto (anexos). */
+  async function upload<T>(path: string, file: File, query?: RequestOptions['query']): Promise<T> {
+    const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': file.type || 'application/octet-stream' };
+    const t = token.get();
+    if (t) headers.Authorization = `Bearer ${t}`;
+    let res: Response;
+    try { res = await fetch(url(path, query), { method: 'POST', headers, body: file, cache: 'no-store' }); } catch { throw new ApiError(0, 'NETWORK', 'Sem conexão com o servidor. Verifique sua internet e tente novamente.'); }
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) throw new ApiError(res.status, String(data.error ?? 'ERROR'), String(data.message ?? 'Não foi possível enviar o arquivo.'), data);
+    return data as T;
+  }
+
   return {
     token,
+    upload,
     get: <T,>(path: string, o?: RequestOptions) => request<T>('GET', path, o),
     post: <T,>(path: string, body?: unknown, o?: RequestOptions) => request<T>('POST', path, { ...o, body: body ?? {} }),
     put: <T,>(path: string, body?: unknown, o?: RequestOptions) => request<T>('PUT', path, { ...o, body: body ?? {} }),

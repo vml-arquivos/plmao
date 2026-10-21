@@ -77,7 +77,7 @@ describe('API pública v1: chaves, autenticação, cobrança e revogação', int
     const c = await register(on, pool, 100);
     const { json } = await hostRequest(on.base, '/api/account/api-keys', { method: 'POST', token: c.token, body: { name: 'chave' } });
     assert.ok(json.key, JSON.stringify(json));
-    const q = await hostRequest(on.base, '/api/v1/vehicles', { method: 'POST', token: json.key, body: { plate: 'TST0A00', product: 'PREMIUM' } });
+    const q = await hostRequest(on.base, '/api/v1/vehicles', { method: 'POST', token: json.key, body: { plate: 'TST0A00', product: 'COMPLETE' } });
     assert.equal(q.status, 402);
   });
 });

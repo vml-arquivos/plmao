@@ -273,6 +273,14 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
     }
   }
 
+  if (report.scope?.notIncluded.length) {
+    const note = `Não incluído neste produto: ${report.scope.notIncluded.map((n) => n.label).join(', ')}. Isso não significa ausência de ocorrências.`;
+    const lines = d.wrap(note, d.dm400, 7.5, CW - 6);
+    d.ensure(lines.length * 10 + 10);
+    for (const l of lines) { d.text(l, M + 3, d.y - 8, 7.5, d.dm400, C.muted); d.y -= 10; }
+    d.y -= 6;
+  }
+
   if (report.lockedAlertCount) {
     d.ensure(40);
     rect(d.page, { x: M, y: d.y - 34, width: CW, height: 34, color: C.soft, borderRadius: 8 });

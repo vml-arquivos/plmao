@@ -63,13 +63,31 @@ function CompanyForm({ company, onClose }: { company?: Company; onClose: (create
   const [f, setF] = useState(blank(company ?? null));
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
+  const [lookup, setLookup] = useState<{ cnpj: string; source: string; fetchedAt: string; situation: string | null; prefilled: Partial<typeof f> } | null>(null);
+  const [searching, setSearching] = useState(false);
+  async function searchCnpj() {
+    setSearching(true);
+    try {
+      const r = await api.get<{ data: { cnpj: string; legalName: string | null; tradeName: string | null; situation: string | null; address: { zip: string | null; street: string | null; number: string | null; complement: string | null; district: string | null; city: string | null; state: string | null } }; source: string; fetchedAt: string }>(`/admin/cnpj/${f.document.replace(/\D/g, '')}`);
+      const a = r.data.address;
+      const prefilled: Partial<typeof f> = { legalName: r.data.legalName ?? '', zip: a.zip ?? '', street: a.street ?? '', streetNumber: a.number ?? '', complement: a.complement ?? '', district: a.district ?? '', city: a.city ?? '', state: a.state ?? '', ...(f.name.trim() ? {} : { name: r.data.tradeName ?? r.data.legalName ?? '' }) };
+      setF((p) => ({ ...p, ...prefilled }));
+      setLookup({ cnpj: r.data.cnpj, source: r.source, fetchedAt: r.fetchedAt, situation: r.data.situation, prefilled });
+    } catch (e) { toast.error(errorMessage(e)); } finally { setSearching(false); }
+  }
   async function save() {
     const body = { name: f.name.trim(), kind: f.kind, segment: nz(f.segment), document: nz(f.document), legalName: nz(f.legalName), contactName: nz(f.contactName), email: nz(f.email), phone: nz(f.phone),
       stateRegistration: nz(f.stateRegistration), municipalRegistration: nz(f.municipalRegistration), zip: nz(f.zip), street: nz(f.street), streetNumber: nz(f.streetNumber), complement: nz(f.complement), district: nz(f.district), city: nz(f.city), state: nz(f.state), notes: nz(f.notes) };
     setBusy(true);
     try {
-      if (company) { await api.patch(`/admin/companies/${company.id}`, body); toast.ok('Empresa atualizada.'); onClose(undefined, true); return; }
+      const confirm = async () => {
+        if (!lookup) return;
+        const edited = (Object.keys(lookup.prefilled) as Array<keyof typeof f>).some((k) => f[k] !== lookup.prefilled[k]);
+        await api.post(`/admin/cnpj/${lookup.cnpj}/confirm`, { edited, source: lookup.source, fetchedAt: lookup.fetchedAt }).catch(() => undefined);
+      };
+      if (company) { await api.patch(`/admin/companies/${company.id}`, body); await confirm(); toast.ok('Empresa atualizada.'); onClose(undefined, true); return; }
       const r = await api.post<{ company: Company }>('/admin/companies', body);
+      await confirm();
       toast.ok('Empresa cadastrada.'); onClose(r.company.id, true);
     } catch (e) { toast.error(errorMessage(e)); setBusy(false); }
   }
@@ -80,7 +98,13 @@ function CompanyForm({ company, onClose }: { company?: Company; onClose: (create
         <div className="form-grid cols-2">
           <Field label="Nome (como aparece no painel)"><Input value={f.name} onChange={(e) => set('name', e.target.value)} maxLength={160} /></Field>
           <Field label="Tipo"><Select value={f.kind} onChange={(e) => set('kind', e.target.value)}>{Object.entries(COMPANY_KIND).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
-          <Field label="CNPJ"><Input inputMode="numeric" value={f.document} onChange={(e) => set('document', maskDocument(e.target.value))} placeholder="00.000.000/0000-00" /></Field>
+          <Field label="CNPJ">
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Input inputMode="numeric" value={f.document} onChange={(e) => set('document', maskDocument(e.target.value))} placeholder="00.000.000/0000-00" />
+              <Button variant="ghost" loading={searching} disabled={f.document.replace(/\D/g, '').length !== 14} onClick={() => void searchCnpj()}>Buscar CNPJ</Button>
+            </div>
+            {lookup && <small className="muted" role="status">Preenchido com dados públicos ({lookup.source}, {new Date(lookup.fetchedAt).toLocaleDateString('pt-BR')}){lookup.situation ? ` · situação: ${lookup.situation}` : ''}. Revise antes de salvar.</small>}
+          </Field>
           <Field label="Razão social"><Input value={f.legalName} onChange={(e) => set('legalName', e.target.value)} maxLength={160} /></Field>
           <Field label="Segmento"><Input list="seg-co" value={f.segment} onChange={(e) => set('segment', e.target.value)} maxLength={60} /><datalist id="seg-co">{SEGMENT_SUGGESTIONS.map((s) => <option key={s} value={s} />)}</datalist></Field>
           <Field label="Pessoa de contato"><Input value={f.contactName} onChange={(e) => set('contactName', e.target.value)} maxLength={120} /></Field>

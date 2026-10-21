@@ -4,6 +4,7 @@ import { Alert, Button, Check, Field, Input, Select, ThemeSwitch, usePageTitle, 
 import { errorMessage } from '../../shared/api';
 import { api } from '../api';
 import { useSession, type Profile } from '../session';
+import TestimonialForm from '../components/TestimonialForm';
 
 const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'];
 
@@ -18,8 +19,21 @@ export default function Account() {
   const [pwBusy, setPwBusy] = useState(false);
   const [pwErr, setPwErr] = useState('');
   useEffect(() => { if (me) setP(me.profile); }, [me]);
+  const [cnpjOn, setCnpjOn] = useState(false);
+  const [cnpjBusy, setCnpjBusy] = useState(false);
+  const [cnpjNote, setCnpjNote] = useState('');
+  useEffect(() => { api.get<{ enabled: boolean }>('/account/cnpj/status').then((r) => setCnpjOn(r.enabled)).catch(() => setCnpjOn(false)); }, []);
   if (!p || !me) return null;
   const set = <K extends keyof Profile>(k: K, v: Profile[K]) => setP((s) => (s ? { ...s, [k]: v } : s));
+
+  async function searchCnpj() {
+    setCnpjBusy(true); setCnpjNote('');
+    try {
+      const r = await api.get<{ data: { cnpj: string; legalName: string | null; address: { city: string | null; state: string | null } }; source: string; fetchedAt: string }>(`/account/cnpj/${p!.cpfCnpj.replace(/\D/g, '')}`);
+      setP((s) => (s ? { ...s, companyName: r.data.legalName ?? s.companyName, city: r.data.address.city ?? s.city, state: r.data.address.state ?? s.state } : s));
+      setCnpjNote(`Preenchido com dados públicos (${r.source}). Revise antes de salvar.`);
+    } catch (err) { toast.error(errorMessage(err)); } finally { setCnpjBusy(false); }
+  }
 
   async function save(e: FormEvent) {
     e.preventDefault(); setBusy(true);
@@ -45,7 +59,10 @@ export default function Account() {
         <div className="form-grid cols-2">
           <Field label="Nome completo"><Input value={p.name} onChange={(e) => set('name', e.target.value)} required minLength={2} autoComplete="name" /></Field>
           <Field label="Telefone"><Input value={p.phone} onChange={(e) => set('phone', e.target.value)} autoComplete="tel" inputMode="tel" /></Field>
-          <Field label="CPF ou CNPJ" hint="Necessário para emitir cobranças no checkout."><Input value={p.cpfCnpj} onChange={(e) => set('cpfCnpj', e.target.value)} inputMode="numeric" /></Field>
+          <Field label="CPF ou CNPJ" hint="Necessário para emitir cobranças no checkout."><Input value={p.cpfCnpj} onChange={(e) => set('cpfCnpj', e.target.value)} inputMode="numeric" />
+            {cnpjOn && p.cpfCnpj.replace(/\D/g, '').length === 14 && <Button type="button" variant="ghost" loading={cnpjBusy} onClick={() => void searchCnpj()}>Buscar dados do CNPJ</Button>}
+            {cnpjNote && <small className="muted" role="status">{cnpjNote}</small>}
+          </Field>
           <Field label="Empresa (opcional)"><Input value={p.companyName} onChange={(e) => set('companyName', e.target.value)} autoComplete="organization" /></Field>
           <Field label="Cidade"><Input value={p.city} onChange={(e) => set('city', e.target.value)} autoComplete="address-level2" /></Field>
           <Field label="Estado"><Select value={p.state} onChange={(e) => set('state', e.target.value)}><option value="">—</option>{UFS.map((u) => <option key={u}>{u}</option>)}</Select></Field>
@@ -64,6 +81,7 @@ export default function Account() {
         {pwErr && <Alert tone="danger">{pwErr}</Alert>}
         <div><Button type="submit" loading={pwBusy}>Atualizar senha</Button></div>
       </form>
+      <TestimonialForm />
       <section className="card card-pad stack">
         <h2 style={{ fontSize: 18 }}>Preferências e privacidade</h2>
         <div className="row-between"><span>Aparência do app</span><ThemeSwitch /></div>

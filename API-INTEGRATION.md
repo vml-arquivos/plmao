@@ -41,3 +41,16 @@ Desligada por padrão (`PUBLIC_API_ENABLED=false` ⇒ 404). Chaves `pnm_live_…
 | `GET /api/v1/vehicles/:id` | Consulta uma consulta já feita (sem nova cobrança) |
 
 Documentação voltada ao cliente em `/desenvolvedores`.
+
+## Integrações preparadas na 1.10.0 (desligadas por padrão)
+
+| Integração | Chave | Estado |
+|---|---|---|
+| Consulta veicular Credify | `VEHICLE_API_PROVIDER=credify`, `CREDIFY_*` | Adaptador pronto; falta o corpo da requisição (`CREDIFY_QUERY_BODY_TEMPLATE`), credenciais, homologação e contrato. |
+| CNPJ | `CNPJ_PROVIDER=brasilapi` | Pronto; ativar após conferir os termos de uso da fonte. |
+| E-mail | `EMAIL_PROVIDER=smtp`, `EMAIL_WEBHOOK_SECRET` | Fila pronta; falta SMTP e mapear o webhook de entrega do provedor. |
+| Assinatura | `ESIGN_PROVIDER=internal` | Aceite eletrônico simples com trilha. Assinatura avançada/qualificada exige provedor e validação jurídica. |
+| Fiscal | `FISCAL_PROVIDER=manual` | Fila para emissão externa e registro do resultado. Não há adaptador de NFS-e. |
+| Mercado Pago | `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET` | Checkout, webhook, estorno total e conciliação prontos; testar em sandbox. |
+
+Endpoints novos: `/api/support/*` (cliente), `/api/admin/support/*`, `/api/testimonials` (público), `/api/testimonials/mine`, `/api/admin/testimonials*`, `/api/admin/contracts*`, `/api/contracts/*` (link seguro), `/api/admin/fiscal/*`, `/api/fiscal/documents/:token`, `/api/admin/email/*`, `/api/webhooks/email`, `/api/admin/payment-orders/:id/reconcile|refund`, `/api/admin/cnpj/*`, `/api/account/cnpj/*`, `GET /ready`.

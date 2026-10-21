@@ -23,6 +23,7 @@ export const GROUPS: Array<{ title: string; items: NavItem[] }> = [
     { to: '/cobrancas', label: 'Cobranças e parcelas', icon: 'receipt', perm: 'MANAGE_BILLING' },
     { to: '/pagamentos', label: 'Pagamentos', icon: 'credit-card', perm: 'MANAGE_BILLING' },
     { to: '/notas-fiscais', label: 'Notas fiscais', icon: 'file-text', perm: 'MANAGE_FISCAL' },
+    { to: '/contratos', label: 'Contratos', icon: 'file-text', perm: 'VIEW_CONTRACTS' },
     { to: '/precos', label: 'Preços e margens', icon: 'tag', perm: 'MANAGE_PRICING' },
     { to: '/simulador', label: 'Simulador de financiamento', icon: 'calculator', perm: 'MANAGE_BILLING' },
     { to: '/cupons', label: 'Cupons', icon: 'percent', perm: 'MANAGE_BILLING' },
@@ -32,6 +33,7 @@ export const GROUPS: Array<{ title: string; items: NavItem[] }> = [
     { to: '/catalogo', label: 'Vitrine de produtos', icon: 'sparkles', perm: 'MANAGE_CONTENT' },
     { to: '/guia', label: 'Guia de veículos', icon: 'car', perm: 'MANAGE_CONTENT' },
     { to: '/faq', label: 'Perguntas frequentes', icon: 'info', perm: 'MANAGE_CONTENT' },
+    { to: '/depoimentos', label: 'Depoimentos', icon: 'users', perm: 'MANAGE_CONTENT' },
     { to: '/artigos', label: 'Artigos e blog', icon: 'file-text', perm: 'MANAGE_CONTENT' }
   ] },
   { title: 'Sistema', items: [

@@ -58,6 +58,8 @@ export interface ReportV2 {
   /** preenchido por viewReport: quantos alertas existem fora do plano contratado */
   lockedAlertCount?: number;
   debtsHidden?: boolean;
+  /** preenchido por viewReport: o que o produto contratado cobre. "Fora do produto" é diferente de "não retornado pela fonte". */
+  scope?: { mode: 'TEMPLATE' | 'SECTIONS' | 'TIER'; templateVersion?: number; notIncluded: Array<{ key: string; label: string }> };
 }
 
 const FINE_COMPONENTS = new Set(['DEBDETRAN', 'DEBDER', 'DEBDERSA', 'DEBPOLRODFED', 'DEBRENAINF']);
@@ -276,14 +278,42 @@ export function buildReportV2(raw: unknown): ReportV2 {
 
 export type Audience = 'client' | 'team';
 
+/** Modelo de campos publicado para o produto (ver lib/reportScope.ts). */
+export interface ViewTemplate { version: number; config: { sections: Array<{ key: string; label?: string; order?: number; visible?: boolean; fields: Array<{ key: string; label?: string; visible?: boolean }> }> } }
+
+function applyTemplate(sections: ReportSection[], template: ViewTemplate): ReportSection[] {
+  const byKey = new Map<string, ReportItem>();
+  for (const s of sections) for (const i of s.items) byKey.set(i.key, i);
+  const meta = new Map(SECTIONS.map((s) => [s.key as string, s]));
+  return [...template.config.sections]
+    .filter((s) => s.visible !== false && meta.has(s.key))
+    .sort((a, b) => (a.order ?? meta.get(a.key)!.order) - (b.order ?? meta.get(b.key)!.order))
+    .map((s) => {
+      const items = s.fields.filter((f) => f.visible !== false).flatMap((f) => {
+        const item = byKey.get(f.key);
+        const def = CATALOG_BY_KEY.get(f.key);
+        // O modelo só libera campos do catálogo da própria seção e nunca dados de pessoas ou controle interno.
+        if (!item || !def || def.section !== s.key || def.sensitivity === 'OWNER' || def.sensitivity === 'INTERNAL') return [];
+        return [f.label ? { ...item, label: f.label } : item];
+      });
+      const m = meta.get(s.key)!;
+      const providedCount = items.filter((i) => i.state !== 'NOT_PROVIDED').length;
+      return { key: m.key, label: s.label ?? m.label, description: m.description, status: sectionStatus(items), items, providedCount, notProvidedCount: items.length - providedCount };
+    })
+    .filter((s) => s.items.length > 0);
+}
+
 /**
  * Filtra o relatório para exibição: o cliente nunca vê dados do proprietário (apenas o tipo),
  * campos internos ficam ocultos e campos acima do nível do produto contratado são omitidos.
+ * Precedência: modelo de campos publicado > lista de seções do produto > nível (tier).
  */
-export function viewReport(report: ReportV2, opts: { audience: Audience; tier: Tier; /** lista de seções liberadas pelo produto (configurada no painel); vazia/ausente = regra por nível */ sections?: string[] | null }): ReportV2 {
-  const allow = opts.sections && opts.sections.length ? new Set(opts.sections) : null;
+export function viewReport(report: ReportV2, opts: { audience: Audience; tier: Tier; /** lista de seções liberadas pelo produto (configurada no painel); vazia/ausente = regra por nível */ sections?: string[] | null; /** modelo de campos publicado do produto (só para o cliente) */ template?: ViewTemplate | null }): ReportV2 {
+  const template = opts.audience === 'client' ? opts.template ?? null : null;
+  const templated = template ? applyTemplate(report.sections, template) : null;
+  const allow = templated ? new Set<string>(templated.map((s) => s.key)) : opts.sections && opts.sections.length ? new Set(opts.sections) : null;
   const effectiveTier: Tier = allow ? 3 : opts.tier;
-  const sections = report.sections
+  const sections = templated ?? report.sections
     .filter((s) => s.key !== 'INTERNO' || opts.audience === 'team')
     .filter((s) => opts.audience === 'team' || !allow || allow.has(s.key))
     .map((s) => {
@@ -308,7 +338,15 @@ export function viewReport(report: ReportV2, opts: { audience: Audience; tier: T
     verdict = { ...verdict, reason: `${verdict.reason} Há ainda ${lockedAlertCount} ponto(s) de atenção fora deste plano.` };
   }
   const debts = debtsHidden ? { ...report.debts, totalCents: 0, items: [], fineBreakdown: [], hasDebt: false } : report.debts;
-  return { ...report, sections, verdict, debts, lockedAlertCount, debtsHidden };
+  const shown = new Set<string>(sections.map((s) => s.key));
+  const scope: ReportV2['scope'] = opts.audience === 'client'
+    ? { mode: template ? 'TEMPLATE' : allow ? 'SECTIONS' : 'TIER', ...(template ? { templateVersion: template.version } : {}), notIncluded: SECTIONS.filter((s) => s.key !== 'INTERNO' && s.key !== 'PROPRIETARIO' && !shown.has(s.key)).map((s) => ({ key: s.key, label: s.label })) }
+    : undefined;
+  if (scope && verdict.level === 'CLEAR') {
+    const outside = scope.notIncluded.filter((n) => n.key === 'DEBITOS' || n.key === 'RESTRICOES' || n.key === 'GRAVAME').map((n) => n.label.toLowerCase());
+    if (outside.length) verdict = { level: 'INCONCLUSIVE', title: 'Consulta parcial', reason: `Este produto não inclui: ${outside.join(', ')}. Não é possível afirmar que o veículo está sem pendências.`, alerts: [] };
+  }
+  return { ...report, sections, verdict, debts, lockedAlertCount, debtsHidden, ...(scope ? { scope } : {}) };
 }
 
 export function tierForProductCode(code: string | null | undefined): Tier {

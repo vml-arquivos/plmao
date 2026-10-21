@@ -8,7 +8,7 @@ export const api = createApi({
   onUnauthorized: () => window.dispatchEvent(new CustomEvent('pnm:admin-unauthorized'))
 });
 
-export type Permission = 'QUERY_VEHICLE' | 'VIEW_HISTORY' | 'BUY_CREDITS' | 'VIEW_SENSITIVE_DATA' | 'MANAGE_USERS' | 'MANAGE_PRICING' | 'MANAGE_CONTENT' | 'MANAGE_PROVIDERS' | 'MANAGE_BILLING' | 'MANAGE_SUPPORT' | 'VIEW_AUDIT' | 'REVEAL_PII' | 'ADMIN_SYSTEM' | 'VIEW_DASHBOARD' | 'VIEW_QUERIES' | 'VIEW_CUSTOMERS' | 'MANAGE_CUSTOMERS' | 'MANAGE_TEAM' | 'MANAGE_FISCAL';
+export type Permission = 'QUERY_VEHICLE' | 'VIEW_HISTORY' | 'BUY_CREDITS' | 'VIEW_SENSITIVE_DATA' | 'MANAGE_USERS' | 'MANAGE_PRICING' | 'MANAGE_CONTENT' | 'MANAGE_PROVIDERS' | 'MANAGE_BILLING' | 'MANAGE_SUPPORT' | 'VIEW_AUDIT' | 'REVEAL_PII' | 'ADMIN_SYSTEM' | 'VIEW_DASHBOARD' | 'VIEW_QUERIES' | 'VIEW_CUSTOMERS' | 'MANAGE_CUSTOMERS' | 'MANAGE_TEAM' | 'MANAGE_FISCAL' | 'VIEW_CONTRACTS' | 'MANAGE_CONTRACTS' | 'APPROVE_CONTRACTS';
 export interface TeamUser { id?: string; name: string; email: string; role?: string }
 
 export const ROLE_LABEL: Record<string, string> = { CLIENTE: 'Cliente', OPERADOR: 'Operador', SUPORTE: 'Suporte', CONTEUDO: 'Conteúdo', FINANCEIRO: 'Financeiro', ADMIN: 'Administrador', SUPER_ADMIN: 'Super admin' };

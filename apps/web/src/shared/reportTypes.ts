@@ -13,5 +13,6 @@ export interface ReportV2 {
   unknownFieldCount: number;
   lockedAlertCount?: number;
   debtsHidden?: boolean;
+  scope?: { mode: 'TEMPLATE' | 'SECTIONS' | 'TIER'; templateVersion?: number; notIncluded: Array<{ key: string; label: string }> };
 }
 export interface ReportEnvelope { report: ReportV2; verificationCode: string; verificationUrl: string; consultedAt: string; productName: string }

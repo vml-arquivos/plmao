@@ -28,6 +28,7 @@ export function renderVehicleHtml(report: ReportV2, meta: ReportMeta): string {
     return `<section><h2><b class="dot ${s.status === 'ALERT' ? 'bad' : s.status === 'CLEAR' ? 'ok' : ''}"></b>${esc(s.label)}</h2>${shown.length ? `<div class="grid">${shown.map(cell).join('')}</div>` : '<p class="note">O provedor não retornou informações desta categoria para esta consulta.</p>'}${missing.length && shown.length ? `<p class="note">Não fornecido pelo provedor nesta consulta: ${esc(missing.map((m) => m.label).join(', '))}.</p>` : ''}</section>`;
   }).join('');
   const locked = report.lockedAlertCount ? `<div class="locked">Há ${report.lockedAlertCount} ponto(s) de atenção fora do plano contratado.</div>` : '';
+  const outside = report.scope?.notIncluded.length ? `<p class="note">Não incluído neste produto: ${esc(report.scope.notIncluded.map((n) => n.label).join(', '))}. Isso não significa ausência de ocorrências.</p>` : '';
   const brand = esc(meta.brandName ?? 'Placa na Mão');
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Relatório ${esc(maskPlate(report.plate))} — ${brand}</title><style>
 :root{--ink:#0f0f14;--text:#1f2530;--muted:#6b7280;--line:#e6e8ef;--soft:#f6f5fc;--violet:#8b5cf6;--ok:#169a5c;--warn:#cc800a;--bad:#d93333}
@@ -57,6 +58,6 @@ footer{margin:26px 28px 24px;padding:14px 16px;background:var(--soft);border-rad
 </style></head><body><div class="bar"><button class="print" type="button" id="print-btn">Imprimir / salvar PDF</button></div><div class="sheet"><header><div class="logo"><i></i>${brand}</div><div class="meta"><b>Relatório de consulta veicular</b><span>Código ${esc(meta.verificationCode)}</span><br>${esc(when)}</div></header><main>
 <div class="hero"><div class="plate"><small>BRASIL</small><strong>${esc(report.plate)}</strong></div><div><h1>${esc(title)}</h1><p>${esc(sub)}</p></div></div>
 <div class="verdict ${vcls}"><b>${vlabel}</b><h3>${esc(report.verdict.title)}</h3><p>${esc(report.verdict.reason)}</p></div>
-${debts}${sections}${locked}</main>
+${debts}${sections}${outside}${locked}</main>
 <footer><b>Validação:</b> código ${esc(meta.verificationCode)} — confira em ${esc(meta.verificationUrl.replace(/^https?:\/\//, ''))}.<br>Informações fornecidas por fonte de dados contratada, conforme retornado na data e hora da consulta; não substituem documentos oficiais nem certidões. Dados pessoais do proprietário (nome e CPF/CNPJ) não são exibidos, em conformidade com a LGPD.<br>Produto: ${esc(meta.productName)}.</footer></div><script src="/print-helper.js"></script></body></html>`;
 }

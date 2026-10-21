@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { env } from '../config.js';
 import { pool, tx } from '../db.js';
 import { adminAuth } from '../auth.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
@@ -307,5 +308,25 @@ financeRouter.get('/setup-checklist', requirePermission('MANAGE_BILLING'), async
     items.push({ key: `cost:${p.id}`, ok: cost > 0, severity: 'BLOCKER', title: `Custo do provedor — ${p.name}`, detail: 'Sem o custo, a trava de margem não consegue proteger o preço deste produto.' });
     items.push({ key: `ref:${p.id}`, ok: Number(p.refs) > 0, severity: 'WARNING', title: `Preço de referência de mercado — ${p.name}`, detail: 'Cadastre manualmente preços de referência (uso interno; nunca exibidos ao público).' });
   }
+  const [tpl, mfa, vq] = await Promise.all([
+    pool.query(`SELECT count(*)::int AS n FROM contract_template_versions WHERE status='PUBLISHED'`),
+    pool.query(`SELECT count(*)::int AS n FROM users u WHERE u.active=true AND u.deleted_at IS NULL AND u.role IN ('SUPER_ADMIN','ADMIN','FINANCEIRO','OPERADOR','SUPORTE','CONTEUDO') AND NOT EXISTS (SELECT 1 FROM team_totp t WHERE t.user_id=u.id AND t.enabled_at IS NOT NULL)`),
+    pool.query(`SELECT count(*)::int AS n FROM faqs WHERE active=true`)
+  ]);
+  const ref = (await pool.query('SELECT rates_reference_month AS m FROM financing_settings LIMIT 1')).rows[0]?.m as string | undefined;
+  const refAge = ref && /^\d{4}-\d{2}$/.test(ref) ? (new Date().getFullYear() - Number(ref.slice(0, 4))) * 12 + (new Date().getMonth() + 1 - Number(ref.slice(5, 7))) : null;
+  items.push(
+    { key: 'sim-rates', ok: refAge !== null && refAge <= 3, severity: 'WARNING', title: 'Taxas do simulador atualizadas', detail: refAge === null ? 'Referência das taxas não encontrada.' : `Referência das taxas: ${ref}. Com mais de 3 meses, o simulador mostra aviso de defasagem. Atualize pelo painel ou ative a atualização automática.` },
+    { key: 'mfa', ok: Number(mfa.rows[0].n) === 0, severity: 'WARNING', title: 'Verificação em duas etapas da equipe', detail: `${mfa.rows[0].n} conta(s) da equipe sem a verificação ativa. Ela continua opcional; ative para quem acessa financeiro, clientes e contratos.` },
+    { key: 'email', ok: env.EMAIL_PROVIDER === 'smtp', severity: 'WARNING', title: 'Envio de e-mail', detail: 'Sem provedor, contratos, documentos fiscais e avisos do suporte não são enviados. Configure SMTP e o webhook de entrega.' },
+    { key: 'email-webhook', ok: Boolean(env.EMAIL_WEBHOOK_SECRET), severity: 'WARNING', title: 'Retorno de entrega de e-mail', detail: 'Defina EMAIL_WEBHOOK_SECRET para registrar entregas e devoluções.' },
+    { key: 'contract-legal', ok: Number(tpl.rows[0].n) > 0, severity: 'WARNING', title: 'Minuta de contrato publicada', detail: 'Nenhuma minuta foi publicada. Cada versão precisa de revisão jurídica registrada antes de ir ao ar.' },
+    { key: 'esign', ok: env.ESIGN_PROVIDER !== 'disabled', severity: 'WARNING', title: 'Assinatura de contratos', detail: 'Sem provedor, contratos não saem para assinatura. O aceite interno é eletrônico simples; valide com o jurídico se basta.' },
+    { key: 'fiscal-provider', ok: env.FISCAL_PROVIDER !== 'disabled' && env.FISCAL_PROVIDER !== 'mock', severity: 'WARNING', title: 'Emissão fiscal', detail: 'Sem provedor integrado, a nota é emitida pelo contador e registrada manualmente.' },
+    { key: 'mercadopago', ok: Boolean(env.MP_ACCESS_TOKEN && env.MP_WEBHOOK_SECRET), severity: 'WARNING', title: 'Mercado Pago', detail: 'Configure token e segredo do webhook; teste pagamento, estorno e conciliação no ambiente de testes antes de ativar.' },
+    { key: 'vehicle-api', ok: env.DATA_PROVIDER === 'real', severity: 'WARNING', title: 'Fonte das consultas veiculares', detail: 'Consultas reais dependem de credenciais, corpo da requisição e contrato com o fornecedor.' },
+    { key: 'cnpj', ok: env.CNPJ_PROVIDER !== 'disabled', severity: 'WARNING', title: 'Preenchimento por CNPJ', detail: 'Ative a consulta de CNPJ para facilitar o cadastro de empresas.' },
+    { key: 'faq', ok: Number(vq.rows[0].n) > 0, severity: 'WARNING', title: 'Perguntas frequentes', detail: 'O assistente do chat só responde com perguntas publicadas. Sem elas, encaminha tudo para a equipe.' }
+  );
   res.json({ ready: items.every((i) => i.ok || i.severity !== 'BLOCKER'), items, fiscalWarning: FISCAL_WARNING });
 }));

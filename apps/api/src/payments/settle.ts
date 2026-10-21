@@ -17,9 +17,10 @@ export type PaymentEventFacts = {
 
 export type SettleOutcome = 'DUPLICATE' | 'ORDER_NOT_FOUND' | 'PAID' | 'ALREADY_PAID' | 'REVERSED' | 'STATUS_UPDATED';
 
-export function classifyPaymentStatus(provider: string, rawStatus: string | null): 'PAID' | 'REFUND' | 'CHARGEBACK' | 'OTHER' {
+export function classifyPaymentStatus(provider: string, rawStatus: string | null): 'PAID' | 'REFUND' | 'PARTIAL_REFUND' | 'CHARGEBACK' | 'OTHER' {
   const status = String(rawStatus ?? '').toUpperCase();
   if (status.includes('CHARGEBACK') || status.includes('CHARGED_BACK')) return 'CHARGEBACK';
+  if (status.includes('PARTIALLY_REFUNDED') || status.includes('PARTIAL_REFUND')) return 'PARTIAL_REFUND';
   if (status.includes('REFUND')) return 'REFUND';
   const paid = provider === 'mercadopago' ? status === 'APPROVED' : status === 'CHECKOUT_PAID' || status === 'PAYMENT_RECEIVED';
   return paid ? 'PAID' : 'OTHER';
@@ -51,7 +52,10 @@ export async function settlePaymentEvent(client: PoolClient, facts: PaymentEvent
   const normalizedStatus = String(facts.rawStatus ?? '').toUpperCase();
   let outcome: SettleOutcome = 'STATUS_UPDATED';
 
-  if (kind === 'PAID' && current.status !== 'PAID') {
+  if (kind === 'PARTIAL_REFUND' || normalizedStatus === 'IN_MEDIATION') {
+    // Estorno parcial ou disputa aberta: não reverte consulta/saldo/comissão automaticamente. Fica marcado para revisão manual.
+    await client.query('UPDATE payment_webhook_events SET processing_error=$2 WHERE id=$1', [eventRowId, kind === 'PARTIAL_REFUND' ? 'PARTIAL_REFUND_MANUAL_REVIEW' : 'DISPUTE_OPEN_MANUAL_REVIEW']);
+  } else if (kind === 'PAID' && current.status !== 'PAID') {
     await creditPaidOrder(client, current, facts, eventRowId);
     outcome = 'PAID';
   } else if (kind === 'PAID') {

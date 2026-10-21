@@ -8,6 +8,7 @@ import { captureReferral } from './funnel';
 import { api } from './api';
 import { useSession } from './session';
 
+const SupportChat = lazy(() => import('./pages/Support'));
 const Landing = lazy(() => import('./pages/Landing'));
 const Auth = lazy(() => import('./pages/Auth'));
 const SeoPage = lazy(() => import('./pages/SeoPage'));
@@ -31,6 +32,9 @@ const FaqPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.F
 const BlogPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.BlogPage })));
 const BlogPostPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.BlogPostPage })));
 const Account = lazy(() => import('./pages/Account'));
+const ContractSign = lazy(() => import('./pages/ContractSign').then((m) => ({ default: m.ContractSign })));
+const FiscalDocumentPage = lazy(() => import('./pages/ContractSign').then((m) => ({ default: m.FiscalDocumentPage })));
+const ContractCopy = lazy(() => import('./pages/ContractSign').then((m) => ({ default: m.ContractCopy })));
 const named = (key: string) => lazy(() => import('./pages/Public').then((m) => ({ default: (m as unknown as Record<string, React.ComponentType>)[key] })));
 const GuestQuery = named('GuestQuery'); const PlansPage = named('PlansPage'); const ValidatePage = named('ValidatePage'); const About = named('About'); const Contact = named('Contact'); const NotFound = named('NotFound');
 const Legal = lazy(() => import('./pages/Public').then((m) => ({ default: m.Legal })));
@@ -84,6 +88,9 @@ export default function App() {
             <Route path="/contato" element={<Contact />} />
             <Route path="/termos" element={<Legal kind="terms" />} />
             <Route path="/privacidade" element={<Legal kind="privacy" />} />
+            <Route path="/contrato/assinar/:token" element={<ContractSign />} />
+            <Route path="/contrato/:token" element={<ContractCopy />} />
+            <Route path="/documento-fiscal/:token" element={<FiscalDocumentPage />} />
             <Route path="/validar" element={<ValidatePage />} />
             <Route path="/validar/:code" element={<ValidatePage />} />
             <Route path="/validar-relatorio/:code" element={<ValidatePage />} />
@@ -101,6 +108,7 @@ export default function App() {
             <Route path="parceiro" element={<Partner />} />
             <Route path="api" element={<Navigate to="/app" replace />} />
             <Route path="conta" element={<Account />} />
+            <Route path="suporte" element={<SupportChat />} />
           </Route>
         </Routes>
       </Suspense>

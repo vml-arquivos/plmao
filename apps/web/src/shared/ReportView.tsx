@@ -171,6 +171,7 @@ export default function ReportView({ report, consultedAt, productName, verificat
 
       <footer className="rv-foot">
         <p><Icon name="info" size={16} /> {report.coverage.provided} de {report.coverage.total} campos foram informados pela fonte contratada. Campos <b>não informados</b> não significam “nada consta”: apenas não vieram nesta consulta.</p>
+        {!!report.scope?.notIncluded.length && <p>Não incluído neste produto: {report.scope.notIncluded.map((n) => n.label).join(', ')}. Isso não significa ausência de ocorrências.</p>}
         <p>Este relatório apoia sua decisão, mas não substitui vistoria, certidões ou consulta aos órgãos competentes. Dados pessoais são exibidos de forma protegida (LGPD).</p>
         {verificationCode && <p>Código de verificação: <b className="mono">{verificationCode}</b></p>}
       </footer>

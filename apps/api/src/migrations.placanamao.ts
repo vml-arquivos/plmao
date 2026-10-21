@@ -919,5 +919,368 @@ export const placaMigrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_vehicle_queries_user_plate ON vehicle_queries(user_id, plate);
       `);
     }
+  },
+  {
+    id: '027_report_scope_publications',
+    name: 'Escopo de relatório por produto: histórico de publicações do modelo de campos (snapshot por consulta)',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS report_template_publications (
+          id bigserial PRIMARY KEY,
+          product_id text NOT NULL REFERENCES query_products(id) ON DELETE CASCADE,
+          template_id uuid NOT NULL REFERENCES report_templates(id) ON DELETE CASCADE,
+          published_at timestamptz NOT NULL DEFAULT now(),
+          superseded_at timestamptz,
+          published_by uuid REFERENCES users(id),
+          CHECK (superseded_at IS NULL OR superseded_at >= published_at)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_report_pub_current ON report_template_publications(product_id) WHERE superseded_at IS NULL;
+        CREATE INDEX IF NOT EXISTS idx_report_pub_product_time ON report_template_publications(product_id, published_at);
+      `);
+    },
+    down: async (client) => {
+      await client.query('DROP TABLE IF EXISTS report_template_publications');
+    }
+  },
+  {
+    id: '028_email_outbox_secure_links',
+    name: 'Fila de e-mails transacionais (retries, idempotência, auditoria) e links seguros expiráveis',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS email_outbox (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          idempotency_key text NOT NULL UNIQUE CHECK (length(idempotency_key) BETWEEN 8 AND 200),
+          template text NOT NULL CHECK (template ~ '^[A-Z][A-Z0-9_]{2,59}$'),
+          to_email text NOT NULL CHECK (position('@' in to_email) > 1 AND length(to_email) <= 254),
+          to_name text,
+          subject text NOT NULL,
+          payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+          status text NOT NULL DEFAULT 'AGENDADO' CHECK (status IN ('AGENDADO','ENVIANDO','RETRY','ENVIADO','ENTREGUE','BOUNCED','FALHOU','CANCELADO')),
+          attempts integer NOT NULL DEFAULT 0,
+          max_attempts integer NOT NULL DEFAULT 6 CHECK (max_attempts BETWEEN 1 AND 20),
+          next_attempt_at timestamptz NOT NULL DEFAULT now(),
+          locked_at timestamptz,
+          last_error text,
+          message_id text,
+          related_type text,
+          related_id text,
+          resend_count integer NOT NULL DEFAULT 0,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          sent_at timestamptz,
+          delivered_at timestamptz,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_email_outbox_due ON email_outbox(next_attempt_at) WHERE status IN ('AGENDADO','RETRY');
+        CREATE INDEX IF NOT EXISTS idx_email_outbox_related ON email_outbox(related_type, related_id);
+        CREATE INDEX IF NOT EXISTS idx_email_outbox_message ON email_outbox(message_id) WHERE message_id IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS email_events (
+          id bigserial PRIMARY KEY,
+          outbox_id uuid NOT NULL REFERENCES email_outbox(id) ON DELETE CASCADE,
+          event text NOT NULL,
+          detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_email_events_outbox ON email_events(outbox_id, id);
+        CREATE TABLE IF NOT EXISTS secure_links (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          token_hash text NOT NULL UNIQUE,
+          purpose text NOT NULL CHECK (purpose IN ('CONTRACT_SIGN','CONTRACT_VIEW','FISCAL_DOCUMENT')),
+          resource_type text NOT NULL,
+          resource_id uuid NOT NULL,
+          recipient_email text,
+          expires_at timestamptz NOT NULL,
+          max_uses integer NOT NULL DEFAULT 10 CHECK (max_uses BETWEEN 1 AND 100),
+          uses integer NOT NULL DEFAULT 0,
+          revoked_at timestamptz,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          last_used_at timestamptz
+        );
+        CREATE INDEX IF NOT EXISTS idx_secure_links_resource ON secure_links(resource_type, resource_id);
+      `);
+    },
+    down: async (client) => {
+      await client.query('DROP TABLE IF EXISTS secure_links; DROP TABLE IF EXISTS email_events; DROP TABLE IF EXISTS email_outbox;');
+    }
+  }
+  ,
+  {
+    id: '029_cnpj_cache',
+    name: 'Cache de consulta de CNPJ (dados cadastrais minimos, sem quadro societario)',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS cnpj_cache (
+          cnpj text PRIMARY KEY CHECK (cnpj ~ '^[0-9]{14}$'),
+          data jsonb NOT NULL,
+          source text NOT NULL,
+          fetched_at timestamptz NOT NULL DEFAULT now()
+        );
+      `);
+    },
+    down: async (client) => { await client.query('DROP TABLE IF EXISTS cnpj_cache;'); }
+  }
+  ,
+  {
+    id: '030_contracts',
+    name: 'Contratos versionados, assinatura eletronica e trilha imutavel',
+    up: async (client) => {
+      await client.query(`
+        CREATE SEQUENCE IF NOT EXISTS contract_number_seq;
+        CREATE TABLE IF NOT EXISTS contract_templates (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          code text NOT NULL UNIQUE,
+          name text NOT NULL,
+          kind text NOT NULL CHECK (kind IN ('PF_AVULSO','PJ_B2B','PACOTE_PERSONALIZADO','PARCEIRO','ADITIVO')),
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE TABLE IF NOT EXISTS contract_template_versions (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          template_id uuid NOT NULL REFERENCES contract_templates(id),
+          version integer NOT NULL,
+          status text NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','IN_REVIEW','APPROVED','PUBLISHED','RETIRED')),
+          title text NOT NULL,
+          body text NOT NULL,
+          legal_review_ref text,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          approved_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          approved_at timestamptz,
+          published_at timestamptz,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          UNIQUE(template_id, version)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_contract_template_published ON contract_template_versions(template_id) WHERE status='PUBLISHED';
+        CREATE TABLE IF NOT EXISTS contracts (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          number text NOT NULL UNIQUE,
+          kind text NOT NULL CHECK (kind IN ('PF_AVULSO','PJ_B2B','PACOTE_PERSONALIZADO','PARCEIRO','ADITIVO')),
+          status text NOT NULL DEFAULT 'RASCUNHO' CHECK (status IN ('RASCUNHO','EM_APROVACAO','APROVADO','AGUARDANDO_ASSINATURA','ASSINADO','RECUSADO','EXPIRADO','CANCELADO')),
+          template_version_id uuid NOT NULL REFERENCES contract_template_versions(id),
+          parent_contract_id uuid REFERENCES contracts(id),
+          user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          organization_id uuid REFERENCES organizations(id) ON DELETE SET NULL,
+          affiliate_id uuid REFERENCES affiliates(id) ON DELETE SET NULL,
+          party jsonb NOT NULL,
+          terms jsonb NOT NULL,
+          rendered_body text NOT NULL,
+          body_hash text NOT NULL,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          approved_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          approved_at timestamptz,
+          approved_hash text,
+          sent_at timestamptz,
+          expires_at timestamptz,
+          signed_at timestamptz,
+          cancel_reason text,
+          applied_at timestamptz,
+          applied_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_contracts_party ON contracts(organization_id, user_id, affiliate_id);
+        CREATE TABLE IF NOT EXISTS contract_signers (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          contract_id uuid NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+          name text NOT NULL,
+          email text NOT NULL,
+          role text NOT NULL DEFAULT 'CONTRATANTE',
+          status text NOT NULL DEFAULT 'PENDENTE' CHECK (status IN ('PENDENTE','ASSINADO','RECUSADO')),
+          signed_at timestamptz,
+          evidence jsonb,
+          UNIQUE(contract_id, email)
+        );
+        CREATE TABLE IF NOT EXISTS contract_events (
+          id bigserial PRIMARY KEY,
+          contract_id uuid NOT NULL REFERENCES contracts(id),
+          event text NOT NULL,
+          actor_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_contract_events_contract ON contract_events(contract_id, id);
+        CREATE OR REPLACE FUNCTION contract_events_immutable() RETURNS trigger AS $$
+        BEGIN RAISE EXCEPTION 'contract_events e imutavel'; END; $$ LANGUAGE plpgsql;
+        DROP TRIGGER IF EXISTS trg_contract_events_immutable ON contract_events;
+        CREATE TRIGGER trg_contract_events_immutable BEFORE UPDATE OR DELETE ON contract_events FOR EACH ROW EXECUTE FUNCTION contract_events_immutable();
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        DROP TABLE IF EXISTS contract_events; DROP FUNCTION IF EXISTS contract_events_immutable();
+        DROP TABLE IF EXISTS contract_signers; DROP TABLE IF EXISTS contracts;
+        DROP TABLE IF EXISTS contract_template_versions; DROP TABLE IF EXISTS contract_templates;
+        DROP SEQUENCE IF EXISTS contract_number_seq;
+      `);
+    }
+  }
+  ,
+  {
+    id: '031_payment_refunds',
+    name: 'Solicitacoes de estorno pela API do provedor (idempotentes e auditaveis)',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS payment_refunds (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          order_id uuid NOT NULL REFERENCES payment_orders(id),
+          provider text NOT NULL,
+          external_payment_id text NOT NULL,
+          status text NOT NULL DEFAULT 'REQUESTED' CHECK (status IN ('REQUESTED','CONFIRMED','FAILED')),
+          reason text NOT NULL,
+          provider_refund_id text,
+          error_code text,
+          requested_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_refunds_active ON payment_refunds(order_id) WHERE status IN ('REQUESTED','CONFIRMED');
+      `);
+    },
+    down: async (client) => { await client.query('DROP TABLE IF EXISTS payment_refunds;'); }
+  }
+  ,
+  {
+    id: '032_fiscal_queue',
+    name: 'Fila de emissao fiscal com idempotencia, tentativas e trilha',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS fiscal_jobs (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          document_id uuid NOT NULL REFERENCES fiscal_documents(id),
+          idempotency_key text NOT NULL UNIQUE,
+          provider text NOT NULL,
+          status text NOT NULL DEFAULT 'PENDENTE' CHECK (status IN ('PENDENTE','ENVIANDO','RETRY','AGUARDANDO_PROVEDOR','EMITIDO','REJEITADO','CANCELADO','FALHOU')),
+          attempts integer NOT NULL DEFAULT 0,
+          max_attempts integer NOT NULL DEFAULT 6,
+          next_attempt_at timestamptz NOT NULL DEFAULT now(),
+          locked_at timestamptz,
+          provider_ref text,
+          last_error text,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_fiscal_jobs_open_per_document ON fiscal_jobs(document_id) WHERE status IN ('PENDENTE','ENVIANDO','RETRY','AGUARDANDO_PROVEDOR');
+        CREATE INDEX IF NOT EXISTS idx_fiscal_jobs_due ON fiscal_jobs(status, next_attempt_at);
+        CREATE TABLE IF NOT EXISTS fiscal_events (
+          id bigserial PRIMARY KEY,
+          job_id uuid NOT NULL REFERENCES fiscal_jobs(id) ON DELETE CASCADE,
+          event text NOT NULL,
+          detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_fiscal_events_job ON fiscal_events(job_id, id);
+      `);
+    },
+    down: async (client) => { await client.query('DROP TABLE IF EXISTS fiscal_events; DROP TABLE IF EXISTS fiscal_jobs;'); }
+  }
+  ,
+  {
+    id: '033_support_chat',
+    name: 'Chat de suporte: conversas, mensagens, anexos seguros, notas internas e trilha',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS support_conversations (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          subject text NOT NULL,
+          category text NOT NULL DEFAULT 'OUTRO' CHECK (category IN ('DUVIDA','PAGAMENTO','CONSULTA','CONTA','LGPD','OUTRO')),
+          status text NOT NULL DEFAULT 'ABERTA' CHECK (status IN ('ABERTA','AGUARDANDO_ATENDENTE','EM_ATENDIMENTO','AGUARDANDO_CLIENTE','RESOLVIDA','ENCERRADA')),
+          priority text NOT NULL DEFAULT 'NORMAL' CHECK (priority IN ('BAIXA','NORMAL','ALTA','URGENTE')),
+          handler text NOT NULL DEFAULT 'BOT' CHECK (handler IN ('BOT','HUMAN')),
+          assigned_to uuid REFERENCES users(id) ON DELETE SET NULL,
+          related_type text CHECK (related_type IN ('QUERY','ORDER','PAYMENT')),
+          related_id uuid,
+          last_message_at timestamptz NOT NULL DEFAULT now(),
+          client_read_at timestamptz,
+          staff_read_at timestamptz,
+          resolved_at timestamptz,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_support_conv_user ON support_conversations(user_id, last_message_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_support_conv_inbox ON support_conversations(status, priority, last_message_at DESC);
+        CREATE TABLE IF NOT EXISTS support_messages (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          conversation_id uuid NOT NULL REFERENCES support_conversations(id) ON DELETE CASCADE,
+          sender_type text NOT NULL CHECK (sender_type IN ('CLIENTE','ATENDENTE','BOT','SISTEMA')),
+          sender_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          body text NOT NULL CHECK (char_length(body) <= 4000),
+          internal boolean NOT NULL DEFAULT false,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          CHECK (NOT internal OR sender_type = 'ATENDENTE')
+        );
+        CREATE INDEX IF NOT EXISTS idx_support_msg_conv ON support_messages(conversation_id, created_at);
+        CREATE TABLE IF NOT EXISTS support_attachments (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          conversation_id uuid NOT NULL REFERENCES support_conversations(id) ON DELETE CASCADE,
+          message_id uuid REFERENCES support_messages(id) ON DELETE SET NULL,
+          uploaded_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          file_name text NOT NULL,
+          mime text NOT NULL CHECK (mime IN ('image/png','image/jpeg','image/webp','application/pdf')),
+          size_bytes integer NOT NULL CHECK (size_bytes BETWEEN 1 AND 2097152),
+          sha256 text NOT NULL,
+          data bytea NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_support_att_conv ON support_attachments(conversation_id);
+        CREATE TABLE IF NOT EXISTS support_events (
+          id bigserial PRIMARY KEY,
+          conversation_id uuid NOT NULL REFERENCES support_conversations(id) ON DELETE CASCADE,
+          event text NOT NULL,
+          actor_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_support_events_conv ON support_events(conversation_id, id);
+      `);
+    },
+    down: async (client) => { await client.query('DROP TABLE IF EXISTS support_events; DROP TABLE IF EXISTS support_attachments; DROP TABLE IF EXISTS support_messages; DROP TABLE IF EXISTS support_conversations;'); }
+  },
+  {
+    id: '034_testimonials',
+    name: 'Depoimentos autorizados: consentimento, moderacao e trilha',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS testimonials (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          source text NOT NULL CHECK (source IN ('CLIENTE','MANUAL')),
+          status text NOT NULL DEFAULT 'PENDENTE' CHECK (status IN ('PENDENTE','APROVADO','PUBLICADO','OCULTO','REMOVIDO')),
+          display_name text NOT NULL DEFAULT '',
+          body text NOT NULL DEFAULT '',
+          rating smallint CHECK (rating BETWEEN 1 AND 5),
+          consent_text text,
+          consent_version text,
+          consent_at timestamptz,
+          consent_ip_hash text,
+          proof_ref text,
+          content_hash text,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          approved_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          approved_at timestamptz,
+          published_at timestamptz,
+          reason text,
+          removed_at timestamptz,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          CHECK (status = 'REMOVIDO' OR (length(body) BETWEEN 10 AND 500 AND length(display_name) BETWEEN 2 AND 80)),
+          CHECK (status IN ('PENDENTE','REMOVIDO') OR (content_hash IS NOT NULL AND consent_at IS NOT NULL))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_testimonials_user_active ON testimonials(user_id) WHERE user_id IS NOT NULL AND status <> 'REMOVIDO';
+        CREATE INDEX IF NOT EXISTS idx_testimonials_status ON testimonials(status, published_at DESC);
+        CREATE TABLE IF NOT EXISTS testimonial_events (
+          id bigserial PRIMARY KEY,
+          testimonial_id uuid NOT NULL REFERENCES testimonials(id) ON DELETE CASCADE,
+          event text NOT NULL,
+          actor_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_testimonial_events ON testimonial_events(testimonial_id, id);
+      `);
+    },
+    down: async (client) => { await client.query('DROP TABLE IF EXISTS testimonial_events; DROP TABLE IF EXISTS testimonials;'); }
   }
 ];

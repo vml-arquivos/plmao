@@ -48,17 +48,31 @@ import { publicVehiclesRouter } from './routes/vehicles.js';
 import { fipeBrands, fipeModels, fipeYears, fipeSearch, getFipePrice } from './lib/fipeLookup.js';
 import { adminSimulatorRouter } from './routes/adminSimulator.js';
 import { garageRouter } from './routes/garage.js';
+import { adminReportScopeRouter } from './routes/adminReportScope.js';
+import { adminEmailRouter, emailWebhookRouter } from './routes/adminEmail.js';
+import { accountCnpjRouter, adminCnpjRouter } from './routes/cnpj.js';
+import { adminContractsRouter, contractsPublicRouter } from './routes/contracts.js';
+import { adminPaymentOpsRouter } from './routes/adminPaymentOps.js';
+import { adminFiscalQueueRouter, fiscalPublicRouter } from './routes/adminFiscalQueue.js';
+import { startFiscalWorker } from './lib/fiscal.js';
+import { supportAdminRouter, supportClientRouter } from './routes/support.js';
+import { testimonialsAdminRouter, testimonialsRouter } from './routes/testimonials.js';
+import { startEmailWorker } from './lib/emailOutbox.js';
+import { apiKeyAuth, apiKeyRateLimit, apiKeysRouter, requirePublicApiEnabled } from './routes/apiKeys.js';
 import { simulatorRouter } from './routes/simulator.js';
 import { scoreModelMatch } from './lib/vehicleSpecs.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
-import { renderRobotsTxt, renderSeoHtml, renderSitemapXml, type SeoOverride } from './seo.js';
+import { scopeForProduct } from './lib/reportScope.js';
+import { isKnownPath, renderRobotsTxt, renderSeoHtml, renderSitemapXml, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle } from './types.js';
 
 await ensureSchema();
 await refreshProductSections();
 startProductSectionsRefresh();
+startEmailWorker();
+startFiscalWorker();
 
 const app = express();
 const api = express.Router();
@@ -71,6 +85,20 @@ api.use('/admin/queries', adminQueriesRouter);
 api.use('/admin/content', adminContentRouter);
 api.use('/admin/vehicles', adminVehiclesRouter);
 api.use('/admin/simulator', adminSimulatorRouter);
+api.use('/admin', adminReportScopeRouter);
+api.use('/admin', adminEmailRouter);
+api.use('/admin', adminCnpjRouter);
+api.use('/admin', adminContractsRouter);
+api.use('/admin', adminPaymentOpsRouter);
+api.use('/admin', adminFiscalQueueRouter);
+api.use('/fiscal', fiscalPublicRouter);
+api.use('/admin', supportAdminRouter);
+api.use('/support', supportClientRouter);
+api.use('/admin', testimonialsAdminRouter);
+api.use('/testimonials', testimonialsRouter);
+api.use('/contracts', contractsPublicRouter);
+api.use('/account', accountCnpjRouter);
+api.use('/webhooks', emailWebhookRouter);
 api.use('/admin', adminPeopleRouter);
 api.use('/admin', adminBillingRouter);
 api.use((_req, res, next) => {
@@ -240,6 +268,7 @@ function toSafeQueryError(error: unknown): { status: number; code: string; messa
   if (code === 'DATA_PROVIDER_NOT_CONFIGURED') return { status: 503, code, message: 'A consulta está em ativação. Tente novamente quando a fonte de dados estiver disponível.' };
   if (code === 'DATA_PROVIDER_AUTH_FAILED' || code === 'DATA_PROVIDER_UNAVAILABLE' || code === 'DATA_PROVIDER_INVALID_RESPONSE') return { status: 502, code: 'QUERY_RETRY_AVAILABLE', message: 'A fonte de dados não respondeu de forma válida. Se houve débito de saldo, ele foi estornado; pagamento direto confirmado permanece disponível para nova tentativa.' };
   if (code === 'PRODUCT_NOT_FOUND') return { status: 404, code, message: 'Este produto de consulta não está disponível.' };
+  if (code === 'PRODUCT_NOT_AVAILABLE') return { status: 409, code, message: 'Esta consulta ainda não está à venda. Nada foi cobrado.' };
   return { status: 502, code: 'QUERY_RETRY_AVAILABLE', message: 'Não foi possível concluir a consulta agora. Se houve débito de saldo, ele foi estornado; pagamento direto confirmado permanece disponível para nova tentativa.' };
 }
 
@@ -273,7 +302,7 @@ function serializeQuery(row: QueryRow & Record<string, unknown>): Record<string,
   const vehicle = !isFipe && normalized ? normalized as NormalizedVehicle : null;
   const result = isFipe
     ? { fipe: publicFipeQuote((normalized as FipeStoredResult).quote), blocks: (normalized as FipeStoredResult).quote.blocks, diagnostic: { level: 'CLEAR', title: 'Valor FIPE consultado', reason: 'A Tabela FIPE foi consultada; a situação documental não está incluída nesta modalidade.' } }
-    : vehicle ? { ...publicVehicleResult(vehicle, tierForProductCode(String(row.product_id ?? '')), sectionsForProduct(String(row.product_id ?? ''))), coverage: vehicle.coverage ?? { identification: vehicle.identification ? 'FOUND' : 'NOT_QUERIED', debts: vehicle.debts.length ? 'FOUND' : 'NOT_QUERIED', restrictions: vehicle.restrictions.length ? 'FOUND' : 'NOT_QUERIED', recall: vehicle.recall ? 'FOUND' : 'NOT_QUERIED' }, diagnostic: diagnostic(vehicle) } : null;
+    : vehicle ? { ...publicVehicleResult(vehicle, tierForProductCode(String(row.product_id ?? '')), scopeForProduct(String(row.product_id ?? ''), row.created_at as Date).sections, scopeForProduct(String(row.product_id ?? ''), row.created_at as Date).template), coverage: vehicle.coverage ?? { identification: vehicle.identification ? 'FOUND' : 'NOT_QUERIED', debts: vehicle.debts.length ? 'FOUND' : 'NOT_QUERIED', restrictions: vehicle.restrictions.length ? 'FOUND' : 'NOT_QUERIED', recall: vehicle.recall ? 'FOUND' : 'NOT_QUERIED' }, diagnostic: diagnostic(vehicle) } : null;
   return {
     id: row.id,
     plate: row.plate,
@@ -325,19 +354,31 @@ app.use(express.json({
   // O import do catálogo de frota (CSV de vários MB) tem parser próprio na rota, com limite maior.
   type: (req) => /^application\/json/i.test(req.headers['content-type'] ?? '') && !String(req.url).split('?')[0]!.endsWith('/admin/vehicles/catalog/import'),
   verify: (req, _res, body) => {
-    if (req.url?.split('?')[0] === '/api/payments/mercadopago/webhook') {
+    if (['/api/payments/mercadopago/webhook', '/api/webhooks/email'].includes(req.url?.split('?')[0] ?? '')) {
       (req as RawBodyRequest).rawBody = Buffer.from(body);
     }
   }
 }));
 app.use(express.urlencoded({ extended: false, limit: '32kb' }));
 if (env.RATE_LIMIT_ENABLED) {
-  app.use(rateLimit({ windowMs: env.RATE_LIMIT_WINDOW_MS, limit: env.RATE_LIMIT_MAX_REQUESTS, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path === '/health' }));
+  app.use(rateLimit({ windowMs: env.RATE_LIMIT_WINDOW_MS, limit: env.RATE_LIMIT_MAX_REQUESTS, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path === '/health' || req.path === '/ready' }));
 }
 
 app.get('/health', asyncRoute(async (_req, res) => {
   await pool.query('SELECT 1');
   res.json({ ok: true, app: env.APP_NAME, database: 'ok' });
+}));
+
+/** Prontidão: banco acessível e todas as migrações aplicadas. Não expõe configuração nem segredos. */
+app.get('/ready', asyncRoute(async (_req, res) => {
+  try {
+    const applied = await pool.query('SELECT count(*)::int AS n FROM schema_migrations');
+    const { migrations: all } = await import('./migrations.js');
+    const ok = Number(applied.rows[0].n) >= all.length;
+    res.status(ok ? 200 : 503).json({ ok, database: 'ok', migrationsApplied: Number(applied.rows[0].n), migrationsExpected: all.length });
+  } catch {
+    res.status(503).json({ ok: false, database: 'error' });
+  }
 }));
 
 const loginRateLimit = rateLimit({
@@ -1179,8 +1220,12 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
 
   try {
     await tx(async (client) => {
-      const product = await client.query('SELECT price_cents,is_free FROM query_products WHERE id=$1 AND active=true', [input.productId]);
+      const product = await client.query(`SELECT p.price_cents,p.is_free,p.commercial_status,EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) AS has_source
+        FROM query_products p WHERE p.id=$1 AND p.active=true`, [input.productId]);
       if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404 });
+      // Nunca cobrar por algo que a fonte não entrega: produto pago só vende com status "à venda", fonte ativa e provedor configurado.
+      const sellable = Boolean(product.rows[0].is_free) || (product.rows[0].commercial_status === 'ACTIVE' && Boolean(product.rows[0].has_source) && env.DATA_PROVIDER !== 'disabled');
+      if (!sellable) throw appError('PRODUCT_NOT_AVAILABLE', { code: 'PRODUCT_NOT_AVAILABLE', http: 409 });
       const pricing = await effectiveQueryPrice(client, userId, input.productId, Number(product.rows[0].price_cents ?? 0), Boolean(product.rows[0].is_free));
       cost = pricing.priceCents;
       let before = 0;
@@ -1244,6 +1289,60 @@ api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async 
   res.status(out.status).json(out.body);
 }));
 
+/** API pública v1 para integradores: chaves geradas pelo cliente em /app/api; mesma cobrança, auditoria e relatório do app. */
+api.use('/account/api-keys', apiKeysRouter);
+const v1 = express.Router();
+v1.use(requirePublicApiEnabled, apiKeyAuth, apiKeyRateLimit);
+v1.get('/balance', asyncRoute(async (req, res) => {
+  const wallet = await pool.query('SELECT balance_cents FROM wallets WHERE user_id=$1', [req.user!.id]);
+  res.json({ object: 'balance', balanceCents: Number(wallet.rows[0]?.balance_cents ?? 0), currency: 'BRL' });
+}));
+v1.get('/products', asyncRoute(async (req, res) => {
+  const products = await pool.query(`SELECT p.id,p.name,p.description,p.is_free,p.commercial_status,
+      CASE WHEN p.is_free THEN 0 ELSE COALESCE(orgp.price_cents,p.price_cents) END AS effective_price_cents
+    FROM query_products p
+    LEFT JOIN LATERAL (
+      SELECT qp.price_cents FROM organization_members m JOIN organizations o ON o.id=m.organization_id AND o.active=true
+      JOIN organization_query_prices qp ON qp.organization_id=o.id AND qp.product_id=p.id AND qp.active=true
+        AND (qp.starts_at IS NULL OR qp.starts_at <= now()) AND (qp.ends_at IS NULL OR qp.ends_at > now())
+      WHERE m.user_id=$1 ORDER BY o.created_at LIMIT 1
+    ) orgp ON true
+    WHERE p.active=true AND p.commercial_status <> 'HIDDEN' ORDER BY p.display_order,p.price_cents`, [req.user!.id]);
+  const available = env.DATA_PROVIDER !== 'disabled';
+  res.json({ object: 'list', data: products.rows.map((p) => ({ id: p.id, name: p.name, description: p.description, priceCents: Number(p.effective_price_cents ?? 0), currency: 'BRL', free: Boolean(p.is_free), available: Boolean(p.is_free) || (available && p.commercial_status === 'ACTIVE'), sections: sectionsForProduct(String(p.id)) })) });
+}));
+const v1QuerySchema = z.object({ plate: plateSchema, product: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/) }).strict();
+function v1Query(body: Record<string, any>) {
+  return {
+    object: 'vehicle_query', id: body.id, plate: body.plate, product: body.productId, productName: body.productName, status: body.status,
+    priceCents: body.priceCents, verificationCode: body.verificationCode, createdAt: body.createdAt, completedAt: body.completedAt,
+    idempotent: body.idempotent === true ? true : undefined, result: body.result
+  };
+}
+v1.post('/vehicles', asyncRoute(async (req, res) => {
+  const parsed = v1QuerySchema.safeParse(req.body);
+  if (!parsed.success) throw appError('INVALID_REQUEST', { code: 'INVALID_REQUEST', http: 400, expose: true });
+  const key = req.headers['idempotency-key'];
+  const idempotencyKey = typeof key === 'string' && /^[a-zA-Z0-9_-]{12,128}$/.test(key) ? key : null;
+  if (typeof key === 'string' && !idempotencyKey) throw appError('INVALID_IDEMPOTENCY_KEY', { code: 'INVALID_IDEMPOTENCY_KEY', http: 400, expose: true });
+  const out = await runVehicleQuery({ userId: req.user!.id, plate: parsed.data.plate, productId: parsed.data.product, idempotencyKey, reqId: requestId(req), source: 'API' });
+  res.status(out.status).json(out.status < 300 ? v1Query(out.body) : out.body);
+}));
+v1.get('/vehicles/:id', asyncRoute(async (req, res) => {
+  const query = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
+    FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id
+    WHERE q.id=$1 AND q.user_id=$2 AND q.source='API'`, [req.params.id, req.user!.id]);
+  if (!query.rowCount) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
+  await audit(req.user!.id, 'API_VIEW_QUERY', 'VEHICLE_QUERY', String(req.params.id), { requestId: requestId(req) });
+  res.json(v1Query(serializeQuery(query.rows[0] as QueryRow & Record<string, unknown>)));
+}));
+v1.get('/vehicles/:id/pdf', asyncRoute(async (req, res) => {
+  const { report, meta } = await vehicleReportForQuery(String(req.params.id), req.user!.id);
+  await audit(req.user!.id, 'API_EXPORT_QUERY_PDF', 'VEHICLE_QUERY', String(req.params.id), { requestId: requestId(req) });
+  res.type('application/pdf').send(await renderVehiclePdf(report, meta));
+}));
+api.use('/v1', v1);
+
 api.get('/queries', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
   const plate = typeof req.query.plate === 'string' ? req.query.plate.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7) : '';
   const status = typeof req.query.status === 'string' && ['PROCESSING', 'SUCCESS', 'FAILED', 'REFUNDED'].includes(req.query.status) ? req.query.status : null;
@@ -1281,7 +1380,8 @@ async function vehicleReportForQuery(queryId: string, userId: string) {
   const row = query.rows[0] as Record<string, unknown>;
   const vehicle = row.normalized as NormalizedVehicle | null;
   if (!vehicle?.v2) throw appError('REPORT_UNAVAILABLE', { code: 'REPORT_UNAVAILABLE', http: 409, expose: true });
-  const report = viewReport(vehicle.v2, { audience: 'client', tier: tierForProductCode(String(row.product_id)), sections: sectionsForProduct(String(row.product_id)) });
+  const scope = scopeForProduct(String(row.product_id), row.created_at as Date);
+  const report = viewReport(vehicle.v2, { audience: 'client', tier: tierForProductCode(String(row.product_id)), sections: scope.sections, template: scope.template });
   const code = String(row.id).slice(0, 8).toUpperCase();
   const base = (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '');
   const meta: ReportMeta = { productName: String(row.product_name), verificationCode: code, verificationUrl: `${base}/validar/${code}`, consultedAt: new Date(String(row.completed_at ?? row.created_at)), resultHash: row.result_hash ? String(row.result_hash) : null, audience: 'client' };
@@ -1573,6 +1673,11 @@ async function processPaymentWebhook(providerName: PaymentProviderName, req: Req
   const rawRequest = req as RawBodyRequest;
   if (!provider.isValidWebhookSignature({ headers: req.headers, rawBody: rawRequest.rawBody, query: req.query as Record<string, unknown> })) {
     throw appError('PAYMENT_WEBHOOK_UNAUTHORIZED', { code: 'PAYMENT_WEBHOOK_UNAUTHORIZED', http: 401, expose: false });
+  }
+  if (providerName === 'mercadopago') {
+    // Avisos de outros assuntos (ex.: merchant_order) não são pagamentos: confirma recebimento e ignora, sem erro para o provedor insistir.
+    const topic = String((req.body as { type?: unknown } | undefined)?.type ?? req.query.type ?? req.query.topic ?? 'payment');
+    if (topic !== 'payment') { res.status(200).json({ received: true, ignored: true }); return; }
   }
   const parsed = provider.parseWebhookEvent(req.body, req.query as Record<string, unknown>);
   if (!parsed || (providerName === 'mercadopago' && !parsed.externalPaymentId)) {
@@ -1973,10 +2078,24 @@ api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), 
   }
 }));
 
-const ADMIN_PRODUCT_COLS = 'p.archived_at,p.id,p.name,p.description,p.price_cents,p.reference_price_cents,p.active,p.slug,p.features,p.is_free,p.commercial_status,p.featured,p.display_order,p.source,p.coverage,p.tagline,p.long_description,p.badge,p.list_price_cents,p.show_on_home,p.report_sections';
+const ADMIN_PRODUCT_COLS = 'p.archived_at,p.id,p.name,p.description,p.price_cents,p.reference_price_cents,p.active,p.slug,p.features,p.is_free,p.commercial_status,p.featured,p.display_order,p.source,p.coverage,p.tagline,p.long_description,p.badge,p.list_price_cents,p.show_on_home,p.report_sections,EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) AS has_source';
 const SELLABLE_REPORT_SECTIONS = new Set(['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO', 'DEBITOS', 'RESTRICOES', 'GRAVAME', 'INSPECAO_RECALL']);
+/** O que o público realmente vê: "à venda" só vale com fonte de dados ativa e provedor/gateway configurados. */
+function productAvailability(row: Record<string, unknown>) {
+  const blockers: string[] = [];
+  if (!row.is_free) {
+    if (!row.active) blockers.push('Produto inativo');
+    if (env.DATA_PROVIDER === 'disabled') blockers.push('Provedor de dados desativado no servidor');
+    if (!row.has_source) blockers.push('Sem fonte de dados ativa para este produto');
+    if (env.PAYMENT_PROVIDER === 'disabled') blockers.push('Gateway de pagamento desativado no servidor');
+  }
+  const configured = String(row.commercial_status);
+  const effectiveStatus = row.is_free ? configured : configured === 'HIDDEN' ? 'HIDDEN' : configured === 'ACTIVE' && blockers.length === 0 ? 'ACTIVE' : 'SOON';
+  return { effectiveStatus, sellableNow: effectiveStatus === 'ACTIVE' || Boolean(row.is_free), blockers };
+}
 function presentAdminProduct(row: Record<string, unknown>) {
   return {
+    ...productAvailability(row),
     id: row.id, name: row.name, description: row.description, priceCents: Number(row.price_cents ?? 0), referencePriceCents: row.reference_price_cents == null ? null : Number(row.reference_price_cents),
     active: Boolean(row.active), slug: row.slug, features: row.features ?? [], isFree: Boolean(row.is_free), commercialStatus: row.commercial_status, featured: Boolean(row.featured),
     displayOrder: Number(row.display_order ?? 100), source: row.source, coverage: row.coverage, tagline: row.tagline ?? '', longDescription: row.long_description ?? '', badge: row.badge ?? null,
@@ -2008,7 +2127,7 @@ api.post('/admin/products', adminAuth, requirePermission('MANAGE_PRICING'), asyn
     if (guard.overridden) await audit(req.user!.id, 'MARGIN_LOCK_OVERRIDE', 'QUERY_PRODUCT', value.id, { requestId: requestId(req), floorCents: guard.floorCents, priceCents, reason: value.overrideMarginLock?.reason });
     checkReportSections(value.reportSections);
     const product = await client.query(`INSERT INTO query_products(id,name,description,credit_cost,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,provider_cost_cents,supplier_cost_cents,floor_price_cents,tagline,long_description,badge,list_price_cents,show_on_home,report_sections)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::text[]) RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,tagline,long_description,badge,list_price_cents,show_on_home,report_sections`, [value.id, value.name, value.description, legacyCreditCost, priceCents, value.referencePriceCents ?? null, value.active, value.slug, JSON.stringify(value.features), value.displayOrder, value.source ?? null, value.coverage ?? null, value.commercialStatus, value.featured, value.isFree, value.providerCostCents, value.supplierCostCents, guard.floorCents || null, value.tagline, value.longDescription, value.badge ?? null, value.listPriceCents ?? null, value.showOnHome, value.reportSections ?? null]);
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::text[]) RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,tagline,long_description,badge,list_price_cents,show_on_home,report_sections,EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=query_products.id AND rule.active=true) AS has_source`, [value.id, value.name, value.description, legacyCreditCost, priceCents, value.referencePriceCents ?? null, value.active, value.slug, JSON.stringify(value.features), value.displayOrder, value.source ?? null, value.coverage ?? null, value.commercialStatus, value.featured, value.isFree, value.providerCostCents, value.supplierCostCents, guard.floorCents || null, value.tagline, value.longDescription, value.badge ?? null, value.listPriceCents ?? null, value.showOnHome, value.reportSections ?? null]);
     const insertedTemplate = await client.query(`INSERT INTO report_templates(product_id,version,name,status,config,created_by) VALUES($1,1,$2,'PUBLISHED',$3::jsonb,$4) RETURNING id,version,name,status`, [value.id, templateName, JSON.stringify(templateConfig), req.user!.id]);
     await client.query(`INSERT INTO product_report_configs(product_id,template_id,mode,formats,updated_by) VALUES($1,$2,'SNAPSHOT',ARRAY['JSON','HTML','PDF'],$3)`, [value.id, insertedTemplate.rows[0].id, req.user!.id]);
     return { product: product.rows[0], template: insertedTemplate.rows[0] };
@@ -2056,7 +2175,7 @@ api.patch('/admin/products/:id', adminAuth, requirePermission('MANAGE_PRICING'),
   if (parsed.data.active !== undefined) { values.push(parsed.data.active); assignments.push(`active=$${values.length}`); }
   assignments.push('updated_at=now()');
   values.push(req.params.id);
-  const product = await pool.query(`UPDATE query_products SET ${assignments.join(', ')} WHERE id=$${values.length} RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,tagline,long_description,badge,list_price_cents,show_on_home,report_sections`, values);
+  const product = await pool.query(`UPDATE query_products SET ${assignments.join(', ')} WHERE id=$${values.length} RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,tagline,long_description,badge,list_price_cents,show_on_home,report_sections,EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=query_products.id AND rule.active=true) AS has_source`, values);
   if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
   await audit(req.user!.id, 'UPDATE_QUERY_PRODUCT', 'QUERY_PRODUCT', String(req.params.id), { fields: Object.keys(parsed.data), requestId: requestId(req) });
   if (parsed.data.reportSections !== undefined) await refreshProductSections();
@@ -2240,7 +2359,7 @@ api.get('/admin/payments', adminAuth, requirePermission('MANAGE_BILLING'), async
       (SELECT d.status FROM fiscal_documents d WHERE d.payment_id=p.id AND d.status <> 'CANCELLED' LIMIT 1) AS fiscal_status
     FROM payments p JOIN users u ON u.id=p.user_id LEFT JOIN user_profiles up ON up.user_id=p.user_id LEFT JOIN payment_orders o ON o.id=p.order_id
     ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY p.created_at DESC LIMIT 300`, values);
-  res.json(payments.rows.map((row) => ({ id: row.id, status: row.status, amountCents: Number(row.amount_cents), purchaseType: row.purchase_type ?? null, productId: row.product_id ?? null, plate: row.query_plate ?? null, provider: row.provider, externalId: row.external_id ?? null, createdAt: row.created_at, paidAt: row.paid_at ?? null, customer: { name: row.name, email: row.email }, customerType: row.customer_type, fiscalStatus: row.fiscal_status ?? null })));
+  res.json(payments.rows.map((row) => ({ id: row.id, orderId: row.order_id ?? null, status: row.status, amountCents: Number(row.amount_cents), purchaseType: row.purchase_type ?? null, productId: row.product_id ?? null, plate: row.query_plate ?? null, provider: row.provider, externalId: row.external_id ?? null, createdAt: row.created_at, paidAt: row.paid_at ?? null, customer: { name: row.name, email: row.email }, customerType: row.customer_type, fiscalStatus: row.fiscal_status ?? null })));
 }));
 
 api.get('/admin/contact-messages', adminAuth, requirePermission('MANAGE_SUPPORT'), asyncRoute(async (_req, res) => {
@@ -2289,6 +2408,8 @@ api.get('/admin/permissions', adminAuth, requirePermission('ADMIN_SYSTEM'), (req
 
 app.use('/api', api);
 app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
+  const bodyErr = error as { type?: string; path?: string };
+  if (bodyErr.type === 'entity.too.large') error = req.path.includes('/attachments') ? appError('SUPPORT_ATTACHMENT_SIZE', { code: 'SUPPORT_ATTACHMENT_SIZE', http: 413, expose: true }) : appError('PAYLOAD_TOO_LARGE', { code: 'PAYLOAD_TOO_LARGE', http: 413, expose: true });
   const known = error as AppError;
   const status = known.http ?? 500;
   const code = known.code ?? 'INTERNAL_ERROR';
@@ -2297,6 +2418,8 @@ app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
   res.status(status).json({ error: code, message: known.expose ? (code.startsWith('SIM_') ? known.message : humanMessage(code)) : 'Não foi possível concluir esta operação agora. Tente novamente.', ...(Array.isArray(details) ? { details } : {}) });
 });
 
+const escapeHtmlText = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
+
 function parseOAuthProvider(value: string): OAuthProvider {
   if (value === 'google' || value === 'microsoft' || value === 'apple') return value;
   throw appError('OAUTH_PROVIDER_UNSUPPORTED', { code: 'OAUTH_PROVIDER_UNSUPPORTED', http: 404, expose: true });
@@ -2304,6 +2427,67 @@ function parseOAuthProvider(value: string): OAuthProvider {
 
 function humanMessage(code: string): string {
   const messages: Record<string, string> = {
+    TESTIMONIAL_NOT_ELIGIBLE: 'Só clientes com uma consulta concluída ou um pagamento confirmado podem enviar depoimento.',
+    TESTIMONIAL_CONTENT_INVALID: 'O texto não pode ter links, e-mails, telefones ou números de documento.',
+    TESTIMONIAL_NOT_FOUND: 'Depoimento não encontrado.',
+    TESTIMONIAL_INVALID_STATE: 'Esta ação não é possível no estado atual do depoimento.',
+    TESTIMONIAL_CONSENT_INVALID: 'O consentimento ou o conteúdo deste depoimento não está íntegro. Peça um novo envio.',
+    TESTIMONIAL_FOUR_EYES: 'Outra pessoa da equipe precisa aprovar um depoimento cadastrado manualmente.',
+    PAYLOAD_TOO_LARGE: 'O conteúdo enviado é grande demais.',
+    FISCAL_PROVIDER_NOT_CONFIGURED: 'A emissão automática não está configurada. Emita a nota no sistema da contabilidade e registre aqui.',
+    FISCAL_PAYMENT_NOT_CONFIRMED: 'O pagamento deste documento ainda não está confirmado.',
+    FISCAL_CUSTOMER_INCOMPLETE: 'Faltam dados do cliente (documento e endereço) para emitir.',
+    FISCAL_DOCUMENT_NOT_ISSUED: 'Só notas já emitidas podem ser enviadas ao cliente.',
+    FISCAL_CUSTOMER_EMAIL_MISSING: 'O cliente não tem e-mail cadastrado para receber a nota.',
+    FISCAL_DELIVERY_LIMIT: 'Limite de envios deste documento atingido.',
+    FISCAL_JOB_NOT_RETRYABLE: 'Só emissões que falharam podem ser reabertas.',
+    SUPPORT_CONVERSATION_NOT_FOUND: 'Conversa não encontrada.',
+    SUPPORT_CONVERSATION_CLOSED: 'Esta conversa foi encerrada. Abra uma nova para continuar.',
+    SUPPORT_RELATED_NOT_FOUND: 'Não encontramos esse item na sua conta.',
+    SUPPORT_RATE_LIMITED: 'Muitas mensagens em pouco tempo. Aguarde um instante.',
+    SUPPORT_TOO_MANY_OPEN: 'Você já tem várias conversas abertas. Conclua uma delas antes de abrir outra.',
+    SUPPORT_ATTACHMENT_SIZE: 'O arquivo precisa ter até 2 MB.',
+    SUPPORT_ATTACHMENT_TYPE: 'Envie apenas imagem (PNG, JPG ou WebP) ou PDF.',
+    SUPPORT_ATTACHMENT_LIMIT: 'Limite de anexos desta conversa atingido.',
+    SUPPORT_ATTACHMENT_NOT_FOUND: 'Anexo não encontrado.',
+    SUPPORT_ASSIGNEE_INVALID: 'Esta pessoa não pode atender o suporte.',
+    PAYMENT_ORDER_NOT_FOUND: 'Pedido não encontrado.',
+    PAYMENT_NOT_REFUNDABLE: 'Este pagamento não pode ser estornado por aqui.',
+    PAYMENT_REFUND_IN_PROGRESS: 'Já existe um estorno solicitado para este pedido.',
+    PAYMENT_REFUND_REJECTED: 'O Mercado Pago recusou o estorno. Verifique o pagamento no painel do provedor.',
+    CNPJ_INVALID: 'CNPJ inválido.',
+    CNPJ_NOT_FOUND: 'CNPJ não encontrado.',
+    CNPJ_LOOKUP_DISABLED: 'A busca por CNPJ não está ativa. Preencha os dados manualmente.',
+    CNPJ_RATE_LIMITED: 'Muitas buscas. Tente novamente em alguns minutos.',
+    CNPJ_UNAVAILABLE: 'Não foi possível buscar agora. Preencha manualmente.',
+    CONTRACT_NOT_FOUND: 'Contrato não encontrado.',
+    CONTRACT_NOT_EDITABLE: 'Só rascunhos podem ser editados.',
+    CONTRACT_INVALID_STATE: 'Esta ação não está disponível no estado atual do contrato.',
+    CONTRACT_APPROVER_MUST_DIFFER: 'A aprovação precisa ser feita por outra pessoa, diferente de quem criou.',
+    CONTRACT_CHANGED_AFTER_APPROVAL: 'O texto mudou depois da aprovação. Envie para aprovação novamente.',
+    CONTRACT_MODEL_NOT_PUBLISHED: 'Este modelo ainda não foi publicado. Ele precisa de revisão jurídica registrada.',
+    CONTRACT_MODEL_NOT_APPROVED: 'O modelo precisa de aprovação com a referência da revisão jurídica.',
+    CONTRACT_MODEL_INVALID_STATE: 'Esta ação não está disponível no estado atual do modelo.',
+    CONTRACT_MODEL_NOT_EDITABLE: 'Só rascunhos de modelo podem ser editados.',
+    CONTRACT_MODEL_NOT_FOUND: 'Modelo não encontrado.',
+    LEGAL_REVIEW_REF_REQUIRED: 'Informe a referência da revisão jurídica.',
+    CONTRACTOR_DATA_MISSING: 'Preencha razão social e CNPJ da empresa em Notas fiscais antes de gerar contratos.',
+    CONTRACT_PARTY_DOCUMENT_INVALID: 'CPF/CNPJ da parte ausente ou inválido. Complete o cadastro.',
+    CONTRACT_PARTY_KIND_MISMATCH: 'Este modelo não serve para este tipo de parte.',
+    CONTRACT_ITEMS_REQUIRED: 'Inclua ao menos um item de preço.',
+    CONTRACT_COMMISSION_REQUIRED: 'Informe a comissão do parceiro.',
+    CONTRACT_COMMISSION_NOT_ALLOWED: 'Comissão só vale para contrato de parceiro.',
+    CONTRACT_NOT_SIGNED: 'O contrato precisa estar assinado.',
+    CONTRACT_ALREADY_APPLIED: 'As condições deste contrato já foram aplicadas.',
+    CONTRACT_PARENT_REQUIRED: 'Informe o contrato original do aditivo.',
+    CONTRACT_PARENT_NOT_SIGNED: 'O contrato original precisa estar assinado.',
+    CONTRACT_PARENT_PARTY_MISMATCH: 'O aditivo precisa ser da mesma parte do contrato original.',
+    PRICE_BELOW_FLOOR: 'Preço abaixo do piso permitido para este produto.',
+    ESIGN_NOT_CONFIGURED: 'A assinatura eletrônica não está ativa neste ambiente.',
+    EMAIL_NOT_FOUND: 'E-mail não encontrado na fila.',
+    EMAIL_RESEND_LIMIT: 'Limite de reenvios atingido.',
+    EMAIL_RESEND_NOT_ALLOWED: 'Este e-mail não pode ser reenviado. Gere um novo envio a partir do documento.',
+    EMAIL_CANCEL_NOT_ALLOWED: 'Este e-mail não pode mais ser cancelado.',
     INVALID_INPUT: 'Revise os dados informados e tente novamente.',
     INVALID_PLATE: 'Informe uma placa válida no padrão brasileiro.',
     INVALID_CREDENTIALS: 'E-mail ou senha inválidos.',
@@ -2397,7 +2581,7 @@ function sendAdminShell(res: Response): void {
   res.type('html').send(adminHtmlTemplate);
 }
 app.get('*', asyncRoute(async (req, res, next) => {
-  if (req.path.startsWith('/api/') || req.path === '/health') return next();
+  if (req.path.startsWith('/api/') || req.path === '/health' || req.path === '/ready') return next();
   if (isAdminHost(req)) {
     if (!adminHtmlTemplate) return next();
     return sendAdminShell(res);
@@ -2410,11 +2594,11 @@ app.get('*', asyncRoute(async (req, res, next) => {
   const article = /^\/blog\/([a-z0-9-]+)\/?$/.exec(req.path);
   if (article) {
     const meta = await articleSeo(article[1]);
-    if (!meta) res.status(404);
+    if (!meta) { res.status(404); override = { notFound: true }; }
     else override = { title: `${meta.title} | Placa na Mão`, description: meta.description, jsonLd: [{ '@context': 'https://schema.org', '@type': 'Article', headline: meta.title, description: meta.description, datePublished: meta.publishedAt, dateModified: meta.updatedAt, inLanguage: 'pt-BR', author: { '@type': 'Organization', name: meta.author }, publisher: { '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/` }, mainEntityOfPage: `${baseUrl}/blog/${article[1]}` }] };
   } else if (/^\/veiculos\/[a-z0-9-]+\/?$/.test(req.path)) {
     const v = await pool.query(`SELECT brand,name,summary,year_from,year_to,body_type FROM vehicle_models WHERE slug=$1 AND status='PUBLISHED' AND archived_at IS NULL`, [req.path.split('/')[2]]);
-    if (!v.rowCount) res.status(404);
+    if (!v.rowCount) { res.status(404); override = { notFound: true }; }
     else {
       const m = v.rows[0]!;
       const years = m.year_from ? ` (${m.year_from}${m.year_to && m.year_to !== m.year_from ? `–${m.year_to}` : ''})` : '';
@@ -2422,8 +2606,9 @@ app.get('*', asyncRoute(async (req, res, next) => {
     }
   } else if (req.path.replace(/\/$/, '') === '/perguntas-frequentes') {
     const faqs = await pool.query('SELECT question,answer FROM faqs WHERE active=true ORDER BY display_order,created_at LIMIT 60');
-    if (faqs.rowCount) override = { jsonLd: [{ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.rows.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })) }] };
+    if (faqs.rowCount) override = { bodyHtml: `<section>${faqs.rows.slice(0, 30).map((f) => `<h2>${escapeHtmlText(f.question)}</h2><p>${escapeHtmlText(f.answer)}</p>`).join('')}</section>`, jsonLd: [{ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.rows.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })) }] };
   }
+  if (!isKnownPath(req.path)) { res.status(404); override = { notFound: true }; }
   res.type('html').send(renderSeoHtml(indexHtmlTemplate, req.path, env.APP_URL ?? env.WEB_ORIGIN, override));
 }));
 

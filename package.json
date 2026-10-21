@@ -15,6 +15,7 @@
     "test:unit": "npm run build && node --test --test-concurrency=1 apps/api/test/*.test.mjs",
     "test:integration": "./scripts/integration-smoke.sh",
     "db:migrate": "npm run build -w apps/api && node apps/api/dist/cli.js migrate",
+    "db:rollback": "npm run build -w apps/api && node apps/api/dist/cli.js rollback",
     "db:verify": "npm run build -w apps/api && node apps/api/dist/cli.js verify",
     "release:verify": "npm run build && node --test --test-concurrency=1 apps/api/test/*.test.mjs && npm audit --omit=dev --audit-level=high && npm run release:source-check",
     "release:source-check": "node scripts/release-verify.mjs",

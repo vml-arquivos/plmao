@@ -799,3 +799,10 @@
   .sim-vs .diff-m small { display: inline; margin-left: 4px; font-size: inherit; }
   .sim-vs tbody th { width: 34%; }
 }
+
+/* ---------- Depoimentos ---------- */
+.testimonial-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.testimonial{margin:0;padding:20px;border:1px solid var(--border);border-radius:16px;background:var(--surface);display:grid;gap:10px;align-content:start}
+.testimonial blockquote{margin:0;line-height:1.6;overflow-wrap:anywhere}
+.testimonial figcaption{font-weight:600;font-size:14px;color:var(--text-2)}
+.testimonial-stars{color:#b7791f;letter-spacing:2px}

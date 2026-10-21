@@ -4,11 +4,13 @@ import { Alert, Badge, Button, Check, ConfirmDialog, EmptyState, ErrorState, Fie
 import { errorMessage } from '../../shared/api';
 import { centsToInput, money, parseMoneyToCents } from '../../shared/format';
 import { PageHead } from '../parts';
+import { ReportScopeEditor } from './ReportScope';
 
 interface AdminProduct {
   id: string; name: string; slug: string; description: string; tagline: string; longDescription: string; features: string[]; badge: string | null;
   priceCents: number; listPriceCents: number | null; referencePriceCents: number | null; isFree: boolean; active: boolean; commercialStatus: string; featured: boolean;
   showOnHome: boolean; displayOrder: number; reportSections: string[] | null; archivedAt: string | null;
+  effectiveStatus: string; sellableNow: boolean; blockers: string[];
 }
 interface Feature { id: string; key: string; label: string; description: string; displayOrder: number; active: boolean }
 interface MatrixRes { features: Feature[]; products: Array<{ id: string; name: string; cells: Record<string, { status: string; note: string | null }> }> }
@@ -64,7 +66,7 @@ function ProductsTab() {
             <td><b>{p.name}</b>{p.featured && <> <Badge tone="violet">Destaque</Badge></>}<div className="muted mono" style={{ fontSize: 11.5 }}>{p.id}</div></td>
             <td className="r num"><b>{money(p.priceCents)}</b>{p.listPriceCents != null && p.listPriceCents > p.priceCents && <div className="muted" style={{ fontSize: 12, textDecoration: 'line-through' }}>{money(p.listPriceCents)}</div>}</td>
             <td>{p.badge ? <Badge tone="info">{p.badge}</Badge> : <span className="muted">—</span>}</td>
-            <td><Badge tone={STATUS[p.commercialStatus]?.t ?? 'neutral'} dot>{STATUS[p.commercialStatus]?.l ?? p.commercialStatus}</Badge>{!p.active && <div className="muted" style={{ fontSize: 12 }}>inativo</div>}</td>
+            <td><Badge tone={STATUS[p.effectiveStatus]?.t ?? 'neutral'} dot>{STATUS[p.effectiveStatus]?.l ?? p.effectiveStatus}</Badge>{!p.active && <div className="muted" style={{ fontSize: 12 }}>inativo</div>}{p.commercialStatus !== p.effectiveStatus && <div className="muted" style={{ fontSize: 12 }} title={p.blockers.join(' · ')}>Marcado “{STATUS[p.commercialStatus]?.l ?? p.commercialStatus}”, mas o público vê “{STATUS[p.effectiveStatus]?.l ?? p.effectiveStatus}”: {p.blockers.join('; ')}</div>}</td>
             <td><Switch checked={p.showOnHome} onChange={(e) => void toggleHome(p, e.target.checked)} label={p.showOnHome ? 'Visível' : 'Oculto'} /></td>
             <td className="actions"><Button size="sm" onClick={() => setEdit(p)}>Editar</Button> <Button size="sm" variant="ghost" onClick={() => void archive(p, !p.archivedAt)}>{p.archivedAt ? 'Restaurar' : 'Arquivar'}</Button> <Button size="sm" variant="ghost" onClick={() => setRemove(p)}>Apagar</Button></td>
           </tr>
@@ -98,6 +100,7 @@ function ProductModal({ p, onClose }: { p: AdminProduct; onClose: (changed: bool
   const [active, setActive] = useState(p.active);
   const [picked, setPicked] = useState<string[]>(p.reportSections ?? []);
   const [busy, setBusy] = useState(false);
+  const [scopeOpen, setScopeOpen] = useState(false);
   const priceCents = parseMoneyToCents(price);
   const listCents = listPrice.trim() ? parseMoneyToCents(listPrice) : null;
   const discount = listCents && priceCents && listCents > priceCents ? Math.round(((listCents - priceCents) / listCents) * 100) : null;
@@ -152,6 +155,10 @@ function ProductModal({ p, onClose }: { p: AdminProduct; onClose: (changed: bool
             ))}
           </div>
         </Field>
+        <Field label="Campos do relatório" hint="Escolha campo a campo o que esta consulta entrega, com prévia, versões e volta. Quando há uma versão publicada, ela vale no lugar das seções acima.">
+          <div><Button onClick={() => setScopeOpen(true)}>Configurar campos</Button></div>
+        </Field>
+        {scopeOpen && <ReportScopeEditor productId={p.id} onClose={() => setScopeOpen(false)} />}
         <p className="muted" style={{ fontSize: 12.5 }}>Custos, piso de margem e referências de mercado ficam em <b>Preços e margens</b>. O preço aqui respeita a trava de margem mínima.</p>
       </div>
     </Modal>

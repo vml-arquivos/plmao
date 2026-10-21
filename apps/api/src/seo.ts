@@ -35,15 +35,24 @@ const pageMeta: Record<string, SeoMeta> = {
 };
 
 /** Páginas públicas indexáveis (entram no sitemap). Telas de conta e do app ficam de fora. */
-export const SITEMAP_PATHS: string[] = Object.keys(pageMeta).filter((p) => !['/entrar', '/criar-conta', '/comparar'].includes(p));
-const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|validar|validar-relatorio|consultar|comparar|veiculos\/frota)(\/|$)/;
+export const SITEMAP_PATHS: string[] = Object.keys(pageMeta).filter((p) => !['/entrar', '/criar-conta'].includes(p));
+const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|contrato|documento-fiscal|validar|validar-relatorio|consultar|veiculos\/frota|desenvolvedores)(\/|$)/;
 
-export interface SeoOverride { title?: string; description?: string; jsonLd?: unknown[] }
+export interface SeoOverride { title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string }
+
+/** Rotas que o app conhece, inclusive as dinâmicas. Qualquer outra recebe 404 e noindex. */
+const DYNAMIC = /^\/(blog|veiculos|simulador|validar|validar-relatorio|contrato|documento-fiscal|app|painel|recuperar-senha|consultar|desenvolvedores)(\/|$)/;
+export function isKnownPath(pathname: string): boolean {
+  const n = pathname.length > 1 ? pathname.replace(/\/$/, '') : pathname;
+  return n in pageMeta || DYNAMIC.test(n);
+}
+
+const NAV: Array<[string, string]> = [['/fipe', 'Consulta FIPE grátis'], ['/consulta-placa', 'Consulta de placa'], ['/consulta-veicular', 'Consulta veicular completa'], ['/planos', 'Preços'], ['/simulador', 'Simulador de financiamento'], ['/veiculos', 'Guia de veículos'], ['/comparar', 'Comparar veículos'], ['/blog', 'Blog'], ['/perguntas-frequentes', 'Perguntas frequentes'], ['/sobre', 'Sobre'], ['/contato', 'Contato']];
 
 export function renderRobotsTxt(appUrl: string, adminHost: boolean): string {
   if (adminHost) return 'User-agent: *\nDisallow: /\n';
   const base = appUrl.replace(/\/$/, '');
-  return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\nDisallow: /comparar\n\nSitemap: ${base}/sitemap.xml\n`;
+  return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\nDisallow: /contrato/\nDisallow: /documento-fiscal/\nDisallow: /comparar?\n\nSitemap: ${base}/sitemap.xml\n`;
 }
 
 export function renderSitemapXml(appUrl: string, extra: Array<{ path: string; lastmod?: Date }> = []): string {
@@ -76,11 +85,17 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
     publisher: { '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/` }
   }).replace(/</g, '\\u003c');
   const extraLd = (override.jsonLd ?? []).map((o) => `<script type="application/ld+json">${JSON.stringify(o).replace(/</g, '\\u003c')}</script>`).join('\n  ');
-  const noindex = NOINDEX.test(normalized);
+  const unknown = override.notFound || !isKnownPath(normalized);
+  const noindex = unknown || NOINDEX.test(normalized);
+  const h1 = escapeHtml(unknown ? 'Página não encontrada' : meta.title.split(' | ')[0]);
+  const intro = unknown ? 'O endereço que você abriu não existe ou foi removido.' : meta.description;
+  const links = NAV.map(([href, label]) => `<li><a href="${href}">${escapeHtml(label)}</a></li>`).join('');
+  const body = noindex && !unknown ? '' : `<main><h1>${h1}</h1><p>${escapeHtml(intro)}</p>${unknown ? '' : (override.bodyHtml ?? '')}<nav aria-label="Principal"><ul>${links}</ul></nav></main>`;
   return template
+    .replace('<div id="root"></div>', () => `<div id="root">${body}</div>`)
     .replace(/https:\/\/placanamao\.com\.br(?=\/brand\/)/g, baseUrl)
     .replace(/<meta name="robots" content="[^"]*"\s*\/>/, noindex ? '<meta name="robots" content="noindex,nofollow" />' : '<meta name="robots" content="index,follow,max-image-preview:large" />')
-    .replace(/<title>.*?<\/title>/s, `<title>${title}</title>`)
+    .replace(/<title>.*?<\/title>/s, `<title>${unknown ? 'Página não encontrada | Placa na Mão' : title}</title>`)
     .replace(/<meta name="description" content="[^"]*"\s*\/>/, `<meta name="description" content="${description}" />`)
     .replace(/<link rel="canonical" href="[^"]*"\s*\/>/, `<link rel="canonical" href="${escapeHtml(canonical)}" />`)
     .replace(/<meta property="og:title" content="[^"]*"\s*\/>/, `<meta property="og:title" content="${title}" />`)

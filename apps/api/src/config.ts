@@ -30,6 +30,15 @@ function isHttpsUrl(value: string | undefined): boolean {
   }
 }
 
+/** O corpo precisa ser JSON válido e conter {{plate}} em algum valor; sem isso a consulta nunca identificaria a placa. */
+export function credifyBodyTemplateValid(template: string | undefined): boolean {
+  if (!template) return false;
+  try {
+    const parsed = JSON.parse(template) as unknown;
+    return Boolean(parsed) && typeof parsed === 'object' && !Array.isArray(parsed) && JSON.stringify(parsed).includes('{{plate}}');
+  } catch { return false; }
+}
+
 function validateProductionConfig(value: ParsedEnv): void {
   const issues: string[] = [];
   requireProduction(Boolean(value.DATABASE_URL), 'DATABASE_URL_REQUIRED', issues);
@@ -53,12 +62,20 @@ function validateProductionConfig(value: ParsedEnv): void {
     }
   }
 
+  if (value.DATA_PROVIDER === 'real' && value.VEHICLE_API_PROVIDER === 'credify') {
+    requireProduction(Boolean(value.CREDIFY_CLIENT_ID && value.CREDIFY_CLIENT_SECRET), 'CREDIFY_CREDENTIALS_REQUIRED', issues);
+    requireProduction(credifyBodyTemplateValid(value.CREDIFY_QUERY_BODY_TEMPLATE), 'CREDIFY_QUERY_BODY_TEMPLATE_INVALID', issues);
+    requireProduction(!value.CREDIFY_BASE_URL || isHttpsUrl(value.CREDIFY_BASE_URL), 'CREDIFY_BASE_URL_HTTPS_REQUIRED', issues);
+  }
+  requireProduction(value.FISCAL_PROVIDER !== 'mock', 'FISCAL_PROVIDER_MOCK_FORBIDDEN', issues);
+
   if (value.PAYMENT_PROVIDER === 'asaas') {
     requireProduction(Boolean(value.PAYMENT_API_BASE_URL && value.PAYMENT_API_KEY && value.PAYMENT_WEBHOOK_SECRET), 'ASAAS_CHECKOUT_AND_WEBHOOK_REQUIRED', issues);
     requireProduction(value.PAYMENT_API_BASE_URL !== 'https://api-sandbox.asaas.com', 'ASAAS_SANDBOX_URL_FORBIDDEN', issues);
   }
   if (value.PAYMENT_PROVIDER === 'mercadopago') {
     requireProduction(Boolean(value.MP_ACCESS_TOKEN && value.MP_WEBHOOK_SECRET), 'MERCADOPAGO_CHECKOUT_AND_WEBHOOK_REQUIRED', issues);
+    requireProduction(!value.MP_API_BASE_URL || value.MP_API_BASE_URL.replace(/\/+$/, '') === 'https://api.mercadopago.com', 'MERCADOPAGO_API_URL_FORBIDDEN', issues);
   }
   if (value.EMAIL_PROVIDER === 'smtp') {
     requireProduction(Boolean(value.SMTP_HOST && value.SMTP_USER && value.SMTP_PASSWORD), 'SMTP_CREDENTIALS_REQUIRED', issues);
@@ -80,6 +97,9 @@ function validateProductionConfig(value: ParsedEnv): void {
     value.APIBRASIL_BEARER_TOKEN,
     value.APIBRASIL_DEVICE_TOKEN,
     value.VEHICLE_API_DEVICE_TOKEN,
+    value.CREDIFY_CLIENT_SECRET,
+    value.ESIGN_WEBHOOK_SECRET,
+    value.EMAIL_WEBHOOK_SECRET,
     value.PAYMENT_API_KEY,
     value.PAYMENT_WEBHOOK_SECRET,
     value.MP_ACCESS_TOKEN,
@@ -126,6 +146,30 @@ const envSchema = z.object({
   DATA_ENCRYPTION_KEY: optionalString,
   // Mascaramento LGPD: documentos e nomes mascarados por padrão.
   PII_REVEAL_ENABLED: booleanFromEnv.default(true),
+  // API pública v1 para integradores (chaves pnm_live_…). Desligada por padrão: rotas respondem 404.
+  PUBLIC_API_ENABLED: booleanFromEnv.default(false),
+  PUBLIC_API_RATE_LIMIT_MAX: z.coerce.number().int().positive().max(10000).default(60),
+
+  // Consulta de CNPJ no servidor (pré-preenchimento revisável). disabled = nenhuma chamada externa.
+  CNPJ_PROVIDER: z.enum(['disabled', 'brasilapi']).default('disabled'),
+  CNPJ_BASE_URL: optionalUrl,
+  CNPJ_API_TIMEOUT_MS: z.coerce.number().int().positive().max(30000).default(8000),
+  CNPJ_CACHE_TTL_HOURS: z.coerce.number().int().min(0).max(720).default(24),
+
+  // Fila de e-mails transacionais (outbox com retries e idempotência) e links seguros de documentos.
+  EMAIL_OUTBOX_WORKER: booleanFromEnv.default(true),
+  EMAIL_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(6),
+  SECURE_LINK_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(72),
+  // Segredo (HMAC-SHA256) do webhook genérico de eventos de entrega (entregue/bounce). Vazio = rota desligada (404).
+  EMAIL_WEBHOOK_SECRET: optionalString,
+
+  // Contratos: assinatura eletrônica. disabled = só rascunho/aprovação; internal = aceite eletrônico próprio com trilha de evidências
+  // (validade jurídica sujeita à revisão do jurídico); provedores externos entram quando houver documentação e credenciais.
+  ESIGN_PROVIDER: z.enum(['disabled', 'internal']).default('disabled'),
+  ESIGN_WEBHOOK_SECRET: optionalString,
+
+  // Emissão fiscal: disabled = nenhuma fila; manual = fila para emissão externa e registro do resultado; mock = só testes.
+  FISCAL_PROVIDER: z.enum(['disabled', 'manual', 'mock']).default('disabled'),
 
   // Dados veiculares: o modo real só pode operar com contrato e credenciais válidos.
   DATA_PROVIDER: z.enum(['mock', 'real', 'disabled']).default('mock'),
@@ -152,6 +196,15 @@ const envSchema = z.object({
   APIBRASIL_BEARER_TOKEN: optionalString,
   APIBRASIL_DEVICE_TOKEN: optionalString,
   VEHICLE_API_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(15000),
+  // Adaptador do provedor quando DATA_PROVIDER=real: generic = VEHICLE_API_*; credify = API Credify (auth por ClientID/ClientSecret → JWT 24h).
+  VEHICLE_API_PROVIDER: z.enum(['generic', 'credify']).default('generic'),
+  CREDIFY_BASE_URL: optionalUrl,
+  CREDIFY_CLIENT_ID: optionalString,
+  CREDIFY_CLIENT_SECRET: optionalString,
+  CREDIFY_QUERY_PATH: optionalString,
+  CREDIFY_QUERY_METHOD: z.enum(['get', 'post']).default('post'),
+  // Corpo da consulta (JSON com {{plate}}). Sem padrão: preencha conforme a documentação/homologação do fornecedor.
+  CREDIFY_QUERY_BODY_TEMPLATE: optionalString,
 
   // Pagamentos: credenciais runtime-only; nunca disponibilizar no build ou frontend.
   PAYMENT_PROVIDER: z.enum(['disabled', 'sandbox', 'asaas', 'mercadopago']).default('sandbox'),
@@ -161,6 +214,12 @@ const envSchema = z.object({
   MP_ACCESS_TOKEN: optionalString,
   MP_WEBHOOK_SECRET: optionalString,
   MP_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(15000),
+  // Só para homologação/testes com servidor simulado. Em produção precisa ser o host oficial (ou vazio).
+  MP_API_BASE_URL: optionalUrl,
+  // Validade do link de pagamento em minutos (0 = sem validade definida pela plataforma).
+  MP_EXPIRES_MINUTES: z.coerce.number().int().min(0).max(10080).default(0),
+  MP_STATEMENT_DESCRIPTOR: z.preprocess((v) => (v === '' ? undefined : v), z.string().trim().max(22).optional()),
+  MP_BINARY_MODE: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   SANDBOX_SEED_ENABLED: booleanFromEnv.default(false),
   SANDBOX_CREDIT_PURCHASE_ENABLED: booleanFromEnv.default(false),
 

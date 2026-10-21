@@ -144,6 +144,7 @@ function Results({ data, loading, error, onAmortization, onCopied }: { data: Cal
   const cheaper = both ? (cdc!.totalPaidCents <= leasing!.totalPaidCents ? 'cdc' : 'leasing') : null;
   return (
     <div className={`stack ${loading ? 'sim-busy' : ''}`} aria-busy={loading}>
+      {rateAge(data.referenceMonth) > 3 && <Alert tone="warn" icon="info" title="Taxas desatualizadas">As taxas médias usadas são de {monthRef(data.referenceMonth)}. Confirme a taxa com o banco antes de decidir, ou informe a taxa da sua proposta.</Alert>}
       {error && <Alert tone="warn" icon="alert-triangle">{error}</Alert>}
       {data.errors.leasing && <Alert tone="warn" icon="info" title="Leasing não disponível neste cenário">{data.errors.leasing}</Alert>}
       {data.errors.cdc && <Alert tone="warn" icon="info" title="CDC não disponível neste cenário">{data.errors.cdc}</Alert>}
@@ -183,6 +184,8 @@ function MySimulations({ reload }: { reload: number }) {
 /* ========================================================================== */
 /*  /simulador                                                                 */
 /* ========================================================================== */
+const rateAge = (ym: string): number => { const [y, m] = ym.split('-').map(Number); if (!y || !m) return 0; const n = new Date(); return (n.getFullYear() - y) * 12 + (n.getMonth() + 1 - m); };
+
 export default function Simulator() {
   const { tipo } = useParams();
   const kindInfo = kindBySlug(tipo);

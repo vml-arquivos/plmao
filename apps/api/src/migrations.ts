@@ -7,6 +7,8 @@ export type Migration = {
   id: string;
   name: string;
   up: (client: PoolClient) => Promise<void>;
+  /** Reversão segura (027+). Migrações antigas não têm `down` e não podem ser revertidas por aqui. */
+  down?: (client: PoolClient) => Promise<void>;
 };
 
 const rolePermissions: Record<string, string[]> = {
@@ -758,4 +760,25 @@ export async function runMigrations(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * attempt, 3000)));
     }
   }
+}
+
+/**
+ * Reverte as últimas `steps` migrações aplicadas, da mais nova para a mais antiga.
+ * Recusa (sem alterar nada) se alguma delas não tiver `down`. Tudo roda em uma única transação.
+ */
+export async function rollbackMigrations(steps = 1): Promise<string[]> {
+  if (!Number.isInteger(steps) || steps < 1 || steps > 20) throw new Error('ROLLBACK_STEPS_INVALID');
+  const reverted: string[] = [];
+  await tx(async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock(8432026)');
+    const applied = await client.query<{ id: string }>('SELECT id FROM schema_migrations ORDER BY id DESC LIMIT $1', [steps]);
+    for (const row of applied.rows) {
+      const migration = migrations.find((m) => m.id === row.id);
+      if (!migration?.down) throw new Error(`ROLLBACK_NOT_SUPPORTED:${row.id}`);
+      await migration.down(client);
+      await client.query('DELETE FROM schema_migrations WHERE id=$1', [row.id]);
+      reverted.push(row.id);
+    }
+  });
+  return reverted;
 }

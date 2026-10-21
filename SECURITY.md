@@ -30,6 +30,15 @@ Segredos existem **somente no ambiente de execução** (Coolify): nunca no repos
 
 A operação precisa formalizar finalidade, base legal, retenção e exclusão, e validar o contrato com o fornecedor de dados com assessoria jurídica; o código não declara conformidade automática.
 
+## Controles adicionados na 1.10.0
+
+- **Chat de suporte**: toda leitura é filtrada pela conta (outro cliente recebe 404, inclusive em anexos e itens vinculados); notas internas nunca saem para o cliente; anexo baixado com `Content-Disposition: attachment`, `nosniff` e CSP `sandbox`; tipo conferido pelo conteúdo; limite de 20 mensagens por minuto e 5 conversas abertas; cartão ocultado antes de gravar; o assistente não executa estorno nem altera cobrança.
+- **Depoimentos**: sem consentimento registrado, sem verificação de cliente (ou comprovante e segunda pessoa no cadastro manual) e sem hash íntegro, nada é aprovado, publicado ou exibido; edição ou retirada tira do ar.
+- **Contratos e documentos fiscais**: link seguro por hash, expirável e revogável; IP do aceite só como HMAC; contrato aprovado não muda (hash).
+- **E-mail**: sem CPF/CNPJ, relatório ou documento no corpo; webhook de entrega com HMAC e rota inexistente (404) sem segredo.
+- **Pagamentos**: estorno com chave de idempotência, confirmação explícita e motivo; reversão do pedido só quando o webhook confirma.
+- **MFA** da equipe segue opcional; o checklist de implantação lista as contas sem a verificação ativa.
+
 ## Checklist de produção
 
 1. Gere `JWT_SECRET` e `ADMIN_JWT_SECRET` (≥ 64 caracteres, diferentes entre si) e `DATA_ENCRYPTION_KEY` (≥ 32). **Não reaproveite valores de outro sistema.**

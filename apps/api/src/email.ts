@@ -66,3 +66,13 @@ export async function sendPasswordResetEmail(input: { to: string; name: string; 
     html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201d;max-width:600px;margin:auto"><h1 style="color:#166534">Redefinição de senha | ${safeAppName}</h1><p>Olá, ${safeName}.</p><p>Recebemos uma solicitação para redefinir sua senha no ${safeAppName}.</p><p><a href="${escapeHtml(resetUrl)}" style="display:inline-block;background:#166534;color:#fff;padding:12px 18px;text-decoration:none;border-radius:6px">Criar nova senha</a></p><p>O link é válido por ${env.PASSWORD_RESET_TTL_MINUTES} minutos e só pode ser usado uma vez.</p><p>Se você não solicitou a alteração, ignore esta mensagem.</p></div>`
   });
 }
+
+export type OutgoingMail = { to: string; subject: string; text: string; html: string; messageId?: string; headers?: Record<string, string> };
+
+/** Envio genérico usado pela fila. Devolve o Message-ID aceito pelo servidor SMTP. */
+export async function sendMailRaw(mail: OutgoingMail): Promise<{ messageId: string }> {
+  const info = await getTransporter().sendMail({ from: env.EMAIL_FROM, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html, messageId: mail.messageId, headers: mail.headers });
+  return { messageId: String(info.messageId ?? mail.messageId ?? '') };
+}
+
+export { escapeHtml };

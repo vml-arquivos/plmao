@@ -10,6 +10,7 @@ import Companies, { CompanyDetail } from './pages/Companies';
 import Team from './pages/Team';
 import Charges from './pages/Charges';
 import Fiscal from './pages/Fiscal';
+import Contracts from './pages/Contracts';
 import Payments from './pages/Payments';
 import Coupons from './pages/Coupons';
 import Support from './pages/Support';
@@ -19,6 +20,7 @@ import Pricing from './pages/Pricing';
 import Simulator from './pages/Simulator';
 import Catalog from './pages/Catalog';
 import Faqs from './pages/Faqs';
+import Testimonials from './pages/Testimonials';
 import VehicleGuide, { VehicleEdit } from './pages/Vehicles';
 import Articles from './pages/Articles';
 import Partners from './pages/Partners';
@@ -42,6 +44,7 @@ export default function App() {
         <Route path="equipe" element={<Team />} />
         <Route path="cobrancas" element={<Charges />} />
         <Route path="notas-fiscais" element={<Fiscal />} />
+        <Route path="contratos" element={<Contracts />} />
         <Route path="usuarios" element={<Navigate to="/clientes" replace />} />
         <Route path="suporte" element={<Support />} />
         <Route path="financeiro" element={<Finance />} />
@@ -51,6 +54,7 @@ export default function App() {
         <Route path="guia" element={<VehicleGuide />} />
         <Route path="guia/:id" element={<VehicleEdit />} />
         <Route path="faq" element={<Faqs />} />
+        <Route path="depoimentos" element={<Testimonials />} />
         <Route path="artigos" element={<Articles />} />
         <Route path="pagamentos" element={<Payments />} />
         <Route path="cupons" element={<Coupons />} />

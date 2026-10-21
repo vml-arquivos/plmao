@@ -17,7 +17,7 @@ export async function startServer(extraEnv = {}) {
     JWT_SECRET: 'test-jwt-secret-test-jwt-secret-test-jwt-secret-0001',
     ADMIN_JWT_SECRET: 'test-admin-jwt-secret-test-admin-jwt-secret-0002',
     DATA_ENCRYPTION_KEY: 'test-data-encryption-key-0123456789abcdef',
-    RATE_LIMIT_ENABLED: 'false', TEAM_TOTP_REQUIRED: 'true', DATA_PROVIDER: 'mock', PAYMENT_PROVIDER: 'disabled', SANDBOX_SEED_ENABLED: 'true',
+    RATE_LIMIT_ENABLED: 'false', STORE_RAW_PROVIDER_RESPONSE: 'true', TEAM_TOTP_REQUIRED: 'true', DATA_PROVIDER: 'mock', PAYMENT_PROVIDER: 'disabled', SANDBOX_SEED_ENABLED: 'true',
     WEB_ORIGIN: `http://127.0.0.1:${port}`, ...extraEnv
   };
   const child = spawn(process.execPath, [entry], { env, stdio: ['ignore', 'pipe', 'pipe'] });

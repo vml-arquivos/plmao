@@ -9,6 +9,7 @@ import { trackFunnel } from '../funnel';
 import PlateSearch from '../components/PlateSearch';
 import { PackageCards, ProductCards, SmartPicker } from '../components/Catalog';
 import Faq from '../components/Faq';
+import Testimonials from '../components/Testimonials';
 import { LatestPosts } from './Content';
 import { HomeGuide, HomeSimulator } from '../components/HomeTools';
 
@@ -130,6 +131,8 @@ export default function Landing() {
           <LatestPosts n={3} />
         </div>
       </section>
+
+      <Testimonials />
 
       <section className="section" id="duvidas">
         <div className="container">

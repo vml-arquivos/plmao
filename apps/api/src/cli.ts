@@ -2,7 +2,7 @@ import { pool } from './db.js';
 import { ensureSchema } from './schema.js';
 import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import { migrations } from './migrations.js';
+import { migrations, rollbackMigrations } from './migrations.js';
 
 async function verifyDatabase(): Promise<void> {
   const applied = await pool.query<{ id: string; name: string }>('SELECT id,name FROM schema_migrations ORDER BY id');
@@ -21,6 +21,10 @@ try {
     await ensureSchema();
     const applied = await pool.query<{ id: string }>('SELECT id FROM schema_migrations ORDER BY id');
     console.info(JSON.stringify({ ok: true, migrations: applied.rows.map((row) => row.id), schema: 'migrated' }));
+  } else if (command === 'rollback') {
+    // Reverte as N últimas migrações (padrão 1). Só funciona para migrações com `down`. Faça backup antes.
+    const reverted = await rollbackMigrations(Number(process.argv[3] ?? 1));
+    console.info(JSON.stringify({ ok: true, reverted, schema: 'rolled_back' }));
   } else if (command === 'verify') {
     await verifyDatabase();
   } else if (command === 'admin:create') {
