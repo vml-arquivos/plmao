@@ -65,6 +65,7 @@ APP_NAME=Placa na Mão
 **4. Teste (nesta ordem)**
 
 1. Painel > Integrações > "Testar conexão e enviar e-mail de teste". Deve dizer conexão ok e chegar um e-mail para o seu endereço em até 1 minuto. Se der "credenciais recusadas", a `SMTP_USER` ou a `SMTP_PASSWORD` está errada (confira que é a chave SMTP).
+   Se der **credenciais recusadas**: (a) `SMTP_USER` é o login SMTP (`xxxx@smtp-brevo.com`), não o e-mail da conta; (b) `SMTP_PASSWORD` é a chave SMTP (`xsmtpsib-...`), não a chave de API; (c) sem espaços, aspas ou asteriscos no valor (cole o valor inteiro, sem máscara); (d) reiniciar/redeployar o app depois de salvar as variáveis; (e) no Brevo, em Segurança > Endereços IP autorizados, se a restrição estiver ligada, inclua o IP do servidor (`159.223.105.157`) ou desligue a restrição. Se der **não foi possível conectar**: confira `SMTP_HOST=smtp-relay.brevo.com` e `SMTP_PORT=587` com `SMTP_SECURE=false`.
 2. Equipe e acessos > novo membro com um e-mail seu de teste: o convite com o link deve chegar.
 3. No Brevo > Transacional > Logs, o e-mail aparece como "Entregue". O estado interno (ENVIADO, ENTREGUE, BOUNCED) fica na fila de e-mail, hoje só pela API do painel (`GET /api/admin/email-outbox`); ainda não há tela para ela.
 4. Teste direto do webhook, pelo terminal (troque SEGREDO). Com o token certo deve responder `{"ok":true,"received":1,"applied":0}`; sem o token, 401:

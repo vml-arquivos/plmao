@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.6 — Teste de e-mail com erro claro
+
+- "Testar conexão" no painel agora diferencia **credenciais recusadas** (login ou chave SMTP errados) de **não foi possível conectar** (host, porta ou rede). Antes qualquer falha aparecia como credencial recusada.
+- Limites de tempo na conexão SMTP (15 s de conexão, 30 s de resposta), para o botão não ficar girando.
+- O texto de ajuda do webhook no painel passa a indicar o token do portador (Bearer) e os eventos certos.
+
 ## 1.10.5 — Remetente com nome e roteiro exato do e-mail (Brevo)
 
 - Os e-mails saem como "Placa na Mão <no-reply@placanamao.com.br>" (nome vindo de `APP_NAME`); o endereço continua sendo o `EMAIL_FROM` verificado no Brevo.
