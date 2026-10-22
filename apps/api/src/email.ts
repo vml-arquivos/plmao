@@ -24,7 +24,10 @@ function getTransporter(): Transporter {
       host: env.SMTP_HOST,
       port: env.SMTP_PORT,
       secure: env.SMTP_SECURE,
-      auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD }
+      auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 30_000
     });
   }
   return transporter;
