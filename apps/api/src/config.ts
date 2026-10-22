@@ -127,6 +127,8 @@ const envSchema = z.object({
   SMTP_PASSWORD: optionalString,
   SMTP_SECURE: booleanFromEnv.default(false),
   EMAIL_FROM: z.string().trim().email().default('no-reply@placanamao.com.br'),
+  // Para onde vão as respostas dos e-mails automáticos (ex.: o Gmail da operação, já que o domínio não tem caixa de e-mail). Vazio = sem Reply-To.
+  EMAIL_REPLY_TO: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().trim().email().max(254).optional()),
   PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(10).max(120).default(30),
   TRUST_PROXY: z.coerce.number().int().min(0).max(2).default(1),
   DATABASE_URL: z.string().min(1),

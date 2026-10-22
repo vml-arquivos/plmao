@@ -8,6 +8,15 @@ export function isEmailConfigured(): boolean {
   return isEmailConfigurationComplete({ provider: env.EMAIL_PROVIDER, host: env.SMTP_HOST, user: env.SMTP_USER, password: env.SMTP_PASSWORD });
 }
 
+/** Remetente com nome ("Placa na Mão <no-reply@...>"): o endereço continua sendo o EMAIL_FROM verificado no Brevo. */
+function fromHeader(): { name: string; address: string } {
+  return { name: (env.APP_NAME || 'Placa na Mão').replace(/["\r\n]/g, ''), address: env.EMAIL_FROM };
+}
+
+function replyToHeader(): string | undefined {
+  return env.EMAIL_REPLY_TO || undefined;
+}
+
 function getTransporter(): Transporter {
   if (!isEmailConfigured()) throw new Error('EMAIL_NOT_CONFIGURED');
   if (!transporter) {
@@ -33,7 +42,7 @@ export async function sendContactMessageEmail(input: { to: string; requesterName
   const safeSubject = escapeHtml(input.subject);
   const safeMessage = escapeHtml(input.message).replace(/\n/g, '<br>');
   await getTransporter().sendMail({
-    from: env.EMAIL_FROM,
+    from: fromHeader(),
     to: input.to,
     replyTo: input.requesterEmail,
     subject: `[${input.category}] ${input.subject} | ${appName}`,
@@ -45,7 +54,8 @@ export async function sendContactMessageEmail(input: { to: string; requesterName
 export async function sendContactConfirmationEmail(input: { to: string; requesterName: string; subject: string; ticketId: string }): Promise<void> {
   const appName = env.APP_NAME || 'Placa na Mão';
   await getTransporter().sendMail({
-    from: env.EMAIL_FROM,
+    from: fromHeader(),
+    replyTo: replyToHeader(),
     to: input.to,
     subject: `Recebemos sua solicitação ${input.ticketId} | ${appName}`,
     text: `Olá, ${input.requesterName}. Recebemos sua solicitação sobre "${input.subject}". O protocolo é ${input.ticketId}. Nossa equipe retornará pelo e-mail informado quando o canal estiver disponível.`,
@@ -61,7 +71,8 @@ export async function sendPasswordResetEmail(input: { to: string; name: string; 
   const safeName = escapeHtml(input.name);
   const safeAppName = escapeHtml(appName);
   await getTransporter().sendMail({
-    from: env.EMAIL_FROM,
+    from: fromHeader(),
+    replyTo: replyToHeader(),
     to: input.to,
     subject: `Redefinição de senha | ${appName}`,
     text: `Olá, ${input.name}.\n\nRecebemos uma solicitação para redefinir sua senha no ${appName}. Acesse este link em até ${ttlLabel}:\n\n${resetUrl}\n\nSe você não solicitou a alteração, ignore esta mensagem.`,
@@ -73,7 +84,7 @@ export type OutgoingMail = { to: string; subject: string; text: string; html: st
 
 /** Envio genérico usado pela fila. Devolve o Message-ID aceito pelo servidor SMTP. */
 export async function sendMailRaw(mail: OutgoingMail): Promise<{ messageId: string }> {
-  const info = await getTransporter().sendMail({ from: env.EMAIL_FROM, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html, messageId: mail.messageId, headers: mail.headers });
+  const info = await getTransporter().sendMail({ from: fromHeader(), replyTo: replyToHeader(), to: mail.to, subject: mail.subject, text: mail.text, html: mail.html, messageId: mail.messageId, headers: mail.headers });
   return { messageId: String(info.messageId ?? mail.messageId ?? '') };
 }
 

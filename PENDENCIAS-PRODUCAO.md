@@ -31,11 +31,51 @@ O que o código já faz está no CHANGELOG. Aqui está só o que falta, quem pre
 - A assinatura atual é **aceite eletrônico simples** (nome digitado, hash do texto, IP em HMAC, navegador, data). Se o negócio exigir assinatura avançada ou qualificada (ICP-Brasil), é preciso contratar provedor e integrar; ainda não há documentação nem credenciais.
 - Decisão comercial pendente: modelo de pacote personalizado (hoje é registrado como ação manual), descontos máximos e regras de comissão por parceiro.
 
-## E-mail (Brevo)
+## E-mail (Brevo): configuração exata
 
-Variáveis no Coolify: `EMAIL_PROVIDER=smtp`, `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, `SMTP_USER` (login SMTP do Brevo), `SMTP_PASSWORD` (chave SMTP, não a de API), `EMAIL_FROM` (remetente validado no Brevo, com SPF/DKIM/DMARC do domínio) e `EMAIL_WEBHOOK_SECRET` (invente um valor longo).
+**Já conferido nas telas (22/10/2026):** DNS no Cloudflare (DKIM `brevo1`/`brevo2`, `brevo-code`, DMARC, `em`/`img.em`/`r.em`, todos "Somente DNS") e remetente `no-reply@placanamao.com.br` verificado, com DKIM e DMARC ok.
 
-Retorno de entrega: no Brevo, crie um webhook transacional apontando para `https://SEU-DOMINIO/api/webhooks/email/brevo`, com o cabeçalho `x-webhook-token` igual ao `EMAIL_WEBHOOK_SECRET`, e os eventos entregue, hard/soft bounce, bloqueado, spam e inválido. Pelo painel do Brevo a opção de cabeçalho pode não aparecer; nesse caso crie pela API do Brevo com o campo `headers`. Depois use Integrações > "Testar conexão e enviar e-mail de teste".
+**1. Coolify (variáveis, copiar como está; só os três em maiúsculas entre aspas são seus)**
+
+```
+EMAIL_PROVIDER=smtp
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=<login SMTP: Brevo > SMTP e API > aba SMTP (parece xxxx@smtp-brevo.com, não é o e-mail da conta)>
+SMTP_PASSWORD=<chave SMTP gerada na mesma tela (começa com xsmtpsib-), não a chave de API>
+EMAIL_FROM=no-reply@placanamao.com.br
+EMAIL_REPLY_TO=placanamao@gmail.com
+EMAIL_WEBHOOK_SECRET=<texto aleatório longo, 40+ caracteres, sem espaço>
+EMAIL_OUTBOX_WORKER=true
+APP_NAME=Placa na Mão
+```
+
+`EMAIL_FROM` tem que ser exatamente o remetente verificado no Brevo. O e-mail sai como "Placa na Mão <no-reply@placanamao.com.br>" e, se a pessoa responder, a resposta vai para `EMAIL_REPLY_TO` (o Gmail). O Gmail não entra em nenhuma outra variável: ele só recebe. Já os avisos de novas mensagens do formulário de contato vão para o "e-mail de suporte" em Configurações do painel; coloque o mesmo Gmail lá. Depois de salvar, reiniciar o app.
+
+**2. Remetente do Gmail no Brevo**: não use `placanamao@gmail.com` como remetente. Gmail não permite assinatura própria (DKIM "Padrão") e o aviso vermelho da tela de remetentes vem dele. Pode apagar esse remetente; o oficial é o do domínio.
+
+**3. Webhook de retorno de entrega (Brevo > Plug-ins e integrações > Webhooks)**: clicar em "Adicionar webhook", escolher **Webhook de saída** (o da esquerda, "Envie eventos do Brevo para uma ferramenta externa") e preencher:
+
+- Tipo: **Transacional**
+- URL: `https://placanamao.com.br/api/webhooks/email/brevo`
+- Eventos: Entregue, Hard bounce, Soft bounce, Bloqueado, Spam (reclamação) e E-mail inválido
+- Autenticação: se aparecer, **Bearer token** com o mesmo valor de `EMAIL_WEBHOOK_SECRET`. Se aparecer cabeçalho personalizado: nome `x-webhook-token`, valor igual ao `EMAIL_WEBHOOK_SECRET`. O servidor aceita Bearer, cabeçalho `x-webhook-token` ou Basic (a senha é o segredo). Sem autenticação ele recusa (401).
+
+**4. Teste (nesta ordem)**
+
+1. Painel > Integrações > "Testar conexão e enviar e-mail de teste". Deve dizer conexão ok e chegar um e-mail para o seu endereço em até 1 minuto. Se der "credenciais recusadas", a `SMTP_USER` ou a `SMTP_PASSWORD` está errada (confira que é a chave SMTP).
+2. Equipe e acessos > novo membro com um e-mail seu de teste: o convite com o link deve chegar.
+3. No Brevo > Transacional > Logs, o e-mail aparece como "Entregue". O estado interno (ENVIADO, ENTREGUE, BOUNCED) fica na fila de e-mail, hoje só pela API do painel (`GET /api/admin/email-outbox`); ainda não há tela para ela.
+4. Teste direto do webhook, pelo terminal (troque SEGREDO). Com o token certo deve responder `{"ok":true,"received":1,"applied":0}`; sem o token, 401:
+
+```
+curl -i -X POST https://placanamao.com.br/api/webhooks/email/brevo -H "Authorization: Bearer SEGREDO" -H "Content-Type: application/json" -d '{"event":"delivered","message-id":"<teste>"}'
+```
+
+**5. Se o webhook não chegar**: o site está atrás do proxy do Cloudflare (nuvem laranja). Em Segurança > WAF, crie uma regra "Skip" para o caminho `/api/webhooks/email/brevo`, ou desligue o "Bot Fight Mode".
+
+**6. DNS, observações**: o SPF `v=spf1 -all` pode ficar; o Brevo assina por DKIM e o DMARC passa por ele. O MX `.` (sem recebimento) faz o domínio não receber e-mail, o que é certo para `no-reply`. Se quiser receber em `contato@placanamao.com.br`, use Email Routing do Cloudflare (ele substitui esse MX). O DMARC `p=none` serve para começar; depois de uma semana sem problemas nos relatórios, pode subir para `p=quarantine`.
 
 ## Chat de suporte
 

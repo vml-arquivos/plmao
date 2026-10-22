@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.5 — Remetente com nome e roteiro exato do e-mail (Brevo)
+
+- Os e-mails saem como "Placa na Mão <no-reply@placanamao.com.br>" (nome vindo de `APP_NAME`); o endereço continua sendo o `EMAIL_FROM` verificado no Brevo.
+- Nova variável opcional `EMAIL_REPLY_TO`: respostas dos e-mails automáticos vão para um endereço de sua escolha (ex.: o Gmail), já que o domínio não tem caixa de e-mail.
+- `PENDENCIAS-PRODUCAO.md`: configuração exata do SMTP, do webhook de entrega, testes e solução de problemas.
+
 ## 1.10.4 — Verificação em 2 etapas opcional, computador confiável e hierarquia de acessos
 
 - **2 etapas opcional** no painel: ninguém é obrigado a cadastrar o aplicativo. O padrão agora é `TEAM_TOTP_REQUIRED=false` (o `.env.example` estava como `true`). Quem quiser ativa em "Minha conta"; quem já ativou pode desativar com senha e código.
