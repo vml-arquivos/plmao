@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.3 — App instalável, proposta na tela e responsivo revisado
+
+- **Instalar o app**: botão "Instalar o app" no menu e no rodapé, aviso na parte de baixo da tela (some por 14 dias se dispensado), convite nativo no Android e no computador, passo a passo do "Adicionar à Tela de Início" no iPhone/iPad (iOS não tem convite nativo) e página `/instalar`. Manifesto com capturas de tela, atalhos (consultar, simulador, guia, FIPE, histórico) e orientação livre (antes travava em retrato).
+- **Simulação na tela**: "Ver proposta completa" mostra tudo (resumo, CET, todas as parcelas, comparação com bancos) com **salvar no histórico, baixar PDF e imprimir**. Sem conta dá para ver e imprimir.
+- **Histórico de simulações** em `/app/simulacoes` (ver, baixar PDF, excluir) e resumo no simulador. API: `POST /simulator/save`, `GET` e `DELETE /simulator/mine/:code`.
+- **Responsivo**: corrigido estouro de largura em 360 px (início, simulador, nova consulta, painel) e no resumo da consulta em 1024 px; colunas de grade com `minmax(0, 1fr)`; alvos de toque de 40 px em telas de toque; cabeçalho compacto em telas pequenas.
+- Guia de veículos: plano B dos selects (marca e modelo das fichas) quando a tabela FIPE está desligada.
+
 ## 1.10.2 — Guia de veículos: filtro por marca, modelo, versão e ano
 
 - `/veiculos`: selects Marca → Modelo → Versão → Ano alimentados pela tabela FIPE (carros, motos e caminhões), além do campo para digitar o nome (com sugestões). Ao escolher a versão aparece a ficha do guia, quando existe, e ao escolher o ano, o valor, com atalhos para simular o financiamento (já com o valor) e consultar a placa.

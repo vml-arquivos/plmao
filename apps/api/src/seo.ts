@@ -16,6 +16,7 @@ const pageMeta: Record<string, SeoMeta> = {
   '/para-lojistas': { title: 'Consulta veicular para lojistas | Placa na Mão', description: 'Centralize consultas, histórico e relatórios para apoiar a operação de compra e venda de veículos.' },
   '/para-concessionarias': { title: 'Consulta veicular para concessionárias | Placa na Mão', description: 'Apoie a avaliação de usados com consultas, relatórios e controle operacional para equipes.' },
   '/sobre': { title: 'Sobre a Placa na Mão | Consulta veicular', description: 'Conheça a Placa na Mão: consulta veicular por placa com transparência sobre fonte, data e cobertura de cada informação.' },
+  '/instalar': { title: 'Instalar o app Placa na Mão | Android e iPhone', description: 'Instale o Placa na Mão na tela inicial do Android ou do iPhone, sem loja de aplicativos, e abra em tela cheia.' },
   '/contato': { title: 'Contato e suporte | Placa na Mão', description: 'Fale com a equipe Placa na Mão sobre suporte, privacidade (LGPD) e parcerias comerciais.' },
   '/perguntas-frequentes': { title: 'Perguntas frequentes sobre consulta veicular | Placa na Mão', description: 'Tire dúvidas sobre consulta de placa, pagamento, estorno, privacidade e o que cada relatório mostra.' },
   '/veiculos': { title: 'Guia de veículos: ficha técnica, opinião de donos e comparador | Placa na Mão', description: 'Veja ficha técnica, nota e opinião de quem tem o carro, dicas de cuidados e compare veículos lado a lado antes de comprar.' },

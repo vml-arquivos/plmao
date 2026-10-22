@@ -61,15 +61,15 @@
 .sim-out { display: grid; gap: 10px; }
 .sim-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .pill-money { font-variant-numeric: tabular-nums; }
-@media (max-width: 1000px) { .adm-split, .adm-grid-2 { grid-template-columns: 1fr; } }
+@media (max-width: 1000px) { .adm-split, .adm-grid-2 { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 860px) {
-  .adm { grid-template-columns: 1fr; }
+  .adm { grid-template-columns: minmax(0, 1fr); }
   .adm-side { position: fixed; z-index: 200; inset: 0 auto 0 0; width: min(290px, 86vw); transform: translateX(-102%); transition: transform .22s ease; }
   .adm-side.open { transform: none; box-shadow: var(--shadow-lg); }
   .adm-top { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 90; padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
   .adm-top .grow { font: 700 15px var(--font-display); }
   .adm-main { padding-top: 18px; }
-  .kv { grid-template-columns: 1fr; gap: 2px 0; } .kv dd { margin-bottom: 8px; }
+  .kv { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .kv dd { margin-bottom: 8px; }
 }
 @media print { .adm-side, .adm-top, .no-print { display: none !important; } .adm { display: block; } .adm-main { padding: 0; } }
 .login-card h1 + p { margin-top: 8px; }

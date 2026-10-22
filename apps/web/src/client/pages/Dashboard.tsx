@@ -34,7 +34,7 @@ export default function Dashboard() {
       </section>
       <PaidQueries />
       <div className="stat-grid">
-        <Stat highlight label="Saldo disponível" value={money(me?.balanceCents)} sub={<LinkButton to="/app/carteira" variant="ghost" size="sm" style={{ color: '#fff', padding: 0, minHeight: 0 }}>Adicionar saldo →</LinkButton>} />
+        <Stat highlight label="Saldo disponível" value={money(me?.balanceCents)} sub={<LinkButton to="/app/carteira" variant="ghost" size="sm" style={{ color: '#fff', padding: '0 4px', minHeight: 40 }}>Adicionar saldo →</LinkButton>} />
         <Stat label="Consultas no mês" value={month.length} sub="concluídas" />
         <Stat label="Investido no mês" value={money(spent)} sub="em consultas" />
       </div>

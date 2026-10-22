@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '../shared/icons';
 import { Input, LinkButton, Select, Skeleton } from '../shared/ui';
 import { api } from './api';
@@ -23,6 +24,31 @@ export function splitFipeModel(name: string): { family: string; version: string 
   const words = name.trim().split(/\s+/);
   const n = JOIN.has(words[0]!.toLowerCase()) && words.length > 1 ? 2 : 1;
   return { family: words.slice(0, n).join(' '), version: words.slice(n).join(' ') || name.trim() };
+}
+
+/** Plano B quando a tabela FIPE não está disponível: marca e modelo das fichas do guia. */
+function GuideSelects() {
+  const nav = useNavigate();
+  const [brands, setBrands] = useState<Array<{ brand: string; total: number }>>([]);
+  const [brand, setBrand] = useState('');
+  const [models, setModels] = useState<GuideCard[]>([]);
+  useEffect(() => { api.get<{ brands: Array<{ brand: string; total: number }> }>('/vehicles/brands').then((r) => setBrands(r.brands), () => undefined); }, []);
+  useEffect(() => {
+    if (!brand) { setModels([]); return; }
+    let alive = true;
+    api.get<{ items: GuideCard[] }>('/vehicles', { query: { brand, sort: 'name', limit: 100 } }).then((r) => { if (alive) setModels(r.items); }, () => undefined);
+    return () => { alive = false; };
+  }, [brand]);
+  return (
+    <div className="finder-selects two">
+      <Select value={brand} onChange={(e) => setBrand(e.target.value)} aria-label="Marca" disabled={!brands.length}>
+        <option value="">Marca</option>{brands.map((b) => <option key={b.brand} value={b.brand}>{b.brand}</option>)}
+      </Select>
+      <Select value="" onChange={(e) => { if (e.target.value) nav(`/veiculos/${e.target.value}`); }} aria-label="Modelo" disabled={!models.length}>
+        <option value="">Modelo</option>{models.map((m) => <option key={m.slug} value={m.slug}>{m.name}</option>)}
+      </Select>
+    </div>
+  );
 }
 
 /**
@@ -196,6 +222,7 @@ export function GuideFinder({ typed, onTyped, onPicked }: { typed: string; onTyp
         )}
       </div>
 
+      {enabled === false && <GuideSelects />}
       {enabled !== false && (
         <div className="finder-selects">
           <Select value={brand} onChange={(e) => void onBrand(e.target.value)} aria-label="Marca" disabled={!brands.length}>

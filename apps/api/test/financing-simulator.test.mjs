@@ -189,6 +189,28 @@ describe('simulador de financiamento: API, PDF e painel', integration, () => {
     assert.equal(long.status, 200);
   });
 
+  it('salvar sem PDF, abrir na tela e excluir: só a própria pessoa enxerga', async () => {
+    assert.equal((await server.request('/api/simulator/save', { method: 'POST', body: body() })).status, 401);
+    const saved = await server.request('/api/simulator/save', { method: 'POST', token, body: body({ modality: 'BOTH', residualPct: 20, vehicleLabel: 'Honda Civic Hybrid 2024', notes: 'Comparar com o banco' }) });
+    assert.equal(saved.status, 201);
+    const { code } = await saved.json();
+    assert.match(code, /^SIM-[A-Z0-9]{8}$/);
+    const one = await server.request(`/api/simulator/mine/${code}`, { token });
+    assert.equal(one.status, 200);
+    const detail = await one.json();
+    assert.equal(detail.input.vehicleLabel, 'Honda Civic Hybrid 2024');
+    assert.ok(detail.results.cdc && detail.results.leasing);
+    assert.ok(detail.results.cdc.schedule.length > 0);
+    assert.ok(detail.referenceMonth);
+    // outra pessoa não vê nem apaga
+    const other = (await pub('/api/auth/register', { method: 'POST', body: { name: 'Outro Cliente', email: `${uid('sim')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } })).json.token;
+    assert.equal((await server.request(`/api/simulator/mine/${code}`, { token: other })).status, 404);
+    assert.equal((await server.request(`/api/simulator/mine/${code}`, { method: 'DELETE', token: other })).status, 404);
+    assert.equal((await server.request(`/api/simulator/mine/${code}`, { method: 'DELETE', token })).status, 204);
+    assert.equal((await server.request(`/api/simulator/mine/${code}`, { token })).status, 404);
+    assert.equal((await server.request('/api/simulator/mine/invalido', { token })).status, 404);
+  });
+
   it('painel: financeiro edita taxas e tarifas; conteúdo não mexe; atualização pelo Banco Central usa a série real', async () => {
     assert.equal((await cont.call('/api/admin/simulator/settings')).status, 403);
     const g = await fin.call('/api/admin/simulator/settings');

@@ -9,6 +9,7 @@ import { BRAND } from '../config';
 import { useSession } from '../session';
 import { CompareMatrix, PackageCards, ProductCards, SmartPicker, useCatalog } from '../components/Catalog';
 import Faq from '../components/Faq';
+import { InstallButton, InstallGuide, useInstall, type InstallPlatform } from '../components/PwaBits';
 import { money } from '../../shared/format';
 
 /* ---------- /consultar (visitante) ---------- */
@@ -109,6 +110,32 @@ export function ValidatePage() {
 }
 
 /* ---------- /sobre ---------- */
+export function InstallApp() {
+  usePageTitle('Instalar o app');
+  const { standalone, platform } = useInstall();
+  const [guide, setGuide] = useState<InstallPlatform | null>(null);
+  return (
+    <>
+      <section className="page-hero"><div className="container"><span className="eyebrow">Aplicativo</span><h1>Instale o Placa na Mão na tela inicial.</h1><p className="lead">Abre em tela cheia, sem loja de aplicativos e sem ocupar espaço. Funciona no Android, no iPhone, no iPad e no computador.</p></div></section>
+      <section className="section" style={{ paddingTop: 12 }}>
+        <div className="container stack-lg">
+          {standalone ? <Alert tone="ok" icon="check">O app já está instalado neste aparelho.</Alert> : <div><InstallButton variant="primary" label="Instalar agora" /></div>}
+          <div className="grid-3 install-grid">
+            {(['android', 'ios', 'desktop'] as const).map((p) => (
+              <div key={p} className="card card-pad stack">
+                <h2 style={{ fontSize: 20 }}>{p === 'android' ? 'Android' : p === 'ios' ? 'iPhone e iPad' : 'Computador'}</h2>
+                <p className="muted">{p === 'android' ? 'No Chrome, toque em Instalar quando o aviso aparecer ou use o menu ⋮.' : p === 'ios' ? 'No iPhone e no iPad a instalação é feita pelo Safari, em Compartilhar.' : 'No Chrome ou no Edge, use o ícone de instalar na barra de endereço.'}</p>
+                <div><Button size="sm" onClick={() => setGuide(p)}>Ver o passo a passo{platform === p ? ' (seu aparelho)' : ''}</Button></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+      {guide && <InstallGuide platform={guide} onClose={() => setGuide(null)} />}
+    </>
+  );
+}
+
 export function About() {
   usePageTitle('Sobre');
   return (

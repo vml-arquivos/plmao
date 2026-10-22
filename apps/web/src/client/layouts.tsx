@@ -5,7 +5,7 @@ import { Button, LinkButton, Logo, PageLoading, ThemeSwitch } from '../shared/ui
 import { initials, money } from '../shared/format';
 import { BRAND } from './config';
 import { useSession } from './session';
-import { InstallPrompt, OfflineBanner } from './components/PwaBits';
+import { InstallButton, InstallLink, InstallPrompt, OfflineBanner } from './components/PwaBits';
 
 /* ---------- Rolagem ao navegar ---------- */
 export function ScrollManager() {
@@ -65,6 +65,7 @@ export function PublicHeader({ overHero = false }: { overHero?: boolean }) {
             <div className="row-between" style={{ marginBottom: 10 }}><Logo /><button type="button" className="icon-btn" aria-label="Fechar menu" onClick={() => setOpen(false)}><Icon name="x" /></button></div>
             {NAV.map((n) => <Link key={n.to} to={n.to} className="dl">{n.label}</Link>)}
             <Link to="/sobre" className="dl">Sobre</Link>
+            <div style={{ marginTop: 6 }}><InstallButton block label="Instalar o app" /></div>
             <hr className="divider" style={{ margin: '10px 0' }} />
             {status === 'authed' ? <LinkButton to="/app" variant="primary" block>Minha área</LinkButton> : <><LinkButton to="/criar-conta" variant="primary" block>Criar conta</LinkButton><LinkButton to="/entrar" block>Entrar</LinkButton></>}
           </div>
@@ -85,7 +86,7 @@ export function PublicFooter() {
             <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>
           </div>
           <div><h5>Consultas</h5><ul><li><Link to="/consulta-placa">Consulta de placa</Link></li><li><Link to="/consultar-debitos-veiculo">Débitos e multas</Link></li><li><Link to="/consultar-gravame">Gravame</Link></li><li><Link to="/consultar-leilao-veiculo">Leilão</Link></li><li><Link to="/fipe">FIPE grátis</Link></li><li><Link to="/veiculos">Guia de veículos</Link></li><li><Link to="/comparar">Comparar veículos</Link></li><li><Link to="/veiculos/mais-economicos">Carros mais econômicos</Link></li><li><Link to="/combustivel">Etanol ou gasolina?</Link></li><li><Link to="/simulador">Simulador de financiamento</Link></li></ul></div>
-          <div><h5>Empresa</h5><ul><li><Link to="/sobre">Sobre</Link></li><li><Link to="/para-lojistas">Para lojistas</Link></li><li><Link to="/blog">Blog</Link></li><li><Link to="/perguntas-frequentes">Perguntas frequentes</Link></li><li><Link to="/contato">Contato</Link></li></ul></div>
+          <div><h5>Empresa</h5><ul><li><Link to="/sobre">Sobre</Link></li><li><Link to="/para-lojistas">Para lojistas</Link></li><li><Link to="/blog">Blog</Link></li><li><InstallLink /></li><li><Link to="/perguntas-frequentes">Perguntas frequentes</Link></li><li><Link to="/contato">Contato</Link></li></ul></div>
           <div><h5>Legal</h5><ul><li><Link to="/termos">Termos de Uso</Link></li><li><Link to="/privacidade">Política de Privacidade</Link></li><li><Link to="/validar">Validar relatório</Link></li></ul></div>
         </div>
         <div className="foot-bottom"><span>© {new Date().getFullYear()} Placa na Mão. Todos os direitos reservados.</span><span>Os relatórios apoiam a decisão e não substituem vistoria ou consulta aos órgãos competentes.</span></div>
@@ -102,6 +103,7 @@ export function PublicLayout() {
       <PublicHeader />
       <main id="conteudo"><Outlet /></main>
       <PublicFooter />
+      <InstallPrompt floating />
     </>
   );
 }
@@ -110,6 +112,7 @@ export function PublicLayout() {
 const ITEMS: Array<{ to: string; label: string; icon: IconName; end?: boolean }> = [
   { to: '/app', label: 'Painel', icon: 'home', end: true },
   { to: '/app/historico', label: 'Histórico', icon: 'clock' },
+  { to: '/app/simulacoes', label: 'Simulações', icon: 'calculator' },
   { to: '/app/garagem', label: 'Minha garagem', icon: 'car' },
   { to: '/veiculos', label: 'Guia de veículos', icon: 'car' },
   { to: '/app/carteira', label: 'Carteira', icon: 'wallet' },

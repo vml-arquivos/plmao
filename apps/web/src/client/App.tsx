@@ -9,6 +9,7 @@ import { api } from './api';
 import { useSession } from './session';
 
 const SupportChat = lazy(() => import('./pages/Support'));
+const Simulations = lazy(() => import('./pages/Simulations'));
 const Landing = lazy(() => import('./pages/Landing'));
 const Auth = lazy(() => import('./pages/Auth'));
 const SeoPage = lazy(() => import('./pages/SeoPage'));
@@ -36,7 +37,7 @@ const ContractSign = lazy(() => import('./pages/ContractSign').then((m) => ({ de
 const FiscalDocumentPage = lazy(() => import('./pages/ContractSign').then((m) => ({ default: m.FiscalDocumentPage })));
 const ContractCopy = lazy(() => import('./pages/ContractSign').then((m) => ({ default: m.ContractCopy })));
 const named = (key: string) => lazy(() => import('./pages/Public').then((m) => ({ default: (m as unknown as Record<string, React.ComponentType>)[key] })));
-const GuestQuery = named('GuestQuery'); const PlansPage = named('PlansPage'); const ValidatePage = named('ValidatePage'); const About = named('About'); const Contact = named('Contact'); const NotFound = named('NotFound');
+const GuestQuery = named('GuestQuery'); const PlansPage = named('PlansPage'); const ValidatePage = named('ValidatePage'); const About = named('About'); const InstallApp = named('InstallApp'); const Contact = named('Contact'); const NotFound = named('NotFound');
 const Legal = lazy(() => import('./pages/Public').then((m) => ({ default: m.Legal })));
 
 /** Trata retornos que chegam na raiz: login social, redefinição de senha e retorno do checkout. */
@@ -85,6 +86,7 @@ export default function App() {
             <Route path="/blog" element={<BlogPage />} />
             <Route path="/blog/:slug" element={<BlogPostPage />} />
             <Route path="/sobre" element={<About />} />
+            <Route path="/instalar" element={<InstallApp />} />
             <Route path="/contato" element={<Contact />} />
             <Route path="/termos" element={<Legal kind="terms" />} />
             <Route path="/privacidade" element={<Legal kind="privacy" />} />
@@ -101,6 +103,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="consultar" element={<NewQuery />} />
             <Route path="historico" element={<History />} />
+            <Route path="simulacoes" element={<Simulations />} />
             <Route path="consulta/:id" element={<QueryDetail />} />
             <Route path="carteira" element={<Wallet />} />
             <Route path="garagem" element={<Garage />} />

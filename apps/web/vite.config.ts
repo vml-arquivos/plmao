@@ -17,7 +17,7 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//, /^\/painel/, /^\/admin/, /^\/health/],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        globIgnores: ['**/admin.html', '**/assets/admin-*', '**/brand/og-image.png']
+        globIgnores: ['**/admin.html', '**/assets/admin-*', '**/brand/og-image.png', '**/brand/shot-*.png']
       }
     })
   ],

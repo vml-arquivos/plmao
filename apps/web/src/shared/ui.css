@@ -46,7 +46,7 @@
 .form-grid > .field { align-content: start; }
 .form-grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .form-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-@media (max-width: 720px) { .form-grid.cols-2, .form-grid.cols-3 { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .form-grid.cols-2, .form-grid.cols-3 { grid-template-columns: minmax(0, 1fr); } }
 .form-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
 /* ---------- Cartões, badges, avisos ---------- */
@@ -69,9 +69,9 @@
 .alert.info { background: var(--info-soft); border-color: transparent; color: var(--info-ink); }
 .alert b { font-weight: 700; }
 .muted { color: var(--muted); }
-.stack { display: grid; gap: 16px; }
-.stack-sm { display: grid; gap: 8px; }
-.stack-lg { display: grid; gap: 28px; }
+.stack { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+.stack-sm { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+.stack-lg { display: grid; gap: 28px; grid-template-columns: minmax(0, 1fr); }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .row-between { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .grow { flex: 1 1 auto; min-width: 0; }
@@ -161,8 +161,8 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; min-width
 .page-head p { color: var(--muted); margin-top: 6px; max-width: 62ch; }
 .grid-2 { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid-3 { display: grid; gap: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-@media (max-width: 900px) { .grid-3 { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 640px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); } }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; font-weight: 500; color: var(--text-2); }
 .chip button { border: 0; background: none; padding: 0; display: grid; color: var(--muted); }

@@ -79,27 +79,64 @@ function sendPdf(res: import('express').Response, pdf: Buffer, code: string) {
   res.send(pdf);
 }
 
-simulatorRouter.post('/simulator/pdf', auth, pdfLimiter, asyncRoute(async (req, res) => {
-  const settings = await loadFinancingSettings();
-  const body = parseBody(req.body);
-  const out = run(body, settings);
-  out.banks = await bankOffers(out, settings);
+/** Guarda a simulação no histórico da pessoa (com o resultado daquele dia) e devolve o código. */
+async function saveSimulation(userId: string, body: ReturnType<typeof parseBody>, out: SimulationOutput, settings: Awaited<ReturnType<typeof loadFinancingSettings>>) {
   const primary = out.results.cdc ?? out.results.leasing!;
   const code = newCode();
   const snapshot = { ...out, referenceMonth: settings.referenceMonth, rateSource: settings.source };
   await pool.query(
     `INSERT INTO financing_simulations(code,user_id,modality,vehicle_kind,person_type,vehicle_value_cents,down_payment_cents,months,monthly_rate_pct,installment_cents,total_paid_cents,cet_annual_pct,input,output)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb)`,
-    [code, req.user!.id, body.modality, body.vehicleKind, body.personType, primary.vehicleValueCents, primary.downPaymentCents, primary.months, primary.monthlyRatePct, primary.installmentCents, primary.totalPaidCents, primary.cetAnnualPct, JSON.stringify(body), JSON.stringify(snapshot)]
+    [code, userId, body.modality, body.vehicleKind, body.personType, primary.vehicleValueCents, primary.downPaymentCents, primary.months, primary.monthlyRatePct, primary.installmentCents, primary.totalPaidCents, primary.cetAnnualPct, JSON.stringify(body), JSON.stringify(snapshot)]
   );
+  return code;
+}
+
+simulatorRouter.post('/simulator/pdf', auth, pdfLimiter, asyncRoute(async (req, res) => {
+  const settings = await loadFinancingSettings();
+  const body = parseBody(req.body);
+  const out = run(body, settings);
+  out.banks = await bankOffers(out, settings);
+  const code = await saveSimulation(req.user!.id, body, out, settings);
   sendPdf(res, await pdfFor(out, code, req.user!, settings, new Date(out.generatedAt)), code);
+}));
+
+/** Salva no histórico sem gerar PDF (a pessoa vê na tela e guarda para depois). */
+simulatorRouter.post('/simulator/save', auth, pdfLimiter, asyncRoute(async (req, res) => {
+  const settings = await loadFinancingSettings();
+  const body = parseBody(req.body);
+  const out = run(body, settings);
+  out.banks = await bankOffers(out, settings);
+  const code = await saveSimulation(req.user!.id, body, out, settings);
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(201).json({ code, createdAt: out.generatedAt });
+}));
+
+const simNotFound = () => appError('SIMULATION_NOT_FOUND', { code: 'SIMULATION_NOT_FOUND', http: 404, expose: true });
+const simCode = (v: unknown) => { const c = String(v ?? ''); if (!/^SIM-[A-Z0-9]{8}$/.test(c)) throw simNotFound(); return c; };
+
+/** Uma simulação guardada, completa, para ver na tela. */
+simulatorRouter.get('/simulator/mine/:code', auth, asyncRoute(async (req, res) => {
+  const code = simCode(req.params.code);
+  const r = await pool.query('SELECT input, output, created_at FROM financing_simulations WHERE code=$1 AND user_id=$2', [code, req.user!.id]);
+  const row = r.rows[0];
+  if (!row?.output) throw simNotFound();
+  const o = row.output as SimulationOutput & { referenceMonth: string; rateSource: string };
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json({ code, createdAt: row.created_at, input: row.input, results: o.results, rates: o.rates, errors: o.errors ?? {}, banks: o.banks ?? [], generatedAt: o.generatedAt, referenceMonth: o.referenceMonth, source: o.rateSource });
+}));
+
+simulatorRouter.delete('/simulator/mine/:code', auth, asyncRoute(async (req, res) => {
+  const r = await pool.query('DELETE FROM financing_simulations WHERE code=$1 AND user_id=$2', [simCode(req.params.code), req.user!.id]);
+  if (!r.rowCount) throw simNotFound();
+  res.status(204).end();
 }));
 
 /** Últimas simulações da própria pessoa (para baixar o PDF de novo). */
 simulatorRouter.get('/simulator/mine', auth, asyncRoute(async (req, res) => {
   const r = await pool.query(
     `SELECT code, modality, vehicle_kind, person_type, vehicle_value_cents, down_payment_cents, months, monthly_rate_pct, installment_cents, total_paid_cents, cet_annual_pct, created_at, (input->>'vehicleLabel') AS label
-     FROM financing_simulations WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20`, [req.user!.id]);
+     FROM financing_simulations WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`, [req.user!.id]);
   res.setHeader('Cache-Control', 'private, no-store');
   res.json({ items: r.rows.map((x) => ({
     code: x.code, modality: x.modality, vehicleKind: x.vehicle_kind, personType: x.person_type, label: x.label || null,

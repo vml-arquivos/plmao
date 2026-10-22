@@ -4,7 +4,7 @@
   "description": "Consulte a placa e receba o relatório veicular completo em segundos.",
   "lang": "pt-BR",
   "id": "/",
-  "start_url": "/app",
+  "start_url": "/?origem=app",
   "scope": "/",
   "display": "standalone",
   "background_color": "#040B1B",
@@ -43,9 +43,9 @@
   ],
   "shortcuts": [
     {
-      "name": "Nova consulta",
+      "name": "Consultar placa",
       "short_name": "Consultar",
-      "url": "/app/consultar",
+      "url": "/consultar?origem=app",
       "icons": [
         {
           "src": "/brand/icon-192.png",
@@ -54,8 +54,9 @@
       ]
     },
     {
-      "name": "Histórico",
-      "url": "/app/historico",
+      "name": "Simular financiamento",
+      "short_name": "Simulador",
+      "url": "/simulador?origem=app",
       "icons": [
         {
           "src": "/brand/icon-192.png",
@@ -64,8 +65,31 @@
       ]
     },
     {
-      "name": "FIPE grátis",
-      "url": "/fipe",
+      "name": "Guia de veículos",
+      "short_name": "Guia",
+      "url": "/veiculos?origem=app",
+      "icons": [
+        {
+          "src": "/brand/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Valor FIPE",
+      "short_name": "FIPE",
+      "url": "/fipe?origem=app",
+      "icons": [
+        {
+          "src": "/brand/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Meu histórico",
+      "short_name": "Histórico",
+      "url": "/app/historico?origem=app",
       "icons": [
         {
           "src": "/brand/icon-192.png",
@@ -74,7 +98,7 @@
       ]
     }
   ],
-  "orientation": "portrait",
+  "orientation": "any",
   "categories": [
     "automotive",
     "utilities",
@@ -83,5 +107,29 @@
   "display_override": [
     "standalone",
     "minimal-ui"
+  ],
+  "prefer_related_applications": false,
+  "screenshots": [
+    {
+      "src": "/brand/shot-narrow-1.png",
+      "sizes": "540x960",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Simulador de financiamento"
+    },
+    {
+      "src": "/brand/shot-narrow-2.png",
+      "sizes": "540x960",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Guia de veículos"
+    },
+    {
+      "src": "/brand/shot-wide-1.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Simulador de financiamento"
+    }
   ]
 }
