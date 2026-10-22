@@ -70,3 +70,6 @@ export const CIVIC_MODEL = {
     specs: { engine: '2.0 16V híbrido', transmission: 'CVT', cons_city_gas_kml: 18.3, cons_road_gas_kml: 15.9 } as Record<string, string | number | boolean>
   }
 };
+
+/** Descrição curta do Civic: só o que o Inmetro (PBEV 2024) e o catálogo da Honda informam. */
+export const CIVIC_SUMMARY = 'Sedã grande com versão híbrida. Consumo oficial na tabela PBEV 2024 do Inmetro: 18,3 km/l na cidade e 15,9 km/l na estrada, a gasolina. Suspensão dianteira independente MacPherson e traseira multilink, segundo o catálogo da Honda.';

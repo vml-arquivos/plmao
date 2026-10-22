@@ -7,22 +7,13 @@ import { ApiError, errorMessage } from '../../shared/api';
 import { dateOnly, isValidPlate, normalizePlate } from '../../shared/format';
 import { Markdown } from '../../shared/markdown';
 import { useSession } from '../session';
+import { GuideFinder } from '../guideFinder';
 import { CatalogRow, ConsumptionSources, FeaturedCard, FuelCalc, GuideCover, ModelCard, fabYears, fleetLong, logInterest, snapshotLabel, RatingBars, StarPicker, Stars, formatSpec, kmlText, ratingText, typeLabel, useEconomy, useSpecMeta, versionLabel, yearsLabel, type CatalogDetail, type CatalogHit, type CatalogSearch, type FeaturedList, type GuideCard, type GuideModel, type GuideTip, type PublicOpinion, type SpecMeta, type Specs } from '../guide';
 
 /* ========================================================================== */
 /*  /veiculos — busca                                                          */
 /* ========================================================================== */
 interface PlateResult { vehicle: { plate: string; brand: string | null; model: string | null; year: number | null; fuel: string | null }; matches: Array<{ slug: string; brand: string; name: string; versions: Array<{ id: string; name: string; yearModel: number | null; sameYear: boolean }> }> }
-
-const QUICK: Array<{ key: string; label: string; params: { type?: string; body?: string } }> = [
-  { key: '', label: 'Todos', params: {} },
-  { key: 'hatch', label: 'Hatch', params: { type: 'CAR', body: 'Hatch' } },
-  { key: 'sedan', label: 'Sedã', params: { type: 'CAR', body: 'Sedã' } },
-  { key: 'suv', label: 'SUV', params: { type: 'CAR', body: 'SUV' } },
-  { key: 'pickup', label: 'Picape', params: { type: 'CAR', body: 'Picape' } },
-  { key: 'moto', label: 'Motos', params: { type: 'MOTORCYCLE' } },
-  { key: 'truck', label: 'Caminhões', params: { type: 'TRUCK' } }
-];
 
 const TOOLS: Array<{ to: string; icon: 'bar-chart' | 'zap' | 'calculator' | 'search' | 'dollar'; title: string; text: string }> = [
   { to: '/comparar', icon: 'bar-chart', title: 'Comparar versões', text: 'Dois ou três carros lado a lado' },
@@ -39,9 +30,6 @@ export function GuideHome() {
   const [mode, setMode] = useState<'model' | 'plate'>('model');
   const [search, setSearch] = useState(params.get('q') ?? '');
   const [debounced, setDebounced] = useState(search.trim());
-  const [brand, setBrand] = useState('');
-  const [quick, setQuick] = useState('');
-  const [brands, setBrands] = useState<Array<{ brand: string; total: number }>>([]);
   const [featured, setFeatured] = useState<FeaturedList[] | null>(null);
   const [tab, setTab] = useState<FeaturedList['key']>('FROTA');
   const [items, setItems] = useState<GuideCard[]>([]);
@@ -55,34 +43,32 @@ export function GuideHome() {
   const { items: economy } = useEconomy();
   const PAGE = 12;
 
-  useEffect(() => { api.get<{ brands: Array<{ brand: string; total: number }> }>('/vehicles/brands').then((r) => setBrands(r.brands), () => undefined); }, []);
   useEffect(() => { api.get<{ tips: GuideTip[] }>('/vehicles/tips', { query: { limit: 30 } }).then((r) => setTips(r.tips), () => undefined); }, []);
   useEffect(() => { api.get<{ lists: FeaturedList[] }>('/vehicles/featured').then((r) => setFeatured(r.lists), () => setFeatured([])); }, []);
   useEffect(() => { const t = setTimeout(() => setDebounced(search.trim()), 300); return () => clearTimeout(t); }, [search]);
 
-  const filtersOn = Boolean(debounced || brand || quick);
+  const filtersOn = Boolean(debounced);
   const load = useCallback(async (offset: number) => {
     if (!filtersOn) { setItems([]); setTotal(0); setLoading(false); return; }
     setLoading(true); setError(null);
     try {
-      const qp = QUICK.find((x) => x.key === quick)?.params ?? {};
-      const r = await api.get<{ total: number; items: GuideCard[] }>('/vehicles', { query: { search: debounced, brand, type: qp.type ?? '', body: qp.body ?? '', sort: 'name', limit: PAGE, offset } });
+      const r = await api.get<{ total: number; items: GuideCard[] }>('/vehicles', { query: { search: debounced, sort: 'name', limit: PAGE, offset } });
       setTotal(r.total); setItems((prev) => (offset ? [...prev, ...r.items] : r.items));
     } catch (e) { setError(e); } finally { setLoading(false); }
-  }, [debounced, brand, quick, filtersOn]);
+  }, [debounced, filtersOn]);
   useEffect(() => { void load(0); }, [load]);
 
   // Frota do Senatran: só quando há texto (filtros de marca/tipo valem apenas para as fichas do guia).
   useEffect(() => {
     setFleetDone(false);
-    if (debounced.length < 2 || brand || quick) { setFleetHits([]); return; }
+    if (debounced.length < 2) { setFleetHits([]); return; }
     let alive = true;
     api.get<CatalogSearch>('/vehicles/catalog/search', { query: { q: debounced, limit: 20 } }).then((r) => { if (alive) { setFleetHits(r.items.filter((h) => !h.guide)); setFleetDone(true); } }, () => { if (alive) { setFleetHits([]); setFleetDone(true); } });
     return () => { alive = false; };
-  }, [debounced, brand, quick]);
+  }, [debounced]);
 
-  const nothing = filtersOn && !loading && !error && !items.length && (brand || quick ? true : fleetDone && !fleetHits.length);
-  useEffect(() => { if (nothing && debounced.length >= 3 && !brand && !quick) logInterest({ type: 'SEARCH_NO_RESULT', term: debounced }); }, [nothing, debounced, brand, quick]);
+  const nothing = filtersOn && !loading && !error && !items.length && (fleetDone && !fleetHits.length);
+  useEffect(() => { if (nothing && debounced.length >= 3) logInterest({ type: 'SEARCH_NO_RESULT', term: debounced }); }, [nothing, debounced]);
 
   const tipList = tips.filter((t) => !tipCat || t.category === tipCat);
   const tipCats = useMemo(() => [...new Map(tips.map((t) => [t.category, t.categoryLabel])).entries()], [tips]);
@@ -99,18 +85,7 @@ export function GuideHome() {
           <div className="guide-search card card-pad stack">
             <Tabs label="Forma de busca" value={mode} onChange={setMode} items={[{ id: 'model', label: 'Por modelo' }, { id: 'plate', label: 'Por placa' }]} />
             {mode === 'model' ? (
-              <>
-                <Input icon="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Digite a marca ou o modelo: Onix, Gol, Civic, CG 160…" aria-label="Buscar veículo" maxLength={80} />
-                <details className="guide-more-filters" open={Boolean(brand || quick)}>
-                  <summary><Icon name="filter" size={15} /> Filtrar fichas do guia por marca ou tipo</summary>
-                  <div className="guide-filters" style={{ marginTop: 10 }}>
-                    <Select value={brand} onChange={(e) => setBrand(e.target.value)} aria-label="Marca"><option value="">Todas as marcas</option>{brands.map((b) => <option key={b.brand} value={b.brand}>{b.brand} ({b.total})</option>)}</Select>
-                  </div>
-                  <div className="chips" role="group" aria-label="Tipo de veículo" style={{ marginTop: 10 }}>
-                    {QUICK.map((q) => <button key={q.key} type="button" className="chip" aria-pressed={quick === q.key} onClick={() => setQuick(q.key)}>{q.label}</button>)}
-                  </div>
-                </details>
-              </>
+              <GuideFinder typed={search} onTyped={setSearch} onPicked={() => undefined} />
             ) : <PlateSearch authed={status === 'authed'} />}
           </div>
         </div>
@@ -124,7 +99,7 @@ export function GuideHome() {
               {loading && !items.length && <div className="guide-grid"><Skeleton h={170} r={20} /><Skeleton h={170} r={20} /><Skeleton h={170} r={20} /></div>}
               {items.length > 0 && (
                 <>
-                  <div className="between"><h2 style={{ fontSize: 22 }}>Fichas no guia <span className="muted" style={{ fontSize: 15, fontWeight: 500 }}>({total})</span></h2><Button size="sm" onClick={() => { setSearch(''); setBrand(''); setQuick(''); }}>Limpar busca</Button></div>
+                  <div className="between"><h2 style={{ fontSize: 22 }}>Fichas no guia <span className="muted" style={{ fontSize: 15, fontWeight: 500 }}>({total})</span></h2><Button size="sm" onClick={() => setSearch('')}>Limpar busca</Button></div>
                   <div className="guide-grid">{items.map((m) => <ModelCard key={m.slug} m={m} />)}</div>
                   {items.length < total && <div style={{ textAlign: 'center' }}><Button loading={loading} onClick={() => void load(items.length)}>Ver mais fichas</Button></div>}
                 </>
@@ -138,7 +113,7 @@ export function GuideHome() {
               )}
               {nothing && (
                 <EmptyState icon="car" title="Nenhum veículo encontrado">
-                  {brand || quick ? 'Tente outro nome ou limpe os filtros.' : 'Confira a grafia, tente só a marca ou só o modelo. Anotamos as buscas sem resultado para ampliar o guia.'}
+                  Confira a grafia ou tente só a marca ou só o modelo.
                 </EmptyState>
               )}
             </div>

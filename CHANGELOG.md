@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.2 — Guia de veículos: filtro por marca, modelo, versão e ano
+
+- `/veiculos`: selects Marca → Modelo → Versão → Ano alimentados pela tabela FIPE (carros, motos e caminhões), além do campo para digitar o nome (com sugestões). Ao escolher a versão aparece a ficha do guia, quando existe, e ao escolher o ano, o valor, com atalhos para simular o financiamento (já com o valor) e consultar a placa.
+- API: `GET /api/vehicles/fipe-match` liga o nome da FIPE à ficha (marca + começo do modelo, palavra inteira).
+- Migração 036: descrição do Civic só com o que Inmetro e Honda informam (consumo PBEV 2024 e suspensão). `npm run db:rollback -- 10` reverte 027 a 036.
+
 ## 1.10.0 — Integrações preparadas, contratos, fiscal, e-mail seguro, chat de suporte e depoimentos
 
 Nada aqui liga cobrança, consulta paga ou emissão real por conta própria: tudo nasce desligado e só funciona com credenciais e decisões registradas em `PENDENCIAS-PRODUCAO.md`. Migrações 027 a 035 (todas com `down`; `npm run db:rollback -- 9` reverte as nove).

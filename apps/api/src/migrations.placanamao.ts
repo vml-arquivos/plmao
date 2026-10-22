@@ -1,6 +1,6 @@
 import type { Migration } from './migrations.js';
 import { SEED_SOURCE, VEHICLE_SEED } from './data/vehicleSeed.js';
-import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL, INMETRO_NAME, INMETRO_PBEV_2024_URL, COLLECTED_AT, type ConsumptionSeed } from './data/consumptionSeed.js';
+import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL, CIVIC_SUMMARY, INMETRO_NAME, INMETRO_PBEV_2024_URL, COLLECTED_AT, type ConsumptionSeed } from './data/consumptionSeed.js';
 import { VEHICLE_PHOTOS, photoPage, photoUrl } from './data/vehiclePhotos.js';
 import { readBundledSnapshot, upsertCatalog, rematchCatalog } from './lib/catalog.js';
 import { FINANCING_FAQS, SEED_ARTICLES, SUPPORT_FAQS, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
@@ -1296,6 +1296,16 @@ export const placaMigrations: Migration[] = [
     },
     down: async (client) => {
       for (const f of SUPPORT_FAQS) await client.query('DELETE FROM faqs WHERE question=$1 AND answer=$2', [f.question, f.answer]);
+    }
+  },
+  {
+    id: '036_civic_summary',
+    name: 'Guia de veículos: descrição do Civic com o que as fontes informam',
+    up: async (client) => {
+      await client.query(`UPDATE vehicle_models SET summary=$1, updated_at=now() WHERE slug='honda-civic' AND summary=''`, [CIVIC_SUMMARY]);
+    },
+    down: async (client) => {
+      await client.query(`UPDATE vehicle_models SET summary='', updated_at=now() WHERE slug='honda-civic' AND summary=$1`, [CIVIC_SUMMARY]);
     }
   }
 ];

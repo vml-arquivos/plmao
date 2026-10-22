@@ -96,7 +96,14 @@ publicVehiclesRouter.get('/vehicles', asyncRoute(async (req, res) => {
   for (const token of (q.data.search ?? '').split(/\s+/).filter(Boolean).slice(0, 5)) {
     add((p) => `(m.brand ILIKE ${p} OR m.name ILIKE ${p} OR coalesce(m.body_type,'') ILIKE ${p} OR EXISTS (SELECT 1 FROM vehicle_versions v WHERE v.model_id=m.id AND v.active AND v.name ILIKE ${p}))`, `%${token.replace(/[%_\\]/g, '\\$&')}%`);
   }
-  const order = q.data.sort === 'rating' ? 'rating_avg DESC NULLS LAST, rating_count DESC, m.brand, m.name' : q.data.sort === 'recent' ? 'm.updated_at DESC' : 'm.brand, m.name';
+  const { rows, total } = await queryCards(where, params, q.data.sort, q.data.limit, q.data.offset);
+  res.setHeader('Cache-Control', 'public, max-age=30');
+  res.json({ total, items: rows.map(cardJson) });
+}));
+
+/** Cartões do guia (lista e correspondência com a FIPE usam a mesma consulta). */
+async function queryCards(where: string[], params: unknown[], sort: string, limit: number, offset: number) {
+  const order = sort === 'rating' ? 'rating_avg DESC NULLS LAST, rating_count DESC, m.brand, m.name' : sort === 'recent' ? 'm.updated_at DESC' : 'm.brand, m.name';
   const base = `FROM vehicle_models m LEFT JOIN (SELECT model_id, count(*)::int AS rating_count, round(avg(rating)::numeric,1) AS rating_avg FROM vehicle_opinions WHERE status='APPROVED' GROUP BY model_id) r ON r.model_id=m.id
     LEFT JOIN LATERAL (SELECT v.fuel, v.specs FROM vehicle_versions v WHERE v.model_id=m.id AND v.active ORDER BY v.year_model DESC NULLS LAST, v.display_order, v.name LIMIT 1) fv ON true
     WHERE ${where.join(' AND ')}`;
@@ -107,19 +114,39 @@ publicVehiclesRouter.get('/vehicles', asyncRoute(async (req, res) => {
         coalesce(r.rating_count,0) AS rating_count, r.rating_avg, fv.fuel AS top_fuel, fv.specs AS top_specs,
         EXISTS (SELECT 1 FROM vehicle_consumption_obs o WHERE o.model_id=m.id AND o.status='CONFERIDO') AS has_official
         ${base}
-        ORDER BY ${order} LIMIT ${q.data.limit} OFFSET ${q.data.offset}`, params),
+        ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`, params),
     pool.query(`SELECT count(*)::int AS n ${base}`, params)
   ]);
-  res.setHeader('Cache-Control', 'public, max-age=30');
-  res.json({
-    total: Number(total.rows[0]?.n ?? 0),
-    items: rows.rows.map((m) => ({
-      slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
-      summary: m.summary, imageUrl: m.image_url, imageCredit: m.image_credit ?? null, imageLicense: m.image_license ?? null, imageSourceUrl: m.image_source_url ?? null, fleet: m.fleet === null ? null : Number(m.fleet), versions: Number(m.versions), ratingCount: Number(m.rating_count), ratingAverage: num(m.rating_avg),
-      fuel: m.top_fuel ?? null, officialConsumption: Boolean(m.has_official),
-      quick: { cityGasKml: num(m.top_specs?.cons_city_gas_kml), cityEthKml: num(m.top_specs?.cons_city_eth_kml), cityDieselKml: num(m.top_specs?.cons_city_diesel_kml), powerHp: num(m.top_specs?.power_hp), trunkL: num(m.top_specs?.trunk_l) }
-    }))
-  });
+  return { rows: rows.rows, total: Number(total.rows[0]?.n ?? 0) };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const cardJson = (m: any) => ({
+  slug: m.slug, brand: m.brand, name: m.name, vehicleType: m.vehicle_type, bodyType: m.body_type, yearFrom: m.year_from, yearTo: m.year_to,
+  summary: m.summary, imageUrl: m.image_url, imageCredit: m.image_credit ?? null, imageLicense: m.image_license ?? null, imageSourceUrl: m.image_source_url ?? null, fleet: m.fleet === null ? null : Number(m.fleet), versions: Number(m.versions), ratingCount: Number(m.rating_count), ratingAverage: num(m.rating_avg),
+  fuel: m.top_fuel ?? null, officialConsumption: Boolean(m.has_official),
+  quick: { cityGasKml: num(m.top_specs?.cons_city_gas_kml), cityEthKml: num(m.top_specs?.cons_city_eth_kml), cityDieselKml: num(m.top_specs?.cons_city_diesel_kml), powerHp: num(m.top_specs?.power_hp), trunkL: num(m.top_specs?.trunk_l) }
+});
+
+/** "GM - Chevrolet" → "chevrolet", "VW - VolksWagen" → "volkswagen": só para comparar nomes da FIPE com as fichas. */
+const brandKey = (v: string) => normalizeCatalog(v.replace(/^[A-Za-z]{2,4}\s+-\s+/, '')).replace(/\s+/g, '');
+
+/**
+ * Ficha do guia que corresponde a um veículo da FIPE (marca + modelo com versão, ex.: "HB20 1.0 Comfort Plus 12V Flex").
+ * Casa a marca e o nome do modelo no começo do nome da FIPE; sem correspondência segura, devolve lista vazia.
+ */
+publicVehiclesRouter.get('/vehicles/fipe-match', asyncRoute(async (req, res) => {
+  const brand = typeof req.query.brand === 'string' ? req.query.brand.slice(0, 80) : '';
+  const model = typeof req.query.model === 'string' ? req.query.model.slice(0, 120) : '';
+  if (!brand.trim() || !model.trim()) throw bad();
+  const bk = brandKey(brand);
+  const mk = ` ${normalizeCatalog(model)} `;
+  const all = await pool.query(`SELECT m.id, m.brand, m.name FROM vehicle_models m WHERE ${PUBLISHED}`);
+  const ids = all.rows.filter((r) => brandKey(String(r.brand)) === bk && mk.startsWith(` ${normalizeCatalog(String(r.name))} `)).map((r) => r.id as string);
+  if (!ids.length) { res.json({ items: [] }); return; }
+  const { rows } = await queryCards([PUBLISHED, 'm.id = ANY($1::uuid[])'], [ids], 'name', 5, 0);
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  res.json({ items: rows.map(cardJson) });
 }));
 
 /**

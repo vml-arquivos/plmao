@@ -768,6 +768,20 @@
 .vpicker-list li.empty:hover, .vpicker-list li.foot:hover { background: transparent; }
 .vpicker-picked { margin: 8px 0 0; font-size: 13.5px; color: var(--text-2); }
 
+/* Filtro do guia: marca, modelo, versão e ano */
+.finder { display: grid; gap: 12px; }
+.finder-types { display: flex; flex-wrap: wrap; gap: 8px; }
+.finder-selects { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 860px) { .finder-selects { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 480px) { .finder-selects { grid-template-columns: 1fr; } }
+.finder-result { display: grid; gap: 14px; padding: 16px; border-radius: 18px; background: var(--surface-2, #f3f6fb); border: 1px solid var(--border); }
+.finder-result-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; }
+.finder-result-head h2 { font-size: 24px; line-height: 1.15; margin: 4px 0 0; }
+.finder-result-head p { margin: 2px 0 0; }
+.finder-price { display: grid; gap: 2px; min-width: 180px; text-align: right; }
+.finder-price b { font-size: 30px; line-height: 1.1; }
+@media (max-width: 560px) { .finder-price { text-align: left; } }
+
 /* Escolha do veículo (simulador) */
 .fipe-pick { display: grid; gap: 10px; }
 .fipe-selects { display: grid; gap: 8px; }

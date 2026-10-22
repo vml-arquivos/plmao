@@ -102,6 +102,16 @@ describe('guia de veículos: API pública e painel', integration, () => {
     assert.ok(list.json.items.some((i) => i.brand === 'TESTE Hyundai'));
   });
 
+  it('fipe-match liga o nome da FIPE à ficha (marca e começo do modelo) e a ficha do Civic tem descrição', async () => {
+    const hit = await pub('/api/vehicles/fipe-match?brand=Honda&model=Civic Sedan Hybrid 2.0 16V');
+    assert.equal(hit.status, 200);
+    assert.deepEqual(hit.json.items.map((i) => i.slug), ['honda-civic']);
+    assert.match(hit.json.items[0].summary, /18,3 km\/l/);
+    assert.deepEqual((await pub('/api/vehicles/fipe-match?brand=GM - Chevrolet&model=Civic 2.0')).json.items, []);
+    assert.deepEqual((await pub('/api/vehicles/fipe-match?brand=Honda&model=Civics 2.0')).json.items, []); // palavra inteira, não prefixo
+    assert.equal((await pub('/api/vehicles/fipe-match?brand=Honda')).status, 400);
+  });
+
   it('publicar libera busca por texto, marca e tipo; visitante vê só o resumo da ficha', async () => {
     assert.equal((await cont.call(`/api/admin/vehicles/${modelA}`, { method: 'PATCH', body: { status: 'PUBLISHED' } })).status, 200);
     const byText = await pub('/api/vehicles?search=tracker premier');
