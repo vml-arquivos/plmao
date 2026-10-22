@@ -34,6 +34,7 @@ export const GROUPS: Array<{ title: string; items: NavItem[] }> = [
     { to: '/guia', label: 'Guia de veículos', icon: 'car', perm: 'MANAGE_CONTENT' },
     { to: '/faq', label: 'Perguntas frequentes', icon: 'info', perm: 'MANAGE_CONTENT' },
     { to: '/depoimentos', label: 'Depoimentos', icon: 'users', perm: 'MANAGE_CONTENT' },
+    { to: '/integracoes', label: 'Integrações', icon: 'settings', perm: 'MANAGE_PROVIDERS' },
     { to: '/artigos', label: 'Artigos e blog', icon: 'file-text', perm: 'MANAGE_CONTENT' }
   ] },
   { title: 'Sistema', items: [

@@ -3,7 +3,7 @@ import { SEED_SOURCE, VEHICLE_SEED } from './data/vehicleSeed.js';
 import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL, INMETRO_NAME, INMETRO_PBEV_2024_URL, COLLECTED_AT, type ConsumptionSeed } from './data/consumptionSeed.js';
 import { VEHICLE_PHOTOS, photoPage, photoUrl } from './data/vehiclePhotos.js';
 import { readBundledSnapshot, upsertCatalog, rematchCatalog } from './lib/catalog.js';
-import { FINANCING_FAQS, SEED_ARTICLES, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
+import { FINANCING_FAQS, SEED_ARTICLES, SUPPORT_FAQS, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
 
 /**
  * Migrações do produto Placa na Mão (010+): configurações de pagamento, comissões/repasses,
@@ -1282,5 +1282,20 @@ export const placaMigrations: Migration[] = [
       `);
     },
     down: async (client) => { await client.query('DROP TABLE IF EXISTS testimonial_events; DROP TABLE IF EXISTS testimonials;'); }
+  },
+  {
+    id: '035_support_faqs',
+    name: 'Perguntas e respostas do atendimento (chat)',
+    up: async (client) => {
+      const max = await client.query('SELECT coalesce(max(display_order),0) AS m FROM faqs');
+      let order = Number(max.rows[0].m) + 10;
+      for (const f of SUPPORT_FAQS) {
+        const r = await client.query('INSERT INTO faqs(category,question,answer,display_order) SELECT $1,$2,$3,$4 WHERE NOT EXISTS (SELECT 1 FROM faqs WHERE question=$2)', [f.category, f.question, f.answer, order]);
+        if (r.rowCount) order += 10;
+      }
+    },
+    down: async (client) => {
+      for (const f of SUPPORT_FAQS) await client.query('DELETE FROM faqs WHERE question=$1 AND answer=$2', [f.question, f.answer]);
+    }
   }
 ];

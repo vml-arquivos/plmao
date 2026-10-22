@@ -76,3 +76,8 @@ export async function sendMailRaw(mail: OutgoingMail): Promise<{ messageId: stri
 }
 
 export { escapeHtml };
+
+/** Confere host, porta e credenciais SMTP sem enviar nada. */
+export async function verifyEmailTransport(): Promise<void> {
+  await getTransporter().verify();
+}

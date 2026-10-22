@@ -66,7 +66,7 @@ export async function processOutbox(opts: { limit?: number; sender?: Sender } = 
       const token = payload.tokenEnc ? String(decryptRaw(payload.tokenEnc)) : undefined;
       const mail = renderEmail(row.template as EmailTemplateName, { ...(payload.data as TemplateData), ...(token ? { token } : {}) });
       const domain = (env.EMAIL_FROM.match(/@([^>\s]+)/)?.[1] ?? 'placanamao.com.br');
-      const sent = await sender({ to: row.to_email, ...mail, messageId: `<outbox-${row.id}@${domain}>` });
+      const sent = await sender({ to: row.to_email, ...mail, messageId: `<outbox-${row.id}@${domain}>`, headers: { 'X-Mailin-custom': `outbox-${row.id}` } });
       await pool.query(`UPDATE email_outbox SET status='ENVIADO',sent_at=now(),locked_at=NULL,last_error=NULL,message_id=$2,payload=payload - 'tokenEnc',updated_at=now() WHERE id=$1`, [row.id, sent.messageId || null]);
       await event(row.id, 'ENVIADO', { attempt: row.attempts });
       result.sent += 1;
@@ -125,6 +125,26 @@ export async function applyDeliveryEvent(messageId: string, kind: 'delivered' | 
      WHERE message_id=$1 AND status IN ('ENVIADO','ENTREGUE','BOUNCED') RETURNING id`, [messageId, status, (reason ?? kind).slice(0, 300)]);
   if (!r.rowCount) return false;
   await event(r.rows[0].id, kind === 'delivered' ? 'ENTREGUE' : kind === 'bounced' ? 'BOUNCED' : 'RECLAMACAO', { reason: reason ?? null });
+  return true;
+}
+
+const UUID_RE = /^outbox-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const BREVO_KIND: Record<string, 'delivered' | 'bounced' | 'complained' | 'soft'> = { delivered: 'delivered', hard_bounce: 'bounced', hardBounce: 'bounced', blocked: 'bounced', invalid_email: 'bounced', invalid: 'bounced', spam: 'complained', soft_bounce: 'soft', softBounce: 'soft' };
+
+/** Evento de webhook transacional do Brevo. Localiza o envio pelo cabeçalho X-Mailin-custom (outbox-<id>) ou pelo message-id. */
+export async function applyBrevoEvent(p: Record<string, unknown>): Promise<boolean> {
+  const kind = BREVO_KIND[String(p.event ?? '')];
+  if (!kind) return false;
+  const reason = typeof p.reason === 'string' ? p.reason.slice(0, 300) : undefined;
+  const custom = typeof p['X-Mailin-custom'] === 'string' ? UUID_RE.exec(p['X-Mailin-custom'].trim())?.[1] : undefined;
+  const mid = typeof p['message-id'] === 'string' ? p['message-id'].trim() : '';
+  const ids = mid ? [mid, mid.startsWith('<') ? mid : `<${mid}>`, mid.replace(/^<|>$/g, '')] : [];
+  const row = await pool.query(`SELECT id FROM email_outbox WHERE status IN ('ENVIADO','ENTREGUE','BOUNCED') AND (($1::uuid IS NOT NULL AND id=$1::uuid) OR message_id = ANY($2::text[])) LIMIT 1`, [custom ?? null, ids]);
+  if (!row.rowCount) return false;
+  if (kind === 'soft') { await event(row.rows[0].id, 'SOFT_BOUNCE', { reason: reason ?? null }); return true; }
+  const status = kind === 'delivered' ? 'ENTREGUE' : 'BOUNCED';
+  await pool.query(`UPDATE email_outbox SET status=$2,delivered_at=CASE WHEN $2='ENTREGUE' THEN now() ELSE delivered_at END,last_error=CASE WHEN $2='BOUNCED' THEN $3 ELSE last_error END,updated_at=now() WHERE id=$1 AND NOT ($2='ENTREGUE' AND status='BOUNCED')`, [row.rows[0].id, status, (reason ?? String(p.event)).slice(0, 300)]);
+  await event(row.rows[0].id, kind === 'delivered' ? 'ENTREGUE' : kind === 'bounced' ? 'BOUNCED' : 'RECLAMACAO', { reason: reason ?? null, provider: 'brevo' });
   return true;
 }
 

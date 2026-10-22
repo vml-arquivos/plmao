@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { env, publicAppUrl } from '../config.js';
 import { pool, tx } from '../db.js';
 import { documentKind, onlyDigits } from './br.js';
-import { CONTRACT_VARIABLES } from './contractModels.js';
+import { CONTRACT_VARIABLES, CONTRACT_VARIABLE_DOCS } from './contractModels.js';
 import { appError } from './http.js';
 import { enqueueEmail } from './emailOutbox.js';
 import { consumeSecureLink, createSecureLink, peekSecureLink, revokeSecureLinks } from './secureLinks.js';
@@ -110,6 +110,36 @@ async function contractor(db: Pick<PoolClient, 'query'> = pool) {
 
 const fmtDoc = (d: string) => d.length === 14 ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
 
+const UNITS = ['zero', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove'];
+const TENS = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa'];
+const HUND = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos'];
+function below1000(n: number): string {
+  if (n === 100) return 'cem';
+  const h = Math.floor(n / 100); const r = n % 100; const parts: string[] = [];
+  if (h) parts.push(HUND[h]!);
+  if (r) parts.push(r < 20 ? UNITS[r]! : `${TENS[Math.floor(r / 10)]}${r % 10 ? ` e ${UNITS[r % 10]}` : ''}`);
+  return parts.join(' e ');
+}
+function integerWords(n: number): string {
+  if (n === 0) return 'zero';
+  if (n >= 1_000_000) {
+    const mi = Math.floor(n / 1_000_000); const rest = n % 1_000_000;
+    return `${integerWords(mi)} ${mi === 1 ? 'milhão' : 'milhões'}${rest ? (rest < 100 || (rest < 1000 && rest % 100 === 0) || (rest % 1000 === 0 && rest / 1000 < 100) ? ' e ' : ' ') + integerWords(rest) : ''}`;
+  }
+  const mil = Math.floor(n / 1000); const rest = n % 1000; const parts: string[] = [];
+  if (mil) parts.push(mil === 1 ? 'mil' : `${integerWords(mil)} mil`);
+  if (rest) parts.push(below1000(rest));
+  return parts.join(rest && (rest < 100 || rest % 100 === 0) ? ' e ' : ' ');
+}
+/** 180000 -> "mil e oitocentos reais". Até 999.999.999 centavos; acima disso devolve só o número. */
+export function brlExtenso(cents: number): string {
+  if (!Number.isFinite(cents) || cents < 0 || cents > 99_999_999_900) return '';
+  const reais = Math.floor(cents / 100); const c = cents % 100;
+  const r = reais ? `${integerWords(reais)} ${reais === 1 ? 'real' : 'reais'}` : '';
+  const cs = c ? `${integerWords(c)} ${c === 1 ? 'centavo' : 'centavos'}` : '';
+  return [r, cs].filter(Boolean).join(' e ') || 'zero reais';
+}
+
 export function renderBody(body: string, vars: Record<string, string>): string {
   return body.replace(/\{\{\s*([a-zA-Z_.]+)\s*\}\}/g, (_m, key: string) => {
     if (!(key in vars)) throw err(`CONTRACT_VARIABLE_UNKNOWN:${key}`);
@@ -125,6 +155,27 @@ export const sha256 = (s: string) => createHash('sha256').update(s).digest('hex'
 // ---------------------------------------------------------------- criação
 
 export interface CreateInput { templateCode: ContractKind; userId?: string; organizationId?: string; affiliateId?: string; document?: string; signer: { name: string; email: string }; terms: Terms; parentContractId?: string }
+
+function computedVars(resolved: ResolvedTerms, input: CreateInput, now: Date, holdDays: number): Record<string, string> {
+  const custom = resolved.items.filter((i) => i.type === 'CUSTOM');
+  const total = custom.reduce((a, i) => a + (i.totalCents ?? 0), 0);
+  const gross = custom.reduce((a, i) => a + (i.basePriceCents ?? 0) * (i.quantity ?? 0), 0);
+  const c = resolved.commission;
+  return {
+    data_extenso: now.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: 'numeric', month: 'long', year: 'numeric' }),
+    observacoes: input.terms.notes ?? '',
+    'signatario.nome': input.signer.name, 'signatario.email': input.signer.email,
+    'valor.total': brl(total), 'valor.total_extenso': brlExtenso(total), 'desconto.total': brl(Math.max(0, gross - total)),
+    'itens.quantidade': String(resolved.items.length),
+    'vigencia.meses': String(input.terms.validityMonths), renovacao: input.terms.autoRenew ? 'com renovação automática por igual período' : 'sem renovação automática',
+    'comissao.percentual': c ? pct(c.bps) : 'não se aplica', 'comissao.base': c ? BASE[c.base]! : 'não se aplica', 'comissao.prazo_dias': String(holdDays)
+  };
+}
+
+/** Dados fictícios para pré-visualizar uma minuta antes de criar contratos. */
+export function sampleVars(): Record<string, string> {
+  return Object.fromEntries(CONTRACT_VARIABLE_DOCS.map((v) => [v.key, v.example]));
+}
 
 async function assemble(input: CreateInput, db: Pick<PoolClient, 'query'>, number: string) {
   const tpl = await db.query(`SELECT v.id,v.title,v.body,t.kind FROM contract_templates t JOIN contract_template_versions v ON v.template_id=t.id AND v.status='PUBLISHED' WHERE t.code=$1`, [input.templateCode]);
@@ -155,7 +206,8 @@ async function assemble(input: CreateInput, db: Pick<PoolClient, 'query'>, numbe
     'contratada.nome': me.name, 'contratada.documento': fmtDoc(me.document), 'contratada.endereco': me.address,
     'contratante.nome': party.name, 'contratante.documento': fmtDoc(party.document), 'contratante.endereco': party.address || 'não informado', 'contratante.email': input.signer.email,
     condicoes_comerciais: d.conditions, vigencia: `Vigência de ${input.terms.validityMonths} mês(es) a partir da assinatura${input.terms.autoRenew ? ', renovável automaticamente por igual período salvo aviso em contrário' : ', sem renovação automática'}.`,
-    pagamento: input.terms.paymentTerms, comissao: d.commission, contrato_original: parentNumber || 'não se aplica'
+    pagamento: input.terms.paymentTerms, comissao: d.commission, contrato_original: parentNumber || 'não se aplica',
+    ...computedVars(resolved, input, now, hold)
   };
   const title = renderBody(tpl.rows[0].title, vars);
   const text = `${title}\n\n${renderBody(tpl.rows[0].body, vars)}${input.terms.notes ? `\n\nObservações: ${input.terms.notes}` : ''}`;

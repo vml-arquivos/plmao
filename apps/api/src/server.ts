@@ -57,6 +57,7 @@ import { adminFiscalQueueRouter, fiscalPublicRouter } from './routes/adminFiscal
 import { startFiscalWorker } from './lib/fiscal.js';
 import { supportAdminRouter, supportClientRouter } from './routes/support.js';
 import { testimonialsAdminRouter, testimonialsRouter } from './routes/testimonials.js';
+import { adminIntegrationsRouter } from './routes/adminIntegrations.js';
 import { startEmailWorker } from './lib/emailOutbox.js';
 import { apiKeyAuth, apiKeyRateLimit, apiKeysRouter, requirePublicApiEnabled } from './routes/apiKeys.js';
 import { simulatorRouter } from './routes/simulator.js';
@@ -95,6 +96,7 @@ api.use('/fiscal', fiscalPublicRouter);
 api.use('/admin', supportAdminRouter);
 api.use('/support', supportClientRouter);
 api.use('/admin', testimonialsAdminRouter);
+api.use('/admin', adminIntegrationsRouter);
 api.use('/testimonials', testimonialsRouter);
 api.use('/contracts', contractsPublicRouter);
 api.use('/account', accountCnpjRouter);
@@ -2427,6 +2429,9 @@ function parseOAuthProvider(value: string): OAuthProvider {
 
 function humanMessage(code: string): string {
   const messages: Record<string, string> = {
+    INTEGRATION_NOT_CONFIGURED: 'Esta integração ainda não está configurada. Preencha as chaves no ambiente e reinicie.',
+    INTEGRATION_CREDENTIALS_REJECTED: 'O serviço recusou as credenciais. Confira as chaves.',
+    INTEGRATION_UNREACHABLE: 'Não foi possível falar com o serviço agora. Tente novamente.',
     TESTIMONIAL_NOT_ELIGIBLE: 'Só clientes com uma consulta concluída ou um pagamento confirmado podem enviar depoimento.',
     TESTIMONIAL_CONTENT_INVALID: 'O texto não pode ter links, e-mails, telefones ou números de documento.',
     TESTIMONIAL_NOT_FOUND: 'Depoimento não encontrado.',

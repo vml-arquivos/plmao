@@ -55,10 +55,10 @@ export async function adminSession({ server, pool, role = 'SUPER_ADMIN', host = 
 }
 
 import http from 'node:http';
-export function hostRequest(base, path, { method = 'GET', body, token, host } = {}) {
+export function hostRequest(base, path, { method = 'GET', body, token, host, headers: extraHeaders = {} } = {}) {
   const url = new URL(base + path);
   return new Promise((resolve, reject) => {
-    const req = http.request({ hostname: url.hostname, port: url.port, path: url.pathname + url.search, method, headers: { 'content-type': 'application/json', ...(host ? { host } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) } }, (res) => {
+    const req = http.request({ hostname: url.hostname, port: url.port, path: url.pathname + url.search, method, headers: { 'content-type': 'application/json', ...extraHeaders, ...(host ? { host } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) } }, (res) => {
       let data = ''; res.on('data', (d) => { data += d; });
       res.on('end', () => { let json = null; try { json = data ? JSON.parse(data) : null; } catch { json = data; } resolve({ status: res.statusCode, json, text: data, headers: res.headers }); });
     });

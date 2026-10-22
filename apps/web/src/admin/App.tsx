@@ -21,6 +21,7 @@ import Simulator from './pages/Simulator';
 import Catalog from './pages/Catalog';
 import Faqs from './pages/Faqs';
 import Testimonials from './pages/Testimonials';
+import Integrations from './pages/Integrations';
 import VehicleGuide, { VehicleEdit } from './pages/Vehicles';
 import Articles from './pages/Articles';
 import Partners from './pages/Partners';
@@ -55,6 +56,7 @@ export default function App() {
         <Route path="guia/:id" element={<VehicleEdit />} />
         <Route path="faq" element={<Faqs />} />
         <Route path="depoimentos" element={<Testimonials />} />
+        <Route path="integracoes" element={<Integrations />} />
         <Route path="artigos" element={<Articles />} />
         <Route path="pagamentos" element={<Payments />} />
         <Route path="cupons" element={<Coupons />} />

@@ -57,17 +57,19 @@ export function matchFaq(message: string, faqs: Array<{ id: string; question: st
 
 export async function botReply(message: string, opts: { first: boolean }): Promise<BotReply> {
   const sens = sensitiveTopic(message);
-  if (sens) {
-    const credentials = sens.why === 'credenciais';
+  const credentials = sens?.why === 'credenciais';
+  if (sens && !credentials) {
     return {
       kind: 'HANDOFF', escalate: true, priority: sens.priority,
-      text: credentials
-        ? 'Por segurança, nunca envie senha, código de verificação ou dados de cartão por aqui. Encaminhei a conversa para uma pessoa da equipe.'
-        : 'Esse assunto precisa ser tratado por uma pessoa da equipe. Já encaminhei a conversa e você receberá a resposta aqui. O bot não faz reembolsos, não altera cobranças e não acessa dados da sua conta.'
+      text: 'Esse assunto precisa ser tratado por uma pessoa da equipe. Já encaminhei a conversa e você receberá a resposta aqui. O bot não faz reembolsos, não altera cobranças e não acessa dados da sua conta.'
     };
   }
   const faqs = (await pool.query('SELECT id,question,answer FROM faqs WHERE active=true ORDER BY display_order LIMIT 200')).rows as Array<{ id: string; question: string; answer: string }>;
   const hit = matchFaq(message, faqs);
+  if (credentials && !hit) {
+    return { kind: 'HANDOFF', escalate: true, priority: sens!.priority, text: 'Por segurança, nunca envie senha, código de verificação ou dados de cartão por aqui. Encaminhei a conversa para uma pessoa da equipe.' };
+  }
+  if (hit && credentials) return { kind: 'FAQ', escalate: false, faqId: hit.id, text: `${hit.answer}\n\nPor segurança, nunca envie senha, código de verificação ou dados de cartão por aqui. Se precisar de ajuda, ${HUMAN_HINT.charAt(0).toLowerCase()}${HUMAN_HINT.slice(1)}` };
   if (hit) return { kind: 'FAQ', escalate: false, faqId: hit.id, text: `${hit.answer}\n\nIsso resolveu? Se não, ${HUMAN_HINT.charAt(0).toLowerCase()}${HUMAN_HINT.slice(1)}` };
   return {
     kind: 'TRIAGE', escalate: false,

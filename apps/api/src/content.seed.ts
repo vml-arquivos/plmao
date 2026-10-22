@@ -251,3 +251,21 @@ A informação depende do que a fonte retorna para a placa e pode não cobrir to
 Não pague sinal sem antes conferir a placa, o documento e o carro. Se algo não bater, pause a negociação.`
   }
 ];
+
+/** Perguntas que mais chegam ao suporte. O assistente do chat responde SOMENTE com perguntas publicadas como estas. */
+export const SUPPORT_FAQS: Array<{ category: string; question: string; answer: string }> = [
+  { category: 'Atendimento', question: 'Como falar com uma pessoa da equipe?', answer: 'No chat, use o botão “Falar com uma pessoa”. A conversa passa para a equipe e a resposta chega aqui mesmo, no Suporte. Se preferir, escreva pela página de contato.' },
+  { category: 'Atendimento', question: 'Qual o horário de atendimento da equipe?', answer: 'A equipe responde as conversas pelo chat conforme a disponibilidade. Deixe sua mensagem com os detalhes: você é avisado por e-mail quando houver resposta.' },
+  { category: 'Conta', question: 'Esqueci minha senha. Como recupero o acesso?', answer: 'Na tela de entrada, use “Esqueci minha senha” e informe o e-mail da conta. Você recebe um link para criar uma nova senha. Se o e-mail não chegar, confira a caixa de spam.' },
+  { category: 'Conta', question: 'Como altero meu nome, telefone ou endereço cadastrado?', answer: 'Em Minha conta você edita nome, telefone, endereço e dados fiscais, e também troca a senha.' },
+  { category: 'Consultas', question: 'Onde vejo minhas consultas e baixo o PDF do relatório?', answer: 'Abra Histórico na sua área. Cada consulta concluída tem o relatório completo e o botão para baixar o PDF.' },
+  { category: 'Consultas', question: 'Como confirmo que um relatório é verdadeiro?', answer: 'Todo relatório tem um código de verificação. Em “Validar relatório”, digite o código para conferir se ele foi emitido pela Placa na Mão e os dados que constam nele.' },
+  { category: 'Consultas', question: 'Digitei a placa errada. O que faço?', answer: 'Confira a placa antes de pagar. Se já consultou, abra uma conversa com a equipe e informe a placa digitada e a correta; cada caso é analisado pela equipe.' },
+  { category: 'Consultas', question: 'O relatório mostra um dado que parece incorreto. Como informo?', answer: 'No relatório, use “Informar dado incorreto”. O pedido chega à equipe com a placa e o código de verificação para análise.' },
+  { category: 'Consultas', question: 'Minha consulta ficou processando. O que fazer?', answer: 'Aguarde alguns minutos e atualize o Histórico. Consultas que não concluem por falha técnica não consomem o valor. Se continuar parada, fale com uma pessoa informando a placa.' },
+  { category: 'Pagamento', question: 'Paguei com Pix e o pagamento ainda não apareceu. E agora?', answer: 'A confirmação do Pix costuma ser automática e rápida. Atualize a Carteira (aba Pagamentos). Se passar de alguns minutos, fale com uma pessoa e informe o horário do pagamento; a equipe confere.' },
+  { category: 'Pagamento', question: 'Como adiciono saldo e onde vejo meu extrato?', answer: 'Em Carteira você escolhe um pacote de saldo e acompanha o Extrato e os Pagamentos. O saldo é usado em qualquer consulta.' },
+  { category: 'Pagamento', question: 'Como obtenho o comprovante ou a nota do meu pagamento?', answer: 'Na Carteira, na aba Pagamentos, você vê cada pagamento com data, valor e situação. Para recibo ou nota fiscal, preencha seus dados fiscais em Minha conta e peça falando com uma pessoa da equipe.' },
+  { category: 'Empresas', question: 'Tenho uma loja ou empresa. Existe preço especial ou contrato?', answer: 'Sim, empresas podem ter condições combinadas e contrato. Fale com uma pessoa da equipe informando o CNPJ e o volume de consultas por mês.' },
+  { category: 'Parceiros', question: 'Como funciona o programa de parceiros e a comissão?', answer: 'O parceiro divulga seu link e recebe comissão sobre vendas pagas e confirmadas, depois do prazo de segurança. As regras valem conforme o contrato do parceiro. Fale com uma pessoa para se cadastrar.' }
+];

@@ -6,7 +6,7 @@ import { env } from '../config.js';
 import { pool } from '../db.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import * as C from '../lib/contracts.js';
-import { ensureContractModels, CONTRACT_VARIABLES } from '../lib/contractModels.js';
+import { ensureContractModels, CONTRACT_VARIABLES, CONTRACT_VARIABLE_DOCS } from '../lib/contractModels.js';
 import { requirePermission } from '../permissions.js';
 import { rateLimit } from 'express-rate-limit';
 
@@ -38,6 +38,17 @@ adminContractsRouter.get('/contract-model-versions/:id', view, asyncRoute(async 
 }));
 
 const versionBody = z.object({ title: z.string().trim().min(5).max(200), body: z.string().min(50).max(40000) }).strict();
+
+adminContractsRouter.get('/contract-variables', view, asyncRoute(async (_req, res) => { res.json({ items: CONTRACT_VARIABLE_DOCS }); }));
+
+/** Pré-visualiza uma minuta (ainda não salva) com dados fictícios; devolve também as variáveis desconhecidas. */
+adminContractsRouter.post('/contract-models/preview', manage, asyncRoute(async (req, res) => {
+  const b = versionBody.safeParse(req.body); if (!b.success) throw bad();
+  const unknown = C.unknownVariables(`${b.data.title}\n${b.data.body}`);
+  if (unknown.length) { res.json({ ok: false, unknown, text: '' }); return; }
+  const vars = C.sampleVars();
+  res.json({ ok: true, unknown: [], text: `${C.renderBody(b.data.title, vars)}\n\n${C.renderBody(b.data.body, vars)}` });
+}));
 
 adminContractsRouter.post('/contract-models/:id/versions', manage, asyncRoute(async (req, res) => {
   const b = versionBody.safeParse(req.body); if (!b.success) throw bad();

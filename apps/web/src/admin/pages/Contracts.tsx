@@ -199,6 +199,30 @@ function Models() {
     if (!edit) return;
     try { await api.patch(`/admin/contract-model-versions/${edit.id}`, { title: edit.title, body: edit.body }); toast.ok('Modelo salvo.'); setEdit(null); list.reload(); } catch (e) { toast.error(errorMessage(e)); }
   }
+  const vars = useAsync(() => api.get<{ items: Array<{ key: string; label: string; example: string; group: string }> }>('/admin/contract-variables'));
+  const [preview, setPreview] = useState<{ text: string; unknown: string[] } | null>(null);
+  function insertVar(key: string) {
+    if (!edit?.draft) return;
+    const el = document.getElementById('minuta-texto') as HTMLTextAreaElement | null;
+    const token = `{{${key}}}`;
+    const a = el?.selectionStart ?? edit.body.length; const b = el?.selectionEnd ?? a;
+    setEdit({ ...edit, body: edit.body.slice(0, a) + token + edit.body.slice(b) });
+    window.setTimeout(() => { el?.focus(); el?.setSelectionRange(a + token.length, a + token.length); }, 0);
+  }
+  async function runPreview() {
+    if (!edit) return;
+    try { const r = await api.post<{ ok: boolean; unknown: string[]; text: string }>('/admin/contract-models/preview', { title: edit.title, body: edit.body }); setPreview({ text: r.text, unknown: r.unknown }); } catch (e) { toast.error(errorMessage(e)); }
+  }
+  async function upload(t: Tpl, file: File | undefined) {
+    if (!file) return;
+    if (file.size > 200_000) { toast.error('Arquivo grande demais. Envie um texto de até 200 KB.'); return; }
+    try {
+      const text = (await file.text()).replace(/\r\n/g, '\n').trim();
+      const first = text.split('\n').find((l) => l.trim().length >= 5)?.replace(/^#+\s*/, '').trim().slice(0, 200);
+      await api.post(`/admin/contract-models/${t.id}/versions`, { title: first || t.name, body: text });
+      toast.ok('Minuta enviada como nova versão em rascunho.'); list.reload();
+    } catch (e) { toast.error(errorMessage(e)); }
+  }
   async function newVersion(t: Tpl) {
     try { const cur = await api.get<{ title: string; body: string }>(`/admin/contract-model-versions/${t.versions[0]!.id}`); await api.post(`/admin/contract-models/${t.id}/versions`, { title: cur.title, body: cur.body }); toast.ok('Nova versão criada.'); list.reload(); } catch (e) { toast.error(errorMessage(e)); }
   }
@@ -209,7 +233,7 @@ function Models() {
       <Alert tone="warn">{list.data?.notice} Os textos iniciais são minutas e não foram validados por advogado. Publicar exige aprovação de outra pessoa com a referência da revisão jurídica.</Alert>
       {(list.data?.items ?? []).map((t) => (
         <div key={t.id} className="card card-pad stack">
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><b>{t.name}</b>{can('MANAGE_CONTRACTS') && <Button variant="ghost" onClick={() => void newVersion(t)}>Nova versão</Button>}</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><b>{t.name}</b>{can('MANAGE_CONTRACTS') && <span style={{ display: 'flex', gap: 8 }}><label className="btn btn-ghost" style={{ position: 'relative', cursor: 'pointer' }}>Enviar minuta (.txt ou .md)<input type="file" accept=".txt,.md,text/plain,text/markdown" style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} onChange={(e) => { void upload(t, e.target.files?.[0]); e.target.value = ''; }} /></label><Button variant="ghost" onClick={() => void newVersion(t)}>Nova versão</Button></span>}</div>
           {t.versions.map((v) => (
             <div key={v.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <span>v{v.version}</span><Badge tone={v.status === 'PUBLISHED' ? 'ok' : v.status === 'RETIRED' ? 'neutral' : 'warn'}>{VSTATUS[v.status] ?? v.status}</Badge>
@@ -224,10 +248,14 @@ function Models() {
         </div>
       ))}
       {edit && (
-        <Modal title="Modelo de contrato" wide onClose={() => setEdit(null)} footer={<><Button variant="ghost" onClick={() => setEdit(null)}>Fechar</Button>{edit.draft && <Button variant="primary" onClick={() => void save()}>Salvar</Button>}</>}>
+        <Modal title="Modelo de contrato" wide onClose={() => { setEdit(null); setPreview(null); }} footer={<><Button variant="ghost" onClick={() => { setEdit(null); setPreview(null); }}>Fechar</Button><Button variant="ghost" onClick={() => void runPreview()}>Pré-visualizar com dados de exemplo</Button>{edit.draft && <Button variant="primary" onClick={() => void save()}>Salvar</Button>}</>}>
           <div className="stack">
             <Field label="Título"><Input value={edit.title} readOnly={!edit.draft} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></Field>
-            <Field label="Texto" hint="Variáveis entre chaves duplas, como {{contratante.nome}} e {{condicoes_comerciais}}."><Textarea rows={18} value={edit.body} readOnly={!edit.draft} onChange={(e) => setEdit({ ...edit, body: e.target.value })} /></Field>
+            <Field label="Texto" hint="Variáveis entre chaves duplas, como {{contratante.nome}} e {{condicoes_comerciais}}."><Textarea id="minuta-texto" rows={16} value={edit.body} readOnly={!edit.draft} onChange={(e) => setEdit({ ...edit, body: e.target.value })} /></Field>
+            {edit.draft && <details open><summary>Variáveis disponíveis (clique para inserir)</summary>
+              {['Partes', 'Valores e cálculos', 'Prazos', 'Comissão', 'Geral'].map((g) => <div key={g} style={{ margin: '8px 0' }}><b style={{ fontSize: 13 }}>{g}</b><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>{(vars.data?.items ?? []).filter((v) => v.group === g).map((v) => <button key={v.key} type="button" className="btn btn-sm" title={`${v.label}. Exemplo: ${v.example}`} onClick={() => insertVar(v.key)}>{`{{${v.key}}}`}</button>)}</div></div>)}
+            </details>}
+            {preview && (preview.unknown.length ? <Alert tone="danger">Variáveis desconhecidas: {preview.unknown.join(', ')}</Alert> : <div><b>Pré-visualização (dados fictícios)</b><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', maxHeight: 260, overflow: 'auto', border: '1px solid var(--line, #d7ddd9)', borderRadius: 8, padding: 12 }}>{preview.text}</pre></div>)}
           </div>
         </Modal>
       )}

@@ -2,7 +2,7 @@
 
 ## 1.10.0 — Integrações preparadas, contratos, fiscal, e-mail seguro, chat de suporte e depoimentos
 
-Nada aqui liga cobrança, consulta paga ou emissão real por conta própria: tudo nasce desligado e só funciona com credenciais e decisões registradas em `PENDENCIAS-PRODUCAO.md`. Migrações 027 a 034 (todas com `down`; `npm run db:rollback -- 8` reverte as oito).
+Nada aqui liga cobrança, consulta paga ou emissão real por conta própria: tudo nasce desligado e só funciona com credenciais e decisões registradas em `PENDENCIAS-PRODUCAO.md`. Migrações 027 a 035 (todas com `down`; `npm run db:rollback -- 9` reverte as nove).
 
 ### Adicionado
 
@@ -16,6 +16,11 @@ Nada aqui liga cobrança, consulta paga ou emissão real por conta própria: tud
 - **Chat de suporte** (033): conversas ligadas à conta e, se quiser, a uma consulta ou pagamento; assistente que só responde com perguntas frequentes publicadas e sempre oferece "Falar com uma pessoa"; assuntos de reembolso, cobrança, fraude e LGPD vão direto para a equipe; número de cartão é ocultado; anexos validados pelo conteúdo (PNG, JPG, WebP, PDF até 2 MB); notas internas invisíveis ao cliente; atribuição, transferência, prioridade e auditoria. Avisos por e-mail sem o conteúdo da conversa.
 - **Depoimentos autorizados** (034): o cliente verificado envia com consentimento registrado; a equipe aprova e publica; texto não editável pelo painel; cadastro manual exige comprovante e outra pessoa para aprovar; ocultar, remover e retirada pelo cliente apagam o texto; a home só mostra depoimentos publicados e íntegros (e some se não houver).
 - **Operação**: `GET /ready` (banco e migrações), checklist de implantação ampliado (e-mail, contratos, assinatura, fiscal, Mercado Pago, fonte de consulta, CNPJ, MFA, taxas do simulador, perguntas frequentes) e aviso de taxas defasadas no simulador.
+
+- **Painel Integrações** (`/integracoes`): mostra se cada chave está preenchida (nunca o valor), a URL de webhook a cadastrar e testa a conexão do Mercado Pago (leitura, sem cobrança) e do SMTP (envia e-mail de teste a quem clicou).
+- **Brevo**: webhook de entrega `POST /api/webhooks/email/brevo` (token em `x-webhook-token`, Bearer ou Basic), correlação pelo cabeçalho `X-Mailin-custom` de cada envio.
+- **Minutas**: novas variáveis calculadas (`valor.total`, `valor.total_extenso`, `desconto.total`, `vigencia.meses`, `comissao.percentual`, `signatario.nome`...), catálogo de variáveis, pré-visualização com dados de exemplo e envio de minuta própria (.txt/.md) como nova versão em rascunho.
+- **Chat**: 14 perguntas e respostas de atendimento publicadas (migração 035); "esqueci minha senha" agora é respondido pela pergunta frequente em vez de ir direto para uma pessoa.
 
 ### Corrigido
 

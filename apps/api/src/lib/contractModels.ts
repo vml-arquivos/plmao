@@ -4,11 +4,36 @@ import { pool } from '../db.js';
  * Modelos iniciais de contrato da Placa na Mão. SÃO MINUTAS: entram como RASCUNHO e só podem ser publicados
  * depois de revisão jurídica registrada (referência do parecer). Nenhuma cláusula aqui foi validada por advogado.
  */
-export const CONTRACT_VARIABLES = [
-  'numero', 'data', 'contratada.nome', 'contratada.documento', 'contratada.endereco',
-  'contratante.nome', 'contratante.documento', 'contratante.endereco', 'contratante.email',
-  'condicoes_comerciais', 'vigencia', 'pagamento', 'comissao', 'contrato_original'
-] as const;
+export const CONTRACT_VARIABLE_DOCS: Array<{ key: string; label: string; example: string; group: 'Partes' | 'Valores e cálculos' | 'Prazos' | 'Comissão' | 'Geral' }> = [
+  { key: 'numero', label: 'Número do contrato', example: 'PNM-2026-000123', group: 'Geral' },
+  { key: 'data', label: 'Data de emissão (dd/mm/aaaa)', example: '21/10/2026', group: 'Geral' },
+  { key: 'data_extenso', label: 'Data de emissão por extenso', example: '21 de outubro de 2026', group: 'Geral' },
+  { key: 'observacoes', label: 'Observações livres do contrato', example: 'Cliente indicado pelo parceiro X.', group: 'Geral' },
+  { key: 'contrato_original', label: 'Número do contrato original (aditivos)', example: 'PNM-2026-000100', group: 'Geral' },
+  { key: 'contratada.nome', label: 'Razão social da Placa na Mão', example: 'Placa na Mão Ltda', group: 'Partes' },
+  { key: 'contratada.documento', label: 'CNPJ da Placa na Mão', example: '12.345.678/0001-90', group: 'Partes' },
+  { key: 'contratada.endereco', label: 'Endereço da Placa na Mão', example: 'Rua Exemplo, 100, Brasília, DF', group: 'Partes' },
+  { key: 'contratante.nome', label: 'Nome ou razão social do contratante', example: 'Auto Exemplo Veículos Ltda', group: 'Partes' },
+  { key: 'contratante.documento', label: 'CPF ou CNPJ do contratante', example: '98.765.432/0001-10', group: 'Partes' },
+  { key: 'contratante.endereco', label: 'Endereço do contratante', example: 'Av. Exemplo, 200, Goiânia, GO', group: 'Partes' },
+  { key: 'contratante.email', label: 'E-mail do signatário', example: 'contato@exemplo.com.br', group: 'Partes' },
+  { key: 'signatario.nome', label: 'Nome do signatário', example: 'Maria Exemplo', group: 'Partes' },
+  { key: 'signatario.email', label: 'E-mail do signatário', example: 'maria@exemplo.com.br', group: 'Partes' },
+  { key: 'condicoes_comerciais', label: 'Lista de itens, preços e descontos (calculada)', example: '1) Consulta "Completa": R$ 39,90 por consulta ...', group: 'Valores e cálculos' },
+  { key: 'valor.total', label: 'Soma dos pacotes personalizados (quantidade × preço já com desconto)', example: 'R$ 1.800,00', group: 'Valores e cálculos' },
+  { key: 'valor.total_extenso', label: 'Valor total por extenso', example: 'mil e oitocentos reais', group: 'Valores e cálculos' },
+  { key: 'desconto.total', label: 'Desconto total concedido nos pacotes personalizados', example: 'R$ 200,00', group: 'Valores e cálculos' },
+  { key: 'itens.quantidade', label: 'Quantidade de itens de preço', example: '3', group: 'Valores e cálculos' },
+  { key: 'pagamento', label: 'Condição de pagamento', example: 'Pix à vista em até 5 dias úteis.', group: 'Valores e cálculos' },
+  { key: 'vigencia', label: 'Frase completa de vigência', example: 'Vigência de 12 mês(es) a partir da assinatura, sem renovação automática.', group: 'Prazos' },
+  { key: 'vigencia.meses', label: 'Meses de vigência', example: '12', group: 'Prazos' },
+  { key: 'renovacao', label: 'Regra de renovação', example: 'sem renovação automática', group: 'Prazos' },
+  { key: 'comissao', label: 'Frase completa da comissão (parceiros)', example: 'Comissão de 10% sobre o valor líquido...', group: 'Comissão' },
+  { key: 'comissao.percentual', label: 'Percentual da comissão', example: '10%', group: 'Comissão' },
+  { key: 'comissao.base', label: 'Base de cálculo da comissão', example: 'valor líquido (após taxas do meio de pagamento)', group: 'Comissão' },
+  { key: 'comissao.prazo_dias', label: 'Prazo de segurança da comissão (dias)', example: '7', group: 'Comissão' }
+];
+export const CONTRACT_VARIABLES = CONTRACT_VARIABLE_DOCS.map((v) => v.key);
 
 const HEADER = `CONTRATO Nº {{numero}}\n\nDe um lado, {{contratada.nome}}, CNPJ {{contratada.documento}}, com sede em {{contratada.endereco}} ("PLACA NA MÃO"); de outro, {{contratante.nome}}, inscrito(a) sob o documento {{contratante.documento}}, com endereço em {{contratante.endereco}}, e-mail {{contratante.email}} ("{{PAPEL}}"). Data de emissão: {{data}}.\n`;
 

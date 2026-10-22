@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Router } from 'express';
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -5,7 +6,7 @@ import { adminAuth } from '../auth.js';
 import { env } from '../config.js';
 import { pool } from '../db.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
-import { applyDeliveryEvent, cancelEmail, resendEmail, verifyEmailWebhookSignature } from '../lib/emailOutbox.js';
+import { applyBrevoEvent, applyDeliveryEvent, cancelEmail, resendEmail, verifyEmailWebhookSignature } from '../lib/emailOutbox.js';
 import { requirePermission } from '../permissions.js';
 
 /** Fila de e-mails transacionais: consulta, reenvio e cancelamento (nunca expõe corpo, token ou payload). */
@@ -57,6 +58,24 @@ adminEmailRouter.post('/email-outbox/:id/cancel', guard, asyncRoute(async (req, 
  */
 export const emailWebhookRouter = Router();
 const hookBody = z.object({ messageId: z.string().min(3).max(300), event: z.enum(['delivered', 'bounced', 'complained']), reason: z.string().max(300).optional() });
+
+/** Webhook transacional do Brevo. O Brevo não assina o corpo: autentica por token no cabeçalho (x-webhook-token, Bearer ou Basic) igual a EMAIL_WEBHOOK_SECRET. */
+function brevoAuthorized(req: Request): boolean {
+  const secret = env.EMAIL_WEBHOOK_SECRET; if (!secret) return false;
+  const auth = req.header('authorization') ?? '';
+  const basic = /^Basic\s+(.+)$/i.exec(auth)?.[1];
+  const cands = [req.header('x-webhook-token'), /^Bearer\s+(.+)$/i.exec(auth)?.[1], basic ? Buffer.from(basic, 'base64').toString('utf8').split(':').slice(1).join(':') : undefined];
+  const h = (v: string) => createHash('sha256').update(v).digest();
+  return cands.some((c) => c && timingSafeEqual(h(c), h(secret)));
+}
+emailWebhookRouter.post('/email/brevo', asyncRoute(async (req, res) => {
+  if (!env.EMAIL_WEBHOOK_SECRET) { res.status(404).json({ error: 'NOT_FOUND' }); return; }
+  if (!brevoAuthorized(req)) throw appError('EMAIL_WEBHOOK_UNAUTHORIZED', { code: 'EMAIL_WEBHOOK_UNAUTHORIZED', http: 401, expose: false });
+  const list = (Array.isArray(req.body) ? req.body : [req.body]).slice(0, 100).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object');
+  let applied = 0;
+  for (const ev of list) if (await applyBrevoEvent(ev)) applied += 1;
+  res.json({ ok: true, received: list.length, applied });
+}));
 
 emailWebhookRouter.post('/email', asyncRoute(async (req, res) => {
   if (!env.EMAIL_WEBHOOK_SECRET) { res.status(404).json({ error: 'NOT_FOUND' }); return; }

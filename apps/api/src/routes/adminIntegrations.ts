@@ -1,0 +1,71 @@
+import { randomUUID } from 'node:crypto';
+import { Router } from 'express';
+import { adminAuth } from '../auth.js';
+import { env, publicAppUrl } from '../config.js';
+import { isEmailConfigured, verifyEmailTransport } from '../email.js';
+import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
+import { enqueueEmail } from '../lib/emailOutbox.js';
+import { requirePermission } from '../permissions.js';
+
+/**
+ * Painel de integrações: mostra SE cada chave está configurada (nunca o valor), a URL de webhook a cadastrar
+ * e testes de conexão que não cobram nem consultam dados de clientes.
+ */
+export const adminIntegrationsRouter = Router();
+const guard = requirePermission('MANAGE_PROVIDERS');
+
+type Var = { name: string; set: boolean; required: boolean; hint?: string };
+type State = 'OFF' | 'PARTIAL' | 'READY';
+const v = (name: string, set: unknown, required = true, hint?: string): Var => ({ name, set: Boolean(set), required, ...(hint ? { hint } : {}) });
+const stateOf = (vars: Var[], on: boolean): State => (!on ? 'OFF' : vars.filter((x) => x.required).every((x) => x.set) ? 'READY' : 'PARTIAL');
+
+export function integrationStatus() {
+  const base = publicAppUrl();
+  const mpOn = env.PAYMENT_PROVIDER === 'mercadopago';
+  const mpVars = [v('PAYMENT_PROVIDER', mpOn, true, 'precisa ser mercadopago'), v('MP_ACCESS_TOKEN', env.MP_ACCESS_TOKEN, true, 'Credenciais de produção ou de teste (TEST-...)'), v('MP_WEBHOOK_SECRET', env.MP_WEBHOOK_SECRET, true, 'Assinatura secreta do webhook, no painel do Mercado Pago')];
+  const smtpOn = env.EMAIL_PROVIDER === 'smtp';
+  const smtpVars = [v('EMAIL_PROVIDER', smtpOn, true, 'precisa ser smtp'), v('SMTP_HOST', env.SMTP_HOST, true, 'Brevo: smtp-relay.brevo.com'), v('SMTP_PORT', true, true, `atual: ${env.SMTP_PORT} (Brevo: 587, sem SMTP_SECURE; ou 465 com SMTP_SECURE=true)`), v('SMTP_USER', env.SMTP_USER, true, 'login SMTP exibido em Brevo > SMTP e API'), v('SMTP_PASSWORD', env.SMTP_PASSWORD, true, 'chave SMTP (não a chave de API)'), v('EMAIL_FROM', env.EMAIL_FROM, true, `atual: ${env.EMAIL_FROM}. O remetente/domínio precisa estar validado no Brevo`)];
+  const hookVars = [v('EMAIL_WEBHOOK_SECRET', env.EMAIL_WEBHOOK_SECRET, true, 'token que o Brevo envia no cabeçalho x-webhook-token')];
+  const credVars = [v('DATA_PROVIDER', env.DATA_PROVIDER === 'real', true, 'precisa ser real'), v('VEHICLE_API_PROVIDER', env.VEHICLE_API_PROVIDER === 'credify', true, 'precisa ser credify'), v('CREDIFY_CLIENT_ID', env.CREDIFY_CLIENT_ID), v('CREDIFY_CLIENT_SECRET', env.CREDIFY_CLIENT_SECRET), v('CREDIFY_QUERY_BODY_TEMPLATE', env.CREDIFY_QUERY_BODY_TEMPLATE, true, 'corpo conforme a documentação do fornecedor')];
+  const cnpjVars = [v('CNPJ_PROVIDER', env.CNPJ_PROVIDER !== 'disabled', true, 'brasilapi')];
+  const esignVars = [v('ESIGN_PROVIDER', env.ESIGN_PROVIDER !== 'disabled', true, 'internal = aceite eletrônico simples')];
+  const fiscalVars = [v('FISCAL_PROVIDER', env.FISCAL_PROVIDER === 'manual', true, 'manual = fila para emissão externa')];
+  const item = (key: string, name: string, vars: Var[], on: boolean, extra: Record<string, unknown> = {}) => ({ key, name, state: stateOf(vars, on), vars, ...extra });
+  return [
+    item('mercadopago', 'Mercado Pago (pagamentos)', mpVars, mpOn, { webhookUrl: `${base}/api/payments/mercadopago/webhook`, webhookNote: 'No painel do Mercado Pago, em Webhooks, cadastre esta URL e marque o evento "Pagamentos". Copie a assinatura secreta para MP_WEBHOOK_SECRET.', mode: env.MP_ACCESS_TOKEN ? (env.MP_ACCESS_TOKEN.startsWith('TEST-') ? 'teste' : 'produção') : null, canTest: true }),
+    item('email', 'E-mail (SMTP / Brevo)', smtpVars, smtpOn, { canTest: true, workerOn: env.EMAIL_OUTBOX_WORKER }),
+    item('email-webhook', 'Retorno de entrega de e-mail (Brevo)', hookVars, Boolean(env.EMAIL_WEBHOOK_SECRET), { webhookUrl: `${base}/api/webhooks/email/brevo`, webhookNote: 'No Brevo, em Webhooks transacionais, use esta URL, adicione o cabeçalho x-webhook-token com o mesmo valor de EMAIL_WEBHOOK_SECRET e marque entregue, bounce (hard/soft), bloqueado, spam e inválido.' }),
+    item('vehicle', 'Consulta veicular (Credify)', credVars, env.VEHICLE_API_PROVIDER === 'credify', { webhookNote: 'Sem teste automático: aguarda a documentação e o ambiente de homologação.' }),
+    item('cnpj', 'Consulta de CNPJ', cnpjVars, env.CNPJ_PROVIDER !== 'disabled'),
+    item('esign', 'Assinatura de contratos', esignVars, env.ESIGN_PROVIDER !== 'disabled'),
+    item('fiscal', 'Emissão fiscal', fiscalVars, env.FISCAL_PROVIDER === 'manual')
+  ];
+}
+
+adminIntegrationsRouter.get('/integrations', adminAuth, guard, asyncRoute(async (_req, res) => { res.json({ items: integrationStatus(), appUrl: publicAppUrl() }); }));
+
+const fail = (code: string, http = 409) => appError(code, { code, http, expose: true });
+
+/** Leitura somente: pergunta ao Mercado Pago quem é o dono do token. Não cria pagamento nem cobra. */
+adminIntegrationsRouter.post('/integrations/mercadopago/test', adminAuth, guard, asyncRoute(async (req, res) => {
+  if (!env.MP_ACCESS_TOKEN) throw fail('INTEGRATION_NOT_CONFIGURED');
+  const base = (env.MP_API_BASE_URL ?? 'https://api.mercadopago.com').replace(/\/+$/, '');
+  let status = 0; let body: Record<string, unknown> = {};
+  try {
+    const r = await fetch(`${base}/users/me`, { headers: { Authorization: `Bearer ${env.MP_ACCESS_TOKEN}`, Accept: 'application/json' }, signal: AbortSignal.timeout(env.MP_TIMEOUT_MS) });
+    status = r.status; body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+  } catch { throw fail('INTEGRATION_UNREACHABLE', 502); }
+  await audit(req.user!.id, 'INTEGRATION_TESTED', 'INTEGRATION', null, { integration: 'mercadopago', httpStatus: status, requestId: requestId(req) });
+  if (status === 401 || status === 403) throw fail('INTEGRATION_CREDENTIALS_REJECTED', 422);
+  if (status < 200 || status >= 300) throw fail('INTEGRATION_UNREACHABLE', 502);
+  res.json({ ok: true, mode: env.MP_ACCESS_TOKEN.startsWith('TEST-') ? 'teste' : 'produção', siteId: typeof body.site_id === 'string' ? body.site_id : null, accountIdTail: body.id ? String(body.id).slice(-4) : null, webhookSecretSet: Boolean(env.MP_WEBHOOK_SECRET), checkoutActive: env.PAYMENT_PROVIDER === 'mercadopago' });
+}));
+
+/** Confere a conexão SMTP e agenda um e-mail de teste para quem clicou. */
+adminIntegrationsRouter.post('/integrations/email/test', adminAuth, guard, asyncRoute(async (req, res) => {
+  if (!isEmailConfigured()) throw fail('INTEGRATION_NOT_CONFIGURED');
+  try { await verifyEmailTransport(); } catch { throw fail('INTEGRATION_CREDENTIALS_REJECTED', 422); }
+  const q = await enqueueEmail({ idempotencyKey: `integration-test:${randomUUID()}`, template: 'GENERIC_NOTICE', toEmail: req.user!.email, toName: req.user!.name, data: { name: req.user!.name, documentTitle: 'Teste de e-mail', message: 'Se você recebeu esta mensagem, o envio de e-mail está funcionando.' }, createdBy: req.user!.id });
+  await audit(req.user!.id, 'INTEGRATION_TESTED', 'INTEGRATION', null, { integration: 'email', requestId: requestId(req) });
+  res.json({ ok: true, connection: 'ok', queued: true, outboxId: q.id, workerOn: env.EMAIL_OUTBOX_WORKER });
+}));

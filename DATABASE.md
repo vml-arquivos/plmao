@@ -64,7 +64,7 @@ Também `021_financing_banks`: `financing_banks` (nome, trecho do nome no Banco 
 
 Também `020_vehicle_seed`: coluna `vehicle_models.spec_source` (fonte e data da conferência da ficha técnica, mostrada no site) e carga inicial de 20 modelos publicados com suas versões. Usa `ON CONFLICT DO NOTHING`: pode rodar de novo sem duplicar e não altera modelos já editados pela equipe.
 
-Migrações 027 a 034 (todas reversíveis com `npm run db:rollback -- N`; faça backup antes):
+Migrações 027 a 035 (todas reversíveis com `npm run db:rollback -- N`; faça backup antes):
 
 - `027_report_scope_publications`: publicações versionadas do escopo do relatório por produto.
 - `028_email_outbox_secure_links`: `email_outbox`, `email_events`, `secure_links` (só o hash SHA-256 do token; finalidade, expiração, usos máximos, revogação).
@@ -73,6 +73,7 @@ Migrações 027 a 034 (todas reversíveis com `npm run db:rollback -- N`; faça 
 - `031_payment_refunds`: solicitações de estorno com chave de idempotência.
 - `032_fiscal_queue`: `fiscal_jobs` e `fiscal_events`.
 - `033_support_chat`: `support_conversations`, `support_messages` (nota interna só de atendente), `support_attachments` (bytea, ≤ 2 MB, tipos permitidos), `support_events`.
+- `035_support_faqs`: perguntas e respostas de atendimento em `faqs` (só insere se a pergunta não existir; o rollback remove apenas as que ainda estão iguais ao texto original).
 - `034_testimonials`: `testimonials` (consentimento, hash do conteúdo, uma ativa por cliente) e `testimonial_events`.
 
 Retenção: remoção ou retirada de depoimento apaga nome, texto e hash; anexos do chat ficam no banco (avaliar armazenamento de objetos e antivírus antes de volume alto).
