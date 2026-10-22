@@ -41,6 +41,20 @@ const rolePermissions: Record<string, readonly Permission[]> = {
 /** Papéis da equipe em ordem de poder (maior = mais acesso). */
 export const TEAM_ROLE_RANK: Record<string, number> = { CONTEUDO: 1, SUPORTE: 1, OPERADOR: 2, FINANCEIRO: 2, ADMIN: 3, SUPER_ADMIN: 4 };
 
+/**
+ * Hierarquia: quem está abaixo não enxerga nem mexe em quem está acima ou no mesmo nível.
+ * O super admin alcança todos; os demais só alcançam papéis de rank estritamente menor (clientes contam como rank 0).
+ */
+export function outranks(actorRole: string, targetRole: string): boolean {
+  if (actorRole === 'SUPER_ADMIN') return true;
+  return (TEAM_ROLE_RANK[actorRole] ?? 0) > (TEAM_ROLE_RANK[targetRole] ?? 0);
+}
+
+/** Papéis da equipe que o ator pode ver e gerenciar. */
+export function rolesBelow(actorRole: string): string[] {
+  return Object.keys(TEAM_ROLE_RANK).filter((r) => outranks(actorRole, r));
+}
+
 export const TEAM_ROLE_INFO: Array<{ role: string; label: string; description: string; can: string[] }> = [
   { role: 'SUPER_ADMIN', label: 'Super admin', description: 'Dono do sistema. Acesso total, inclusive ajustes de sistema, administradores e exclusões.', can: ['Tudo do painel', 'Criar e remover administradores', 'Configurações do sistema'] },
   { role: 'ADMIN', label: 'Administrador', description: 'Gerencia o dia a dia: clientes, equipe, preços, financeiro, notas fiscais e site.', can: ['Clientes, empresas e equipe', 'Preços, cobranças e notas fiscais', 'Contratos (criar, aprovar, enviar)', 'Site, FAQ e artigos', 'Auditoria'] },

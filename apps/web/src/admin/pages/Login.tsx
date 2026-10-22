@@ -1,4 +1,8 @@
 import { useState } from 'react';
+
+const DEVICE_KEY = 'pnm_admin_device';
+const readDevice = () => { try { return localStorage.getItem(DEVICE_KEY) ?? undefined; } catch { return undefined; } };
+const saveDevice = (t: string | null) => { try { if (t) localStorage.setItem(DEVICE_KEY, t); else localStorage.removeItem(DEVICE_KEY); } catch { /* sem armazenamento */ } };
 import QRCode from 'qrcode';
 import { api } from '../api';
 import { useAdminSession } from '../session';
@@ -20,6 +24,7 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
+  const [trust, setTrust] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -29,7 +34,8 @@ export default function Login() {
   }
 
   const submitPassword = (ev: React.FormEvent) => { ev.preventDefault(); void run(async () => {
-    const r = await api.post<LoginResponse>('/admin/auth/login', { email: email.trim(), password });
+    const r = await api.post<LoginResponse>('/admin/auth/login', { email: email.trim(), password, ...(readDevice() ? { deviceToken: readDevice() } : {}) });
+    if (r.totpRequired === 'VERIFY' && readDevice()) saveDevice(null); // aparelho não reconhecido mais: pede o código
     setPassword(''); setCode('');
     if (r.totpRequired === 'NONE' && r.token) { await establish(r.token); return; }
     if (r.totpRequired === 'ENROLL' && r.setup) setStep({ kind: 'enroll', challenge: r.challenge, secret: r.setup.secret, qr: await QRCode.toDataURL(r.setup.otpauthUrl, { margin: 1, width: 200 }) });
@@ -37,7 +43,8 @@ export default function Login() {
   }); };
 
   const submitVerify = (ev: React.FormEvent) => { ev.preventDefault(); if (step.kind !== 'verify') return; void run(async () => {
-    const r = await api.post<{ token: string }>('/admin/auth/totp/verify', { challenge: step.challenge, code: code.trim() });
+    const r = await api.post<{ token: string; deviceToken?: string }>('/admin/auth/totp/verify', { challenge: step.challenge, code: code.trim(), trustDevice: trust });
+    if (r.deviceToken) saveDevice(r.deviceToken);
     await establish(r.token);
   }); };
 
@@ -64,6 +71,7 @@ export default function Login() {
             <div><h1 style={{ fontSize: 24 }}>Verificação em duas etapas</h1><p className="muted">Digite o código de 6 dígitos do seu aplicativo autenticador ou um código de recuperação.</p></div>
             {error && <Alert tone="danger">{error}</Alert>}
             <Field label="Código"><Input inputMode="text" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} required autoFocus maxLength={16} /></Field>
+            <label className="check-row"><input type="checkbox" checked={trust} onChange={(e) => setTrust(e.target.checked)} /><span><b>Confiar neste computador</b><small>Não pede o código de novo aqui.</small></span></label>
             <Button type="submit" variant="primary" size="lg" block loading={busy}>Entrar</Button>
             <Button variant="ghost" block onClick={() => { setStep({ kind: 'password' }); setError(''); }}>Voltar</Button>
           </form>

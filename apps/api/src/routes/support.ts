@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { adminAuth, auth } from '../auth.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import * as S from '../lib/supportChat.js';
-import { requirePermission } from '../permissions.js';
+import { requirePermission, rolesBelow } from '../permissions.js';
 
 const bad = () => appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
 const uuid = z.string().uuid();
@@ -111,8 +111,9 @@ supportAdminRouter.get('/support/attachments/:id', guard, asyncRoute(async (req,
   await audit(req.user!.id, 'SUPPORT_ATTACHMENT_DOWNLOADED', 'SUPPORT_ATTACHMENT', idOf(req.params.id), { requestId: requestId(req) });
   sendFile(res, f);
 }));
-supportAdminRouter.get('/support/team', guard, asyncRoute(async (_req, res) => {
+supportAdminRouter.get('/support/team', guard, asyncRoute(async (req, res) => {
   const { pool } = await import('../db.js');
-  const r = await pool.query(`SELECT id,name,role FROM users WHERE active=true AND deleted_at IS NULL AND role IN ('OPERADOR','SUPORTE','ADMIN','SUPER_ADMIN') ORDER BY name`);
+  // Quem atende vê a si mesmo e quem está abaixo; níveis acima não aparecem.
+  const r = await pool.query(`SELECT id,name,role FROM users WHERE active=true AND deleted_at IS NULL AND role IN ('OPERADOR','SUPORTE','ADMIN','SUPER_ADMIN') AND (role = ANY($1::text[]) OR id=$2) ORDER BY name`, [rolesBelow(req.user!.role), req.user!.id]);
   res.json({ items: r.rows });
 }));

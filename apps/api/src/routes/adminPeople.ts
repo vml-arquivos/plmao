@@ -5,8 +5,9 @@ import { z } from 'zod';
 import { pool, tx } from '../db.js';
 import { adminAuth, TEAM_ROLES } from '../auth.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
-import { BR_STATES, documentKind, formatDocument, maskDocument, onlyDigits, temporaryPassword, toCsv } from '../lib/br.js';
-import { hasPermission, permissionsFor, requirePermission, TEAM_ROLE_INFO, TEAM_ROLE_RANK } from '../permissions.js';
+import { BR_STATES, documentKind, formatDocument, maskDocument, onlyDigits, toCsv } from '../lib/br.js';
+import { hasPermission, outranks, permissionsFor, requirePermission, rolesBelow, TEAM_ROLE_INFO, TEAM_ROLE_RANK } from '../permissions.js';
+import { assertEmailConfigured, sendResetLink } from '../lib/passwordResetLink.js';
 
 /**
  * Pessoas e empresas no painel:
@@ -28,21 +29,21 @@ const emailField = z.string().trim().toLowerCase().email().max(254);
 
 // ------------------------------------------------------------------ equipe
 
-const CREATABLE_BY_ADMIN = new Set(['OPERADOR', 'FINANCEIRO', 'SUPORTE', 'CONTEUDO']);
+/** Convite novo vale 3 dias; a pessoa cria a própria senha pelo link. */
+const INVITE_TTL_MINUTES = 3 * 24 * 60;
 
+/** Só dá para gerenciar quem está abaixo na hierarquia (o super admin alcança todos). */
 function canManageRole(actorRole: string, targetRole: string): boolean {
-  if (hasPermission(actorRole, 'ADMIN_SYSTEM')) return true;
-  return CREATABLE_BY_ADMIN.has(targetRole);
+  return outranks(actorRole, targetRole);
 }
 
 const teamCreateSchema = z.object({
   name: z.string().trim().min(2).max(120),
   email: emailField,
-  role: z.enum(['SUPER_ADMIN', 'ADMIN', 'FINANCEIRO', 'OPERADOR', 'SUPORTE', 'CONTEUDO']),
-  password: z.string().min(8).max(128).optional()
+  role: z.enum(['SUPER_ADMIN', 'ADMIN', 'FINANCEIRO', 'OPERADOR', 'SUPORTE', 'CONTEUDO'])
 }).strict();
+// Nome, e-mail e senha são dados pessoais: só o próprio usuário altera (em "Minha conta").
 const teamUpdateSchema = z.object({
-  name: z.string().trim().min(2).max(120).optional(),
   role: z.enum(['SUPER_ADMIN', 'ADMIN', 'FINANCEIRO', 'OPERADOR', 'SUPORTE', 'CONTEUDO']).optional(),
   active: z.boolean().optional()
 }).strict().refine((v) => Object.keys(v).length > 0, 'EMPTY_UPDATE');
@@ -61,8 +62,9 @@ adminPeopleRouter.get('/team/roles', requirePermission('MANAGE_TEAM'), (req, res
   });
 });
 
-adminPeopleRouter.get('/team', requirePermission('MANAGE_TEAM'), asyncRoute(async (_req, res) => {
-  const rows = await pool.query(`${TEAM_SELECT} WHERE u.deleted_at IS NULL AND u.role = ANY($1::text[]) ORDER BY u.active DESC, u.created_at`, [TEAM_ROLES]);
+adminPeopleRouter.get('/team', requirePermission('MANAGE_TEAM'), asyncRoute(async (req, res) => {
+  // Cada um enxerga a si mesmo e quem está abaixo; níveis acima não aparecem.
+  const rows = await pool.query(`${TEAM_SELECT} WHERE u.deleted_at IS NULL AND (u.role = ANY($1::text[]) OR u.id=$2) ORDER BY u.active DESC, u.created_at`, [rolesBelow(req.user!.role), req.user!.id]);
   res.json({ items: rows.rows.map(presentTeam) });
 }));
 
@@ -71,8 +73,9 @@ adminPeopleRouter.post('/team', requirePermission('MANAGE_TEAM'), asyncRoute(asy
   if (!parsed.success) throw bad();
   const v = parsed.data;
   if (!canManageRole(req.user!.role, v.role)) throw forbidden('ROLE_NOT_ALLOWED');
-  const password = v.password ?? temporaryPassword();
-  const hash = await bcrypt.hash(password, 12);
+  assertEmailConfigured();
+  // Senha aleatória que ninguém conhece: a pessoa define a dela pelo link do convite.
+  const hash = await bcrypt.hash(crypto.randomBytes(32).toString('base64url'), 12);
   try {
     const created = await tx(async (client) => {
       const user = await client.query(`INSERT INTO users(email,password_hash,name,role,password_enabled) VALUES($1,$2,$3,$4,true) RETURNING id`, [v.email, hash, v.name, v.role]);
@@ -81,7 +84,8 @@ adminPeopleRouter.post('/team', requirePermission('MANAGE_TEAM'), asyncRoute(asy
     });
     await audit(req.user!.id, 'TEAM_USER_CREATED', 'USER', created, { role: v.role, requestId: requestId(req) });
     const row = await pool.query(`${TEAM_SELECT} WHERE u.id=$1`, [created]);
-    res.status(201).json({ member: presentTeam(row.rows[0]), temporaryPassword: v.password ? null : password });
+    const inviteSent = await sendResetLink({ id: created, email: v.email, name: v.name }, INVITE_TTL_MINUTES);
+    res.status(201).json({ member: presentTeam(row.rows[0]), inviteSent });
   } catch (error: unknown) {
     if (typeof error === 'object' && error !== null && (error as { code?: string }).code === '23505') throw conflict('EMAIL_ALREADY_EXISTS');
     throw error;
@@ -90,12 +94,13 @@ adminPeopleRouter.post('/team', requirePermission('MANAGE_TEAM'), asyncRoute(asy
 
 async function loadTeamTarget(req: { params: Record<string, string>; user?: { id: string; role: string } }) {
   if (!isUuid(req.params.id)) throw notFound('USER_NOT_FOUND');
-  const target = await pool.query('SELECT id,name,role,active FROM users WHERE id=$1 AND deleted_at IS NULL AND role = ANY($2::text[])', [req.params.id, TEAM_ROLES]);
+  const target = await pool.query('SELECT id,name,email,role,active FROM users WHERE id=$1 AND deleted_at IS NULL AND role = ANY($2::text[])', [req.params.id, TEAM_ROLES]);
   if (!target.rowCount) throw notFound('USER_NOT_FOUND');
   if (req.params.id === req.user!.id) throw conflict('ADMIN_SELF_CHANGE_FORBIDDEN');
   const role = String(target.rows[0].role);
-  if (!canManageRole(req.user!.role, role)) throw forbidden('ROLE_NOT_ALLOWED');
-  return { id: String(target.rows[0].id), role, active: Boolean(target.rows[0].active) };
+  // Quem está acima (ou no mesmo nível) não existe para o ator.
+  if (!canManageRole(req.user!.role, role)) throw notFound('USER_NOT_FOUND');
+  return { id: String(target.rows[0].id), name: String(target.rows[0].name), email: String(target.rows[0].email), role, active: Boolean(target.rows[0].active) };
 }
 
 async function assertNotLastSuperAdmin(userId: string): Promise<void> {
@@ -111,7 +116,6 @@ adminPeopleRouter.patch('/team/:id', requirePermission('MANAGE_TEAM'), asyncRout
   if (v.role && !canManageRole(req.user!.role, v.role)) throw forbidden('ROLE_NOT_ALLOWED');
   if (target.role === 'SUPER_ADMIN' && ((v.role && v.role !== 'SUPER_ADMIN') || v.active === false)) await assertNotLastSuperAdmin(target.id);
   const sets: string[] = []; const values: unknown[] = [];
-  if (v.name !== undefined) { values.push(v.name); sets.push(`name=$${values.length}`); }
   if (v.role !== undefined) { values.push(v.role); sets.push(`role=$${values.length}`); }
   if (v.active !== undefined) { values.push(v.active); sets.push(`active=$${values.length}`); }
   values.push(target.id);
@@ -124,11 +128,10 @@ adminPeopleRouter.patch('/team/:id', requirePermission('MANAGE_TEAM'), asyncRout
 
 adminPeopleRouter.post('/team/:id/reset-password', requirePermission('MANAGE_TEAM'), asyncRoute(async (req, res) => {
   const target = await loadTeamTarget(req as never);
-  const password = temporaryPassword();
-  await pool.query('UPDATE users SET password_hash=$2,password_enabled=true,failed_login_attempts=0,locked_until=NULL WHERE id=$1', [target.id, await bcrypt.hash(password, 12)]);
-  await pool.query('UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [target.id]);
-  await audit(req.user!.id, 'TEAM_PASSWORD_RESET', 'USER', target.id, { requestId: requestId(req) });
-  res.json({ temporaryPassword: password });
+  // Ninguém vê nem define a senha de outra pessoa: ela recebe um link e cria a nova.
+  if (!(await sendResetLink({ id: target.id, email: target.email, name: target.name }))) throw appError('EMAIL_SEND_FAILED', { code: 'EMAIL_SEND_FAILED', http: 502, expose: true });
+  await audit(req.user!.id, 'TEAM_PASSWORD_RESET_LINK_SENT', 'USER', target.id, { requestId: requestId(req) });
+  res.json({ sent: true });
 }));
 
 adminPeopleRouter.post('/team/:id/reset-2fa', requirePermission('MANAGE_TEAM'), asyncRoute(async (req, res) => {
@@ -178,8 +181,7 @@ const customerFields = {
 };
 const customerCreateSchema = z.object({
   ...customerFields,
-  portalAccess: z.boolean().default(true),
-  password: z.string().min(8).max(128).optional()
+  portalAccess: z.boolean().default(true)
 }).strict().superRefine((v, ctx) => {
   if (v.type === 'EMPRESA' && v.cpfCnpj && documentKind(v.cpfCnpj) !== 'CNPJ') ctx.addIssue({ code: 'custom', path: ['cpfCnpj'], message: 'EMPRESA_REQUIRES_CNPJ' });
   if (v.type === 'PARTICULAR' && v.cpfCnpj && documentKind(v.cpfCnpj) !== 'CPF') ctx.addIssue({ code: 'custom', path: ['cpfCnpj'], message: 'PARTICULAR_REQUIRES_CPF' });
@@ -312,8 +314,8 @@ adminPeopleRouter.post('/customers', requirePermission('MANAGE_CUSTOMERS'), asyn
   const v = parsed.data;
   await assertOrganization(v.organizationId);
   const portal = v.portalAccess;
-  const password = portal ? (v.password ?? temporaryPassword()) : crypto.randomBytes(24).toString('base64url');
-  const hash = await bcrypt.hash(password, 12);
+  // Senha aleatória que ninguém conhece: com acesso ao portal, o cliente define a dele pelo link enviado por e-mail.
+  const hash = await bcrypt.hash(crypto.randomBytes(32).toString('base64url'), 12);
   try {
     const id = await tx(async (client) => {
       const user = await client.query(`INSERT INTO users(email,password_hash,name,role,password_enabled) VALUES($1,$2,$3,'CLIENTE',$4) RETURNING id`, [v.email, hash, v.name, portal]);
@@ -327,7 +329,8 @@ adminPeopleRouter.post('/customers', requirePermission('MANAGE_CUSTOMERS'), asyn
     });
     await audit(req.user!.id, 'CUSTOMER_CREATED', 'USER', id, { type: v.type, portalAccess: portal, requestId: requestId(req) });
     const row = await pool.query(`${CUSTOMER_SELECT} WHERE u.id=$1`, [id]);
-    res.status(201).json({ customer: presentCustomer(row.rows[0], true), temporaryPassword: portal && !v.password ? password : null });
+    const inviteSent = portal ? await sendResetLink({ id, email: v.email, name: v.name }, INVITE_TTL_MINUTES).catch(() => false) : false;
+    res.status(201).json({ customer: presentCustomer(row.rows[0], true), inviteSent });
   } catch (error: unknown) {
     if (typeof error === 'object' && error !== null && (error as { code?: string }).code === '23505') throw conflict('EMAIL_ALREADY_EXISTS');
     throw error;
@@ -423,11 +426,10 @@ adminPeopleRouter.post('/customers/:id/archive', requirePermission('MANAGE_CUSTO
 adminPeopleRouter.post('/customers/:id/reset-password', requirePermission('MANAGE_CUSTOMERS'), asyncRoute(async (req, res) => {
   const id = String(req.params.id);
   await customerOr404(id);
-  const password = temporaryPassword();
-  await pool.query('UPDATE users SET password_hash=$2,password_enabled=true,failed_login_attempts=0,locked_until=NULL WHERE id=$1', [id, await bcrypt.hash(password, 12)]);
-  await pool.query('UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
-  await audit(req.user!.id, 'CUSTOMER_PASSWORD_RESET', 'USER', id, { requestId: requestId(req) });
-  res.json({ temporaryPassword: password });
+  const who = await pool.query('SELECT email,name FROM users WHERE id=$1', [id]);
+  if (!(await sendResetLink({ id, email: String(who.rows[0].email), name: String(who.rows[0].name) }))) throw appError('EMAIL_SEND_FAILED', { code: 'EMAIL_SEND_FAILED', http: 502, expose: true });
+  await audit(req.user!.id, 'CUSTOMER_PASSWORD_RESET_LINK_SENT', 'USER', id, { requestId: requestId(req) });
+  res.json({ sent: true });
 }));
 
 adminPeopleRouter.delete('/customers/:id', requirePermission('MANAGE_CUSTOMERS'), asyncRoute(async (req, res) => {

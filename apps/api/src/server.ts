@@ -12,7 +12,7 @@ import helmet from 'helmet';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { settlePaymentEvent } from './payments/settle.js';
-import { adminAuth, adminEdgeGuard, auth, clientApiGuard, isAdminHost, isTeamRole, issueSession, revokeSession, type AuthUser } from './auth.js';
+import { adminAuth, adminEdgeGuard, TEAM_ROLES, auth, clientApiGuard, isAdminHost, isTeamRole, issueSession, revokeSession, type AuthUser } from './auth.js';
 import { hashIp } from './lib/totpFlow.js';
 import { adminAuthRouter } from './routes/adminAuth.js';
 import { financeRouter } from './routes/finance.js';
@@ -25,7 +25,7 @@ import { sendContactConfirmationEmail, sendContactMessageEmail, sendPasswordRese
 import { pool, tx } from './db.js';
 import type { PoolClient } from 'pg';
 import { normalizeBdrp } from './normalizer.js';
-import { hasPermission, permissionsFor, requirePermission } from './permissions.js';
+import { hasPermission, outranks, permissionsFor, requirePermission, rolesBelow } from './permissions.js';
 import { getProvider } from './providers/index.js';
 import { getFipeProvider, quoteWithFallback, type FipeCatalogProvider } from './providers/fipeProvider.js';
 import { fipePdf, fipePrintHtml, makeFipeQuote, reportSnapshot, type ReportBranding } from './fipeReport.js';
@@ -593,6 +593,12 @@ api.post('/auth/reset-password', passwordResetRateLimit, asyncRoute(async (req, 
     return row as { id: string; user_id: string; email: string; name: string; role: string };
   });
   const user = publicUser({ id: String(result.user_id), email: String(result.email), name: String(result.name), role: String(result.role) });
+  if (isTeamRole(user.role)) {
+    // Equipe define a senha pelo link, mas entra só pelo painel: a senha já foi gravada, então não é erro.
+    await audit(user.id, 'PASSWORD_RESET_COMPLETED', 'USER', user.id, { requestId: requestId(req), flow: 'team' });
+    res.json({ message: 'Senha definida. Entre pelo painel da equipe com o seu e-mail e a nova senha.', panel: true });
+    return;
+  }
   const resultForUser = await authResultForUser(user, 'password_reset', req);
   await audit(user.id, 'PASSWORD_RESET_COMPLETED', 'USER', user.id, { requestId: requestId(req), flow: 'client' });
   res.json({ ...resultForUser, message: 'Senha redefinida com sucesso.' });
@@ -2282,12 +2288,13 @@ api.delete('/admin/organizations/:id/credit-package-prices/:packageId', adminAut
   res.status(204).end();
 }));
 
-api.get('/admin/users', adminAuth, requirePermission('MANAGE_USERS'), asyncRoute(async (_req, res) => {
+api.get('/admin/users', adminAuth, requirePermission('MANAGE_USERS'), asyncRoute(async (req, res) => {
   const users = await pool.query(`SELECT u.id,u.name,u.email,u.role,u.active,u.created_at,u.last_login_at,
     coalesce(w.balance_cents,0) AS balance_cents,
     (SELECT count(*) FROM vehicle_queries q WHERE q.user_id=u.id) AS queries_count
     FROM users u LEFT JOIN wallets w ON w.user_id=u.id
-    WHERE u.deleted_at IS NULL ORDER BY u.created_at DESC LIMIT 200`);
+    WHERE u.deleted_at IS NULL AND (u.role <> ALL($1::text[]) OR u.role = ANY($2::text[]) OR u.id=$3)
+    ORDER BY u.created_at DESC LIMIT 200`, [TEAM_ROLES, rolesBelow(req.user!.role), req.user!.id]);
   res.json(users.rows.map((row) => ({ id: row.id, name: row.name, email: row.email, role: row.role, active: row.active, createdAt: row.created_at, lastLoginAt: row.last_login_at, balanceCents: Number(row.balance_cents), queriesCount: Number(row.queries_count) })));
 }));
 
@@ -2295,10 +2302,10 @@ api.patch('/admin/users/:id', adminAuth, requirePermission('MANAGE_USERS'), asyn
   const parsed = adminUserUpdateSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   if (String(req.params.id) === req.user!.id) throw appError('ADMIN_SELF_CHANGE_FORBIDDEN', { code: 'ADMIN_SELF_CHANGE_FORBIDDEN', http: 409, expose: true });
-  if (parsed.data.role === 'ADMIN' && !hasPermission(req.user!.role, 'ADMIN_SYSTEM')) throw appError('FORBIDDEN', { code: 'FORBIDDEN', http: 403, expose: true });
+  if (parsed.data.role && !outranks(req.user!.role, parsed.data.role)) throw appError('FORBIDDEN', { code: 'FORBIDDEN', http: 403, expose: true });
   const target = await pool.query('SELECT id,role FROM users WHERE id=$1 AND deleted_at IS NULL', [req.params.id]);
-  if (!target.rowCount) throw appError('USER_NOT_FOUND', { code: 'USER_NOT_FOUND', http: 404, expose: true });
-  if (target.rows[0].role === 'SUPER_ADMIN' && !hasPermission(req.user!.role, 'ADMIN_SYSTEM')) throw appError('FORBIDDEN', { code: 'FORBIDDEN', http: 403, expose: true });
+  // Quem está acima (ou no mesmo nível) não existe para o ator.
+  if (!target.rowCount || !outranks(req.user!.role, String(target.rows[0].role))) throw appError('USER_NOT_FOUND', { code: 'USER_NOT_FOUND', http: 404, expose: true });
   const assignments: string[] = []; const values: unknown[] = [];
   if (parsed.data.active !== undefined) { values.push(parsed.data.active); assignments.push(`active=$${values.length}`); }
   if (parsed.data.role !== undefined) { values.push(parsed.data.role); assignments.push(`role=$${values.length}`); }
@@ -2314,7 +2321,7 @@ api.delete('/admin/users/:id', adminAuth, requirePermission('ADMIN_SYSTEM'), asy
   }
   const removed = await tx(async (client) => {
     const target = await client.query('SELECT id,name,email,role FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE', [req.params.id]);
-    if (!target.rowCount) throw appError('USER_NOT_FOUND', { code: 'USER_NOT_FOUND', http: 404, expose: true });
+    if (!target.rowCount || !outranks(req.user!.role, String(target.rows[0].role))) throw appError('USER_NOT_FOUND', { code: 'USER_NOT_FOUND', http: 404, expose: true });
     await client.query('UPDATE users SET active=false,deleted_at=now() WHERE id=$1', [req.params.id]);
     await client.query('UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [req.params.id]);
     return target.rows[0] as { id: string; email: string; role: string };
@@ -2509,6 +2516,7 @@ function humanMessage(code: string): string {
     OAUTH_TICKET_INVALID: 'Esta solicitação de acesso expirou. Tente entrar novamente.',
     PASSWORD_RESET_UNAVAILABLE: 'A recuperação por e-mail está temporariamente indisponível porque o envio de e-mail ainda não foi configurado. Tente novamente mais tarde ou fale com o suporte.',
     USER_NOT_FOUND: 'O usuário solicitado não foi encontrado.',
+    EMAIL_SEND_FAILED: 'Não foi possível enviar o e-mail agora. Tente de novo em alguns minutos.',
     ADMIN_SELF_CHANGE_FORBIDDEN: 'Para segurança, use outro administrador para alterar o próprio acesso.',
     WALLET_BALANCE_INVALID: 'Este ajuste deixaria a carteira com saldo negativo.',
     CREDIT_PACKAGE_NOT_FOUND: 'A oferta legada de saldo pré-pago solicitada não está disponível.',

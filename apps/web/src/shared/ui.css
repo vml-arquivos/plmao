@@ -204,3 +204,13 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; min-width
 .chat-item[aria-current="true"]{border-color:var(--primary,#166534);box-shadow:0 0 0 2px var(--primary-soft,#dcf2e3)}
 .chat-item .unread{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--primary,#166534);margin-right:6px}
 .chat-item small{display:block;color:var(--muted,#5b6661)}
+
+.check-row { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; padding: 4px 0; }
+.check-row input { width: 20px; height: 20px; margin-top: 2px; flex: none; accent-color: var(--primary); }
+.check-row b { display: block; font-size: 15px; }
+.check-row small { display: block; color: var(--muted); font-size: 13.5px; }
+.dev-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.dev-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.dev-list li:first-child { border-top: 0; }
+.dev-list small { display: block; color: var(--muted); }
+.dev-list b { overflow-wrap: anywhere; font-size: 14px; }

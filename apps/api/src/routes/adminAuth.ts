@@ -8,9 +8,11 @@ import { pool } from '../db.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import { beginTotpSetup, completeTotpEnrollment, completeTotpLogin, disableTotp, enableTotp, startAdminTotpStep } from '../lib/totpFlow.js';
 import { permissionsFor } from '../permissions.js';
+import { createTrustedDevice, listTrustedDevices, revokeAllTrustedDevices, revokeTrustedDevice, useTrustedDevice } from '../lib/trustedDevices.js';
 
-const loginSchema = z.object({ email: z.string().trim().email().max(254), password: z.string().min(1).max(128) }).strict();
-const challengeSchema = z.object({ challenge: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/), code: z.string().trim().min(6).max(16) }).strict();
+const deviceTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{30,100}$/);
+const loginSchema = z.object({ email: z.string().trim().email().max(254), password: z.string().min(1).max(128), deviceToken: deviceTokenSchema.optional() }).strict();
+const challengeSchema = z.object({ challenge: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/), code: z.string().trim().min(6).max(16), trustDevice: z.boolean().optional() }).strict();
 const enrollSchema = z.object({ challenge: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/), code: z.string().trim().regex(/^\d{6}$/) }).strict();
 const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(8).max(128) }).strict();
 
@@ -46,6 +48,13 @@ adminAuthRouter.post('/login', limiter, asyncRoute(async (req, res) => {
     await audit(user.id, 'ADMIN_LOGIN', 'USER', user.id, { requestId: requestId(req), twoFactor: false });
     return res.json({ totpRequired: 'NONE', token: issued.token, user, permissions: permissionsFor(user.role) });
   }
+  if (step.totpRequired === 'VERIFY' && parsed.data.deviceToken && await useTrustedDevice(user.id, parsed.data.deviceToken)) {
+    // Computador marcado como confiável: o código não é pedido de novo.
+    await pool.query('UPDATE users SET last_login_at=now() WHERE id=$1', [user.id]);
+    const issued = await issueSession(user, { flow: 'admin_trusted_device', requestId: requestId(req), totpVerified: true }, 'admin');
+    await audit(user.id, 'ADMIN_LOGIN', 'USER', user.id, { requestId: requestId(req), twoFactor: 'trusted_device' });
+    return res.json({ totpRequired: 'NONE', token: issued.token, user, permissions: permissionsFor(user.role), trusted: true });
+  }
   res.json({ user: { name: user.name, email: user.email }, ...step });
 }));
 
@@ -57,7 +66,8 @@ adminAuthRouter.post('/totp/verify', limiter, asyncRoute(async (req, res) => {
   await pool.query('UPDATE users SET last_login_at=now() WHERE id=$1', [user.id]);
   const issued = await issueSession(user, { flow: 'admin_totp_login', requestId: requestId(req), totpVerified: true }, 'admin');
   await audit(user.id, 'ADMIN_LOGIN', 'USER', user.id, { requestId: requestId(req), recoveryCodeUsed });
-  res.json({ token: issued.token, user, permissions: permissionsFor(user.role) });
+  const deviceToken = parsed.data.trustDevice ? await createTrustedDevice(user.id, req.get('user-agent')) : null;
+  res.json({ token: issued.token, user, permissions: permissionsFor(user.role), ...(deviceToken ? { deviceToken } : {}) });
 }));
 
 adminAuthRouter.post('/totp/enroll/confirm', limiter, asyncRoute(async (req, res) => {
@@ -74,7 +84,8 @@ adminAuthRouter.post('/totp/enroll/confirm', limiter, asyncRoute(async (req, res
 adminAuthRouter.get('/me', adminAuth, asyncRoute(async (req, res) => {
   const recovery = await pool.query('SELECT count(*)::int AS remaining FROM team_totp_recovery_codes WHERE user_id=$1 AND used_at IS NULL', [req.user!.id]);
   const totp = await pool.query('SELECT 1 FROM team_totp WHERE user_id=$1 AND enabled_at IS NOT NULL', [req.user!.id]);
-  res.json({ user: req.user, permissions: permissionsFor(req.user!.role), recoveryCodesRemaining: Number(recovery.rows[0]?.remaining ?? 0), totpEnabled: Boolean(totp.rowCount), totpRequired: env.TEAM_TOTP_REQUIRED });
+  const fresh = await pool.query('SELECT name FROM users WHERE id=$1', [req.user!.id]);
+  res.json({ user: { ...req.user, name: String(fresh.rows[0]?.name ?? req.user!.name) }, permissions: permissionsFor(req.user!.role), recoveryCodesRemaining: Number(recovery.rows[0]?.remaining ?? 0), totpEnabled: Boolean(totp.rowCount), totpRequired: env.TEAM_TOTP_REQUIRED, trustedDeviceDays: env.TEAM_TRUSTED_DEVICE_DAYS });
 }));
 
 // 2FA opcional: a própria pessoa liga e desliga o aplicativo autenticador em "Minha conta".
@@ -99,6 +110,7 @@ adminAuthRouter.post('/totp/disable', limiter, adminAuth, asyncRoute(async (req,
   const result = await pool.query('SELECT password_hash FROM users WHERE id=$1 AND active=true', [req.user!.id]);
   if (!result.rowCount || !(await bcrypt.compare(parsed.data.password, String(result.rows[0].password_hash)))) throw appError('INVALID_CREDENTIALS', { code: 'INVALID_CREDENTIALS', http: 401, expose: true });
   await disableTotp(req.user!.id, req.sessionId, parsed.data.code);
+  await revokeAllTrustedDevices(req.user!.id);
   await audit(req.user!.id, 'ADMIN_TOTP_DISABLED', 'USER', req.user!.id, { requestId: requestId(req) });
   res.status(204).end();
 }));
@@ -109,6 +121,16 @@ adminAuthRouter.post('/logout', adminAuth, asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
+// Dados pessoais: só a própria pessoa altera (ninguém, nem quem está acima, edita o nome de outro).
+const profileSchema = z.object({ name: z.string().trim().min(2).max(120) }).strict();
+adminAuthRouter.patch('/profile', adminAuth, asyncRoute(async (req, res) => {
+  const parsed = profileSchema.safeParse(req.body);
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  await pool.query('UPDATE users SET name=$2 WHERE id=$1', [req.user!.id, parsed.data.name]);
+  await audit(req.user!.id, 'ADMIN_PROFILE_UPDATED', 'USER', req.user!.id, { requestId: requestId(req) });
+  res.json({ user: { ...req.user, name: parsed.data.name } });
+}));
+
 adminAuthRouter.post('/change-password', adminAuth, asyncRoute(async (req, res) => {
   const parsed = changePasswordSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
@@ -116,6 +138,22 @@ adminAuthRouter.post('/change-password', adminAuth, asyncRoute(async (req, res) 
   if (!result.rowCount || !(await bcrypt.compare(parsed.data.currentPassword, String(result.rows[0].password_hash)))) throw appError('INVALID_CREDENTIALS', { code: 'INVALID_CREDENTIALS', http: 401, expose: true });
   await pool.query('UPDATE users SET password_hash=$2,password_enabled=true WHERE id=$1', [req.user!.id, await bcrypt.hash(parsed.data.newPassword, 12)]);
   await pool.query('UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND id <> $2 AND revoked_at IS NULL', [req.user!.id, req.sessionId ?? '']);
+  await revokeAllTrustedDevices(req.user!.id);
   await audit(req.user!.id, 'ADMIN_PASSWORD_CHANGED', 'USER', req.user!.id, { requestId: requestId(req) });
+  res.status(204).end();
+}));
+
+// Computadores confiáveis da própria pessoa.
+adminAuthRouter.get('/devices', adminAuth, asyncRoute(async (req, res) => {
+  res.json({ items: await listTrustedDevices(req.user!.id) });
+}));
+adminAuthRouter.delete('/devices', adminAuth, asyncRoute(async (req, res) => {
+  await revokeAllTrustedDevices(req.user!.id);
+  await audit(req.user!.id, 'ADMIN_TRUSTED_DEVICES_CLEARED', 'USER', req.user!.id, { requestId: requestId(req) });
+  res.status(204).end();
+}));
+adminAuthRouter.delete('/devices/:id', adminAuth, asyncRoute(async (req, res) => {
+  const id = String(req.params.id ?? '');
+  if (!/^[0-9a-f-]{36}$/i.test(id) || !(await revokeTrustedDevice(req.user!.id, id))) throw appError('NOT_FOUND', { code: 'NOT_FOUND', http: 404, expose: true });
   res.status(204).end();
 }));

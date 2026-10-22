@@ -1307,5 +1307,24 @@ export const placaMigrations: Migration[] = [
     down: async (client) => {
       await client.query(`UPDATE vehicle_models SET summary='', updated_at=now() WHERE slug='honda-civic' AND summary=$1`, [CIVIC_SUMMARY]);
     }
+  },
+  {
+    id: '037_admin_trusted_devices',
+    name: 'Painel: computadores confiáveis (não pedem o código de 2FA de novo)',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS admin_trusted_devices (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token_hash text NOT NULL UNIQUE,
+          label text,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          last_used_at timestamptz,
+          expires_at timestamptz NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_admin_trusted_devices_user ON admin_trusted_devices(user_id, expires_at DESC);
+      `);
+    },
+    down: async (client) => { await client.query('DROP TABLE IF EXISTS admin_trusted_devices'); }
   }
 ];

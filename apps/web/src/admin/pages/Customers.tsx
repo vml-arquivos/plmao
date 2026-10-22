@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, CUSTOMER_TYPE, maskDocument, maskPhone, maskZip, SEGMENT_SUGGESTIONS, STATES, type CustomerType } from '../api';
 import { useAdminSession } from '../session';
-import { Alert, Badge, Button, ConfirmDialog, CopyField, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Select, Switch, Tabs, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { Alert, Badge, Button, ConfirmDialog, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Select, Switch, Tabs, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { dateOnly, dateTime, formatPlate, money, num, parseMoneyToCents } from '../../shared/format';
 import { Card, Kpi, PageHead, PaymentStatusBadge, QueryStatusBadge } from '../parts';
@@ -104,7 +104,7 @@ export function CustomerForm({ customer, onClose }: { customer?: Customer; onClo
   const toast = useToast();
   const [f, setF] = useState(blank(customer ?? null));
   const [busy, setBusy] = useState(false);
-  const [created, setCreated] = useState<{ name: string; email: string; password: string | null } | null>(null);
+  const [created, setCreated] = useState<{ name: string; email: string; invited: boolean; sent: boolean } | null>(null);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
   const docLabel = f.type === 'EMPRESA' ? 'CNPJ' : f.type === 'PARTICULAR' ? 'CPF' : 'CPF ou CNPJ';
   const valid = f.name.trim().length >= 2 && /^\S+@\S+\.\S+$/.test(f.email.trim());
@@ -118,8 +118,8 @@ export function CustomerForm({ customer, onClose }: { customer?: Customer; onClo
     setBusy(true);
     try {
       if (customer) { await api.patch(`/admin/customers/${customer.id}`, body); toast.ok('Cadastro atualizado.'); onClose(true); return; }
-      const r = await api.post<{ customer: Customer; temporaryPassword: string | null }>('/admin/customers', { ...body, portalAccess: f.portalAccess });
-      setCreated({ name: r.customer.name, email: r.customer.email, password: r.temporaryPassword });
+      const r = await api.post<{ customer: Customer; inviteSent: boolean }>('/admin/customers', { ...body, portalAccess: f.portalAccess });
+      setCreated({ name: r.customer.name, email: r.customer.email, invited: f.portalAccess, sent: r.inviteSent });
     } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
   }
 
@@ -128,8 +128,10 @@ export function CustomerForm({ customer, onClose }: { customer?: Customer; onClo
       <Modal title="Cliente cadastrado" onClose={() => onClose(true)} footer={<Button variant="primary" onClick={() => onClose(true)}>Concluir</Button>}>
         <div className="stack">
           <p><b>{created.name}</b> foi cadastrado como {CUSTOMER_TYPE[f.type].label.toLowerCase()}.</p>
-          {created.password ? (
-            <div className="pw-box"><b>Senha temporária de acesso ao site</b><CopyField value={created.password} /><span className="muted" style={{ fontSize: 13 }}>Envie ao cliente ({created.email}) por um canal seguro. Ela aparece só agora; depois use “Redefinir senha” na ficha do cliente.</span></div>
+          {created.invited ? (
+            created.sent
+              ? <Alert tone="info">Enviamos um e-mail para {created.email} com o link para o cliente criar a própria senha. Ninguém além dele vê a senha.</Alert>
+              : <Alert tone="warn">O e-mail para {created.email} não saiu. Quando o envio estiver funcionando, use “Enviar link de nova senha” na ficha do cliente.</Alert>
           ) : <Alert tone="info">Cadastro sem acesso ao site. Útil para controle, cobrança e nota fiscal.</Alert>}
         </div>
       </Modal>
@@ -176,7 +178,7 @@ export function CustomerForm({ customer, onClose }: { customer?: Customer; onClo
           </div>
         </details>
         <Field label="Observações internas" hint="Só a equipe vê."><Textarea rows={2} value={f.notes} onChange={(e) => set('notes', e.target.value)} maxLength={1000} /></Field>
-        {!customer && <Switch checked={f.portalAccess} onChange={(e) => set('portalAccess', e.target.checked)} label="Criar acesso ao site (gera uma senha temporária)" />}
+        {!customer && <Switch checked={f.portalAccess} onChange={(e) => set('portalAccess', e.target.checked)} label="Criar acesso ao site (o cliente recebe um link por e-mail para criar a senha)" />}
       </div>
     </Modal>
   );
@@ -224,7 +226,6 @@ export function CustomerDetail() {
   const [adjust, setAdjust] = useState(false);
   const [charge, setCharge] = useState(false);
   const [confirm, setConfirm] = useState<'delete' | 'archive' | 'block' | 'password' | null>(null);
-  const [pw, setPw] = useState<string | null>(null);
   usePageTitle(res.data?.customer.name ?? 'Cliente');
   if (res.loading && !res.data) return <PageLoading />;
   if (res.error || !res.data) return <ErrorState error={res.error} onRetry={res.reload} />;
@@ -313,7 +314,7 @@ export function CustomerDetail() {
       {manage && (
         <Card title="Acesso e cadastro">
           <div className="row" style={{ flexWrap: 'wrap' }}>
-            <Button variant="ghost" icon="key" onClick={() => setConfirm('password')}>Redefinir senha</Button>
+            <Button variant="ghost" icon="key" onClick={() => setConfirm('password')}>Enviar link de nova senha</Button>
             {!c.archived && <Button variant="ghost" icon="lock" onClick={() => setConfirm('block')}>{c.active ? 'Bloquear acesso' : 'Desbloquear acesso'}</Button>}
             <Button variant="ghost" icon="list" onClick={() => setConfirm('archive')}>{c.archived ? 'Restaurar cadastro' : 'Arquivar cadastro'}</Button>
             <Button variant="danger" icon="trash" onClick={() => setConfirm('delete')}>Excluir</Button>
@@ -324,13 +325,12 @@ export function CustomerDetail() {
       {edit && <CustomerForm customer={c} onClose={(ch) => { setEdit(false); if (ch) res.reload(); }} />}
       {adjust && <AdjustModal customer={c} onClose={(ch) => { setAdjust(false); if (ch) res.reload(); }} />}
       {charge && <ChargeModal presetCustomer={{ id: c.id, name: c.name, email: c.email, type: c.type }} onClose={(ch) => { setCharge(false); if (ch) res.reload(); }} />}
-      {confirm === 'password' && <ConfirmDialog title="Redefinir senha?" confirmLabel="Gerar nova senha" message="Uma nova senha temporária será gerada e as sessões atuais do cliente serão encerradas." onConfirm={async () => { const r = await api.post<{ temporaryPassword: string }>(`/admin/customers/${c.id}/reset-password`); setPw(r.temporaryPassword); }} onClose={() => setConfirm(null)} />}
+      {confirm === 'password' && <ConfirmDialog title="Enviar link de nova senha?" confirmLabel="Enviar link" message={`${c.name} recebe um e-mail em ${c.email} para criar uma nova senha. Ninguém além do cliente vê ou define a senha.`} onConfirm={async () => { await api.post(`/admin/customers/${c.id}/reset-password`); toast.ok('Link enviado por e-mail.'); }} onClose={() => setConfirm(null)} />}
       {confirm === 'block' && <ConfirmDialog title={c.active ? 'Bloquear acesso?' : 'Desbloquear acesso?'} confirmLabel={c.active ? 'Bloquear' : 'Desbloquear'} danger={c.active} message={c.active ? `${c.name} não conseguirá entrar no site até ser desbloqueado.` : `${c.name} volta a poder entrar no site.`} onConfirm={async () => { await api.post(`/admin/customers/${c.id}/block`, { active: !c.active }); toast.ok(c.active ? 'Acesso bloqueado.' : 'Acesso liberado.'); res.reload(); }} onClose={() => setConfirm(null)} />}
       {confirm === 'archive' && <ConfirmDialog title={c.archived ? 'Restaurar cadastro?' : 'Arquivar cadastro?'} confirmLabel={c.archived ? 'Restaurar' : 'Arquivar'} message={c.archived ? 'O cliente volta às listas e recupera o acesso.' : 'O cliente sai das listas e perde o acesso, mas todo o histórico fica guardado.'} onConfirm={async () => { await api.post(`/admin/customers/${c.id}/archive`, { archived: !c.archived }); toast.ok(c.archived ? 'Cadastro restaurado.' : 'Cadastro arquivado.'); res.reload(); }} onClose={() => setConfirm(null)} />}
       {confirm === 'delete' && <ConfirmDialog danger title="Excluir cliente?" confirmLabel="Excluir" message={<p>Excluir <b>{c.name}</b>? Se houver saldo no site ou parcelas em aberto, o sistema avisa antes. Prefira <b>arquivar</b> se quiser guardar o cadastro.</p>} onConfirm={async () => {
         try { await api.del(`/admin/customers/${c.id}${c.balanceCents > 0 ? '?force=true' : ''}`); toast.ok('Cliente excluído.'); nav('/clientes'); } catch (e) { toast.error(errorMessage(e)); throw e; }
       }} onClose={() => setConfirm(null)} />}
-      {pw && <Modal title="Nova senha temporária" onClose={() => setPw(null)} footer={<Button variant="primary" onClick={() => setPw(null)}>Concluir</Button>}><div className="pw-box"><CopyField value={pw} /><span className="muted" style={{ fontSize: 13 }}>Envie ao cliente por um canal seguro. Ela não será exibida novamente.</span></div></Modal>}
     </>
   );
 }

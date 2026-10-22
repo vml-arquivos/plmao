@@ -2,13 +2,22 @@ import assert from 'node:assert/strict';
 import { before, after, describe, it } from 'node:test';
 import { integration, loadCore, uid, useTestEnv } from './helpers/db.mjs';
 import { adminSession, hostRequest, startServer } from './helpers/server.mjs';
+import { startSmtpSink } from './helpers/smtp.mjs';
 
 // CPF e CNPJ válidos (dígitos verificadores corretos) usados só em teste.
 const CPF = '529.982.247-25';
 const CNPJ = '11.222.333/0001-81';
 
 describe('painel: equipe, clientes, empresas, cobranças e notas fiscais', integration, () => {
-  let pool; let server; let sa; let adm; let fin; let sup; let cont;
+  let pool; let server; let sa; let adm; let fin; let sup; let cont; let smtp;
+  const NEW_PW = 'Senha-Forte-123!';
+  /** A pessoa cria a própria senha pelo link que recebeu por e-mail (ninguém mais vê a senha). */
+  const setOwnPassword = async (email, password = NEW_PW) => {
+    const token = smtp.tokenFor(email);
+    assert.ok(token, `sem link de senha para ${email}`);
+    const r = await hostRequest(server.base, '/api/auth/reset-password', { method: 'POST', body: { token, newPassword: password } });
+    assert.equal(r.status, 200, r.text);
+  };
   const day = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
 
   before(async () => {
@@ -17,14 +26,15 @@ describe('painel: equipe, clientes, empresas, cobranças e notas fiscais', integ
     await pool.query(`DELETE FROM vehicle_queries WHERE product_id LIKE 'TESTE\\_%'`);
     for (const t of ['product_catalog_features', 'product_report_configs', 'report_templates']) await pool.query(`DELETE FROM ${t} WHERE product_id LIKE 'TESTE\\_%'`);
     await pool.query(`DELETE FROM query_products WHERE id LIKE 'TESTE\\_%'`);
-    server = await startServer({ ADMIN_HOSTS: 'admin.placanamao.test' });
+    smtp = await startSmtpSink();
+    server = await startServer({ ADMIN_HOSTS: 'admin.placanamao.test', ...smtp.env() });
     sa = await adminSession({ server, pool, role: 'SUPER_ADMIN' });
     adm = await adminSession({ server, pool, role: 'ADMIN' });
     fin = await adminSession({ server, pool, role: 'FINANCEIRO' });
     sup = await adminSession({ server, pool, role: 'SUPORTE' });
     cont = await adminSession({ server, pool, role: 'CONTEUDO' });
   });
-  after(async () => { await server.stop(); await pool.end(); });
+  after(async () => { await server.stop(); await smtp.stop(); await pool.end(); });
 
   it('novos níveis de acesso entram no painel e cada um enxerga só o seu pedaço', async () => {
     assert.equal((await fin.call('/api/admin/charges')).status, 200);
@@ -46,10 +56,14 @@ describe('painel: equipe, clientes, empresas, cobranças e notas fiscais', integ
     const created = await adm.call('/api/admin/team', { method: 'POST', body: { name: 'Fulana Financeira', email, role: 'FINANCEIRO' } });
     assert.equal(created.status, 201, created.text);
     assert.equal(created.json.member.role, 'FINANCEIRO');
-    assert.ok(created.json.temporaryPassword.length >= 12);
+    // ninguém vê a senha: o convite vai por e-mail e a pessoa cria a própria
+    assert.equal(created.json.inviteSent, true);
+    assert.equal(created.json.temporaryPassword, undefined);
+    assert.equal(created.json.password, undefined);
     const id = created.json.member.id;
-    // o novo membro consegue entrar com a senha temporária e cai no cadastro do 2FA
-    const login = await hostRequest(server.base, '/api/admin/auth/login', { method: 'POST', host: 'admin.placanamao.test', body: { email, password: created.json.temporaryPassword } });
+    await setOwnPassword(email);
+    // o novo membro entra com a senha que ele mesmo criou e cai no cadastro do 2FA
+    const login = await hostRequest(server.base, '/api/admin/auth/login', { method: 'POST', host: 'admin.placanamao.test', body: { email, password: NEW_PW } });
     assert.equal(login.status, 200, login.text);
     assert.ok(login.json.setup?.secret);
     // admin não cria outro admin; só super admin
@@ -62,14 +76,20 @@ describe('painel: equipe, clientes, empresas, cobranças e notas fiscais', integ
     const patch = await adm.call(`/api/admin/team/${id}`, { method: 'PATCH', body: { role: 'SUPORTE' } });
     assert.equal(patch.status, 200);
     assert.equal(patch.json.member.role, 'SUPORTE');
-    assert.equal((await adm.call(`/api/admin/team/${id}/reset-password`, { method: 'POST' })).json.temporaryPassword.length >= 12, true);
+    // redefinir senha só envia o link; quem pediu não recebe senha nenhuma
+    const sent = await adm.call(`/api/admin/team/${id}/reset-password`, { method: 'POST' });
+    assert.equal(sent.status, 200, sent.text);
+    assert.deepEqual(sent.json, { sent: true });
+    await setOwnPassword(email, 'Outra-Senha-Forte-456!');
+    // dados pessoais não se editam por cima: nome só pelo próprio usuário
+    assert.equal((await adm.call(`/api/admin/team/${id}`, { method: 'PATCH', body: { name: 'Nome Trocado' } })).status, 400);
     assert.equal((await adm.call(`/api/admin/team/${id}/reset-2fa`, { method: 'POST' })).status, 200);
     // não mexe em si mesmo
     const me = (await adm.call('/api/admin/team')).json.items.find((m) => m.email === adm.email);
     assert.equal((await adm.call(`/api/admin/team/${me.id}`, { method: 'PATCH', body: { active: false } })).status, 409);
-    // admin não mexe em super admin
+    // admin não vê nem mexe em super admin (para ele, nem existe)
     const superRow = (await sa.call('/api/admin/team')).json.items.find((m) => m.email === sa.email);
-    assert.equal((await adm.call(`/api/admin/team/${superRow.id}`, { method: 'PATCH', body: { active: false } })).status, 403);
+    assert.equal((await adm.call(`/api/admin/team/${superRow.id}`, { method: 'PATCH', body: { active: false } })).status, 404);
     // remover
     assert.equal((await adm.call(`/api/admin/team/${id}`, { method: 'DELETE' })).status, 204);
     assert.ok(!(await adm.call('/api/admin/team')).json.items.some((m) => m.id === id));
@@ -78,11 +98,61 @@ describe('painel: equipe, clientes, empresas, cobranças e notas fiscais', integ
     assert.equal(roles.json.roles.find((r) => r.role === 'ADMIN').assignable, false);
   });
 
+  it('hierarquia: cada nível só vê e gerencia quem está abaixo e ninguém edita dados pessoais de outro', async () => {
+    const peerEmail = `${uid('par')}@equipe.local`;
+    const peer = await sa.call('/api/admin/team', { method: 'POST', body: { name: 'Admin Par', email: peerEmail, role: 'ADMIN' } });
+    assert.equal(peer.status, 201, peer.text);
+    const lowEmail = `${uid('bx')}@equipe.local`;
+    const low = await adm.call('/api/admin/team', { method: 'POST', body: { name: 'Operador Abaixo', email: lowEmail, role: 'OPERADOR' } });
+    assert.equal(low.status, 201, low.text);
+
+    // administrador: vê a si mesmo e quem está abaixo; não vê super admin nem outro administrador
+    const admList = (await adm.call('/api/admin/team')).json.items;
+    assert.ok(admList.some((m) => m.email === adm.email));
+    assert.ok(admList.some((m) => m.id === low.json.member.id));
+    assert.ok(!admList.some((m) => m.role === 'SUPER_ADMIN' || (m.role === 'ADMIN' && m.email !== adm.email)));
+    // super admin vê todos
+    const saList = (await sa.call('/api/admin/team')).json.items;
+    assert.ok(saList.some((m) => m.id === peer.json.member.id) && saList.some((m) => m.email === adm.email));
+
+    // administrador não alcança administrador nem super admin: nenhuma ação, nem para espiar
+    const superRow = saList.find((m) => m.email === sa.email);
+    for (const target of [superRow.id, peer.json.member.id]) {
+      assert.equal((await adm.call(`/api/admin/team/${target}`, { method: 'PATCH', body: { active: false } })).status, 404);
+      assert.equal((await adm.call(`/api/admin/team/${target}/reset-password`, { method: 'POST' })).status, 404);
+      assert.equal((await adm.call(`/api/admin/team/${target}/reset-2fa`, { method: 'POST' })).status, 404);
+      assert.equal((await adm.call(`/api/admin/team/${target}`, { method: 'DELETE' })).status, 404);
+    }
+    // não promove ninguém ao próprio nível
+    assert.equal((await adm.call(`/api/admin/team/${low.json.member.id}`, { method: 'PATCH', body: { role: 'ADMIN' } })).status, 403);
+    // quem está abaixo pode ser bloqueado e removido
+    assert.equal((await adm.call(`/api/admin/team/${low.json.member.id}`, { method: 'PATCH', body: { active: false } })).status, 200);
+    assert.equal((await adm.call(`/api/admin/team/${low.json.member.id}`, { method: 'DELETE' })).status, 204);
+
+    // rotas antigas de usuários seguem a mesma regra
+    const legacy = (await adm.call('/api/admin/users')).json;
+    assert.ok(!legacy.some((u) => u.role === 'SUPER_ADMIN' || (u.role === 'ADMIN' && u.email !== adm.email)));
+    assert.equal((await adm.call(`/api/admin/users/${superRow.id}`, { method: 'PATCH', body: { active: false } })).status, 404);
+    assert.equal((await adm.call(`/api/admin/users/${peer.json.member.id}`, { method: 'PATCH', body: { active: false } })).status, 404);
+    const assignees = (await adm.call('/api/admin/support/team')).json.items;
+    assert.ok(!assignees.some((m) => m.role === 'SUPER_ADMIN'));
+
+    // super admin continua alcançando todos
+    assert.equal((await sa.call(`/api/admin/team/${peer.json.member.id}`, { method: 'PATCH', body: { active: false } })).status, 200);
+
+    // dados pessoais: cada um edita só o próprio nome
+    const own = await adm.call('/api/admin/auth/profile', { method: 'PATCH', body: { name: 'Admin Renomeado' } });
+    assert.equal(own.status, 200, own.text);
+    assert.equal((await adm.call('/api/admin/auth/me')).json.user.name, 'Admin Renomeado');
+    assert.equal((await adm.call('/api/admin/auth/profile', { method: 'PATCH', body: { name: 'X', email: 'x@y.com' } })).status, 400);
+  });
+
   it('clientes: cria por tipo, valida CPF/CNPJ, filtra, edita, arquiva e exporta', async () => {
     const mk = (over) => adm.call('/api/admin/customers', { method: 'POST', body: { name: 'Cliente', email: `${uid('c')}@cli.local`, type: 'PARTICULAR', ...over } });
     const part = await mk({ name: 'Maria Particular', cpfCnpj: CPF, type: 'PARTICULAR', city: 'Campinas', state: 'SP', street: 'Rua A', zip: '13000-000' });
     assert.equal(part.status, 201, part.text);
-    assert.ok(part.json.temporaryPassword);
+    assert.equal(part.json.inviteSent, true);
+    assert.equal(part.json.temporaryPassword, undefined);
     assert.equal(part.json.customer.type, 'PARTICULAR');
     assert.equal(part.json.customer.cpfCnpj, CPF);
     assert.equal(part.json.customer.fiscalReady, true);
@@ -118,18 +188,23 @@ describe('painel: equipe, clientes, empresas, cobranças e notas fiscais', integ
     assert.equal(edit.json.customer.city, 'Santos');
     assert.equal(edit.json.customer.segment, 'Vendedor de carros autônomo');
     assert.equal(edit.json.customer.type, 'AUTONOMO');
-    // cliente criado entra pelo site com a senha temporária
-    const login = await hostRequest(server.base, '/api/auth/login', { method: 'POST', body: { email: part.json.customer.email, password: part.json.temporaryPassword } });
+    // cliente criado define a própria senha pelo link e entra pelo site
+    await setOwnPassword(part.json.customer.email);
+    const login = await hostRequest(server.base, '/api/auth/login', { method: 'POST', body: { email: part.json.customer.email, password: NEW_PW } });
     assert.equal(login.status, 200, login.text);
     // sem acesso ao portal não loga
     const noPortal = await mk({ name: 'Só Cadastro', portalAccess: false });
-    assert.equal(noPortal.json.temporaryPassword, null);
+    assert.equal(noPortal.json.inviteSent, false);
+    assert.equal(smtp.tokenFor(noPortal.json.customer.email), null);
+    // redefinir senha do cliente também só manda o link
+    const resetCust = await adm.call(`/api/admin/customers/${part.json.customer.id}/reset-password`, { method: 'POST' });
+    assert.deepEqual(resetCust.json, { sent: true });
     // arquivar tira da lista padrão e bloqueia o login; restaurar volta
     const arch = await adm.call(`/api/admin/customers/${part.json.customer.id}/archive`, { method: 'POST', body: {} });
     assert.equal(arch.status, 200);
     assert.ok(!(await adm.call('/api/admin/customers')).json.items.some((c) => c.id === part.json.customer.id));
     assert.ok((await adm.call('/api/admin/customers?status=archived')).json.items.some((c) => c.id === part.json.customer.id));
-    assert.equal((await hostRequest(server.base, '/api/auth/login', { method: 'POST', body: { email: part.json.customer.email, password: part.json.temporaryPassword } })).status, 401);
+    assert.equal((await hostRequest(server.base, '/api/auth/login', { method: 'POST', body: { email: part.json.customer.email, password: NEW_PW } })).status, 401);
     assert.equal((await adm.call(`/api/admin/customers/${part.json.customer.id}/archive`, { method: 'POST', body: { archived: false } })).status, 200);
     // exportar CSV
     const csv = await adm.call('/api/admin/customers/export.csv?type=EMPRESA');

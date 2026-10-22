@@ -140,8 +140,10 @@ const envSchema = z.object({
   ADMIN_URL: optionalUrl,
   ADMIN_HOSTS: optionalString,
   ADMIN_ALLOWED_IPS: optionalString,
-  // Mantida por compatibilidade de variável; o 2FA de equipe é SEMPRE exigido (valor ignorado).
+  // 2FA do painel: opcional por padrão (cada pessoa liga em "Minha conta"). true torna obrigatório para toda a equipe.
   TEAM_TOTP_REQUIRED: booleanFromEnv.default(false),
+  // Dias em que um computador marcado como confiável não pede o código de novo (renova a cada uso). 0 desliga a opção.
+  TEAM_TRUSTED_DEVICE_DAYS: z.coerce.number().int().min(0).max(365).default(90),
   // Chave AES-256-GCM (>=32 caracteres) para JSON bruto do provedor e dados sensíveis em repouso.
   DATA_ENCRYPTION_KEY: optionalString,
   // Mascaramento LGPD: documentos e nomes mascarados por padrão.

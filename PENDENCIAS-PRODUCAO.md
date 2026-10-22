@@ -1,4 +1,17 @@
-# Pendências para produção (1.10.0)
+# Pendências para produção (1.10.4)
+
+## Roteiro de configuração (teste e produção)
+
+Fazer nesta ordem. Teste e produção usam as mesmas variáveis; só mudam os valores.
+
+1. **Brevo**: criar a conta, adicionar o domínio em Remetentes e domínios e publicar no DNS os registros que o Brevo mostrar (SPF, DKIM e DMARC). Esperar ficar "autenticado". Criar o remetente (ex.: `no-reply@seudominio`).
+2. **SMTP no Coolify**: `EMAIL_PROVIDER=smtp`, `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, `SMTP_USER`, `SMTP_PASSWORD` (chave SMTP), `EMAIL_FROM`, `EMAIL_WEBHOOK_SECRET`. Reiniciar. Testar em Integrações > e-mail e criando um membro da equipe (o convite sai por e-mail).
+3. **Acesso da equipe**: no Coolify, `TEAM_TOTP_REQUIRED=false` (ou remover a variável). Opcional: `TEAM_TRUSTED_DEVICE_DAYS`.
+4. **Pagamento (teste)**: `PAYMENT_PROVIDER=mercadopago` com `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET` de teste (`TEST-`), webhook em `https://SEU-DOMINIO/api/payments/mercadopago/webhook`. Pagar, estornar e conferir a conciliação. Ou `asaas` com a chave de homologação.
+5. **Pagamento (produção)**: trocar para as credenciais reais só depois do passo 4 completo.
+6. **Ambientes**: ideal um app de teste no Coolify (outro subdomínio, outro banco, credenciais de teste) e outro de produção. Em produção: `NODE_ENV=production`, `SANDBOX_SEED_ENABLED=false`, `PAYMENT_PROVIDER` real ou `disabled`.
+7. **Antes do deploy**: backup do banco; `/ready` como verificação de saúde.
+
 
 O que o código já faz está no CHANGELOG. Aqui está só o que falta, quem precisa decidir e o que fica desligado até lá. Nada foi ligado, testado contra serviço real nem publicado.
 
@@ -43,4 +56,4 @@ Retorno de entrega: no Brevo, crie um webhook transacional apontando para `https
 - Política de retenção do `STORE_RAW` (dado bruto do fornecedor) ainda precisa de decisão.
 - Opcional: dupla aprovação para estornos de alto valor.
 - Usar `GET /ready` como verificação de prontidão no Coolify (além de `/health`).
-- Antes do deploy: backup do banco; migrações 027–035 rodam sozinhas na subida; `npm run db:rollback -- 9` reverte.
+- Antes do deploy: backup do banco; migrações 027–037 rodam sozinhas na subida; `npm run db:rollback -- 9` reverte.

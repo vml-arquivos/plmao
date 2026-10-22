@@ -77,8 +77,8 @@ export default function Auth({ initial }: { initial: Mode }) {
         const r = await api.post<{ message?: string }>('/auth/forgot-password', { email: f.email.trim() });
         setNotice(r.message ?? 'Se o e-mail estiver cadastrado, enviaremos as instruções para redefinir sua senha.');
       } else if (mode === 'reset') {
-        await api.post('/auth/reset-password', { token: resetToken, newPassword: f.password });
-        setNotice('Senha atualizada. Entre com a nova senha.');
+        const r = await api.post<{ message?: string; panel?: boolean }>('/auth/reset-password', { token: resetToken, newPassword: f.password });
+        setNotice(r.panel && r.message ? r.message : 'Senha atualizada. Entre com a nova senha.');
         setF((s) => ({ ...s, password: '', confirm: '' }));
         nav('/entrar', { replace: true });
         setMode('login');

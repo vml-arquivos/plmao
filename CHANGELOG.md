@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.10.4 — Verificação em 2 etapas opcional, computador confiável e hierarquia de acessos
+
+- **2 etapas opcional** no painel: ninguém é obrigado a cadastrar o aplicativo. O padrão agora é `TEAM_TOTP_REQUIRED=false` (o `.env.example` estava como `true`). Quem quiser ativa em "Minha conta"; quem já ativou pode desativar com senha e código.
+- **Confiar neste computador**: ao informar o código, a caixa "Confiar neste computador" evita pedir de novo no mesmo aparelho (padrão 90 dias, renova a cada uso; `TEAM_TRUSTED_DEVICE_DAYS`, 0 desliga). Vale até sair da conta ou limpar os dados do navegador. Em "Minha conta" dá para ver e remover os computadores. Trocar a senha ou desativar a verificação remove todos. Migração 037.
+- **Hierarquia**: cada nível só vê e gerencia quem está abaixo. O administrador não enxerga super admin nem outro administrador (para ele não existem; resposta 404). Vale para `/admin/team`, `/admin/users` e a lista de responsáveis do suporte. Super admin alcança todos.
+- **Dados pessoais só do próprio usuário**: ninguém edita nome ou senha de outra pessoa. Quem está acima pode bloquear, remover e zerar a verificação de quem está abaixo. Cada um edita o próprio nome em "Minha conta" (`PATCH /admin/auth/profile`).
+- **Senha por link**: criar membro/cliente e "Enviar link de nova senha" mandam um e-mail para a pessoa criar a própria senha; ninguém vê senha temporária. Convite vale 3 dias. Precisa do e-mail (SMTP) configurado; sem ele a criação de membro da equipe avisa e não cria.
+- Correção: o link de senha de quem é da equipe gravava a senha mas mostrava erro. Agora confirma e orienta a entrar pelo painel.
+
 ## 1.10.3 — App instalável, proposta na tela e responsivo revisado
 
 - **Instalar o app**: botão "Instalar o app" no menu e no rodapé, aviso na parte de baixo da tela (some por 14 dias se dispensado), convite nativo no Android e no computador, passo a passo do "Adicionar à Tela de Início" no iPhone/iPad (iOS não tem convite nativo) e página `/instalar`. Manifesto com capturas de tela, atalhos (consultar, simulador, guia, FIPE, histórico) e orientação livre (antes travava em retrato).
