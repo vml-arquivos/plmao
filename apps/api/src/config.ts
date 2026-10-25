@@ -53,7 +53,8 @@ function validateProductionConfig(value: ParsedEnv): void {
   requireProduction(!value.SANDBOX_SEED_ENABLED, 'SANDBOX_SEED_FORBIDDEN', issues);
   requireProduction(!value.SANDBOX_CREDIT_PURCHASE_ENABLED, 'SANDBOX_CREDIT_PURCHASE_FORBIDDEN', issues);
 
-  if (value.DATA_PROVIDER === 'real') {
+  // As exigências genéricas (endereço e credenciais VEHICLE_API_*) valem só para o adaptador genérico; Credify e ConsultarPlaca têm as suas.
+  if (value.DATA_PROVIDER === 'real' && value.VEHICLE_API_PROVIDER === 'generic') {
     requireProduction(Boolean(value.VEHICLE_API_BASE_URL && value.VEHICLE_API_QUERY_PATH), 'VEHICLE_PROVIDER_ENDPOINT_REQUIRED', issues);
     if (value.VEHICLE_API_AUTH_SCHEME === 'bearer') {
       requireProduction(Boolean(value.VEHICLE_API_TOKEN || value.APIBRASIL_BEARER_TOKEN), 'VEHICLE_PROVIDER_BEARER_REQUIRED', issues);

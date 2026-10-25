@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.12.3 — Correção: subida em produção com ConsultarPlaca e Credify
+
+- Corrigido: com `DATA_PROVIDER=real`, o sistema exigia endereço e token do adaptador genérico (`VEHICLE_API_*`) mesmo com `VEHICLE_API_PROVIDER=consultarplaca` ou `credify`, e não subia (`VEHICLE_PROVIDER_ENDPOINT_REQUIRED,VEHICLE_PROVIDER_BEARER_REQUIRED`). Agora cada provedor exige só as suas credenciais.
+- Testes: `config-vehicle-provider.test.mjs`.
+
 ## 1.12.2 — Consulta veicular de teste (ConsultarPlaca)
 
 - Novo provedor `VEHICLE_API_PROVIDER=consultarplaca` (com `DATA_PROVIDER=real`) para validar o sistema enquanto a Credify não chega. Variáveis: `CONSULTARPLACA_EMAIL`, `CONSULTARPLACA_API_KEY` e, se precisar, `CONSULTARPLACA_BASE_URL`.
