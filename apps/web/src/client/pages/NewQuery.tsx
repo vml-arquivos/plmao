@@ -10,7 +10,7 @@ import { storedReferral, trackFunnel } from '../funnel';
 import PaidQueries from '../components/PaidQueries';
 
 interface QProduct { id: string; name: string; description: string; priceCents: number; basePriceCents: number; negotiated: boolean; features: string[] | null; isFree: boolean; featured: boolean; commercialStatus: string }
-interface Quote { amountCents: number; subtotalCents: number; discountCents: number; couponCode: string | null; paymentProviderConfigured: boolean }
+interface Quote { amountCents: number; subtotalCents: number; discountCents: number; couponCode: string | null; paymentProviderConfigured: boolean; free?: boolean }
 
 const STEPS = ['Validando a placa', 'Consultando a fonte de dados', 'Montando o relatório'];
 
@@ -79,8 +79,17 @@ export default function NewQuery() {
     trackFunnel('CHECKOUT_STARTED', { productId: product.id, amountCents: due, hasCoupon: Boolean(quote?.couponCode) });
     try {
       const ref = storedReferral();
-      const r = await api.post<{ checkoutUrl: string }>('/payments/query/checkout', { productId: product.id, plate, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(ref ? { affiliateCode: ref } : {}) });
-      window.location.assign(r.checkoutUrl);
+      const r = await api.post<{ checkoutUrl: string | null; free?: boolean; orderId: string }>('/payments/query/checkout', { productId: product.id, plate, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(ref ? { affiliateCode: ref } : {}) });
+      if (r.free) {
+        // Cupom de 100%: sem pagamento. Executa a consulta liberada pelo pedido.
+        try {
+          const q = await api.post<{ id: string }>('/queries', { plate, productId: product.id, paymentOrderId: r.orderId });
+          void refresh();
+          nav(`/app/consulta/${q.id}`);
+        } catch (e) { setError(errorMessage(e) + ' A consulta grátis continua liberada no topo desta página.'); setBusy(''); }
+        return;
+      }
+      if (r.checkoutUrl) window.location.assign(r.checkoutUrl);
     } catch (e) { setError(errorMessage(e)); setBusy(''); }
   }
 
@@ -140,7 +149,9 @@ export default function NewQuery() {
           <div className="sum-line total"><span>Total</span><span className="num">{money(due)}</span></div>
           <div className="sum-line"><span className="muted">Seu saldo</span><b className="num" style={{ color: enough ? 'var(--ok-ink)' : 'var(--warn-ink)' }}>{money(balance)}</b></div>
           {error && <Alert tone="danger">{error}</Alert>}
-          {enough ? (
+          {quote?.free ? (
+            <Button variant="primary" size="lg" block disabled={!can} loading={busy === 'pay'} onClick={payDirect} icon="search">Consultar grátis</Button>
+          ) : enough ? (
             <>
               <Button variant="primary" size="lg" block disabled={!can} onClick={runWallet} icon="search">Consultar agora · {money(price)}</Button>
               <Button variant="ghost" block disabled={!can} loading={busy === 'pay'} onClick={payDirect}>Prefiro pagar com Pix ou cartão</Button>
@@ -155,7 +166,7 @@ export default function NewQuery() {
           <details>
             <summary style={{ cursor: 'pointer', color: 'var(--primary)', fontWeight: 500, fontSize: 14 }}>Tenho um cupom</summary>
             <div className="row" style={{ marginTop: 10, flexWrap: 'nowrap' }}><Field label="Código do cupom" className="grow"><Input value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())} placeholder="CUPOM10" /></Field><Button size="sm" loading={busy === 'quote'} onClick={applyCoupon} style={{ alignSelf: 'end' }}>Aplicar</Button></div>
-            <p className="muted" style={{ fontSize: 12.5, marginTop: 6 }}>O cupom vale para pagamento direto (Pix/cartão).</p>
+            <p className="muted" style={{ fontSize: 12.5, marginTop: 6 }}>O cupom vale para pagamento direto. Cupom de 100% libera a consulta grátis.</p>
           </details>
           <p className="muted" style={{ fontSize: 12.5 }}><Icon name="lock" size={13} /> Pagamento seguro. Se a consulta falhar por problema técnico, o valor é estornado.</p>
         </aside>

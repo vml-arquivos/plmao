@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.12.4 — Cupom de 100% libera a consulta sem o checkout
+
+- Cupom que zera o total em consulta avulsa agora funciona: o pedido nasce pago (valor zero, origem "coupon"), a consulta fica liberada e o cupom é resgatado na hora. Não passa pelo Mercado Pago, não gera comissão nem cobrança.
+- Cada conta resgata o mesmo cupom grátis uma vez. O limite de resgates do cupom continua valendo.
+- Tela Nova consulta: com cupom de 100% aparece "Consultar grátis" e a consulta roda direto.
+- Cupom parcial ou sem cupom continua exigindo o checkout; sem o meio de pagamento configurado, a mensagem agora é clara.
+- Corrigido: erros de cupom (inválido, indisponível, indicação inválida) apareciam como mensagem genérica. Agora saem em português.
+- Migração 040: `payment_orders.amount_cents` passa a aceitar zero.
+- Pacote de saldo com cupom de 100% segue não aceito (mensagem própria).
+- Testes: `free-coupon.test.mjs` e ajuste em `commercial.test.mjs`.
+
 ## 1.12.3 — Correção: subida em produção com ConsultarPlaca e Credify
 
 - Corrigido: com `DATA_PROVIDER=real`, o sistema exigia endereço e token do adaptador genérico (`VEHICLE_API_*`) mesmo com `VEHICLE_API_PROVIDER=consultarplaca` ou `credify`, e não subia (`VEHICLE_PROVIDER_ENDPOINT_REQUIRED,VEHICLE_PROVIDER_BEARER_REQUIRED`). Agora cada provedor exige só as suas credenciais.

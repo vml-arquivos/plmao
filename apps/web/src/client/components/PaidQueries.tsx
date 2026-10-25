@@ -34,7 +34,7 @@ export default function PaidQueries() {
     <div className="stack-sm">
       {data.map((o) => (
         <Alert key={o.orderId} tone="ok" title="Pagamento confirmado.">
-          <span className="row" style={{ marginTop: 6 }}><PlateBadge plate={o.plate} size="sm" /> <span>Consulta de {money(o.amountCents)} pronta para ser executada.</span><Button variant="primary" size="sm" loading={busy === o.orderId} onClick={() => run(o)}>Concluir consulta</Button></span>
+          <span className="row" style={{ marginTop: 6 }}><PlateBadge plate={o.plate} size="sm" /> <span>{o.amountCents === 0 ? 'Consulta grátis pronta para ser executada.' : `Consulta de ${money(o.amountCents)} pronta para ser executada.`}</span><Button variant="primary" size="sm" loading={busy === o.orderId} onClick={() => run(o)}>Concluir consulta</Button></span>
         </Alert>
       ))}
     </div>

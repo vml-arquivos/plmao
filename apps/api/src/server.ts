@@ -1676,6 +1676,12 @@ api.post('/payments/checkout', auth, requirePermission('BUY_CREDITS'), asyncRout
   }
 }));
 
+/** Cupom que zera o total é de uso único por cliente: cada cliente resgata o mesmo cupom grátis uma vez. */
+async function freeCouponAlreadyUsed(client: PoolClient, userId: string, couponId: string): Promise<boolean> {
+  const used = await client.query(`SELECT 1 FROM payment_orders WHERE user_id=$1 AND coupon_id=$2 AND amount_cents=0 AND status='PAID' LIMIT 1`, [userId, couponId]);
+  return Boolean(used.rowCount);
+}
+
 api.post('/payments/query/quote', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
   const parsed = queryCheckoutSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
@@ -1698,6 +1704,7 @@ api.post('/payments/query/quote', auth, requirePermission('BUY_CREDITS'), asyncR
       }
       couponCode = String(couponRow.code);
       discountCents = queryAmountAfterCoupon(pricing.priceCents, String(couponRow.discount_type) as 'PERCENT' | 'FIXED', Number(couponRow.discount_value)).discountCents;
+      if (discountCents >= pricing.priceCents && await freeCouponAlreadyUsed(client, req.user!.id, String(couponRow.id))) throw appError('COUPON_ALREADY_USED', { code: 'COUPON_ALREADY_USED', http: 400, expose: true });
     }
     if (parsed.data.affiliateCode) {
       const affiliate = await client.query('SELECT id,user_id FROM affiliates WHERE upper(code)=upper($1) AND active=true', [parsed.data.affiliateCode]);
@@ -1706,14 +1713,13 @@ api.post('/payments/query/quote', auth, requirePermission('BUY_CREDITS'), asyncR
     const totals = { subtotalCents: pricing.priceCents, discountCents, amountCents: Math.max(0, pricing.priceCents - discountCents) };
     return { purchaseType: 'QUERY', productId: String(productRow.id), productName: String(productRow.name), plate: parsed.data.plate, basePriceCents: Number(productRow.price_cents ?? 0), negotiated: pricing.negotiated, couponCode, affiliateCode: parsed.data.affiliateCode ?? null, ...totals };
   });
-  res.json({ ...quote, paymentProviderConfigured: getPaymentProvider().isConfigured(), usageCountChangesOnlyAfterPaid: true });
+  res.json({ ...quote, free: quote.amountCents === 0, paymentProviderConfigured: quote.amountCents === 0 || getPaymentProvider().isConfigured(), usageCountChangesOnlyAfterPaid: true });
 }));
 
 api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
   const parsed = queryCheckoutSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const paymentProvider = getPaymentProvider();
-  if (!paymentProvider.isConfigured()) throw appError('PAYMENT_PROVIDER_NOT_CONFIGURED', { code: 'PAYMENT_PROVIDER_NOT_CONFIGURED', http: 503, expose: true });
   const draft = await tx(async (client) => {
     const product = await client.query('SELECT id,name,description,price_cents,is_free FROM query_products WHERE id=$1 AND active=true', [parsed.data.productId]);
     if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
@@ -1737,8 +1743,11 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
       couponId = String(couponRow.id);
       couponCode = String(couponRow.code);
       discountCents = calculateCouponDiscount(pricing.priceCents, String(couponRow.discount_type) as 'PERCENT' | 'FIXED', Number(couponRow.discount_value));
-      if (discountCents >= pricing.priceCents) throw appError('COUPON_ZERO_TOTAL_UNSUPPORTED', { code: 'COUPON_ZERO_TOTAL_UNSUPPORTED', http: 400, expose: true });
+      if (discountCents >= pricing.priceCents && await freeCouponAlreadyUsed(client, req.user!.id, couponId)) throw appError('COUPON_ALREADY_USED', { code: 'COUPON_ALREADY_USED', http: 400, expose: true });
     }
+    // Total zerado por cupom: a consulta fica liberada na hora, sem passar pelo meio de pagamento.
+    const free = Boolean(couponId) && discountCents >= pricing.priceCents;
+    if (!free && !paymentProvider.isConfigured()) throw appError('PAYMENT_PROVIDER_NOT_CONFIGURED', { code: 'PAYMENT_PROVIDER_NOT_CONFIGURED', http: 503, expose: true });
     let affiliateId: string | null = null;
     let affiliateCommissionBps = 0;
     if (parsed.data.affiliateCode) {
@@ -1750,13 +1759,23 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
       const affiliate = await client.query(`SELECT a.id,a.user_id,a.commission_bps FROM users u JOIN affiliates a ON a.id=u.affiliate_id AND a.active=true WHERE u.id=$1`, [req.user!.id]);
       if (affiliate.rowCount && (!affiliate.rows[0].user_id || String(affiliate.rows[0].user_id) !== req.user!.id)) { affiliateId = String(affiliate.rows[0].id); affiliateCommissionBps = Number(affiliate.rows[0].commission_bps); }
     }
-    const amountCents = Math.max(1, pricing.priceCents - discountCents);
+    if (free) { affiliateId = null; affiliateCommissionBps = 0; } // sem receita, sem comissão
+    const amountCents = free ? 0 : Math.max(1, pricing.priceCents - discountCents);
     const externalReference = `pnm_query_${crypto.randomUUID()}`;
-    const order = await client.query(`INSERT INTO payment_orders(user_id,package_id,purchase_type,product_id,query_plate,status,subtotal_cents,amount_cents,credits,provider,external_reference,discount_cents,coupon_id,affiliate_id,affiliate_commission_bps)
-      VALUES($1,NULL,'QUERY',$2,$3,'CREATED',$4,$5,0,$6,$7,$8,$9,$10,$11) RETURNING id`, [req.user!.id, productRow.id, parsed.data.plate, pricing.priceCents, amountCents, paymentProvider.name, externalReference, discountCents, couponId, affiliateId, affiliateCommissionBps]);
-    if (couponId) await client.query(`INSERT INTO coupon_redemptions(coupon_id,payment_order_id,status) VALUES($1,$2,'RESERVED')`, [couponId, order.rows[0].id]);
-    return { orderId: String(order.rows[0].id), externalReference, product: productRow, customer: profile.rows[0] as Record<string, unknown>, subtotalCents: pricing.priceCents, discountCents, amountCents, couponCode };
+    const order = await client.query(`INSERT INTO payment_orders(user_id,package_id,purchase_type,product_id,query_plate,status,subtotal_cents,amount_cents,credits,provider,external_reference,discount_cents,coupon_id,affiliate_id,affiliate_commission_bps,paid_at)
+      VALUES($1,NULL,'QUERY',$2,$3,$12,$4,$5,0,$6,$7,$8,$9,$10,$11,CASE WHEN $13::boolean THEN now() END) RETURNING id`, [req.user!.id, productRow.id, parsed.data.plate, pricing.priceCents, amountCents, free ? 'coupon' : paymentProvider.name, externalReference, discountCents, couponId, affiliateId, affiliateCommissionBps, free ? 'PAID' : 'CREATED', free]);
+    if (free) {
+      await client.query(`INSERT INTO coupon_redemptions(coupon_id,payment_order_id,status,redeemed_at) VALUES($1,$2,'REDEEMED',now())`, [couponId, order.rows[0].id]);
+      await client.query('UPDATE coupons SET redeemed_count=redeemed_count+1,updated_at=now() WHERE id=$1', [couponId]);
+      await client.query(`INSERT INTO query_payment_entitlements(order_id,user_id,product_id,plate,status) VALUES($1,$2,$3,$4,'READY')`, [order.rows[0].id, req.user!.id, productRow.id, parsed.data.plate]);
+    } else if (couponId) await client.query(`INSERT INTO coupon_redemptions(coupon_id,payment_order_id,status) VALUES($1,$2,'RESERVED')`, [couponId, order.rows[0].id]);
+    return { orderId: String(order.rows[0].id), externalReference, product: productRow, customer: profile.rows[0] as Record<string, unknown>, subtotalCents: pricing.priceCents, discountCents, amountCents, couponCode, free };
   });
+  if (draft.free) {
+    await audit(req.user!.id, 'CREATE_FREE_QUERY_ORDER', 'PAYMENT_ORDER', draft.orderId, { productId: parsed.data.productId, plate: parsed.data.plate, coupon: draft.couponCode, requestId: requestId(req) });
+    res.status(201).json({ orderId: draft.orderId, checkoutUrl: null, free: true, provider: 'coupon', purchaseType: 'QUERY', productId: parsed.data.productId, plate: parsed.data.plate, subtotalCents: draft.subtotalCents, discountCents: draft.discountCents, amountCents: 0, couponCode: draft.couponCode });
+    return;
+  }
   try {
     const checkout = await paymentProvider.createCheckout({
       orderId: draft.externalReference,
@@ -2633,6 +2652,12 @@ function humanMessage(code: string): string {
     WALLET_BALANCE_INVALID: 'Este ajuste deixaria a carteira com saldo negativo.',
     CREDIT_PACKAGE_NOT_FOUND: 'A oferta legada de saldo pré-pago solicitada não está disponível.',
     PAYMENT_PROVIDER_NOT_CONFIGURED: 'O checkout de pagamento ainda não foi configurado para este ambiente.',
+    COUPON_ZERO_TOTAL_UNSUPPORTED: 'Cupom de 100% vale apenas para consulta avulsa, não para pacote de saldo.',
+    COUPON_INVALID: 'Cupom não encontrado. Confira o código.',
+    COUPON_UNAVAILABLE: 'Este cupom não está disponível (expirado, desativado ou esgotado).',
+    COUPON_ALREADY_USED: 'Você já usou este cupom grátis. Cada conta resgata uma vez.',
+    AFFILIATE_INVALID: 'Código de indicação inválido.',
+    QUERY_NOT_CHARGEABLE: 'Esta consulta não tem valor a cobrar.',
     PAYMENT_PROVIDER_REQUEST_FAILED: 'Não foi possível abrir o checkout agora. Tente novamente em alguns instantes.',
     FIPE_FEATURE_DISABLED: 'A consulta FIPE gratuita está em ativação para este ambiente.',
     FIPE_PROVIDER_UNAVAILABLE: 'A consulta não respondeu de forma válida. Tente novamente em alguns instantes.',

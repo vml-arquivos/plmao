@@ -47,6 +47,5 @@ export function queryAmountAfterCoupon(priceCents: number, discountType?: Coupon
   const discountCents = discountType && discountValue != null
     ? calculateCouponDiscount(subtotalCents, discountType, discountValue)
     : 0;
-  if (subtotalCents > 0 && discountCents >= subtotalCents) throw new Error('COUPON_ZERO_TOTAL_UNSUPPORTED');
   return { subtotalCents, discountCents, amountCents: Math.max(0, subtotalCents - discountCents) };
 }

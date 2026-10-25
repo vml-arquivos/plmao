@@ -87,8 +87,8 @@ test('resolve preço monetário gratuito, negociado e base', () => {
   assert.equal(effectiveQueryPriceCents({ priceCents: 2500, negotiatedPriceCents: null }), 2500);
 });
 
-test('calcula total monetário da consulta e rejeita cupom que zera produto pago', () => {
+test('calcula total monetário da consulta e aceita cupom que zera o total', () => {
   assert.deepEqual(queryAmountAfterCoupon(2500, 'PERCENT', 10), { subtotalCents: 2500, discountCents: 250, amountCents: 2250 });
   assert.deepEqual(queryAmountAfterCoupon(0, 'FIXED', 100), { subtotalCents: 0, discountCents: 0, amountCents: 0 });
-  assert.throws(() => queryAmountAfterCoupon(1000, 'PERCENT', 100), /COUPON_ZERO_TOTAL_UNSUPPORTED/);
+  assert.deepEqual(queryAmountAfterCoupon(1000, 'PERCENT', 100), { subtotalCents: 1000, discountCents: 1000, amountCents: 0 });
 });

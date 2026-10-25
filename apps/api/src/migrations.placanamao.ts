@@ -1513,5 +1513,22 @@ export const placaMigrations: Migration[] = [
     down: async (client) => {
       await client.query(`ALTER TABLE dealerships DROP COLUMN IF EXISTS logo_url, DROP COLUMN IF EXISTS cover_url, DROP COLUMN IF EXISTS accent_color, DROP COLUMN IF EXISTS instagram, DROP COLUMN IF EXISTS address, DROP COLUMN IF EXISTS hours, DROP COLUMN IF EXISTS archived_at`);
     }
+  },
+  {
+    id: '040_free_coupon_orders',
+    name: 'Pedidos de consulta com total zero (cupom de 100%)',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE payment_orders DROP CONSTRAINT IF EXISTS payment_orders_amount_cents_check;
+        ALTER TABLE payment_orders DROP CONSTRAINT IF EXISTS payment_orders_amount_nonnegative_check;
+        ALTER TABLE payment_orders ADD CONSTRAINT payment_orders_amount_nonnegative_check CHECK (amount_cents >= 0);
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        ALTER TABLE payment_orders DROP CONSTRAINT IF EXISTS payment_orders_amount_nonnegative_check;
+        ALTER TABLE payment_orders ADD CONSTRAINT payment_orders_amount_cents_check CHECK (amount_cents > 0) NOT VALID;
+      `);
+    }
   }
 ];
