@@ -8,10 +8,12 @@ import { api } from '../api';
 import { useSession } from '../session';
 import { storedReferral, trackFunnel } from '../funnel';
 import PaidQueries from '../components/PaidQueries';
+import PeriodFilter, { NO_PERIOD, periodParams, qs, type Period } from '../components/Period';
 
 interface Pack { slug: string; name: string; description: string; credits: number; basePriceCents: number; priceCents: number; negotiated: boolean }
 interface Tx { id: string; kind: string; amountCents: number; balanceAfterCents: number; description: string | null; createdAt: string }
 interface Order { id: string; status: string; amountCents: number; purchaseType: string; productId: string | null; plate: string | null; provider: string; checkoutUrl: string | null; createdAt: string; paidAt: string | null }
+interface Doc { id: string; kind: string; number: string | null; series: string | null; issuedAt: string | null; amountCents: number; description: string; verificationCode: string | null; pdfUrl: string | null; xmlUrl: string | null }
 interface Quote { packageName: string; credits: number; subtotalCents: number; discountCents: number; amountCents: number; couponCode: string | null; paymentProviderConfigured: boolean }
 
 const ORDER_STATUS: Record<string, { tone: 'ok' | 'warn' | 'danger' | 'info' | 'neutral'; label: string }> = {
@@ -49,7 +51,7 @@ function Checkout({ pack, onClose }: { pack: Pack; onClose: () => void }) {
         <div className="row" style={{ alignItems: 'end', flexWrap: 'nowrap' }}><Field label="Cupom (opcional)" className="grow"><Input value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())} placeholder="CUPOM10" /></Field><Button loading={busy === 'quote'} onClick={apply} disabled={coupon.trim().length < 3}>Aplicar</Button></div>
         {quote && quote.paymentProviderConfigured === false && <Alert tone="warn" title="Pagamento indisponível.">O checkout ainda não está ativo neste ambiente.</Alert>}
         {error && <Alert tone="danger">{error}</Alert>}
-        <p className="muted" style={{ fontSize: 13 }}><Icon name="lock" size={13} /> Você será levado ao checkout seguro para pagar com Pix ou cartão. O saldo entra assim que o pagamento é confirmado.</p>
+        <p className="muted" style={{ fontSize: 13 }}><Icon name="lock" size={13} /> Pix ou cartão no checkout seguro.</p>
       </div>
     </Modal>
   );
@@ -61,23 +63,32 @@ export default function Wallet() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const { me, refresh } = useSession();
-  const [tab, setTab] = useState<'tx' | 'orders'>('tx');
+  const [tab, setTab] = useState<'tx' | 'orders' | 'docs'>('tx');
+  const [period, setPeriod] = useState<Period>(NO_PERIOD);
+  const pq = qs(periodParams(period));
   const [pack, setPack] = useState<Pack | null>(null);
   const [sandboxBusy, setSandboxBusy] = useState(false);
   const packs = useAsync(() => api.get<Pack[]>('/credit-packages'), []);
-  const txs = useAsync(() => api.get<Tx[]>('/wallet/transactions'), []);
-  const orders = useAsync(() => api.get<Order[]>('/payments/orders'), []);
+  const txs = useAsync(() => api.get<Tx[]>(`/wallet/transactions${pq}`), [pq]);
+  const orders = useAsync(() => api.get<Order[]>(`/payments/orders${pq}`), [pq]);
+  const docs = useAsync(() => api.get<Doc[]>(`/account/fiscal-documents${pq}`), [pq]);
   const checkout = params.get('checkout');
   const wanted = params.get('pacote');
 
   useEffect(() => { if (wanted && packs.data) { const p = packs.data.find((x) => x.slug === wanted); if (p) setPack(p); } }, [wanted, packs.data]);
   // Após voltar do checkout: atualiza saldo algumas vezes (o webhook pode demorar poucos segundos).
   useEffect(() => {
-    if (checkout !== 'success') return;
-    let n = 0;
-    const t = setInterval(() => { n++; void refresh(); txs.reload(); orders.reload(); if (n >= 6) clearInterval(t); }, 4000);
-    void refresh();
-    return () => clearInterval(t);
+    if (checkout !== 'success' && checkout !== 'pending') return;
+    let n = 0; let alive = true;
+    const tick = async () => {
+      n++;
+      try { await api.post('/payments/sync', {}); } catch { /* o webhook ainda pode confirmar */ }
+      if (!alive) return;
+      void refresh(); txs.reload(); orders.reload();
+    };
+    void tick();
+    const t = setInterval(() => { if (n >= 6) { clearInterval(t); return; } void tick(); }, 5000);
+    return () => { alive = false; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkout]);
 
@@ -89,17 +100,19 @@ export default function Wallet() {
 
   return (
     <div className="stack-lg">
-      <div className="page-head"><div><h1>Carteira</h1><p>Recarregue seu saldo e use em qualquer consulta, sem precisar pagar uma a uma.</p></div></div>
-      {checkout === 'success' && <Alert tone="ok" title="Recebemos seu pagamento.">Assim que o provedor confirmar, o saldo (ou a consulta paga) fica disponível automaticamente. Isso costuma levar poucos segundos.</Alert>}
-      {checkout === 'cancelled' && <Alert tone="warn" title="Pagamento cancelado.">Nenhuma cobrança foi feita. Você pode tentar novamente quando quiser.</Alert>}
-      {checkout === 'expired' && <Alert tone="warn" title="O checkout expirou.">Inicie uma nova compra para continuar.</Alert>}
+      <div className="page-head"><h1>Carteira</h1></div>
+      {checkout === 'success' && <Alert tone="ok" title="Pagamento recebido.">O saldo entra em poucos segundos.</Alert>}
+      {checkout === 'pending' && <Alert tone="info" title="Aguardando pagamento.">Pix ou boleto podem levar alguns minutos. O saldo entra sozinho.</Alert>}
+      {checkout === 'failure' && <Alert tone="danger" title="Pagamento não aprovado.">Nada foi cobrado. Tente outro meio de pagamento.</Alert>}
+      {checkout === 'cancelled' && <Alert tone="warn" title="Pagamento cancelado.">Nada foi cobrado.</Alert>}
+      {checkout === 'expired' && <Alert tone="warn" title="O checkout expirou.">Inicie uma nova compra.</Alert>}
       <PaidQueries />
-      <section className="wallet-hero"><span className="k">Saldo disponível</span><span className="v num">{money(me?.balanceCents)}</span><div className="row" style={{ marginTop: 8 }}><Button onClick={() => nav('/app/consultar')} icon="search" style={{ background: '#fff', color: '#0F3A94', border: 0 }}>Fazer uma consulta</Button>{me?.sandbox && <Button variant="ghost" loading={sandboxBusy} onClick={sandbox} style={{ color: '#fff' }}>Adicionar saldo de teste</Button>}</div></section>
-      <section className="stack">
-        <h2 style={{ fontSize: 20 }}>Adicionar saldo</h2>
+      <section className="wallet-hero"><div><span className="k">Saldo disponível</span><span className="v num">{money(me?.balanceCents)}</span></div><div className="row"><Button variant="primary" icon="plus" onClick={() => document.getElementById('pacotes')?.scrollIntoView({ behavior: 'smooth' })}>Adicionar saldo</Button><Button onClick={() => nav('/app/consultar')} icon="search">Nova consulta</Button>{me?.sandbox && <Button variant="ghost" loading={sandboxBusy} onClick={sandbox}>Saldo de teste</Button>}</div></section>
+      <section className="stack" id="pacotes">
+        <h2>Adicionar saldo</h2>
         {packs.loading && <div className="pkg-grid"><Skeleton h={190} r={18} /><Skeleton h={190} r={18} /><Skeleton h={190} r={18} /></div>}
         {packs.error != null && <ErrorState error={packs.error} onRetry={packs.reload} />}
-        {packs.data && !packs.data.length && <div className="card"><EmptyState icon="wallet" title="Pacotes indisponíveis">Os pacotes de saldo não estão disponíveis agora. Você ainda pode pagar cada consulta direto com Pix ou cartão.</EmptyState></div>}
+        {packs.data && !packs.data.length && <div className="card"><EmptyState icon="wallet" title="Pacotes indisponíveis">Você ainda pode pagar cada consulta com Pix ou cartão.</EmptyState></div>}
         {packs.data && <div className="pkg-grid">{packs.data.map((p) => { const bonus = Math.max(p.credits * 100 - p.priceCents, 0); return (
           <div className="plan" key={p.slug}>
             <h4>{p.name}</h4>
@@ -110,18 +123,26 @@ export default function Wallet() {
           </div>); })}</div>}
       </section>
       <section className="stack">
-        <div className="row-between"><h2 style={{ fontSize: 20 }}>Movimentações</h2><Tabs label="Movimentações" value={tab} onChange={setTab} items={[{ id: 'tx', label: 'Extrato' }, { id: 'orders', label: 'Pagamentos' }]} /></div>
+        <div className="row-between"><Tabs label="Movimentações" value={tab} onChange={setTab} items={[{ id: 'tx', label: 'Extrato' }, { id: 'orders', label: 'Pagamentos' }, { id: 'docs', label: 'Notas fiscais' }]} />{tab === 'tx' && <Button size="sm" icon="download" disabled={!txs.data?.length} onClick={() => api.download(`/wallet/transactions.csv${pq}`, 'extrato.csv').catch((e) => toast.error(errorMessage(e)))}>CSV</Button>}</div>
+        <PeriodFilter value={period} onChange={setPeriod} />
         {tab === 'tx' && (
           <div className="table-wrap"><table className="table"><thead><tr><th>Data</th><th>Descrição</th><th className="r">Valor</th><th className="r">Saldo</th></tr></thead><tbody>
             {txs.data?.map((t) => <tr key={t.id}><td>{dateTime(t.createdAt)}</td><td>{t.description ?? t.kind}</td><td className={`r num ${t.amountCents >= 0 ? 'tx-in' : 'tx-out'}`}>{t.amountCents >= 0 ? '+' : '−'} {money(Math.abs(t.amountCents))}</td><td className="r num">{money(t.balanceAfterCents)}</td></tr>)}
-            {txs.data && !txs.data.length && <tr className="empty"><td colSpan={4}>Nenhuma movimentação ainda.</td></tr>}
+            {txs.data && !txs.data.length && <tr className="empty"><td colSpan={4}>Nenhuma movimentação.</td></tr>}
             {txs.loading && !txs.data && <tr className="empty"><td colSpan={4}>Carregando…</td></tr>}
           </tbody></table></div>
         )}
         {tab === 'orders' && (
           <div className="table-wrap"><table className="table"><thead><tr><th>Data</th><th>Tipo</th><th>Situação</th><th className="r">Valor</th><th /></tr></thead><tbody>
             {orders.data?.map((o) => { const st = ORDER_STATUS[o.status] ?? { tone: 'neutral' as const, label: o.status }; return <tr key={o.id}><td>{dateTime(o.createdAt)}</td><td>{o.purchaseType === 'QUERY' ? `Consulta ${o.plate ?? ''}` : 'Pacote de saldo'}</td><td><Badge tone={st.tone} dot>{st.label}</Badge></td><td className="r num">{money(o.amountCents)}</td><td className="actions">{o.status === 'CHECKOUT_ACTIVE' && o.checkoutUrl && <a className="btn btn-sm" href={o.checkoutUrl}>Pagar</a>}</td></tr>; })}
-            {orders.data && !orders.data.length && <tr className="empty"><td colSpan={5}>Nenhum pagamento ainda.</td></tr>}
+            {orders.data && !orders.data.length && <tr className="empty"><td colSpan={5}>Nenhum pagamento.</td></tr>}
+          </tbody></table></div>
+        )}
+        {tab === 'docs' && (
+          <div className="table-wrap"><table className="table"><thead><tr><th>Emissão</th><th>Nota</th><th>Descrição</th><th className="r">Valor</th><th /></tr></thead><tbody>
+            {docs.data?.map((d) => <tr key={d.id}><td>{d.issuedAt ? dateTime(d.issuedAt) : '—'}</td><td>{d.kind === 'NFSE' ? 'NFS-e' : 'NF-e'} {d.number ?? ''}</td><td>{d.description}</td><td className="r num">{money(d.amountCents)}</td><td className="actions">{d.pdfUrl && <a className="btn btn-sm" href={d.pdfUrl} target="_blank" rel="noopener noreferrer">PDF</a>} {d.xmlUrl && <a className="btn btn-sm" href={d.xmlUrl} target="_blank" rel="noopener noreferrer">XML</a>}</td></tr>)}
+            {docs.data && !docs.data.length && <tr className="empty"><td colSpan={5}>Nenhuma nota.</td></tr>}
+            {docs.loading && !docs.data && <tr className="empty"><td colSpan={5}>Carregando…</td></tr>}
           </tbody></table></div>
         )}
       </section>

@@ -48,6 +48,11 @@ import { publicVehiclesRouter } from './routes/vehicles.js';
 import { fipeBrands, fipeModels, fipeYears, fipeSearch, getFipePrice } from './lib/fipeLookup.js';
 import { adminSimulatorRouter } from './routes/adminSimulator.js';
 import { garageRouter } from './routes/garage.js';
+import { dealerRouter } from './routes/dealer.js';
+import { dealerLeadsRouter } from './routes/dealerLeads.js';
+import { dealerOpsRouter } from './routes/dealerOps.js';
+import { dealerPublicRouter } from './routes/dealerPublic.js';
+import { adminDealersRouter } from './routes/adminDealers.js';
 import { adminReportScopeRouter } from './routes/adminReportScope.js';
 import { adminEmailRouter, emailWebhookRouter } from './routes/adminEmail.js';
 import { accountCnpjRouter, adminCnpjRouter } from './routes/cnpj.js';
@@ -55,6 +60,8 @@ import { adminContractsRouter, contractsPublicRouter } from './routes/contracts.
 import { adminPaymentOpsRouter } from './routes/adminPaymentOps.js';
 import { adminFiscalQueueRouter, fiscalPublicRouter } from './routes/adminFiscalQueue.js';
 import { startFiscalWorker } from './lib/fiscal.js';
+import { startPaymentSyncWorker, syncUserOpenOrders } from './lib/paymentSync.js';
+import { toCsv } from './lib/br.js';
 import { supportAdminRouter, supportClientRouter } from './routes/support.js';
 import { testimonialsAdminRouter, testimonialsRouter } from './routes/testimonials.js';
 import { adminIntegrationsRouter } from './routes/adminIntegrations.js';
@@ -74,6 +81,7 @@ await refreshProductSections();
 startProductSectionsRefresh();
 startEmailWorker();
 startFiscalWorker();
+startPaymentSyncWorker();
 
 const app = express();
 const api = express.Router();
@@ -91,6 +99,7 @@ api.use('/admin', adminEmailRouter);
 api.use('/admin', adminCnpjRouter);
 api.use('/admin', adminContractsRouter);
 api.use('/admin', adminPaymentOpsRouter);
+api.use('/admin', adminDealersRouter);
 api.use('/admin', adminFiscalQueueRouter);
 api.use('/fiscal', fiscalPublicRouter);
 api.use('/admin', supportAdminRouter);
@@ -1196,6 +1205,10 @@ api.post('/vehicles/by-plate', auth, asyncRoute(async (req, res) => {
 api.use(publicVehiclesRouter);
 api.use(simulatorRouter);
 api.use(garageRouter);
+api.use(dealerPublicRouter);
+api.use(dealerRouter);
+api.use(dealerLeadsRouter);
+api.use(dealerOpsRouter);
 
 api.get('/fipe/offers', asyncRoute(async (_req, res) => {
   const products = await pool.query(`SELECT p.id,p.name,p.description,p.price_cents,p.is_free,p.features,
@@ -1351,14 +1364,63 @@ v1.get('/vehicles/:id/pdf', asyncRoute(async (req, res) => {
 }));
 api.use('/v1', v1);
 
-api.get('/queries', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
-  const plate = typeof req.query.plate === 'string' ? req.query.plate.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7) : '';
-  const status = typeof req.query.status === 'string' && ['PROCESSING', 'SUCCESS', 'FAILED', 'REFUNDED'].includes(req.query.status) ? req.query.status : null;
+/** Filtros comuns de lista do cliente: período (dias ou datas), situação, tipo e placa. */
+const periodFields = {
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  days: z.coerce.number().int().refine((v) => [7, 30, 60, 90, 180, 365].includes(v)).optional()
+};
+const queryListSchema = z.object({
+  ...periodFields,
+  plate: z.string().max(12).optional(),
+  status: z.enum(['PROCESSING', 'SUCCESS', 'FAILED', 'REFUNDED']).optional(),
+  product: z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+  offset: z.coerce.number().int().min(0).max(100000).default(0)
+});
+/** Monta "AND ..." de período para a coluna dada. Colunas vêm do código, nunca da requisição. */
+function periodSql(col: string, f: { from?: string; to?: string; days?: number }, values: unknown[]): string {
+  const parts: string[] = [];
+  if (f.days) { values.push(f.days); parts.push(`${col} >= now() - ($${values.length}::int * interval '1 day')`); }
+  if (f.from) { values.push(f.from); parts.push(`${col} >= $${values.length}::date`); }
+  if (f.to) { values.push(f.to); parts.push(`${col} < $${values.length}::date + 1`); }
+  return parts.length ? ` AND ${parts.join(' AND ')}` : '';
+}
+async function listClientQueries(userId: string, raw: unknown, max?: number) {
+  const parsed = queryListSchema.safeParse(raw);
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const f = parsed.data;
+  const plate = (f.plate ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
+  const values: unknown[] = [userId, plate, f.status ?? null, f.product ?? null];
+  const period = periodSql('q.created_at', f, values);
+  values.push(max ?? f.limit, max ? 0 : f.offset);
   const results = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
     FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id
-    WHERE q.user_id=$1 AND ($2='' OR q.plate LIKE $2 || '%') AND ($3::text IS NULL OR q.status=$3)
-    ORDER BY q.created_at DESC LIMIT 100`, [req.user!.id, plate, status]);
-  res.json(results.rows.map((row) => serializeQuery(row as QueryRow & Record<string, unknown>)));
+    WHERE q.user_id=$1 AND ($2='' OR q.plate LIKE '%' || $2 || '%') AND ($3::text IS NULL OR q.status=$3) AND ($4::text IS NULL OR q.product_id=$4)${period}
+    ORDER BY q.created_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
+  return results.rows;
+}
+
+api.get('/queries', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const rows = await listClientQueries(req.user!.id, req.query);
+  res.json(rows.map((row) => serializeQuery(row as QueryRow & Record<string, unknown>)));
+}));
+
+/** Tipos de consulta que o cliente já fez (para o filtro). */
+api.get('/queries/types', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const r = await pool.query(`SELECT p.id,p.name FROM query_products p WHERE p.id IN (SELECT DISTINCT product_id FROM vehicle_queries WHERE user_id=$1) ORDER BY p.display_order,p.name`, [req.user!.id]);
+  res.json(r.rows.map((x) => ({ id: x.id, name: x.name })));
+}));
+
+api.get('/queries.csv', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const rows = await listClientQueries(req.user!.id, req.query, 5000);
+  const status: Record<string, string> = { SUCCESS: 'Concluída', PROCESSING: 'Processando', FAILED: 'Falhou', REFUNDED: 'Estornada' };
+  const csv = toCsv(['Data', 'Placa', 'Consulta', 'Situação', 'Valor (R$)', 'Código'],
+    rows.map((r) => [new Date(r.created_at).toISOString().slice(0, 16).replace('T', ' '), r.plate, r.product_name, status[String(r.status)] ?? r.status, (Number(r.price_cents ?? 0) / 100).toFixed(2).replace('.', ','), String(r.id).slice(0, 8).toUpperCase()]));
+  await audit(req.user!.id, 'EXPORT_QUERIES_CSV', 'VEHICLE_QUERY', null, { rows: rows.length, requestId: requestId(req) });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="consultas.csv"');
+  res.send(csv);
 }));
 
 api.get('/queries/:id', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
@@ -1432,9 +1494,27 @@ api.get('/queries/:id/report/print', auth, requirePermission('VIEW_HISTORY'), as
   res.type('html').send(renderVehicleHtml(report, meta));
 }));
 
+const walletListSchema = z.object({ ...periodFields, limit: z.coerce.number().int().min(1).max(200).default(100), offset: z.coerce.number().int().min(0).max(100000).default(0) });
+async function listWalletTransactions(userId: string, raw: unknown, max?: number) {
+  const parsed = walletListSchema.safeParse(raw);
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const values: unknown[] = [userId];
+  const period = periodSql('created_at', parsed.data, values);
+  values.push(max ?? parsed.data.limit, max ? 0 : parsed.data.offset);
+  const r = await pool.query(`SELECT id,kind,amount_cents,balance_before_cents,balance_after_cents,description,created_at FROM wallet_transactions WHERE user_id=$1${period} ORDER BY created_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
+  return r.rows;
+}
 api.get('/wallet/transactions', auth, asyncRoute(async (req, res) => {
-  const transactions = await pool.query('SELECT id,kind,amount_cents,balance_before_cents,balance_after_cents,description,created_at FROM wallet_transactions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100', [req.user!.id]);
-  res.json(transactions.rows.map((row) => ({ id: row.id, kind: row.kind, amountCents: Number(row.amount_cents ?? 0), balanceBeforeCents: Number(row.balance_before_cents ?? 0), balanceAfterCents: Number(row.balance_after_cents ?? 0), description: row.description, createdAt: row.created_at })));
+  const rows = await listWalletTransactions(req.user!.id, req.query);
+  res.json(rows.map((row) => ({ id: row.id, kind: row.kind, amountCents: Number(row.amount_cents ?? 0), balanceBeforeCents: Number(row.balance_before_cents ?? 0), balanceAfterCents: Number(row.balance_after_cents ?? 0), description: row.description, createdAt: row.created_at })));
+}));
+api.get('/wallet/transactions.csv', auth, asyncRoute(async (req, res) => {
+  const rows = await listWalletTransactions(req.user!.id, req.query, 5000);
+  const money = (c: unknown) => (Number(c ?? 0) / 100).toFixed(2).replace('.', ',');
+  const csv = toCsv(['Data', 'Descrição', 'Valor (R$)', 'Saldo (R$)'], rows.map((r) => [new Date(r.created_at).toISOString().slice(0, 16).replace('T', ' '), r.description ?? r.kind, money(r.amount_cents), money(r.balance_after_cents)]));
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="extrato.csv"');
+  res.send(csv);
 }));
 
 api.post('/payments/sandbox', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
@@ -1467,9 +1547,38 @@ api.get('/credit-packages', auth, requirePermission('BUY_CREDITS'), asyncRoute(a
 }));
 
 api.get('/payments/orders', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
+  const parsed = walletListSchema.safeParse(req.query);
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const values: unknown[] = [req.user!.id];
+  const period = periodSql('created_at', parsed.data, values);
+  values.push(parsed.data.limit, parsed.data.offset);
   const orders = await pool.query(`SELECT id,status,amount_cents,purchase_type,product_id,query_plate,provider,checkout_url,created_at,paid_at
-    FROM payment_orders WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.user!.id]);
+    FROM payment_orders WHERE user_id=$1${period} ORDER BY created_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
   res.json(orders.rows.map((item) => ({ id: item.id, status: item.status, amountCents: Number(item.amount_cents ?? 0), purchaseType: item.purchase_type, productId: item.product_id, plate: item.query_plate, provider: item.provider, checkoutUrl: item.checkout_url, createdAt: item.created_at, paidAt: item.paid_at })));
+}));
+
+/** Notas fiscais emitidas para o cliente logado. */
+api.get('/account/fiscal-documents', auth, asyncRoute(async (req, res) => {
+  const parsed = walletListSchema.safeParse(req.query);
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const values: unknown[] = [req.user!.id];
+  const period = periodSql('coalesce(issued_at,created_at)', parsed.data, values);
+  values.push(parsed.data.limit, parsed.data.offset);
+  const docs = await pool.query(`SELECT id,kind,number,series,issued_at,amount_cents,description,verification_code,pdf_url,xml_url
+    FROM fiscal_documents WHERE user_id=$1 AND status='ISSUED'${period} ORDER BY coalesce(issued_at,created_at) DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
+  const https = (u: unknown) => (typeof u === 'string' && u.startsWith('https://') ? u : null);
+  res.json(docs.rows.map((d) => ({ id: d.id, kind: d.kind, number: d.number, series: d.series, issuedAt: d.issued_at, amountCents: Number(d.amount_cents), description: d.description, verificationCode: d.verification_code, pdfUrl: https(d.pdf_url), xmlUrl: https(d.xml_url) })));
+}));
+
+/** Confere no Mercado Pago os pedidos em aberto da pessoa. A tela da carteira chama ao voltar do checkout, sem depender do webhook. */
+const lastUserSync = new Map<string, number>();
+api.post('/payments/sync', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
+  const now = Date.now();
+  if (now - (lastUserSync.get(req.user!.id) ?? 0) < 3000) { res.json({ checked: 0, paid: 0, throttled: true }); return; }
+  lastUserSync.set(req.user!.id, now);
+  if (lastUserSync.size > 5000) lastUserSync.clear();
+  try { res.json(await syncUserOpenOrders(req.user!.id)); }
+  catch { throw appError('PAYMENT_PROVIDER_REQUEST_FAILED', { code: 'PAYMENT_PROVIDER_REQUEST_FAILED', http: 502, expose: true }); }
 }));
 
 api.post('/payments/quote', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
@@ -1993,7 +2102,9 @@ api.get('/affiliate/stats', auth, asyncRoute(async (req, res) => {
     { key: 'comparar', label: 'Comparar veículos', url: to('/comparar') },
     { key: 'guia', label: 'Guia de veículos', url: to('/veiculos') }
   ];
-  res.json({ affiliate: { id: affiliate.rows[0].id, code }, shareUrl, links, performance: { clicks30d: Number(perf.rows[0].clicks_30d), paidPayments: Number(perf.rows[0].paid_payments), reversedCommissions: Number(perf.rows[0].reversed) }, totals: { commissions: Number(totals.rows[0].commissions), pendingCents: Number(totals.rows[0].pending_cents), paidCents: Number(totals.rows[0].paid_cents), referredUsers: Number(totals.rows[0].referred_users) } });
+  const monthly = await pool.query(`SELECT to_char(date_trunc('month', created_at AT TIME ZONE 'America/Sao_Paulo'),'YYYY-MM') AS month, count(*)::int AS payments, coalesce(sum(amount_cents) FILTER (WHERE status <> 'CANCELLED'),0)::int AS cents
+    FROM affiliate_commissions WHERE affiliate_id=$1 AND created_at >= date_trunc('month', now()) - interval '11 months' GROUP BY 1 ORDER BY 1 DESC`, [affiliate.rows[0].id]);
+  res.json({ affiliate: { id: affiliate.rows[0].id, code }, shareUrl, links, monthly: monthly.rows.map((m) => ({ month: m.month, payments: Number(m.payments), cents: Number(m.cents) })), performance: { clicks30d: Number(perf.rows[0].clicks_30d), paidPayments: Number(perf.rows[0].paid_payments), reversedCommissions: Number(perf.rows[0].reversed) }, totals: { commissions: Number(totals.rows[0].commissions), pendingCents: Number(totals.rows[0].pending_cents), paidCents: Number(totals.rows[0].paid_cents), referredUsers: Number(totals.rows[0].referred_users) } });
 }));
 
 api.get('/admin/organizations/:id/members', adminAuth, requirePermission('ADMIN_SYSTEM'), asyncRoute(async (req, res) => {
@@ -2438,7 +2549,7 @@ function humanMessage(code: string): string {
   const messages: Record<string, string> = {
     INTEGRATION_NOT_CONFIGURED: 'Esta integração ainda não está configurada. Preencha as chaves no ambiente e reinicie.',
     INTEGRATION_CREDENTIALS_REJECTED: 'O serviço recusou as credenciais. Confira as chaves.',
-    SMTP_CONNECTION_FAILED: 'Não foi possível conectar ao servidor de e-mail. Confira SMTP_HOST, SMTP_PORT e SMTP_SECURE, e se a porta está liberada.',
+    SMTP_CONNECTION_FAILED: 'Não foi possível conectar ao serviço de e-mail. No SMTP, confira SMTP_HOST, SMTP_PORT e SMTP_SECURE e se o servidor libera a porta (a DigitalOcean bloqueia 25, 465 e 587 em contas novas: teste a porta 2525 ou use EMAIL_PROVIDER=brevo_api).',
     INTEGRATION_UNREACHABLE: 'Não foi possível falar com o serviço agora. Tente novamente.',
     TESTIMONIAL_NOT_ELIGIBLE: 'Só clientes com uma consulta concluída ou um pagamento confirmado podem enviar depoimento.',
     TESTIMONIAL_CONTENT_INVALID: 'O texto não pode ter links, e-mails, telefones ou números de documento.',
@@ -2577,8 +2688,9 @@ app.get('/sitemap.xml', asyncRoute(async (req, res) => {
   if (isAdminHost(req)) return res.status(404).end();
   const articles = await publishedArticleSlugs();
   const vehicles = await pool.query(`SELECT slug,updated_at FROM vehicle_models WHERE status='PUBLISHED' AND archived_at IS NULL ORDER BY brand,name LIMIT 5000`);
+  const stores = await pool.query(`SELECT slug,updated_at FROM dealerships WHERE public_enabled AND active ORDER BY created_at LIMIT 2000`);
   res.type('application/xml').setHeader('Cache-Control', 'public, max-age=3600');
-  return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN, [...articles.map((a) => ({ path: `/blog/${a.slug}`, lastmod: a.updatedAt })), ...vehicles.rows.map((v) => ({ path: `/veiculos/${v.slug}`, lastmod: v.updated_at as Date }))]));
+  return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN, [...articles.map((a) => ({ path: `/blog/${a.slug}`, lastmod: a.updatedAt })), ...vehicles.rows.map((v) => ({ path: `/veiculos/${v.slug}`, lastmod: v.updated_at as Date })), ...stores.rows.map((s) => ({ path: `/loja/${s.slug}`, lastmod: s.updated_at as Date }))]));
 }));
 const hasAdminHosts = adminHosts().length > 0;
 // Duas frentes: bundle admin (admin.html + assets/admin-*) só é entregue no host do painel (ou em /painel quando não há host dedicado, apenas dev).
@@ -2617,6 +2729,20 @@ app.get('*', asyncRoute(async (req, res, next) => {
       const m = v.rows[0]!;
       const years = m.year_from ? ` (${m.year_from}${m.year_to && m.year_to !== m.year_from ? `–${m.year_to}` : ''})` : '';
       override = { title: `${m.brand} ${m.name}${years}: ficha técnica e opinião dos donos | Placa na Mão`, description: String(m.summary || `Ficha técnica, consumo, nota e opinião de donos do ${m.brand} ${m.name}.`).slice(0, 160) };
+    }
+  } else if (/^\/loja\/[a-z0-9-]+(\/veiculo\/[0-9a-f-]{36})?\/?$/.test(req.path)) {
+    const parts = req.path.split('/');
+    const store = await pool.query(`SELECT id,name,city,state,about FROM dealerships WHERE lower(slug)=$1 AND public_enabled AND active`, [parts[2]]);
+    if (!store.rowCount) { res.status(404); override = { notFound: true }; }
+    else {
+      const st = store.rows[0]!;
+      const place = [st.city, st.state].filter(Boolean).join(' - ');
+      override = { title: `${st.name}${place ? ` em ${place}` : ''}: veículos à venda | Placa na Mão`, description: String(st.about || `Veículos à venda na ${st.name}${place ? `, ${place}` : ''}, com consulta verificada.`).slice(0, 160) };
+      if (parts[3] === 'veiculo') {
+        const v = await pool.query(`SELECT brand,model,version,year_model FROM stock_vehicles WHERE id=$1 AND dealership_id=$2 AND public_listed AND status IN ('AVAILABLE','RESERVED')`, [parts[4], st.id]);
+        if (!v.rowCount) { res.status(404); override = { notFound: true }; }
+        else { const x = v.rows[0]!; const name = [x.brand, x.model, x.version, x.year_model].filter(Boolean).join(' '); override = { title: `${name} à venda na ${st.name} | Placa na Mão`, description: `${name} na ${st.name}${place ? `, ${place}` : ''}. Veja fotos, preço e a consulta verificada.` }; }
+      }
     }
   } else if (req.path.replace(/\/$/, '') === '/perguntas-frequentes') {
     const faqs = await pool.query('SELECT question,answer FROM faqs WHERE active=true ORDER BY display_order,created_at LIMIT 60');

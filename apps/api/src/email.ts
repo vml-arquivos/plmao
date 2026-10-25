@@ -1,11 +1,11 @@
-import nodemailer, { type Transporter } from 'nodemailer';
+import nodemailer, { type Transport, type Transporter } from 'nodemailer';
 import { env, publicAppUrl } from './config.js';
 import { isEmailConfigurationComplete } from './emailConfig.js';
 
 let transporter: Transporter | undefined;
 
 export function isEmailConfigured(): boolean {
-  return isEmailConfigurationComplete({ provider: env.EMAIL_PROVIDER, host: env.SMTP_HOST, user: env.SMTP_USER, password: env.SMTP_PASSWORD });
+  return isEmailConfigurationComplete({ provider: env.EMAIL_PROVIDER, host: env.SMTP_HOST, user: env.SMTP_USER, password: env.SMTP_PASSWORD, apiKey: env.BREVO_API_KEY });
 }
 
 /** Remetente com nome ("Placa na Mão <no-reply@...>"): o endereço continua sendo o EMAIL_FROM verificado no Brevo. */
@@ -17,8 +17,83 @@ function replyToHeader(): string | undefined {
   return env.EMAIL_REPLY_TO || undefined;
 }
 
+type Addr = { name?: string; address?: string } | string | undefined;
+function parseAddr(value: unknown): { email: string; name?: string } | null {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const m = /^\s*(?:"?([^"<]*)"?\s*)?<([^>]+)>\s*$/.exec(value);
+    return m ? { email: m[2]!.trim(), ...(m[1]?.trim() ? { name: m[1].trim() } : {}) } : { email: value.trim() };
+  }
+  const a = value as { name?: string; address?: string };
+  return a.address ? { email: a.address, ...(a.name ? { name: a.name } : {}) } : null;
+}
+
+type ApiError = Error & { code?: string; responseCode?: number };
+function apiError(message: string, code: string, status?: number): ApiError {
+  return Object.assign(new Error(message), { code, ...(status ? { responseCode: status } : {}) });
+}
+
+async function brevoApi(path: string, init: { method: 'GET' | 'POST'; body?: unknown }): Promise<{ status: number; json: Record<string, unknown> }> {
+  let res: Response;
+  try {
+    res = await fetch(`${env.BREVO_API_BASE_URL.replace(/\/+$/, '')}${path}`, {
+      method: init.method,
+      headers: { 'api-key': env.BREVO_API_KEY ?? '', accept: 'application/json', ...(init.body ? { 'content-type': 'application/json' } : {}) },
+      body: init.body ? JSON.stringify(init.body) : undefined,
+      signal: AbortSignal.timeout(20_000)
+    });
+  } catch {
+    throw apiError('BREVO_API_UNREACHABLE', 'ECONNECTION');
+  }
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  return { status: res.status, json };
+}
+
+/** Envio pela API HTTPS do Brevo (porta 443). Usa o mesmo `sendMail` do nodemailer, então o resto do sistema não muda. */
+function brevoApiTransport(): Transport {
+  return {
+    name: 'brevo-api',
+    version: '1',
+    send(mail: { data: Record<string, unknown> }, done: (err: Error | null, info?: unknown) => void): void {
+      void (async () => {
+        const d = mail.data;
+        const from = parseAddr(d.from as Addr);
+        const toList = (Array.isArray(d.to) ? d.to : [d.to]).map(parseAddr).filter((x): x is { email: string; name?: string } => Boolean(x));
+        if (!from || !toList.length) throw apiError('EMAIL_ADDRESS_INVALID', 'EENVELOPE');
+        const replyTo = parseAddr(d.replyTo as Addr);
+        const headers = Object.fromEntries(Object.entries((d.headers ?? {}) as Record<string, unknown>).filter(([, v]) => typeof v === 'string'));
+        const r = await brevoApi('/smtp/email', { method: 'POST', body: {
+          sender: { email: from.email, ...(from.name ? { name: from.name } : {}) },
+          to: toList.map((t) => ({ email: t.email, ...(t.name ? { name: t.name } : {}) })),
+          ...(replyTo ? { replyTo: { email: replyTo.email, ...(replyTo.name ? { name: replyTo.name } : {}) } } : {}),
+          subject: String(d.subject ?? ''),
+          htmlContent: String(d.html ?? d.text ?? ''),
+          ...(d.text ? { textContent: String(d.text) } : {}),
+          ...(Object.keys(headers).length ? { headers } : {})
+        } });
+        if (r.status === 401 || r.status === 403) throw apiError('BREVO_API_AUTH', 'EAUTH', r.status);
+        if (r.status < 200 || r.status >= 300) throw apiError(`Brevo API ${r.status}: ${String(r.json.message ?? 'erro')}`.slice(0, 280), 'EMAIL_API_REJECTED', r.status);
+        const messageId = String(r.json.messageId ?? '');
+        done(null, { messageId, envelope: { from: from.email, to: toList.map((t) => t.email) }, accepted: toList.map((t) => t.email), rejected: [], response: `${r.status} ok` });
+      })().catch((e: unknown) => done(e instanceof Error ? e : new Error(String(e))));
+    },
+    /** O nodemailer repassa `verify()` como veio: com callback ou sem (devolvendo promessa). */
+    verify(done?: (err: Error | null, ok?: boolean) => void): Promise<boolean> | undefined {
+      const check = async (): Promise<boolean> => {
+        const r = await brevoApi('/account', { method: 'GET' });
+        if (r.status === 401 || r.status === 403) throw apiError('BREVO_API_AUTH', 'EAUTH', r.status);
+        if (r.status !== 200) throw apiError(`Brevo API ${r.status}`, 'ECONNECTION');
+        return true;
+      };
+      if (typeof done === 'function') { check().then(() => done(null, true), (e: unknown) => done(e instanceof Error ? e : new Error(String(e)))); return undefined; }
+      return check();
+    }
+  } as unknown as Transport;
+}
+
 function getTransporter(): Transporter {
   if (!isEmailConfigured()) throw new Error('EMAIL_NOT_CONFIGURED');
+  if (!transporter && env.EMAIL_PROVIDER === 'brevo_api') transporter = nodemailer.createTransport(brevoApiTransport());
   if (!transporter) {
     transporter = nodemailer.createTransport({
       host: env.SMTP_HOST,

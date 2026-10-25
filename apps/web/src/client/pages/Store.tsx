@@ -1,0 +1,238 @@
+import { createContext, useContext, useState, type FormEvent } from 'react';
+import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Icon } from '../../shared/icons';
+import { Alert, Badge, Button, ConfirmDialog, ErrorState, Field, Input, Modal, PageLoading, Select, Stat, Switch, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { errorMessage } from '../../shared/api';
+import { money } from '../../shared/format';
+import { api } from '../api';
+
+export type Role = 'OWNER' | 'MANAGER' | 'SELLER';
+export interface StoreInfo { id: string; name: string; slug: string; whatsapp: string | null; email: string | null; city: string | null; state: string | null; about: string; publicEnabled: boolean; active: boolean; vehicleLimit: number; memberLimit: number; tradeInDiscountBps: number; staleDays: number }
+interface MeStore { store: StoreInfo | null; role: Role | null; canManage?: boolean; canSeeCost?: boolean; suspended?: boolean }
+export interface StoreCtx { store: StoreInfo; role: Role; canManage: boolean; canSeeCost: boolean; reload: () => void }
+const Ctx = createContext<StoreCtx | null>(null);
+export const useStore = (): StoreCtx => { const v = useContext(Ctx); if (!v) throw new Error('Loja ausente'); return v; };
+
+export const ROLE_LABEL: Record<Role, string> = { OWNER: 'Dono', MANAGER: 'Gerente', SELLER: 'Vendedor' };
+export const toCents = (v: string): number | null => { const s = v.replace(/[^\d,]/g, '').replace(',', '.'); if (!s) return null; const n = Math.round(Number(s) * 100); return Number.isFinite(n) ? n : null; };
+export const centsField = (c: number | null | undefined) => (c == null ? '' : (c / 100).toFixed(2).replace('.', ','));
+
+function Activate({ onDone }: { onDone: () => void }) {
+  const toast = useToast();
+  const [name, setName] = useState(''); const [whatsapp, setWhatsapp] = useState(''); const [city, setCity] = useState(''); const [state, setState] = useState('');
+  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setError('');
+    try { await api.post('/dealer', { name, whatsapp: whatsapp || null, city: city || null, state: state || null }); toast.ok('Loja ativada.'); onDone(); }
+    catch (err) { setError(errorMessage(err)); } finally { setBusy(false); }
+  }
+  return (
+    <div className="stack-lg" style={{ maxWidth: 560 }}>
+      <div className="page-head"><div><h1>Minha loja</h1><p>Estoque, clientes, propostas e vitrine para quem vende veículos.</p></div></div>
+      <form className="card card-pad stack" onSubmit={(e) => void submit(e)}>
+        <Field label="Nome da loja"><Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required /></Field>
+        <Field label="WhatsApp"><Input inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(11) 99999-9999" /></Field>
+        <div className="grid-2">
+          <Field label="Cidade"><Input value={city} onChange={(e) => setCity(e.target.value)} maxLength={80} /></Field>
+          <Field label="UF"><Input value={state} onChange={(e) => setState(e.target.value.toUpperCase().slice(0, 2))} maxLength={2} /></Field>
+        </div>
+        {error && <Alert tone="warn" icon="alert-triangle">{error}</Alert>}
+        <Button variant="primary" type="submit" loading={busy} disabled={name.trim().length < 2}>Ativar minha loja</Button>
+      </form>
+    </div>
+  );
+}
+
+const TABS = [
+  { to: '/app/loja', label: 'Painel', end: true },
+  { to: '/app/loja/estoque', label: 'Estoque' },
+  { to: '/app/loja/leads', label: 'Leads' },
+  { to: '/app/loja/propostas', label: 'Propostas' },
+  { to: '/app/loja/equipe', label: 'Equipe' }
+];
+
+export function StoreShell() {
+  usePageTitle('Minha loja');
+  const me = useAsync(() => api.get<MeStore>('/dealer/me'), []);
+  if (me.loading && !me.data) return <PageLoading />;
+  if (me.error != null) return <ErrorState error={me.error} onRetry={me.reload} />;
+  const d = me.data!;
+  if (!d.store || !d.role) return <Activate onDone={me.reload} />;
+  if (d.suspended) return <div className="stack"><h1>{d.store.name}</h1><Alert tone="warn" icon="alert-triangle" title="Loja suspensa">Fale com o suporte para reativar.</Alert></div>;
+  const ctx: StoreCtx = { store: d.store, role: d.role, canManage: Boolean(d.canManage), canSeeCost: Boolean(d.canSeeCost), reload: me.reload };
+  return (
+    <Ctx.Provider value={ctx}>
+      <div className="stack-lg">
+        <div className="page-head">
+          <div><h1>{d.store.name}</h1><p>{[d.store.city, d.store.state].filter(Boolean).join(' - ') || ROLE_LABEL[d.role]}</p></div>
+          <div className="row">
+            {d.store.publicEnabled && <Link className="btn" to={`/loja/${d.store.slug}`} target="_blank"><Icon name="external-link" /> Ver vitrine</Link>}
+          </div>
+        </div>
+        <nav className="tabs store-tabs" aria-label="Loja">
+          {TABS.map((t) => <NavLink key={t.to} to={t.to} end={t.end} className="tab">{t.label}</NavLink>)}
+        </nav>
+        <Outlet />
+      </div>
+    </Ctx.Provider>
+  );
+}
+
+// ---------------------------------------------------------------- painel
+
+interface Summary {
+  stock: { open: { count: number; priceCents: number; costCents: number | null }; sold: number; available: number; reserved: number };
+  funnel: Record<string, number>;
+  last30: { leads: number; won: number; lost: number; conversionPct: number | null; sold: number | null; revenueCents: number | null; profitCents: number | null; avgDaysToSell: number | null };
+  sellers: Array<{ userId: string; name: string; won: number; valueCents: number; open: number }> | null;
+}
+interface AlertItem { kind: string; severity: 'high' | 'medium'; vehicleId?: string; leadId?: string; label: string; detail: string }
+const STAGE_LABEL: Record<string, string> = { NEW: 'Novos', CONTACT: 'Contato', PROPOSAL: 'Proposta', VISIT: 'Visita', WON: 'Fechados', LOST: 'Perdidos' };
+
+export function StoreHome() {
+  const { canManage } = useStore();
+  const sum = useAsync(() => api.get<Summary>('/dealer/summary'), []);
+  const alerts = useAsync(() => api.get<{ total: number; items: AlertItem[] }>('/dealer/alerts'), []);
+  if (sum.loading && !sum.data) return <PageLoading />;
+  if (sum.error != null) return <ErrorState error={sum.error} onRetry={sum.reload} />;
+  const s = sum.data!;
+  return (
+    <div className="stack-lg">
+      <div className="stat-grid">
+        <Stat label="Em estoque" value={s.stock.open.count} sub={money(s.stock.open.priceCents)} />
+        <Stat label="Leads (30 dias)" value={s.last30.leads} sub={s.last30.conversionPct != null ? `${s.last30.conversionPct}% fechados` : undefined} />
+        {s.last30.revenueCents != null && <Stat label="Vendas (30 dias)" value={money(s.last30.revenueCents)} sub={`${s.last30.sold ?? 0} veículo${s.last30.sold === 1 ? '' : 's'}`} highlight />}
+        {s.last30.avgDaysToSell != null && <Stat label="Tempo para vender" value={`${s.last30.avgDaysToSell} dias`} />}
+        {canManage && s.last30.profitCents != null && <Stat label="Lucro (30 dias)" value={money(s.last30.profitCents)} />}
+      </div>
+      <section className="card card-pad">
+        <div className="card-head"><h2>Funil</h2><Link to="/app/loja/leads" className="muted">Abrir</Link></div>
+        <div className="funnel">
+          {Object.keys(STAGE_LABEL).map((k) => <div key={k} className={`funnel-step st-${k}`}><b>{s.funnel[k] ?? 0}</b><span>{STAGE_LABEL[k]}</span></div>)}
+        </div>
+      </section>
+      <section className="card card-pad">
+        <div className="card-head"><h2>Atenção</h2>{alerts.data && alerts.data.total > 0 && <Badge tone="warn">{alerts.data.total}</Badge>}</div>
+        {alerts.error != null ? <p className="muted">Não foi possível carregar os alertas.</p> : !alerts.data?.items.length ? <p className="muted">Nada pendente.</p> : (
+          <ul className="alert-list">
+            {alerts.data.items.map((a, i) => (
+              <li key={`${a.kind}${a.vehicleId ?? a.leadId}${i}`}>
+                <Link to={a.leadId ? '/app/loja/leads' : '/app/loja/estoque'}>
+                  <Badge tone={a.severity === 'high' ? 'danger' : 'warn'}>{a.detail}</Badge> <b>{a.label}</b>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {s.sellers && s.sellers.length > 0 && (
+        <section className="card card-pad">
+          <div className="card-head"><h2>Equipe (30 dias)</h2></div>
+          <div className="table-wrap"><table className="table"><thead><tr><th>Pessoa</th><th className="r">Fechados</th><th className="r">Valor</th><th className="r">Em aberto</th></tr></thead>
+            <tbody>{s.sellers.map((x) => <tr key={x.userId}><td>{x.name}</td><td className="r">{x.won}</td><td className="r">{money(x.valueCents)}</td><td className="r">{x.open}</td></tr>)}</tbody></table></div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- equipe e configurações
+
+interface Member { userId: string; name: string; email: string | null; role: Role; active: boolean; since: string }
+
+function Settings() {
+  const { store, role, reload } = useStore();
+  const toast = useToast();
+  const [f, setF] = useState({ name: store.name, whatsapp: store.whatsapp ?? '', email: store.email ?? '', city: store.city ?? '', state: store.state ?? '', about: store.about, slug: store.slug, discount: String(store.tradeInDiscountBps / 100).replace('.', ','), stale: String(store.staleDays) });
+  const [pub, setPub] = useState(store.publicEnabled);
+  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const owner = role === 'OWNER';
+  async function save(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setError('');
+    try {
+      const bps = Math.round(Number(f.discount.replace(',', '.')) * 100);
+      await api.patch('/dealer', {
+        name: f.name, whatsapp: f.whatsapp || null, email: f.email || null, city: f.city || null, state: f.state || null, about: f.about, tradeInDiscountBps: bps, staleDays: Number(f.stale),
+        ...(owner ? { slug: f.slug, publicEnabled: pub } : {})
+      });
+      toast.ok('Salvo.'); reload();
+    } catch (err) { setError(errorMessage(err)); } finally { setBusy(false); }
+  }
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
+  return (
+    <form className="card card-pad stack" onSubmit={(e) => void save(e)}>
+      <div className="card-head"><h2>Dados da loja</h2></div>
+      <Field label="Nome"><Input value={f.name} onChange={set('name')} maxLength={80} /></Field>
+      <div className="grid-2">
+        <Field label="WhatsApp"><Input inputMode="tel" value={f.whatsapp} onChange={set('whatsapp')} /></Field>
+        <Field label="E-mail"><Input type="email" value={f.email} onChange={set('email')} /></Field>
+        <Field label="Cidade"><Input value={f.city} onChange={set('city')} /></Field>
+        <Field label="UF"><Input value={f.state} maxLength={2} onChange={(e) => setF((s) => ({ ...s, state: e.target.value.toUpperCase() }))} /></Field>
+      </div>
+      <Field label="Sobre a loja"><Textarea rows={3} value={f.about} onChange={set('about')} maxLength={1000} /></Field>
+      <div className="grid-2">
+        <Field label="Margem na troca (%)" hint="Descontada da FIPE na avaliação"><Input inputMode="decimal" value={f.discount} onChange={set('discount')} /></Field>
+        <Field label="Veículo parado após (dias)"><Input inputMode="numeric" value={f.stale} onChange={(e) => setF((s) => ({ ...s, stale: e.target.value.replace(/\D/g, '') }))} /></Field>
+      </div>
+      {owner && (
+        <>
+          <Field label="Endereço da vitrine" hint={`${window.location.origin}/loja/${f.slug}`}><Input value={f.slug} onChange={(e) => setF((s) => ({ ...s, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))} maxLength={40} /></Field>
+          <Switch label="Vitrine pública ligada" checked={pub} onChange={(e) => setPub(e.target.checked)} />
+        </>
+      )}
+      {error && <Alert tone="warn" icon="alert-triangle">{error}</Alert>}
+      <div><Button variant="primary" type="submit" loading={busy}>Salvar</Button></div>
+    </form>
+  );
+}
+
+function AddMember({ onClose, onDone, owner }: { onClose: () => void; onDone: () => void; owner: boolean }) {
+  const toast = useToast();
+  const [email, setEmail] = useState(''); const [role, setRole] = useState<'MANAGER' | 'SELLER'>('SELLER'); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  async function submit(e?: FormEvent) {
+    e?.preventDefault(); setBusy(true); setError('');
+    try { await api.post('/dealer/members', { email, role }); toast.ok('Pessoa adicionada.'); onDone(); } catch (err) { setError(errorMessage(err)); } finally { setBusy(false); }
+  }
+  return (
+    <Modal title="Adicionar pessoa" onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={busy} onClick={() => void submit()}>Adicionar</Button></>}>
+      <form className="stack" onSubmit={(e) => void submit(e)}>
+        <Field label="E-mail da conta" hint="A pessoa precisa ter conta no Placa na Mão."><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus /></Field>
+        <Field label="Papel"><Select value={role} onChange={(e) => setRole(e.target.value as 'MANAGER' | 'SELLER')}><option value="SELLER">Vendedor</option>{owner && <option value="MANAGER">Gerente</option>}</Select></Field>
+        {error && <Alert tone="warn" icon="alert-triangle">{error}</Alert>}
+        <button type="submit" hidden />
+      </form>
+    </Modal>
+  );
+}
+
+export function StoreTeam() {
+  const { role, canManage, store } = useStore();
+  const toast = useToast();
+  const list = useAsync(() => api.get<{ limit: number; members: Member[] }>('/dealer/members'), []);
+  const [adding, setAdding] = useState(false); const [remove, setRemove] = useState<Member | null>(null);
+  if (list.loading && !list.data) return <PageLoading />;
+  if (list.error != null) return <ErrorState error={list.error} onRetry={list.reload} />;
+  const { members, limit } = list.data!;
+  const act = async (m: Member, body: { role?: string; active?: boolean }) => { try { await api.patch(`/dealer/members/${m.userId}`, body); list.reload(); } catch (e) { toast.error(errorMessage(e)); } };
+  const active = members.filter((m) => m.active).length;
+  const editable = (m: Member) => canManage && m.role !== 'OWNER' && (role === 'OWNER' || m.role === 'SELLER');
+  return (
+    <div className="stack-lg">
+      <section className="card card-pad">
+        <div className="card-head"><h2>Equipe <span className="muted" style={{ fontSize: 14 }}>{active}/{limit}</span></h2>{canManage && <Button variant="primary" icon="plus" disabled={active >= limit} onClick={() => setAdding(true)}>Adicionar</Button>}</div>
+        <div className="table-wrap"><table className="table cards"><thead><tr><th>Pessoa</th><th>Papel</th><th /></tr></thead>
+          <tbody>{members.map((m) => (
+            <tr key={m.userId} style={m.active ? undefined : { opacity: 0.55 }}>
+              <td><b>{m.name}</b>{m.email && <div className="muted" style={{ fontSize: 13 }}>{m.email}</div>}</td>
+              <td><Badge tone={m.role === 'OWNER' ? 'violet' : m.role === 'MANAGER' ? 'info' : 'neutral'}>{ROLE_LABEL[m.role]}</Badge>{!m.active && <> <Badge>Inativo</Badge></>}</td>
+              <td className="actions">{editable(m) && (m.active
+                ? <>{role === 'OWNER' && <Button size="sm" variant="ghost" onClick={() => void act(m, { role: m.role === 'MANAGER' ? 'SELLER' : 'MANAGER' })}>{m.role === 'MANAGER' ? 'Tornar vendedor' : 'Tornar gerente'}</Button>}<Button size="sm" variant="ghost" onClick={() => setRemove(m)}>Remover</Button></>
+                : <Button size="sm" onClick={() => void act(m, { active: true })}>Reativar</Button>)}</td>
+            </tr>))}</tbody></table></div>
+      </section>
+      {canManage && <Settings key={store.id} />}
+      {adding && <AddMember owner={role === 'OWNER'} onClose={() => setAdding(false)} onDone={() => { setAdding(false); list.reload(); }} />}
+      {remove && <ConfirmDialog title="Remover da equipe" message={<>{remove.name} perde o acesso à loja agora. Os leads dela ficam sem responsável.</>} confirmLabel="Remover" danger onConfirm={async () => { await act(remove, { active: false }); setRemove(null); }} onClose={() => setRemove(null)} />}
+    </div>
+  );
+}

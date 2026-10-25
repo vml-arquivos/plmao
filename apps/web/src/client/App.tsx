@@ -32,6 +32,14 @@ const GarageVehicle = lazy(() => import('./pages/Garage').then((m) => ({ default
 const FaqPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.FaqPage })));
 const BlogPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.BlogPage })));
 const BlogPostPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.BlogPostPage })));
+const StoreShell = lazy(() => import('./pages/Store').then((m) => ({ default: m.StoreShell })));
+const StoreHome = lazy(() => import('./pages/Store').then((m) => ({ default: m.StoreHome })));
+const StoreTeam = lazy(() => import('./pages/Store').then((m) => ({ default: m.StoreTeam })));
+const StoreStock = lazy(() => import('./pages/StoreStock'));
+const StoreLeads = lazy(() => import('./pages/StoreLeads').then((m) => ({ default: m.StoreLeads })));
+const StoreProposals = lazy(() => import('./pages/StoreLeads').then((m) => ({ default: m.StoreProposals })));
+const StorePage = lazy(() => import('./pages/Storefront').then((m) => ({ default: m.StorePage })));
+const StoreVehiclePage = lazy(() => import('./pages/Storefront').then((m) => ({ default: m.StoreVehiclePage })));
 const Account = lazy(() => import('./pages/Account'));
 const ContractSign = lazy(() => import('./pages/ContractSign').then((m) => ({ default: m.ContractSign })));
 const FiscalDocumentPage = lazy(() => import('./pages/ContractSign').then((m) => ({ default: m.FiscalDocumentPage })));
@@ -93,6 +101,8 @@ export default function App() {
             <Route path="/contrato/assinar/:token" element={<ContractSign />} />
             <Route path="/contrato/:token" element={<ContractCopy />} />
             <Route path="/documento-fiscal/:token" element={<FiscalDocumentPage />} />
+            <Route path="/loja/:slug" element={<StorePage />} />
+            <Route path="/loja/:slug/veiculo/:id" element={<StoreVehiclePage />} />
             <Route path="/validar" element={<ValidatePage />} />
             <Route path="/validar/:code" element={<ValidatePage />} />
             <Route path="/validar-relatorio/:code" element={<ValidatePage />} />
@@ -108,6 +118,13 @@ export default function App() {
             <Route path="carteira" element={<Wallet />} />
             <Route path="garagem" element={<Garage />} />
             <Route path="garagem/:id" element={<GarageVehicle />} />
+            <Route path="loja" element={<StoreShell />}>
+              <Route index element={<StoreHome />} />
+              <Route path="estoque" element={<StoreStock />} />
+              <Route path="leads" element={<StoreLeads />} />
+              <Route path="propostas" element={<StoreProposals />} />
+              <Route path="equipe" element={<StoreTeam />} />
+            </Route>
             <Route path="parceiro" element={<Partner />} />
             <Route path="api" element={<Navigate to="/app" replace />} />
             <Route path="conta" element={<Account />} />

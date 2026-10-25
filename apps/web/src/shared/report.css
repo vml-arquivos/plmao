@@ -11,7 +11,7 @@
 .rv-verdict { display: flex; gap: 18px; align-items: center; padding: 22px 24px; border-radius: var(--radius-lg); border: 1px solid transparent; }
 .rv-verdict h3 { font-size: 22px; margin: 2px 0 4px; color: inherit; }
 .rv-verdict p { opacity: .92; max-width: 70ch; }
-.rv-verdict-tag { font-family: var(--font-display); font-weight: 800; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; opacity: .85; }
+.rv-verdict-tag { font-family: var(--font-display); font-weight: 500; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; opacity: .85; }
 .rv-verdict-ico { width: 54px; height: 54px; border-radius: 16px; display: grid; place-items: center; flex: none; background: rgba(255, 255, 255, .55); }
 :root[data-theme='dark'] .rv-verdict-ico { background: rgba(255, 255, 255, .08); }
 .rv-verdict.ok { background: var(--ok-soft); color: var(--ok-ink); } .rv-verdict.ok .rv-verdict-ico { color: var(--ok); }
@@ -24,7 +24,7 @@
 .rv-tile { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); min-height: 76px; }
 .rv-tile-ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; background: var(--bg-soft); color: var(--muted); }
 .rv-tile .k { display: block; font-size: 12.5px; color: var(--muted); font-weight: 500; }
-.rv-tile .v { display: block; font-family: var(--font-display); font-weight: 800; font-size: 18px; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.rv-tile .v { display: block; font-family: var(--font-display); font-weight: 500; font-size: 18px; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 .rv-tile small { display: block; color: var(--muted); font-size: 12px; margin-top: 1px; }
 .rv-tile.ok .rv-tile-ico { background: var(--ok-soft); color: var(--ok); } .rv-tile.ok .v { color: var(--ok-ink); }
 .rv-tile.warn .rv-tile-ico { background: var(--warn-soft); color: var(--warn); } .rv-tile.warn .v { color: var(--warn-ink); }
@@ -39,11 +39,11 @@
 .rv-alerts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .rv-alerts li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: 12px; background: var(--warn-soft); color: var(--warn-ink); font-size: 14.5px; }
 .rv-alerts li.high { background: var(--danger-soft); color: var(--danger-ink); }
-.rv-alerts li span { font-weight: 700; text-align: right; }
+.rv-alerts li span { font-weight: 500; text-align: right; }
 .rv-debts { width: 100%; border-collapse: collapse; font-size: 15px; }
 .rv-debts td { padding: 9px 0; border-bottom: 1px solid var(--border); }
 .rv-debts td.r { text-align: right; }
-.rv-debts tr.total td { border-bottom: 0; font-weight: 800; font-family: var(--font-display); font-size: 17px; padding-top: 14px; }
+.rv-debts tr.total td { border-bottom: 0; font-weight: 500; font-family: var(--font-display); font-size: 17px; padding-top: 14px; }
 .rv-fines { background: var(--surface-2); border-radius: 12px; padding: 12px 14px; font-size: 14px; display: grid; gap: 6px; }
 .rv-fines ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .rv-fines li { display: flex; justify-content: space-between; gap: 10px; }
@@ -54,7 +54,7 @@
 .rv-item { display: flex; justify-content: space-between; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--border); align-items: baseline; }
 .rv-item dt { color: var(--muted); font-size: 13.5px; flex: 0 1 46%; }
 .rv-item dt small { font-size: 11.5px; opacity: .85; }
-.rv-item dd { margin: 0; font-weight: 600; text-align: right; display: inline-flex; gap: 8px; align-items: center; justify-content: flex-end; flex: 1 1 54%; min-width: 0; overflow-wrap: anywhere; }
+.rv-item dd { margin: 0; font-weight: 500; text-align: right; display: inline-flex; gap: 8px; align-items: center; justify-content: flex-end; flex: 1 1 54%; min-width: 0; overflow-wrap: anywhere; }
 .rv-item dd.missing { color: var(--muted); font-weight: 400; font-style: italic; font-size: 13.5px; }
 .rv-item.alert dd { color: var(--warn-ink); }
 .rv-item.component { padding-left: 14px; }

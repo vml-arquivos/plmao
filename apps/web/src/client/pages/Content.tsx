@@ -87,7 +87,7 @@ export function BlogPostPage() {
       <section className="section" style={{ paddingBottom: 24 }}>
         <div className="container">
           <article className="article">
-            <Link to="/blog" className="muted" style={{ fontSize: 14, fontWeight: 600 }}>← Todos os artigos</Link>
+            <Link to="/blog" className="muted" style={{ fontSize: 14, fontWeight: 500 }}>← Todos os artigos</Link>
             <h1>{a.title}</h1>
             <p className="lead">{a.excerpt}</p>
             <div className="post-meta"><span className="cat-tag">{a.category}</span><span>{a.author}</span><span>{dateOnly(a.publishedAt)}</span><span>{a.readingMinutes} min de leitura</span></div>

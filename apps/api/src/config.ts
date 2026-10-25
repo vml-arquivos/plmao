@@ -77,6 +77,10 @@ function validateProductionConfig(value: ParsedEnv): void {
     requireProduction(Boolean(value.MP_ACCESS_TOKEN && value.MP_WEBHOOK_SECRET), 'MERCADOPAGO_CHECKOUT_AND_WEBHOOK_REQUIRED', issues);
     requireProduction(!value.MP_API_BASE_URL || value.MP_API_BASE_URL.replace(/\/+$/, '') === 'https://api.mercadopago.com', 'MERCADOPAGO_API_URL_FORBIDDEN', issues);
   }
+  if (value.EMAIL_PROVIDER === 'brevo_api') {
+    requireProduction(Boolean(value.BREVO_API_KEY), 'BREVO_API_KEY_REQUIRED', issues);
+    requireProduction(value.BREVO_API_BASE_URL.replace(/\/+$/, '') === 'https://api.brevo.com/v3', 'BREVO_API_URL_FORBIDDEN', issues);
+  }
   if (value.EMAIL_PROVIDER === 'smtp') {
     requireProduction(Boolean(value.SMTP_HOST && value.SMTP_USER && value.SMTP_PASSWORD), 'SMTP_CREDENTIALS_REQUIRED', issues);
   }
@@ -93,6 +97,7 @@ function validateProductionConfig(value: ParsedEnv): void {
     value.ADMIN_JWT_SECRET,
     value.DATA_ENCRYPTION_KEY,
     value.SMTP_PASSWORD,
+    value.BREVO_API_KEY,
     value.VEHICLE_API_TOKEN,
     value.APIBRASIL_BEARER_TOKEN,
     value.APIBRASIL_DEVICE_TOKEN,
@@ -120,7 +125,10 @@ const envSchema = z.object({
   APP_NAME: z.string().trim().min(1).default('Placa na Mão'),
   APP_URL: optionalUrl,
   WEB_ORIGIN: z.string().url().default('http://localhost:5173'),
-  EMAIL_PROVIDER: z.enum(['disabled', 'smtp']).default('disabled'),
+  // smtp: envio por SMTP. brevo_api: envio pela API HTTPS do Brevo (porta 443), para servidores que bloqueiam as portas de SMTP.
+  EMAIL_PROVIDER: z.enum(['disabled', 'smtp', 'brevo_api']).default('disabled'),
+  BREVO_API_KEY: optionalString,
+  BREVO_API_BASE_URL: z.string().trim().url().default('https://api.brevo.com/v3'),
   SMTP_HOST: optionalString,
   SMTP_PORT: z.coerce.number().int().positive().max(65535).default(587),
   SMTP_USER: optionalString,
@@ -223,6 +231,9 @@ const envSchema = z.object({
   // Validade do link de pagamento em minutos (0 = sem validade definida pela plataforma).
   MP_EXPIRES_MINUTES: z.coerce.number().int().min(0).max(10080).default(0),
   MP_STATEMENT_DESCRIPTOR: z.preprocess((v) => (v === '' ? undefined : v), z.string().trim().max(22).optional()),
+  DEALER_DEFAULT_VEHICLE_LIMIT: z.coerce.number().int().min(0).max(100000).default(30),
+  DEALER_DEFAULT_MEMBER_LIMIT: z.coerce.number().int().min(1).max(1000).default(3),
+  PAYMENT_SYNC_WORKER: booleanFromEnv.default(true),
   MP_BINARY_MODE: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   SANDBOX_SEED_ENABLED: booleanFromEnv.default(false),
   SANDBOX_CREDIT_PURCHASE_ENABLED: booleanFromEnv.default(false),

@@ -42,7 +42,7 @@ const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|contrato|docu
 export interface SeoOverride { title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string }
 
 /** Rotas que o app conhece, inclusive as dinâmicas. Qualquer outra recebe 404 e noindex. */
-const DYNAMIC = /^\/(blog|veiculos|simulador|validar|validar-relatorio|contrato|documento-fiscal|app|painel|recuperar-senha|consultar|desenvolvedores)(\/|$)/;
+const DYNAMIC = /^\/(blog|veiculos|simulador|validar|validar-relatorio|contrato|documento-fiscal|app|painel|recuperar-senha|consultar|desenvolvedores|loja)(\/|$)/;
 export function isKnownPath(pathname: string): boolean {
   const n = pathname.length > 1 ? pathname.replace(/\/$/, '') : pathname;
   return n in pageMeta || DYNAMIC.test(n);

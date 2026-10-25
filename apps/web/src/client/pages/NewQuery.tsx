@@ -101,7 +101,7 @@ export default function NewQuery() {
 
   return (
     <div className="stack-lg">
-      <div className="page-head"><div><h1>Nova consulta</h1><p>Informe a placa, escolha o tipo de consulta e receba o relatório em segundos.</p></div></div>
+      <div className="page-head"><div><h1>Nova consulta</h1></div></div>
       <PaidQueries />
       <div className="nq-grid">
         <div className="stack-lg">
@@ -153,7 +153,7 @@ export default function NewQuery() {
             </>
           )}
           <details>
-            <summary style={{ cursor: 'pointer', color: 'var(--primary)', fontWeight: 600, fontSize: 14 }}>Tenho um cupom</summary>
+            <summary style={{ cursor: 'pointer', color: 'var(--primary)', fontWeight: 500, fontSize: 14 }}>Tenho um cupom</summary>
             <div className="row" style={{ marginTop: 10, flexWrap: 'nowrap' }}><Field label="Código do cupom" className="grow"><Input value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())} placeholder="CUPOM10" /></Field><Button size="sm" loading={busy === 'quote'} onClick={applyCoupon} style={{ alignSelf: 'end' }}>Aplicar</Button></div>
             <p className="muted" style={{ fontSize: 12.5, marginTop: 6 }}>O cupom vale para pagamento direto (Pix/cartão).</p>
           </details>

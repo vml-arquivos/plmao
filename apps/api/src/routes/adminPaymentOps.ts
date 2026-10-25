@@ -4,7 +4,7 @@ import { adminAuth } from '../auth.js';
 import { pool, tx } from '../db.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import { MercadoPagoProvider } from '../payments/mercadopago.js';
-import { settlePaymentEvent } from '../payments/settle.js';
+import { syncOrderByReference } from '../lib/paymentSync.js';
 import { requirePermission } from '../permissions.js';
 
 /** Operações de pagamento no Mercado Pago: conciliação por referência e estorno total pela API. */
@@ -29,17 +29,9 @@ function provider() {
 /** Busca no Mercado Pago os pagamentos do pedido e aplica cada situação com o mesmo identificador do webhook (idempotente). */
 adminPaymentOpsRouter.post('/payment-orders/:id/reconcile', guard, asyncRoute(async (req, res) => {
   const order = await orderOf(req.params.id);
-  const mp = provider();
-  let found;
-  try { found = await mp.searchPaymentsByReference(order.external_reference); } catch { throw appError('PAYMENT_PROVIDER_REQUEST_FAILED', { code: 'PAYMENT_PROVIDER_REQUEST_FAILED', http: 502, expose: true }); }
-  const outcomes: Array<{ paymentId: string; status: string; outcome: string }> = [];
-  for (const p of found) {
-    const settled = await tx((client) => settlePaymentEvent(client, {
-      provider: 'mercadopago', eventId: `payment:${p.id}:${p.status}`, eventType: `payment.${p.status}`, rawStatus: p.status,
-      externalPaymentId: p.id, reference: order.external_reference, paymentType: p.paymentType ?? null, feeCents: p.feeCents ?? null, netCents: p.netCents ?? null
-    }));
-    outcomes.push({ paymentId: p.id, status: p.status, outcome: settled.outcome });
-  }
+  provider();
+  let outcomes;
+  try { outcomes = await syncOrderByReference(order.external_reference); } catch { throw appError('PAYMENT_PROVIDER_REQUEST_FAILED', { code: 'PAYMENT_PROVIDER_REQUEST_FAILED', http: 502, expose: true }); }
   await audit(req.user!.id, 'PAYMENT_RECONCILED', 'PAYMENT_ORDER', order.id, { payments: outcomes.length, requestId: requestId(req) });
   const after = await pool.query('SELECT status FROM payment_orders WHERE id=$1', [order.id]);
   res.json({ orderStatus: after.rows[0].status, payments: outcomes });

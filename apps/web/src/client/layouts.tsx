@@ -111,9 +111,10 @@ export function PublicLayout() {
 /* ---------- Área logada ---------- */
 const ITEMS: Array<{ to: string; label: string; icon: IconName; end?: boolean }> = [
   { to: '/app', label: 'Painel', icon: 'home', end: true },
-  { to: '/app/historico', label: 'Histórico', icon: 'clock' },
+  { to: '/app/historico', label: 'Consultas', icon: 'clock' },
   { to: '/app/simulacoes', label: 'Simulações', icon: 'calculator' },
   { to: '/app/garagem', label: 'Minha garagem', icon: 'car' },
+  { to: '/app/loja', label: 'Minha loja', icon: 'building' },
   { to: '/veiculos', label: 'Guia de veículos', icon: 'car' },
   { to: '/app/carteira', label: 'Carteira', icon: 'wallet' },
   { to: '/app/parceiro', label: 'Parceiro', icon: 'users' },
@@ -158,7 +159,7 @@ export function AppLayout() {
       </div>
       <nav className="app-tabbar" aria-label="Navegação">
         <NavLink to="/app" end className={({ isActive }) => (isActive ? 'active' : '')}><Icon name="home" /><span>Início</span></NavLink>
-        <NavLink to="/app/historico" className={({ isActive }) => (isActive ? 'active' : '')}><Icon name="clock" /><span>Histórico</span></NavLink>
+        <NavLink to="/app/historico" className={({ isActive }) => (isActive ? 'active' : '')}><Icon name="clock" /><span>Consultas</span></NavLink>
         <NavLink to="/app/consultar" className={({ isActive }) => `mid ${isActive ? 'active' : ''}`}><span className="mi"><Icon name="search" size={24} /></span><span>Consultar</span></NavLink>
         <NavLink to="/app/carteira" className={({ isActive }) => (isActive ? 'active' : '')}><Icon name="wallet" /><span>Carteira</span></NavLink>
         <NavLink to="/app/conta" className={({ isActive }) => (isActive ? 'active' : '')}><Icon name="user" /><span>Conta</span></NavLink>

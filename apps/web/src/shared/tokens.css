@@ -1,8 +1,6 @@
 /* Placa na Mão — design tokens, fontes e base. Fontes hospedadas localmente (sem CDN). Paleta derivada do logo (azul). */
-@font-face { font-family: 'Nunito'; font-weight: 400; font-style: normal; font-display: swap; src: url('/fonts/nunito-latin-400-normal.woff2') format('woff2'); }
-@font-face { font-family: 'Nunito'; font-weight: 500; font-style: normal; font-display: swap; src: url('/fonts/nunito-latin-500-normal.woff2') format('woff2'); }
-@font-face { font-family: 'Nunito'; font-weight: 600; font-style: normal; font-display: swap; src: url('/fonts/nunito-latin-600-normal.woff2') format('woff2'); }
-@font-face { font-family: 'Nunito'; font-weight: 700; font-style: normal; font-display: swap; src: url('/fonts/nunito-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; font-display: swap; src: url('/fonts/inter-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 500; font-style: normal; font-display: swap; src: url('/fonts/inter-latin-500-normal.woff2') format('woff2'); }
 @font-face { font-family: 'Nunito'; font-weight: 800; font-style: normal; font-display: swap; src: url('/fonts/nunito-latin-800-normal.woff2') format('woff2'); }
 
 :root {
@@ -56,8 +54,9 @@
   --ring: 0 0 0 3px rgba(47, 111, 228, .30);
   --grad-brand: linear-gradient(135deg, #2F6FE4, #5CAEF0);
 
-  --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-body: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-display: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-body: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-plate: 'Nunito', 'Inter', system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
 
   --gutter: clamp(16px, 4vw, 32px);
@@ -114,8 +113,9 @@
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
 body { margin: 0; font-family: var(--font-body); font-size: 16px; line-height: 1.55; color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
-h1, h2, h3, h4 { font-family: var(--font-display); margin: 0; letter-spacing: -0.02em; line-height: 1.12; color: var(--text); }
-h1 { font-weight: 800; } h2 { font-weight: 800; } h3 { font-weight: 700; } h4 { font-weight: 700; }
+h1, h2, h3, h4 { font-family: var(--font-display); margin: 0; letter-spacing: -0.015em; line-height: 1.2; color: var(--text); }
+h1, h2, h3, h4 { font-weight: 500; }
+b, strong, th { font-weight: 500; }
 p { margin: 0; }
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 3px; }

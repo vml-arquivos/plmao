@@ -11,6 +11,7 @@ export const GROUPS: Array<{ title: string; items: NavItem[] }> = [
   { title: 'Visão geral', items: [{ to: '/', label: 'Painel', icon: 'dashboard', perm: 'VIEW_DASHBOARD', end: true }] },
   { title: 'Pessoas', items: [
     { to: '/clientes', label: 'Clientes', icon: 'users', perm: 'VIEW_CUSTOMERS' },
+    { to: '/lojas', label: 'Lojas', icon: 'building', perm: 'VIEW_CUSTOMERS' },
     { to: '/empresas', label: 'Empresas', icon: 'building', perm: 'VIEW_CUSTOMERS' },
     { to: '/equipe', label: 'Equipe e acessos', icon: 'key', perm: 'MANAGE_TEAM' }
   ] },

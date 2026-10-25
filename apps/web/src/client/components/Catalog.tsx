@@ -85,7 +85,7 @@ export function CompareMatrix() {
         <tbody>
           {feats.map((f) => (
             <tr key={f.id}>
-              <th scope="row" style={{ fontWeight: 600 }}>{f.label}{f.description ? <small>{f.description}</small> : null}</th>
+              <th scope="row" style={{ fontWeight: 500 }}>{f.label}{f.description ? <small>{f.description}</small> : null}</th>
               {prods.map((p) => {
                 const st = p.matrix?.[f.id] ?? 'NOT_INCLUDED';
                 return <td key={p.id}>{st === 'INCLUDED' ? <span className="cell yes" role="img" aria-label="Incluso"><Icon name="check" size={15} /></span> : st === 'SOON' ? <span className="cell soon">em breve</span> : <span className="cell no" role="img" aria-label="Não incluso">—</span>}</td>;

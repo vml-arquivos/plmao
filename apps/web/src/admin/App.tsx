@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import { QueriesList, QueryDetailPage } from './pages/Queries';
 import Customers, { CustomerDetail } from './pages/Customers';
+import Dealerships from './pages/Dealerships';
 import Companies, { CompanyDetail } from './pages/Companies';
 import Team from './pages/Team';
 import Charges from './pages/Charges';
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="consultas/:id" element={<QueryDetailPage />} />
         <Route path="clientes" element={<Customers />} />
         <Route path="clientes/:id" element={<CustomerDetail />} />
+        <Route path="lojas" element={<Dealerships />} />
         <Route path="empresas" element={<Companies />} />
         <Route path="empresas/:id" element={<CompanyDetail />} />
         <Route path="equipe" element={<Team />} />

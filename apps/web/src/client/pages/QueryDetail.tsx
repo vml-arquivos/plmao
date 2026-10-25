@@ -57,7 +57,7 @@ export default function QueryDetail() {
   }
   async function copy(text: string) { try { await navigator.clipboard.writeText(text); toast.ok('Link copiado!'); } catch { toast.error('Não foi possível copiar.'); } }
 
-  const back = <Link to="/app/historico" className="muted no-print" style={{ display: 'inline-flex', gap: 6, alignItems: 'center', marginBottom: 14 }}><Icon name="arrow-left" size={16} /> Histórico</Link>;
+  const back = <Link to="/app/historico" className="muted no-print" style={{ display: 'inline-flex', gap: 6, alignItems: 'center', marginBottom: 14 }}><Icon name="arrow-left" size={16} /> Consultas</Link>;
 
   if (envelope) {
     const { report } = envelope;

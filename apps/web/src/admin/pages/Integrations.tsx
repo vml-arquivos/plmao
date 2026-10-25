@@ -29,7 +29,7 @@ export default function Integrations() {
       <PageHead title="Integrações" sub="Mostra se cada chave está preenchida (nunca o valor). As chaves ficam nas variáveis de ambiente do Coolify; depois de alterar, reinicie o aplicativo." />
       {list.loading && !list.data ? <PageLoading /> : list.error && !list.data ? <ErrorState error={list.error} onRetry={list.reload} /> : !(list.data?.items.length) ? <EmptyState icon="info" title="Nada para mostrar" /> : (
         <div className="stack">{list.data.items.map((i) => (
-          <Card key={i.key} title={<span>{i.name}</span>} actions={<><Badge tone={STATE[i.state].t} dot>{STATE[i.state].l}</Badge>{i.mode && <Badge tone={i.mode === 'teste' ? 'info' : 'warn'}>Credencial de {i.mode}</Badge>}</>}>
+          <Card key={i.key} title={<span>{i.name}</span>} actions={<><Badge tone={STATE[i.state].t} dot>{STATE[i.state].l}</Badge>{i.mode && <Badge tone={i.mode === 'teste' ? 'info' : 'warn'}>{i.mode.startsWith('a confirmar') ? 'Credencial: testar para confirmar' : `Credencial de ${i.mode}`}</Badge>}</>}>
             <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4 }}>
               {i.vars.map((x) => <li key={x.name}><span aria-hidden="true">{x.set ? '✅' : '⬜'}</span> <code>{x.name}</code> <span className="muted" style={{ fontSize: 13 }}>{x.set ? 'preenchida' : 'vazia'}{x.hint ? ` · ${x.hint}` : ''}</span></li>)}
             </ul>

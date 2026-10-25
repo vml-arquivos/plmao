@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.12.0 — Minha loja: estoque, leads, propostas e vitrine
+
+Módulo novo para lojas, agências e vendedores. Aparece em **Minha loja** no menu; quem não vende veículos não vê nada diferente.
+
+- **Estoque de veículos**: cadastro com preço, custo (só dono e gerente), FIPE, margem, km, fotos (links https), IPVA e licenciamento. A placa liga sozinha à última consulta concluída da equipe (selo "Verificado"). Reservar, vender (com o lead comprador), arquivar. Placa única por loja enquanto o veículo está em estoque.
+- **Funil de leads**: Novo, Contato, Proposta, Visita, Fechado e Perdido, com histórico de cada mudança, anotações, próximo retorno e botão de WhatsApp. Perder exige motivo; só dono e gerente reabrem. Vendedor vê só os seus e os sem responsável (e pode assumir). Exportar CSV e excluir lead: dono e gerente.
+- **Proposta em PDF**: preço, entrada, troca e simulação do financiamento do saldo (mesmo motor do simulador). Código `PRO-XXXXXXXX`, validade, QR da consulta verificada. Ao criar a proposta o lead vai para Proposta.
+- **Avaliação de troca**: estimativa interna a partir da FIPE informada, margem da loja, condição e km, com faixa de 3%. Não é laudo.
+- **Alertas e painel**: veículo parado, preço acima da FIPE, IPVA ou licenciamento vencendo, retorno atrasado, lead sem responsável; resumo de 30 dias (leads, conversão, vendas, lucro, dias para vender, ranking da equipe).
+- **Equipe**: dono, gerente e vendedor; uma pessoa em uma loja só; limites de pessoas e veículos por loja.
+- **Vitrine pública** `/loja/:slug` e `/loja/:slug/veiculo/:id`: só quando o dono liga. Mostra preço, fotos, selo e botão de WhatsApp; nunca mostra custo nem a placa inteira. Formulário de contato com aceite (LGPD), campo-isca contra robôs, limite por IP, sem duplicar o mesmo contato em 24 h e aviso por e-mail para a loja. Entra no sitemap e tem título próprio para buscadores.
+- **Painel admin > Lojas**: lista, limites de veículos e pessoas, suspender e reativar (auditado).
+- **Banco**: migração `038_dealerships` (7 tabelas) com reversão; chaves estrangeiras, checagens (placa, telefone, etapa, datas, valores) e índices únicos garantem a consistência mesmo fora da API. Limites aplicados com trava de linha para não estourar em requisições simultâneas.
+- Novas variáveis (opcionais): `DEALER_DEFAULT_VEHICLE_LIMIT` (30) e `DEALER_DEFAULT_MEMBER_LIMIT` (3).
+- Testes: `dealer.test.mjs`, `dealer-rules.test.mjs`; `migration-rollback.test.mjs` agora cobre 027 a 038.
+
+## 1.11.1 — Mercado Pago pronto para as credenciais
+
+- **Conferência automática de pagamentos**: se o aviso (webhook) do Mercado Pago se perder, o saldo entra mesmo assim. Ao voltar do checkout a Carteira confere os pedidos abertos (`POST /payments/sync`, no máximo uma vez a cada 3 s por pessoa) e uma varredura a cada 3 minutos confere pedidos abertos de 2 minutos a 3 dias (`PAYMENT_SYNC_WORKER`, padrão ligado). Usa o mesmo identificador do webhook, então nunca libera duas vezes. A conciliação manual do painel usa o mesmo código.
+- Pagamentos feitos com credencial de teste não mandam aviso; agora também funcionam por esse caminho.
+- O Access Token de teste do Mercado Pago começa com `APP_USR` (não com `TEST-`). O painel deixou de afirmar "teste" ou "produção" pelo prefixo; "Testar conexão" confirma pelo tipo da conta.
+- Carteira: avisos de pagamento pendente e não aprovado ao voltar do checkout.
+- `PENDENCIAS-PRODUCAO.md`: seção "Mercado Pago: configuração exata" (conta, contas de teste, variáveis, webhook, teste e produção).
+- Testes: `payment-sync.test.mjs`.
+
+## 1.11.0 — Visual limpo e consultas com filtros
+
+- Visual mais simples em todo o site (cliente, público e painel): fonte única (Inter), letras leves (peso normal e médio), menos sombra, botões e tabelas mais finos, abas com sublinhado. A placa continua com a fonte própria.
+- **Consultas** (antes "Histórico"): abas Todas, Realizadas, Em processamento, Falha e Estornadas; filtro por placa, tipo de consulta e período (30, 60, 90 dias ou datas); botão **Exportar CSV**; "Ver mais" para páginas seguintes. API: `GET /queries` aceita `status`, `product`, `plate`, `days`, `from`, `to`, `limit`, `offset`; novos `GET /queries/types` e `GET /queries.csv`.
+- **Carteira**: saldo em destaque com "Adicionar saldo" e "Nova consulta"; filtro de período no extrato e nos pagamentos; extrato em CSV (`GET /wallet/transactions.csv`); nova aba **Notas fiscais** com as notas emitidas para o cliente (`GET /account/fiscal-documents`, só links https). Os cartões dos pacotes ganharam estilo (estavam sem).
+- **Parceiros**: tabela de comissões **por mês** (`monthly` em `GET /affiliate/stats`).
+- Menos texto nas telas do cliente; nenhuma função removida. No celular a lista de consultas quebra em duas linhas.
+- Testes: `client-lists.test.mjs` (filtros, paginação, CSV, notas, comissões por mês).
+
+## 1.10.7 — Envio de e-mail pela API do Brevo
+
+- Novo `EMAIL_PROVIDER=brevo_api` com `BREVO_API_KEY`: o e-mail sai pela API HTTPS do Brevo (porta 443), sem depender das portas de SMTP, que a DigitalOcean bloqueia em contas novas. O restante do sistema (fila, convites, link de senha, contato, webhook de entrega) funciona igual. O teste do painel mostra "chave recusada" ou "não conectou".
+- A produção só aceita o endereço oficial da API (`https://api.brevo.com/v3`).
+- A mensagem de falha de conexão agora explica o bloqueio de portas e as duas saídas.
+
 ## 1.10.6 — Teste de e-mail com erro claro
 
 - "Testar conexão" no painel agora diferencia **credenciais recusadas** (login ou chave SMTP errados) de **não foi possível conectar** (host, porta ou rede). Antes qualquer falha aparecia como credencial recusada.

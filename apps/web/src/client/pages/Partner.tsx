@@ -6,7 +6,7 @@ import { bpsToPercent, money } from '../../shared/format';
 import { api } from '../api';
 
 interface Affiliate { id: string; name: string; email: string; code: string; commissionBps: number; active: boolean }
-interface Stats { affiliate: { id: string; code: string } | null; shareUrl?: string; links?: Array<{ key: string; label: string; url: string }>; performance?: { clicks30d: number; paidPayments: number; reversedCommissions: number }; totals: { commissions: number; pendingCents: number; paidCents: number; referredUsers?: number } }
+interface Stats { monthly?: Array<{ month: string; payments: number; cents: number }>; affiliate: { id: string; code: string } | null; shareUrl?: string; links?: Array<{ key: string; label: string; url: string }>; performance?: { clicks30d: number; paidPayments: number; reversedCommissions: number }; totals: { commissions: number; pendingCents: number; paidCents: number; referredUsers?: number } }
 
 function LinkQr({ url, name }: { url: string; name: string }) {
   const [src, setSrc] = useState('');
@@ -42,7 +42,7 @@ export default function Partner() {
   if (!aff) {
     return (
       <div className="stack-lg">
-        <div className="page-head"><div><h1>Programa de parceiros</h1><p>Indique a Placa na Mão e receba comissão sobre as consultas pagas dos seus indicados.</p></div></div>
+        <div className="page-head"><div><h1>Parceiros</h1></div></div>
         <section className="card card-pad stack" style={{ maxWidth: 640 }}>
           <div className="grid-3" style={{ gridTemplateColumns: 'repeat(3, minmax(0,1fr))' }}>
             {[['link', 'Compartilhe seu link', 'Cada pessoa que se cadastrar pelo seu link fica vinculada a você.'], ['dollar', 'Ganhe comissão', 'Receba um percentual sobre cada pagamento confirmado dos indicados.'], ['wallet', 'Receba o repasse', 'As comissões são liberadas após o prazo de segurança e repassadas pela equipe.']].map(([i, t, s]) => <div key={t} className="stack-sm"><span className="wi" style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--primary-soft)', color: 'var(--primary-ink)', display: 'grid', placeItems: 'center' }}><Icon name={i as 'link'} /></span><b>{t}</b><span className="muted" style={{ fontSize: 14 }}>{s}</span></div>)}
@@ -58,7 +58,7 @@ export default function Partner() {
   const t = stats.data?.totals;
   return (
     <div className="stack-lg">
-      <div className="page-head"><div><h1>Programa de parceiros</h1><p>Sua comissão atual é de <b>{bpsToPercent(aff.commissionBps)}</b> sobre cada pagamento confirmado dos seus indicados.</p></div></div>
+      <div className="page-head"><div><h1>Parceiros</h1><p>Comissão de <b>{bpsToPercent(aff.commissionBps)}</b> por pagamento confirmado.</p></div></div>
       {!aff.active && <Alert tone="warn" title="Seu cadastro de parceiro está inativo.">Fale com o suporte para reativar.</Alert>}
       <div className="stat-grid">
         <Stat label="Visitas (30 dias)" value={stats.data?.performance?.clicks30d ?? 0} sub="pessoas que chegaram pelo seu link" />
@@ -70,15 +70,22 @@ export default function Partner() {
       <section className="card card-pad stack">
         <h2 style={{ fontSize: 18 }}>Seu código</h2>
         {!stats.data?.links?.length && <CopyField value={stats.data?.shareUrl ?? `${window.location.origin}/?ref=${aff.code}`} label="Link de indicação" />}
-        <p className="muted" style={{ fontSize: 14 }}><b className="mono">{aff.code}</b>. Compartilhe os links abaixo em redes sociais, grupos e com sua equipe.</p>
+        <p className="muted" style={{ fontSize: 14 }}>Código <b className="mono">{aff.code}</b></p>
       </section>
+      {stats.data?.monthly && stats.data.monthly.length > 0 && (
+        <section className="card card-pad stack">
+          <h2 style={{ fontSize: 18 }}>Por mês</h2>
+          <div className="table-wrap"><table className="table"><thead><tr><th>Mês</th><th className="r">Pagamentos</th><th className="r">Comissão</th></tr></thead><tbody>
+            {stats.data.monthly.map((m) => <tr key={m.month}><td>{m.month.slice(5)}/{m.month.slice(0, 4)}</td><td className="r num">{m.payments}</td><td className="r num">{money(m.cents)}</td></tr>)}
+          </tbody></table></div>
+        </section>
+      )}
       {stats.data?.links && stats.data.links.length > 0 && (() => {
         const cur = stats.data.links.find((l) => l.key === linkKey) ?? stats.data.links[0]!;
         return (
           <section className="card card-pad stack">
             <h2 style={{ fontSize: 18 }}>Links por destino e QR code</h2>
-            <p className="muted" style={{ fontSize: 14, margin: 0 }}>Leve a pessoa direto para a ferramenta que resolve o problema dela. Todos os links levam o seu código.</p>
-            <Field label="Destino">
+                        <Field label="Destino">
               <select className="input" value={cur.key} onChange={(e) => setLinkKey(e.target.value)} aria-label="Destino do link">
                 {stats.data.links.map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
               </select>

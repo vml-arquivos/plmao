@@ -1326,5 +1326,173 @@ export const placaMigrations: Migration[] = [
       `);
     },
     down: async (client) => { await client.query('DROP TABLE IF EXISTS admin_trusted_devices'); }
+  },
+  {
+    id: '038_dealerships',
+    name: 'Loja: cadastro da loja, equipe, estoque de veículos, leads, propostas e avaliações de troca',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS dealerships (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          owner_user_id uuid NOT NULL REFERENCES users(id),
+          name text NOT NULL CHECK (char_length(btrim(name)) BETWEEN 2 AND 80),
+          slug text NOT NULL CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND char_length(slug) BETWEEN 3 AND 40),
+          whatsapp text CHECK (whatsapp IS NULL OR whatsapp ~ '^[0-9]{10,13}$'),
+          email text CHECK (email IS NULL OR char_length(email) <= 254),
+          city text CHECK (city IS NULL OR char_length(city) <= 80),
+          state text CHECK (state IS NULL OR state ~ '^[A-Z]{2}$'),
+          about text NOT NULL DEFAULT '' CHECK (char_length(about) <= 1000),
+          public_enabled boolean NOT NULL DEFAULT false,
+          active boolean NOT NULL DEFAULT true,
+          vehicle_limit integer NOT NULL DEFAULT 30 CHECK (vehicle_limit >= 0 AND vehicle_limit <= 100000),
+          member_limit integer NOT NULL DEFAULT 3 CHECK (member_limit >= 1 AND member_limit <= 1000),
+          trade_in_discount_bps integer NOT NULL DEFAULT 800 CHECK (trade_in_discount_bps BETWEEN 0 AND 5000),
+          stale_days integer NOT NULL DEFAULT 60 CHECK (stale_days BETWEEN 7 AND 720),
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_dealerships_slug ON dealerships(lower(slug));
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_dealerships_owner ON dealerships(owner_user_id);
+
+        CREATE TABLE IF NOT EXISTS dealership_members (
+          dealership_id uuid NOT NULL REFERENCES dealerships(id) ON DELETE CASCADE,
+          user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          role text NOT NULL CHECK (role IN ('OWNER','MANAGER','SELLER')),
+          active boolean NOT NULL DEFAULT true,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (dealership_id, user_id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_dealership_member_one_store ON dealership_members(user_id) WHERE active;
+
+        CREATE TABLE IF NOT EXISTS stock_vehicles (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          dealership_id uuid NOT NULL REFERENCES dealerships(id) ON DELETE CASCADE,
+          plate text CHECK (plate IS NULL OR plate ~ '^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$'),
+          brand text NOT NULL CHECK (char_length(btrim(brand)) BETWEEN 1 AND 40),
+          model text NOT NULL CHECK (char_length(btrim(model)) BETWEEN 1 AND 60),
+          version text NOT NULL DEFAULT '' CHECK (char_length(version) <= 80),
+          year_manufacture smallint CHECK (year_manufacture IS NULL OR year_manufacture BETWEEN 1950 AND 2100),
+          year_model smallint CHECK (year_model IS NULL OR year_model BETWEEN 1950 AND 2100),
+          color text NOT NULL DEFAULT '' CHECK (char_length(color) <= 30),
+          fuel text NOT NULL DEFAULT '' CHECK (char_length(fuel) <= 30),
+          transmission text NOT NULL DEFAULT '' CHECK (char_length(transmission) <= 30),
+          mileage_km integer CHECK (mileage_km IS NULL OR mileage_km BETWEEN 0 AND 3000000),
+          price_cents integer NOT NULL CHECK (price_cents BETWEEN 0 AND 2000000000),
+          cost_cents integer CHECK (cost_cents IS NULL OR cost_cents BETWEEN 0 AND 2000000000),
+          fipe_cents integer CHECK (fipe_cents IS NULL OR fipe_cents BETWEEN 0 AND 2000000000),
+          status text NOT NULL DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE','RESERVED','SOLD','ARCHIVED')),
+          public_listed boolean NOT NULL DEFAULT true,
+          seal_enabled boolean NOT NULL DEFAULT true,
+          description text NOT NULL DEFAULT '' CHECK (char_length(description) <= 2000),
+          photos jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(photos) = 'array' AND jsonb_array_length(photos) <= 8),
+          query_id uuid REFERENCES vehicle_queries(id) ON DELETE SET NULL,
+          ipva_due_on date,
+          licensing_due_on date,
+          entered_on date NOT NULL DEFAULT current_date,
+          sold_at timestamptz,
+          sold_price_cents integer CHECK (sold_price_cents IS NULL OR sold_price_cents BETWEEN 0 AND 2000000000),
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          CHECK (status <> 'SOLD' OR sold_at IS NOT NULL)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_stock_open_plate ON stock_vehicles(dealership_id, plate) WHERE plate IS NOT NULL AND status IN ('AVAILABLE','RESERVED');
+        CREATE INDEX IF NOT EXISTS idx_stock_dealership_status ON stock_vehicles(dealership_id, status, entered_on);
+        CREATE INDEX IF NOT EXISTS idx_stock_public ON stock_vehicles(dealership_id, created_at DESC) WHERE public_listed AND status IN ('AVAILABLE','RESERVED');
+
+        CREATE TABLE IF NOT EXISTS dealer_leads (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          dealership_id uuid NOT NULL REFERENCES dealerships(id) ON DELETE CASCADE,
+          vehicle_id uuid REFERENCES stock_vehicles(id) ON DELETE SET NULL,
+          assigned_to uuid REFERENCES users(id) ON DELETE SET NULL,
+          name text NOT NULL CHECK (char_length(btrim(name)) BETWEEN 2 AND 80),
+          phone text CHECK (phone IS NULL OR phone ~ '^[0-9]{10,13}$'),
+          email text CHECK (email IS NULL OR char_length(email) <= 254),
+          source text NOT NULL DEFAULT 'OUTRO' CHECK (source IN ('VITRINE','SITE','WHATSAPP','INDICACAO','LOJA','OUTRO')),
+          stage text NOT NULL DEFAULT 'NEW' CHECK (stage IN ('NEW','CONTACT','PROPOSAL','VISIT','WON','LOST')),
+          notes text NOT NULL DEFAULT '' CHECK (char_length(notes) <= 2000),
+          lost_reason text CHECK (lost_reason IS NULL OR char_length(lost_reason) <= 200),
+          value_cents integer CHECK (value_cents IS NULL OR value_cents BETWEEN 0 AND 2000000000),
+          next_contact_at timestamptz,
+          consent_at timestamptz,
+          closed_at timestamptz,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          CHECK (phone IS NOT NULL OR email IS NOT NULL),
+          CHECK ((stage IN ('WON','LOST')) = (closed_at IS NOT NULL))
+        );
+        CREATE INDEX IF NOT EXISTS idx_dealer_leads_stage ON dealer_leads(dealership_id, stage, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_dealer_leads_assigned ON dealer_leads(assigned_to) WHERE assigned_to IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_dealer_leads_followup ON dealer_leads(dealership_id, next_contact_at) WHERE next_contact_at IS NOT NULL AND stage NOT IN ('WON','LOST');
+        CREATE INDEX IF NOT EXISTS idx_dealer_leads_dedupe ON dealer_leads(dealership_id, phone, created_at DESC) WHERE phone IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS dealer_lead_events (
+          id bigserial PRIMARY KEY,
+          lead_id uuid NOT NULL REFERENCES dealer_leads(id) ON DELETE CASCADE,
+          type text NOT NULL CHECK (type IN ('CREATED','STAGE','NOTE','ASSIGNED','PROPOSAL')),
+          from_stage text,
+          to_stage text,
+          note text CHECK (note IS NULL OR char_length(note) <= 2000),
+          actor_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_dealer_lead_events ON dealer_lead_events(lead_id, id);
+
+        CREATE TABLE IF NOT EXISTS dealer_proposals (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          code text NOT NULL UNIQUE,
+          dealership_id uuid NOT NULL REFERENCES dealerships(id) ON DELETE CASCADE,
+          lead_id uuid REFERENCES dealer_leads(id) ON DELETE SET NULL,
+          vehicle_id uuid REFERENCES stock_vehicles(id) ON DELETE SET NULL,
+          customer_name text NOT NULL CHECK (char_length(btrim(customer_name)) BETWEEN 2 AND 80),
+          vehicle_label text NOT NULL CHECK (char_length(btrim(vehicle_label)) BETWEEN 2 AND 160),
+          price_cents integer NOT NULL CHECK (price_cents BETWEEN 1 AND 2000000000),
+          down_payment_cents integer NOT NULL DEFAULT 0 CHECK (down_payment_cents >= 0),
+          trade_in_cents integer NOT NULL DEFAULT 0 CHECK (trade_in_cents >= 0),
+          months integer CHECK (months IS NULL OR months BETWEEN 1 AND 120),
+          installment_cents integer CHECK (installment_cents IS NULL OR installment_cents >= 0),
+          rate_pct numeric(7,3) CHECK (rate_pct IS NULL OR rate_pct >= 0),
+          valid_until date NOT NULL,
+          notes text NOT NULL DEFAULT '' CHECK (char_length(notes) <= 500),
+          snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          CHECK (down_payment_cents + trade_in_cents <= price_cents)
+        );
+        CREATE INDEX IF NOT EXISTS idx_dealer_proposals ON dealer_proposals(dealership_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS dealer_trade_ins (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          dealership_id uuid NOT NULL REFERENCES dealerships(id) ON DELETE CASCADE,
+          lead_id uuid REFERENCES dealer_leads(id) ON DELETE SET NULL,
+          plate text CHECK (plate IS NULL OR plate ~ '^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$'),
+          vehicle_label text NOT NULL CHECK (char_length(btrim(vehicle_label)) BETWEEN 2 AND 160),
+          year_model smallint CHECK (year_model IS NULL OR year_model BETWEEN 1950 AND 2100),
+          mileage_km integer NOT NULL CHECK (mileage_km BETWEEN 0 AND 3000000),
+          condition text NOT NULL CHECK (condition IN ('EXCELENTE','BOM','REGULAR')),
+          fipe_cents integer NOT NULL CHECK (fipe_cents BETWEEN 100000 AND 2000000000),
+          suggested_cents integer NOT NULL CHECK (suggested_cents >= 0),
+          min_cents integer NOT NULL CHECK (min_cents >= 0),
+          max_cents integer NOT NULL CHECK (max_cents >= 0),
+          breakdown jsonb NOT NULL DEFAULT '[]'::jsonb,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_dealer_trade_ins ON dealer_trade_ins(dealership_id, created_at DESC);
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        DROP TABLE IF EXISTS dealer_trade_ins;
+        DROP TABLE IF EXISTS dealer_proposals;
+        DROP TABLE IF EXISTS dealer_lead_events;
+        DROP TABLE IF EXISTS dealer_leads;
+        DROP TABLE IF EXISTS stock_vehicles;
+        DROP TABLE IF EXISTS dealership_members;
+        DROP TABLE IF EXISTS dealerships;
+      `);
+    }
   }
 ];
