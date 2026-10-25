@@ -67,6 +67,10 @@ function validateProductionConfig(value: ParsedEnv): void {
     requireProduction(credifyBodyTemplateValid(value.CREDIFY_QUERY_BODY_TEMPLATE), 'CREDIFY_QUERY_BODY_TEMPLATE_INVALID', issues);
     requireProduction(!value.CREDIFY_BASE_URL || isHttpsUrl(value.CREDIFY_BASE_URL), 'CREDIFY_BASE_URL_HTTPS_REQUIRED', issues);
   }
+  if (value.DATA_PROVIDER === 'real' && value.VEHICLE_API_PROVIDER === 'consultarplaca') {
+    requireProduction(Boolean(value.CONSULTARPLACA_EMAIL && value.CONSULTARPLACA_API_KEY), 'CONSULTARPLACA_CREDENTIALS_REQUIRED', issues);
+    requireProduction(!value.CONSULTARPLACA_BASE_URL || isHttpsUrl(value.CONSULTARPLACA_BASE_URL), 'CONSULTARPLACA_BASE_URL_HTTPS_REQUIRED', issues);
+  }
   requireProduction(value.FISCAL_PROVIDER !== 'mock', 'FISCAL_PROVIDER_MOCK_FORBIDDEN', issues);
 
   if (value.PAYMENT_PROVIDER === 'asaas') {
@@ -103,6 +107,7 @@ function validateProductionConfig(value: ParsedEnv): void {
     value.APIBRASIL_DEVICE_TOKEN,
     value.VEHICLE_API_DEVICE_TOKEN,
     value.CREDIFY_CLIENT_SECRET,
+    value.CONSULTARPLACA_API_KEY,
     value.ESIGN_WEBHOOK_SECRET,
     value.EMAIL_WEBHOOK_SECRET,
     value.PAYMENT_API_KEY,
@@ -208,8 +213,8 @@ const envSchema = z.object({
   APIBRASIL_BEARER_TOKEN: optionalString,
   APIBRASIL_DEVICE_TOKEN: optionalString,
   VEHICLE_API_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(15000),
-  // Adaptador do provedor quando DATA_PROVIDER=real: generic = VEHICLE_API_*; credify = API Credify (auth por ClientID/ClientSecret → JWT 24h).
-  VEHICLE_API_PROVIDER: z.enum(['generic', 'credify']).default('generic'),
+  // Adaptador do provedor quando DATA_PROVIDER=real: generic = VEHICLE_API_*; credify = API Credify (auth por ClientID/ClientSecret → JWT 24h); consultarplaca = ConsultarPlaca v2 (Basic: e-mail + chave), para testes.
+  VEHICLE_API_PROVIDER: z.enum(['generic', 'credify', 'consultarplaca']).default('generic'),
   CREDIFY_BASE_URL: optionalUrl,
   CREDIFY_CLIENT_ID: optionalString,
   CREDIFY_CLIENT_SECRET: optionalString,
@@ -217,6 +222,9 @@ const envSchema = z.object({
   CREDIFY_QUERY_METHOD: z.enum(['get', 'post']).default('post'),
   // Corpo da consulta (JSON com {{plate}}). Sem padrão: preencha conforme a documentação/homologação do fornecedor.
   CREDIFY_QUERY_BODY_TEMPLATE: optionalString,
+  CONSULTARPLACA_BASE_URL: optionalUrl,
+  CONSULTARPLACA_EMAIL: optionalString,
+  CONSULTARPLACA_API_KEY: optionalString,
 
   // Pagamentos: credenciais runtime-only; nunca disponibilizar no build ou frontend.
   PAYMENT_PROVIDER: z.enum(['disabled', 'sandbox', 'asaas', 'mercadopago']).default('sandbox'),

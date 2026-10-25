@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.12.2 — Consulta veicular de teste (ConsultarPlaca)
+
+- Novo provedor `VEHICLE_API_PROVIDER=consultarplaca` (com `DATA_PROVIDER=real`) para validar o sistema enquanto a Credify não chega. Variáveis: `CONSULTARPLACA_EMAIL`, `CONSULTARPLACA_API_KEY` e, se precisar, `CONSULTARPLACA_BASE_URL`.
+- A placa `AAA0000` devolve dados fictícios e não gasta crédito.
+- Traz só os dados do veículo. Débitos e restrições aparecem como "não fornecido" no relatório, nunca como "nada consta".
+- Admin > Integrações mostra o novo item e o que falta preencher. A chave fica fora do log.
+- Testes: `consultarplaca-provider.test.mjs`.
+
 ## 1.12.1 — Loja: ciclo completo (criar, editar, arquivar, excluir) e personalização
 
 - **Admin > Lojas**: botão **Nova loja** (e-mail do dono, nome, endereço da vitrine, WhatsApp, cidade, UF); editar todos os dados e limites; suspender; **arquivar e restaurar**; **trocar o dono** (o dono anterior vira gerente; quem já tem outra loja não recebe); **excluir de vez** confirmando o endereço. Tudo auditado.

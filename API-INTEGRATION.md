@@ -47,6 +47,7 @@ Documentação voltada ao cliente em `/desenvolvedores`.
 | Integração | Chave | Estado |
 |---|---|---|
 | Consulta veicular Credify | `VEHICLE_API_PROVIDER=credify`, `CREDIFY_*` | Adaptador pronto; falta o corpo da requisição (`CREDIFY_QUERY_BODY_TEMPLATE`), credenciais, homologação e contrato. |
+| Consulta veicular ConsultarPlaca (teste) | `VEHICLE_API_PROVIDER=consultarplaca`, `CONSULTARPLACA_EMAIL`, `CONSULTARPLACA_API_KEY` | Pronto. Placa de teste `AAA0000` (sem custo). Só dados do veículo; débitos e restrições ficam "não fornecido". |
 | CNPJ | `CNPJ_PROVIDER=brasilapi` | Pronto; ativar após conferir os termos de uso da fonte. |
 | E-mail | `EMAIL_PROVIDER=smtp`, `EMAIL_WEBHOOK_SECRET` | Fila pronta; falta SMTP e mapear o webhook de entrega do provedor. |
 | Assinatura | `ESIGN_PROVIDER=internal` | Aceite eletrônico simples com trilha. Assinatura avançada/qualificada exige provedor e validação jurídica. |

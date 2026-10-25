@@ -31,6 +31,7 @@ export function integrationStatus() {
     : smtpVars;
   const hookVars = [v('EMAIL_WEBHOOK_SECRET', env.EMAIL_WEBHOOK_SECRET, true, 'mesmo valor do token do portador (Bearer) ou do cabeçalho x-webhook-token no Brevo')];
   const credVars = [v('DATA_PROVIDER', env.DATA_PROVIDER === 'real', true, 'precisa ser real'), v('VEHICLE_API_PROVIDER', env.VEHICLE_API_PROVIDER === 'credify', true, 'precisa ser credify'), v('CREDIFY_CLIENT_ID', env.CREDIFY_CLIENT_ID), v('CREDIFY_CLIENT_SECRET', env.CREDIFY_CLIENT_SECRET), v('CREDIFY_QUERY_BODY_TEMPLATE', env.CREDIFY_QUERY_BODY_TEMPLATE, true, 'corpo conforme a documentação do fornecedor')];
+  const cpVars = [v('DATA_PROVIDER', env.DATA_PROVIDER === 'real', true, 'precisa ser real'), v('VEHICLE_API_PROVIDER', env.VEHICLE_API_PROVIDER === 'consultarplaca', true, 'precisa ser consultarplaca'), v('CONSULTARPLACA_EMAIL', env.CONSULTARPLACA_EMAIL, true, 'e-mail da conta'), v('CONSULTARPLACA_API_KEY', env.CONSULTARPLACA_API_KEY, true, 'Minha Conta > API > Gerar API KEY')];
   const cnpjVars = [v('CNPJ_PROVIDER', env.CNPJ_PROVIDER !== 'disabled', true, 'brasilapi')];
   const esignVars = [v('ESIGN_PROVIDER', env.ESIGN_PROVIDER !== 'disabled', true, 'internal = aceite eletrônico simples')];
   const fiscalVars = [v('FISCAL_PROVIDER', env.FISCAL_PROVIDER === 'manual', true, 'manual = fila para emissão externa')];
@@ -40,6 +41,7 @@ export function integrationStatus() {
     item('email', apiMode ? 'E-mail (API do Brevo)' : 'E-mail (SMTP / Brevo)', mailVars, smtpOn, { canTest: true, workerOn: env.EMAIL_OUTBOX_WORKER }),
     item('email-webhook', 'Retorno de entrega de e-mail (Brevo)', hookVars, Boolean(env.EMAIL_WEBHOOK_SECRET), { webhookUrl: `${base}/api/webhooks/email/brevo`, webhookNote: 'No Brevo, em Webhooks transacionais, use esta URL, escolha autenticação por token do portador (Bearer) com o mesmo valor de EMAIL_WEBHOOK_SECRET (ou o cabeçalho x-webhook-token) e marque só entregue, bounce (hard/soft), bloqueado, reclamação e inválido.' }),
     item('vehicle', 'Consulta veicular (Credify)', credVars, env.VEHICLE_API_PROVIDER === 'credify', { webhookNote: 'Sem teste automático: aguarda a documentação e o ambiente de homologação.' }),
+    item('vehicle-test', 'Consulta veicular (ConsultarPlaca, teste)', cpVars, env.VEHICLE_API_PROVIDER === 'consultarplaca', { webhookNote: 'Use a placa AAA0000 (dados fictícios, não gasta crédito). Traz só dados do veículo; débitos e restrições aparecem como não fornecidos.' }),
     item('cnpj', 'Consulta de CNPJ', cnpjVars, env.CNPJ_PROVIDER !== 'disabled'),
     item('esign', 'Assinatura de contratos', esignVars, env.ESIGN_PROVIDER !== 'disabled'),
     item('fiscal', 'Emissão fiscal', fiscalVars, env.FISCAL_PROVIDER === 'manual')
