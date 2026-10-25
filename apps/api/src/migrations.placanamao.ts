@@ -1530,5 +1530,29 @@ export const placaMigrations: Migration[] = [
         ALTER TABLE payment_orders ADD CONSTRAINT payment_orders_amount_cents_check CHECK (amount_cents > 0) NOT VALID;
       `);
     }
+  },
+  {
+    id: '041_search_types',
+    name: 'Consulta por chassi, Renavam e documento do proprietário: tipo de busca em consultas, pedidos e direitos pagos',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE vehicle_queries ADD COLUMN IF NOT EXISTS search_type text NOT NULL DEFAULT 'PLATE';
+        ALTER TABLE payment_orders ADD COLUMN IF NOT EXISTS query_search_type text NOT NULL DEFAULT 'PLATE';
+        ALTER TABLE query_payment_entitlements ADD COLUMN IF NOT EXISTS search_type text NOT NULL DEFAULT 'PLATE';
+        ALTER TABLE vehicle_queries DROP CONSTRAINT IF EXISTS vehicle_queries_search_type_check;
+        ALTER TABLE vehicle_queries ADD CONSTRAINT vehicle_queries_search_type_check CHECK (search_type IN ('PLATE','CHASSIS','RENAVAM','OWNER_DOC'));
+        ALTER TABLE payment_orders DROP CONSTRAINT IF EXISTS payment_orders_query_search_type_check;
+        ALTER TABLE payment_orders ADD CONSTRAINT payment_orders_query_search_type_check CHECK (query_search_type IN ('PLATE','CHASSIS','RENAVAM','OWNER_DOC'));
+        ALTER TABLE query_payment_entitlements DROP CONSTRAINT IF EXISTS query_payment_entitlements_search_type_check;
+        ALTER TABLE query_payment_entitlements ADD CONSTRAINT query_payment_entitlements_search_type_check CHECK (search_type IN ('PLATE','CHASSIS','RENAVAM','OWNER_DOC'));
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        ALTER TABLE query_payment_entitlements DROP COLUMN IF EXISTS search_type;
+        ALTER TABLE payment_orders DROP COLUMN IF EXISTS query_search_type;
+        ALTER TABLE vehicle_queries DROP COLUMN IF EXISTS search_type;
+      `);
+    }
   }
 ];

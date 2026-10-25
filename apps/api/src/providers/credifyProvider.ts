@@ -1,6 +1,7 @@
 import { env } from '../config.js';
 import type { VehicleDataProvider } from '../types.js';
 import { providerOutcome } from '../report/normalizeV2.js';
+import { parseSearchTypes, type SearchType } from '../searchKey.js';
 
 /**
  * Adaptador da Credify, baseado na documentação pública (docs.credify.com.br):
@@ -17,7 +18,7 @@ const fail = (code: string): Failure => Object.assign(new Error(code), { code })
 export interface CredifyOptions {
   fetchImpl?: typeof fetch;
   now?: () => number;
-  baseUrl?: string; clientId?: string; clientSecret?: string; path?: string; method?: 'get' | 'post'; bodyTemplate?: string; timeoutMs?: number;
+  baseUrl?: string; clientId?: string; clientSecret?: string; path?: string; method?: 'get' | 'post'; bodyTemplate?: string; timeoutMs?: number; searchTypes?: string;
 }
 
 /** Renova antes de vencer; o JWT dura 24 h, então usamos o `exp` quando legível e 23 h como teto. */
@@ -70,21 +71,41 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     return json.Dados;
   }
 
-  /** O corpo é gerado a partir do modelo JSON; a placa entra como valor JSON (nunca por concatenação de texto). */
-  private body(template: string, plate: string): string {
+  /** Placa sempre; os demais tipos só se o contrato os atende (VEHICLE_SEARCH_TYPES). */
+  get supportedSearchTypes(): readonly SearchType[] { return parseSearchTypes(this.o.searchTypes ?? env.VEHICLE_SEARCH_TYPES); }
+
+  /** O corpo é gerado a partir do modelo JSON; a chave entra como valor JSON (nunca por concatenação de texto). */
+  private body(template: string, values: Record<string, string>): string {
     const parsed = JSON.parse(template) as unknown;
-    const fill = (v: unknown): unknown => typeof v === 'string' ? v.replaceAll('{{plate}}', plate) : Array.isArray(v) ? v.map(fill) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fill(x)])) : v;
+    const fill = (v: unknown): unknown => {
+      if (typeof v === 'string') return Object.entries(values).reduce((acc, [k, x]) => acc.replaceAll(`{{${k}}}`, x), v);
+      if (Array.isArray(v)) return v.map(fill);
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fill(x)]));
+      return v;
+    };
     return JSON.stringify(fill(parsed));
   }
 
-  async queryByPlate(plate: string): Promise<{ providerQueryId?: string; raw: unknown }> {
+  queryByPlate(plate: string): Promise<{ providerQueryId?: string; raw: unknown }> { return this.run('PLATE', plate); }
+
+  queryBy(type: SearchType, value: string): Promise<{ providerQueryId?: string; raw: unknown }> {
+    if (type !== 'PLATE' && !this.supportedSearchTypes.includes(type)) throw fail('SEARCH_TYPE_NOT_SUPPORTED');
+    return this.run(type, value);
+  }
+
+  private async run(type: SearchType, value: string): Promise<{ providerQueryId?: string; raw: unknown }> {
     const c = this.cfg();
+    const name = { PLATE: 'plate', CHASSIS: 'chassis', RENAVAM: 'renavam', OWNER_DOC: 'document' }[type];
+    const queryParam = { PLATE: 'placa', CHASSIS: 'chassi', RENAVAM: 'renavam', OWNER_DOC: 'documento' }[type];
+    const values: Record<string, string> = { plate: '', chassis: '', renavam: '', document: '', [name]: value };
+    // Para tipos além da placa, o caminho ou o corpo precisa dizer onde a chave entra; senão não há como chamar.
+    if (type !== 'PLATE' && !c.path.includes(`{${name}}`) && !(c.method === 'post' && c.bodyTemplate?.includes(`{{${name}}}`))) throw fail('SEARCH_TYPE_NOT_SUPPORTED');
     const call = async (token: string) => {
       const headers: Record<string, string> = { accept: 'application/json', authorization: `Bearer ${token}` };
       const init: RequestInit = { method: c.method.toUpperCase(), headers };
-      let url = `${c.baseUrl}${c.path.replaceAll('{plate}', encodeURIComponent(plate))}`;
-      if (c.method === 'post') { headers['content-type'] = 'application/json'; try { init.body = this.body(c.bodyTemplate!, plate); } catch { throw fail('DATA_PROVIDER_NOT_CONFIGURED'); } }
-      else if (!c.path.includes('{plate}')) url += `${url.includes('?') ? '&' : '?'}placa=${encodeURIComponent(plate)}`;
+      let url = `${c.baseUrl}${Object.entries(values).reduce((acc, [k, x]) => acc.replaceAll(`{${k}}`, encodeURIComponent(x)), c.path)}`;
+      if (c.method === 'post') { headers['content-type'] = 'application/json'; try { init.body = this.body(c.bodyTemplate!, values); } catch { throw fail('DATA_PROVIDER_NOT_CONFIGURED'); } }
+      else if (!c.path.includes(`{${name}}`)) url += `${url.includes('?') ? '&' : '?'}${queryParam}=${encodeURIComponent(value)}`;
       return this.http(url, init);
     };
     let response = await call(await this.token());
@@ -97,6 +118,6 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     const raw = await response.json().catch(() => { throw fail('DATA_PROVIDER_INVALID_RESPONSE'); }) as Record<string, any>;
     if (!providerOutcome(raw).ok) throw fail('DATA_PROVIDER_INVALID_RESPONSE');
     const id = raw?.CONSULTA?.CODIGORESPOSTA ?? raw?.CONSULTA?.IDCONSULTA;
-    return { providerQueryId: id == null ? undefined : String(id), raw: { placa: plate, data: raw } };
+    return { providerQueryId: id == null ? undefined : String(id), raw: { ...(type === 'PLATE' ? { placa: value } : {}), data: raw } };
   }
 }

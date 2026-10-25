@@ -3,7 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
 import { Alert, Badge, Button, EmptyState, Field, Input, Skeleton, useAsync, usePageTitle } from '../../shared/ui';
 import { ApiError, errorMessage } from '../../shared/api';
-import { formatPlate, isValidPlate, money, normalizePlate } from '../../shared/format';
+import { formatPlate, money } from '../../shared/format';
+import { SEARCH_HINT, SEARCH_LABELS, SEARCH_PLACEHOLDER, SEARCH_SHORT, SEARCH_TYPES, cleanSearchInput, formatDocument, isValidSearch, type SearchType } from '../../shared/searchKey';
 import { api, type Catalog } from '../api';
 import { useSession } from '../session';
 import { storedReferral, trackFunnel } from '../funnel';
@@ -19,7 +20,11 @@ export default function NewQuery() {
   const nav = useNavigate();
   const [params] = useSearchParams();
   const { me, setBalance, refresh } = useSession();
-  const [plate, setPlate] = useState(normalizePlate(params.get('placa') ?? ''));
+  const startType = (SEARCH_TYPES as string[]).includes(params.get('tipo') ?? '') ? params.get('tipo') as SearchType : 'PLATE';
+  const [kind, setKind] = useState<SearchType>(startType);
+  const [plate, setPlate] = useState(cleanSearchInput(startType, params.get('valor') ?? params.get('placa') ?? ''));
+  const types = useAsync(async () => api.get<{ types: Array<{ id: SearchType; available: boolean }> }>('/search-types').then((r) => r.types).catch(() => null), []);
+  const available = (id: SearchType) => id === 'PLATE' || !types.data || Boolean(types.data.find((t) => t.id === id)?.available);
   const [productId, setProductId] = useState(params.get('produto') ?? '');
   const [coupon, setCoupon] = useState('');
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -34,23 +39,25 @@ export default function NewQuery() {
   }, []);
 
   const products = data ?? [];
-  const available = products.filter((p) => p.commercialStatus === 'ACTIVE');
-  useEffect(() => { if (!productId && available.length) setProductId((available.find((p) => p.featured) ?? available[0]).id); }, [available, productId]);
+  const sellable = products.filter((p) => p.commercialStatus === 'ACTIVE');
+  useEffect(() => { if (!productId && sellable.length) setProductId((sellable.find((p) => p.featured) ?? sellable[0]).id); }, [sellable, productId]);
   const product = products.find((p) => p.id === productId);
   const price = product?.priceCents ?? 0;
   const balance = me?.balanceCents ?? 0;
   const enough = balance >= price;
-  const valid = isValidPlate(plate);
+  const valid = isValidSearch(kind, plate);
+  const searchBody = { searchType: kind, searchValue: plate };
+  const shownKey = kind === 'PLATE' ? formatPlate(plate) : kind === 'OWNER_DOC' ? formatDocument(plate) : plate;
   const due = quote ? quote.amountCents : price;
-  useEffect(() => { setQuote(null); }, [productId, plate]);
+  useEffect(() => { setQuote(null); }, [productId, plate, kind]);
   useEffect(() => { if (busy !== 'wallet') return; const t = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 1600); return () => clearInterval(t); }, [busy]);
 
-  const can = useMemo(() => valid && Boolean(product) && product?.commercialStatus === 'ACTIVE', [valid, product]);
+  const can = useMemo(() => valid && available(kind) && Boolean(product) && product?.commercialStatus === 'ACTIVE', [valid, product, kind, types.data]);
 
   async function applyCoupon() {
     if (!product || coupon.trim().length < 3) return;
     setBusy('quote'); setError('');
-    try { const q = await api.post<Quote>('/payments/query/quote', { productId: product.id, plate, couponCode: coupon.trim() }); setQuote(q); }
+    try { const q = await api.post<Quote>('/payments/query/quote', { productId: product.id, ...searchBody, couponCode: coupon.trim() }); setQuote(q); }
     catch (e) { setQuote(null); setError(errorMessage(e)); } finally { setBusy(''); }
   }
 
@@ -60,7 +67,7 @@ export default function NewQuery() {
     idem.current ||= crypto.randomUUID();
     trackFunnel('CTA_CLICKED', { placement: 'new_query_wallet', productId: product.id });
     try {
-      const r = await api.post<{ id: string }>('/queries', { plate, productId: product.id }, { headers: { 'Idempotency-Key': idem.current } });
+      const r = await api.post<{ id: string }>('/queries', { ...searchBody, productId: product.id }, { headers: { 'Idempotency-Key': idem.current } });
       idem.current = '';
       const balanceNow = await api.get<{ balanceCents: number }>('/me').then((m) => m.balanceCents).catch(() => undefined);
       if (balanceNow !== undefined) setBalance(balanceNow); else void refresh();
@@ -79,11 +86,11 @@ export default function NewQuery() {
     trackFunnel('CHECKOUT_STARTED', { productId: product.id, amountCents: due, hasCoupon: Boolean(quote?.couponCode) });
     try {
       const ref = storedReferral();
-      const r = await api.post<{ checkoutUrl: string | null; free?: boolean; orderId: string }>('/payments/query/checkout', { productId: product.id, plate, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(ref ? { affiliateCode: ref } : {}) });
+      const r = await api.post<{ checkoutUrl: string | null; free?: boolean; orderId: string }>('/payments/query/checkout', { productId: product.id, ...searchBody, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(ref ? { affiliateCode: ref } : {}) });
       if (r.free) {
         // Cupom de 100%: sem pagamento. Executa a consulta liberada pelo pedido.
         try {
-          const q = await api.post<{ id: string }>('/queries', { plate, productId: product.id, paymentOrderId: r.orderId });
+          const q = await api.post<{ id: string }>('/queries', { ...searchBody, productId: product.id, paymentOrderId: r.orderId });
           void refresh();
           nav(`/app/consulta/${q.id}`);
         } catch (e) { setError(errorMessage(e) + ' A consulta grátis continua liberada no topo desta página.'); setBusy(''); }
@@ -97,7 +104,7 @@ export default function NewQuery() {
     return (
       <div className="card card-pad" style={{ maxWidth: 520, margin: '40px auto', textAlign: 'center' }} role="status" aria-live="polite">
         <div style={{ display: 'grid', placeItems: 'center', gap: 18 }}>
-          <span className="plate lg"><b>{formatPlate(plate).replace('-', '')}</b></span>
+          {kind === 'PLATE' ? <span className="plate lg"><b>{formatPlate(plate).replace('-', '')}</b></span> : <b className="mono" style={{ fontSize: 20 }}>{shownKey}</b>}
           <h2 style={{ fontSize: 22 }}>Consultando a placa…</h2>
           <ol className="progress-steps" style={{ textAlign: 'left' }}>
             {STEPS.map((s, i) => <li key={s} className={i < step ? 'done' : i === step ? 'cur' : ''}>{i < step ? <Icon name="check-circle" size={20} /> : i === step ? <span className="spin" style={{ width: 18, height: 18 }} /> : <Icon name="clock" size={20} />} {s}</li>)}
@@ -115,11 +122,24 @@ export default function NewQuery() {
       <div className="nq-grid">
         <div className="stack-lg">
           <section className="stack">
-            <h2 style={{ fontSize: 18 }}>1. Placa do veículo</h2>
-            <div className="plate-input-wrap">
-              <div className="plate-input"><input value={plate} onChange={(e) => setPlate(normalizePlate(e.target.value))} placeholder="ABC1D23" aria-label="Placa do veículo" maxLength={8} autoComplete="off" autoCapitalize="characters" spellCheck={false} autoFocus={!plate} /></div>
-              <span className="muted" style={{ fontSize: 13.5 }}>{plate && !valid ? <span style={{ color: 'var(--danger)' }}>Placa incompleta ou inválida.</span> : 'Placas Mercosul (ABC1D23) e antigas (ABC-1234).'}</span>
+            <h2 style={{ fontSize: 18 }}>1. O que você quer consultar</h2>
+            <div className="tabs" role="tablist" aria-label="Tipo de busca" style={{ flexWrap: 'wrap' }}>
+              {SEARCH_TYPES.map((id) => (
+                <button key={id} role="tab" type="button" className="tab" aria-selected={kind === id} disabled={!available(id)} title={available(id) ? undefined : 'Em breve nesta fonte de dados'}
+                  onClick={() => { setKind(id); setPlate(''); setError(''); }}>{SEARCH_SHORT[id]}{!available(id) && <small style={{ marginLeft: 6, opacity: 0.7 }}>em breve</small>}</button>
+              ))}
             </div>
+            {kind === 'PLATE' ? (
+              <div className="plate-input-wrap">
+                <div className="plate-input"><input value={plate} onChange={(e) => setPlate(cleanSearchInput('PLATE', e.target.value))} placeholder="ABC1D23" aria-label="Placa do veículo" maxLength={8} autoComplete="off" autoCapitalize="characters" spellCheck={false} autoFocus={!plate} /></div>
+                <span className="muted" style={{ fontSize: 13.5 }}>{plate && !valid ? <span style={{ color: 'var(--danger)' }}>Placa incompleta ou inválida.</span> : SEARCH_HINT.PLATE}</span>
+              </div>
+            ) : (
+              <div className="stack-sm">
+                <Field label={SEARCH_LABELS[kind]}><Input value={kind === 'OWNER_DOC' ? formatDocument(plate) : plate} onChange={(e) => setPlate(cleanSearchInput(kind, e.target.value))} placeholder={SEARCH_PLACEHOLDER[kind]} aria-label={SEARCH_LABELS[kind]} inputMode={kind === 'CHASSIS' ? 'text' : 'numeric'} autoComplete="off" spellCheck={false} autoFocus /></Field>
+                <span className="muted" style={{ fontSize: 13.5 }}>{plate.length >= 8 && !valid ? <span style={{ color: 'var(--danger)' }}>{SEARCH_LABELS[kind]} incompleto ou inválido.</span> : SEARCH_HINT[kind]}</span>
+              </div>
+            )}
           </section>
           <section className="stack">
             <h2 style={{ fontSize: 18 }}>2. Tipo de consulta</h2>
@@ -142,7 +162,7 @@ export default function NewQuery() {
         </div>
         <aside className="card card-pad summary-card" aria-label="Resumo da consulta">
           <h2 style={{ fontSize: 18 }}>Resumo</h2>
-          <div className="sum-line"><span className="muted">Placa</span><b className="mono">{plate ? formatPlate(plate) : '—'}</b></div>
+          <div className="sum-line"><span className="muted">{SEARCH_SHORT[kind]}</span><b className="mono">{plate ? shownKey : '—'}</b></div>
           <div className="sum-line"><span className="muted">Consulta</span><b>{product?.name ?? '—'}</b></div>
           <div className="sum-line"><span className="muted">Valor</span><b className="num">{money(price)}</b></div>
           {quote && quote.discountCents > 0 && <div className="sum-line"><span className="muted">Cupom {quote.couponCode}</span><b className="num" style={{ color: 'var(--ok-ink)' }}>− {money(quote.discountCents)}</b></div>}

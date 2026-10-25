@@ -12,6 +12,22 @@ Fronteira: `Interface → API → serviço de consulta → adapter → normaliza
 
 Variáveis: `VEHICLE_API_*`, `APIBRASIL_*` (alternativa de token), `VEHICLE_API_TIMEOUT_MS`, `QUERY_CACHE_ENABLED`/`QUERY_CACHE_TTL_SECONDS`, `QUERY_REQUEST_TIMEOUT_MS`, `QUERY_STUCK_MINUTES`, `STORE_RAW_PROVIDER_RESPONSE` (bruto sempre cifrado).
 
+### Tipos de busca
+
+A consulta pode ser pedida por **placa**, **chassi**, **Renavam** ou **CPF/CNPJ do proprietário**. Cada fonte declara o que atende; o que não for atendido fica "em breve" na tela e a API responde `SEARCH_TYPE_NOT_SUPPORTED` antes de cobrar.
+
+| Fonte | Placa | Chassi | Renavam | CPF/CNPJ |
+| --- | --- | --- | --- | --- |
+| `mock` (teste) | sim | sim (chassi fictício da placa de exemplo) | não | não |
+| `consultarplaca` | sim | sim (`/v2/consultarChassi`) | não (só devolve o Renavam a partir da placa) | não |
+| `credify` e genérico | sim | conforme `VEHICLE_SEARCH_TYPES` | conforme `VEHICLE_SEARCH_TYPES` | conforme `VEHICLE_SEARCH_TYPES` |
+
+Para liberar um tipo no contrato (Credify/genérico): inclua-o em `VEHICLE_SEARCH_TYPES` (ex.: `CHASSIS,RENAVAM`) e coloque o marcador no caminho ou no corpo: `{chassis}`/`{{chassis}}`, `{renavam}`/`{{renavam}}`, `{document}`/`{{document}}`. Sem o marcador, o tipo não é chamado.
+
+Consulta por CPF/CNPJ do proprietário envolve dado pessoal (LGPD): só ative com base legal definida e contrato que preveja esse uso.
+
+API: `POST /api/queries` aceita `{ "plate": "ABC1D23" }` (formato antigo) ou `{ "searchType": "CHASSIS", "searchValue": "9BWZZZ377VT004251" }`. A API pública v1 aceita `plate`, `chassis` ou `renavam` (um por pedido). `GET /api/search-types` lista o que a fonte atual atende.
+
 Custo por consulta e preços de referência de mercado são informados pelo dono em **Preços** no painel; o sistema não coleta preços de terceiros automaticamente.
 
 ## FIPE

@@ -1,5 +1,6 @@
 import { env } from '../config.js';
 import type { VehicleDataProvider } from '../types.js';
+import type { SearchType } from '../searchKey.js';
 
 /**
  * Adaptador da ConsultarPlaca (API v2, docs.consultarplaca.com.br), pensado para testar o sistema.
@@ -72,7 +73,20 @@ export class ConsultarPlacaVehicleProvider implements VehicleDataProvider {
   private readonly o: ConsultarPlacaOptions;
   constructor(options: ConsultarPlacaOptions = {}) { this.o = options; }
 
-  async queryByPlate(plate: string): Promise<{ providerQueryId?: string; raw: unknown }> {
+  /** Por esta fonte: placa e chassi. Renavam e CPF/CNPJ não são aceitos como entrada. */
+  readonly supportedSearchTypes: readonly SearchType[] = ['PLATE', 'CHASSIS'];
+
+  queryByPlate(plate: string): Promise<{ providerQueryId?: string; raw: unknown }> {
+    return this.fetchVehicle('consultarPlaca', 'placa', plate, plate);
+  }
+
+  async queryBy(type: SearchType, value: string): Promise<{ providerQueryId?: string; raw: unknown }> {
+    if (type === 'PLATE') return this.queryByPlate(value);
+    if (type === 'CHASSIS') return this.fetchVehicle('consultarChassi', 'chassi', value, '');
+    throw fail('SEARCH_TYPE_NOT_SUPPORTED');
+  }
+
+  private async fetchVehicle(endpoint: string, param: string, value: string, plate: string): Promise<{ providerQueryId?: string; raw: unknown }> {
     const baseUrl = (this.o.baseUrl ?? env.CONSULTARPLACA_BASE_URL ?? 'https://api.consultarplaca.com.br').replace(/\/$/, '');
     const email = this.o.email ?? env.CONSULTARPLACA_EMAIL;
     const apiKey = this.o.apiKey ?? env.CONSULTARPLACA_API_KEY;
@@ -80,7 +94,7 @@ export class ConsultarPlacaVehicleProvider implements VehicleDataProvider {
 
     let response: Response;
     try {
-      response = await (this.o.fetchImpl ?? fetch)(`${baseUrl}/v2/consultarPlaca?placa=${encodeURIComponent(plate)}`, {
+      response = await (this.o.fetchImpl ?? fetch)(`${baseUrl}/v2/${endpoint}?${param}=${encodeURIComponent(value)}`, {
         method: 'GET',
         headers: { accept: 'application/json', authorization: `Basic ${Buffer.from(`${email}:${apiKey}`).toString('base64')}` },
         signal: AbortSignal.timeout(this.o.timeoutMs ?? env.VEHICLE_API_TIMEOUT_MS)
@@ -96,6 +110,10 @@ export class ConsultarPlacaVehicleProvider implements VehicleDataProvider {
     if (kind === 'servico_indisponivel' || response.status >= 500) throw fail('DATA_PROVIDER_UNAVAILABLE');
     if (!response.ok || !body || body.status !== 'ok') throw fail('DATA_PROVIDER_INVALID_RESPONSE');
     if (!Object.keys(obj(obj(obj(body.dados).informacoes_veiculo).dados_veiculo)).length) throw fail('DATA_PROVIDER_INVALID_RESPONSE');
-    return { raw: { placa: plate, data: toBdrpEnvelope(plate, body) } };
+    const data = toBdrpEnvelope(plate, body);
+    // Na busca por chassi a placa vem na resposta; sem ela o relatório não se sustenta.
+    const found = text(obj(obj(obj(body.dados).informacoes_veiculo).dados_veiculo).placa) ?? plate;
+    if (!found) throw fail('DATA_PROVIDER_INVALID_RESPONSE');
+    return { raw: { placa: found, data } };
   }
 }

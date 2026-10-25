@@ -6,8 +6,8 @@ import { money } from '../../shared/format';
 import { api } from '../api';
 import { useSession } from '../session';
 
-interface Order { id: string; status: string; amountCents: number; purchaseType: string; productId: string; plate: string; createdAt: string }
-interface OrderState { orderId: string; status: string; entitlementStatus?: string | null; plate: string; productId: string; amountCents: number }
+interface Order { id: string; status: string; amountCents: number; purchaseType: string; productId: string; plate: string; searchType?: string; createdAt: string }
+interface OrderState { orderId: string; status: string; entitlementStatus?: string | null; plate: string; searchType?: string; productId: string; amountCents: number }
 
 /** Consultas já pagas (Pix/cartão) e ainda não executadas: o cliente conclui com um clique. */
 export default function PaidQueries() {
@@ -25,7 +25,7 @@ export default function PaidQueries() {
   async function run(o: OrderState) {
     setBusy(o.orderId);
     try {
-      const r = await api.post<{ id: string }>('/queries', { plate: o.plate, productId: o.productId, paymentOrderId: o.orderId });
+      const r = await api.post<{ id: string }>('/queries', { searchType: o.searchType ?? 'PLATE', searchValue: o.plate, productId: o.productId, paymentOrderId: o.orderId });
       await refresh();
       nav(`/app/consulta/${r.id}`);
     } catch (e) { toast.error(errorMessage(e)); reload(); } finally { setBusy(''); }
@@ -34,7 +34,7 @@ export default function PaidQueries() {
     <div className="stack-sm">
       {data.map((o) => (
         <Alert key={o.orderId} tone="ok" title="Pagamento confirmado.">
-          <span className="row" style={{ marginTop: 6 }}><PlateBadge plate={o.plate} size="sm" /> <span>{o.amountCents === 0 ? 'Consulta grátis pronta para ser executada.' : `Consulta de ${money(o.amountCents)} pronta para ser executada.`}</span><Button variant="primary" size="sm" loading={busy === o.orderId} onClick={() => run(o)}>Concluir consulta</Button></span>
+          <span className="row" style={{ marginTop: 6 }}>{(o.searchType ?? 'PLATE') === 'PLATE' ? <PlateBadge plate={o.plate} size="sm" /> : <b className="mono">{o.plate}</b>} <span>{o.amountCents === 0 ? 'Consulta grátis pronta para ser executada.' : `Consulta de ${money(o.amountCents)} pronta para ser executada.`}</span><Button variant="primary" size="sm" loading={busy === o.orderId} onClick={() => run(o)}>Concluir consulta</Button></span>
         </Alert>
       ))}
     </div>

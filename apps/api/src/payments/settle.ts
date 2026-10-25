@@ -88,8 +88,8 @@ async function creditPaidOrder(client: PoolClient, current: Record<string, unkno
       await client.query('UPDATE payment_webhook_events SET processing_error=$2 WHERE id=$1', [eventRowId, 'QUERY_ORDER_MISSING_PRODUCT_OR_PLATE']);
       throw appError('QUERY_ORDER_INVALID', { code: 'QUERY_ORDER_INVALID', http: 500, expose: false });
     }
-    await client.query(`INSERT INTO query_payment_entitlements(order_id,user_id,product_id,plate,status)
-      VALUES($1,$2,$3,$4,'READY') ON CONFLICT(order_id) DO UPDATE SET user_id=EXCLUDED.user_id,product_id=EXCLUDED.product_id,plate=EXCLUDED.plate,status='READY'`, [orderId, current.user_id, current.product_id, current.query_plate]);
+    await client.query(`INSERT INTO query_payment_entitlements(order_id,user_id,product_id,plate,search_type,status)
+      VALUES($1,$2,$3,$4,$5,'READY') ON CONFLICT(order_id) DO UPDATE SET user_id=EXCLUDED.user_id,product_id=EXCLUDED.product_id,plate=EXCLUDED.plate,search_type=EXCLUDED.search_type,status='READY'`, [orderId, current.user_id, current.product_id, current.query_plate, current.query_search_type ?? 'PLATE']);
   } else {
     const wallet = await client.query('SELECT balance,balance_cents FROM wallets WHERE user_id=$1 FOR UPDATE', [current.user_id]);
     const before = Number(wallet.rows[0]?.balance ?? 0); const after = before + credits;

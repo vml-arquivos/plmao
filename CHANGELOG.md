@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.12.5 — Consulta por chassi, Renavam e documento do proprietário
+
+- Nova consulta aceita quatro tipos de busca: placa, chassi, Renavam e CPF/CNPJ do proprietário. A tela Nova consulta ganhou o seletor de tipo, com validação de cada um (dígito verificador do Renavam, CPF e CNPJ).
+- Cada fonte declara o que atende. O que a fonte atual não atende aparece como "em breve" e a API responde antes de cobrar, sem débito.
+- Fonte de teste (ConsultarPlaca): placa e chassi funcionam. Renavam e CPF/CNPJ não existem como entrada nessa fonte.
+- Credify e provedor genérico: novo `VEHICLE_SEARCH_TYPES` e marcadores `{chassis}`, `{renavam}`, `{document}` no caminho ou no corpo. Falta confirmar com o contrato quais tipos a Credify atende.
+- Cupom grátis, pagamento direto e estorno valem para qualquer tipo; o direito pago guarda o tipo pedido.
+- Em busca por chassi/Renavam, a placa mostrada no histórico e no relatório é a devolvida pela fonte.
+- API pública v1 aceita `plate`, `chassis` ou `renavam`. Novo `GET /api/search-types`.
+- Chassi fictício do ambiente de testes passou a ser válido (sem I, O, Q).
+- Migração 041: tipo de busca em consultas, pedidos e direitos pagos.
+- Testes: `search-types.test.mjs`.
+
 ## 1.12.4 — Cupom de 100% libera a consulta sem o checkout
 
 - Cupom que zera o total em consulta avulsa agora funciona: o pedido nasce pago (valor zero, origem "coupon"), a consulta fica liberada e o cupom é resgatado na hora. Não passa pelo Mercado Pago, não gera comissão nem cobrança.

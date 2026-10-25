@@ -32,7 +32,8 @@ import { fipePdf, fipePrintHtml, makeFipeQuote, reportSnapshot, type ReportBrand
 import { getPaymentProvider, getPaymentProviderFor, type PaymentProviderName } from './payments/index.js';
 import { ensureSchema } from './schema.js';
 import { performAdminLookup } from './adminLookup.js';
-import { executeVehicleLookup } from './vehicleLookup.js';
+import { executeVehicleLookup, providerSupports } from './vehicleLookup.js';
+import { INVALID_CODE, SEARCH_LABELS, SEARCH_TYPES, maskSearchValue, resolveSearchInput, type SearchType } from './searchKey.js';
 import { calculateAffiliateCommission, calculateCouponDiscount, couponHasCapacity, couponWindowIsOpen, effectiveQueryPriceCents, queryAmountAfterCoupon } from './commercial.js';
 import { publicVehicleResult, sanitizeAuditMetadata } from './privacy.js';
 import { NORMALIZER_VERSION, tierForProductCode, viewReport } from './report/normalizeV2.js';
@@ -74,7 +75,7 @@ import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh
 import { scopeForProduct } from './lib/reportScope.js';
 import { isKnownPath, renderRobotsTxt, renderSeoHtml, renderSitemapXml, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
-import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle } from './types.js';
+import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle, VehicleDataProvider } from './types.js';
 
 await ensureSchema();
 await refreshProductSections();
@@ -132,7 +133,19 @@ const registerSchema = z.object({
 });
 const oauthTicketSchema = z.object({ ticket: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/) });
 const loginSchema = z.object({ email: z.string().trim().email().max(254), password: z.string().min(1).max(128) }).strict();
-const requestQuerySchema = z.object({ plate: plateSchema, productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), paymentOrderId: z.string().uuid().optional() }).strict();
+/** A chave da consulta chega como `plate` (formato antigo) ou `searchType` + `searchValue` e é validada por tipo. */
+const searchFields = { plate: z.string().trim().max(40).optional(), searchType: z.enum(SEARCH_TYPES).optional(), searchValue: z.string().trim().max(40).optional() };
+function searchErrorCode(body: unknown): string {
+  const type = (body as { searchType?: unknown } | null)?.searchType;
+  if (type === undefined) return 'INVALID_PLATE';
+  return typeof type === 'string' && (SEARCH_TYPES as readonly string[]).includes(type) ? INVALID_CODE[type as SearchType] : 'INVALID_INPUT';
+}
+const requestQuerySchema = z.object({ ...searchFields, productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), paymentOrderId: z.string().uuid().optional() }).strict()
+  .transform((value, ctx) => {
+    const found = resolveSearchInput(value);
+    if (!found) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'INVALID_SEARCH' }); return z.NEVER; }
+    return { ...value, plate: found.value, searchType: found.type };
+  });
 const fipeVehicleTypeSchema = z.enum(['cars', 'motorcycles', 'trucks']);
 const fipeItemSchema = z.object({ code: z.string().trim().min(1).max(80), name: z.string().trim().min(1).max(180) });
 const fipeSelectionSchema = z.object({
@@ -225,7 +238,12 @@ const adminUserUpdateSchema = z.object({
   description: z.string().trim().min(8).max(280)
 }).strict();
   const checkoutSchema = z.object({ packageSlug: z.string().trim().min(2).max(80), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict();
-  const queryCheckoutSchema = z.object({ productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), plate: plateSchema, couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict();
+  const queryCheckoutSchema = z.object({ ...searchFields, productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict()
+    .transform((value, ctx) => {
+      const found = resolveSearchInput(value);
+      if (!found) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'INVALID_SEARCH' }); return z.NEVER; }
+      return { ...value, plate: found.value, searchType: found.type };
+    });
   const couponFieldsSchema = z.object({ code: z.string().trim().min(3).max(40).regex(/^[A-Za-z0-9_-]+$/), discountType: z.enum(['PERCENT', 'FIXED']), discountValue: z.number().int().positive().max(100000), maxRedemptions: z.number().int().positive().max(1000000).nullable().optional(), startsAt: z.string().datetime().nullable().optional(), expiresAt: z.string().datetime().nullable().optional(), active: z.boolean().optional().default(true) });
   const couponCreateSchema = couponFieldsSchema.superRefine((value, ctx) => { if (value.discountType === 'PERCENT' && value.discountValue > 100) ctx.addIssue({ code: z.ZodIssueCode.too_big, maximum: 100, type: 'number', inclusive: true, path: ['discountValue'], message: 'PERCENT_MAX_100' }); });
   const couponUpdateSchema = couponFieldsSchema.partial().refine((input) => Object.keys(input).length > 0, 'EMPTY_UPDATE');
@@ -311,12 +329,16 @@ function serializeQuery(row: QueryRow & Record<string, unknown>): Record<string,
   const normalized = row.normalized;
   const isFipe = Boolean(normalized && typeof normalized === 'object' && '__type' in normalized && normalized.__type === 'FIPE_QUOTE');
   const vehicle = !isFipe && normalized ? normalized as NormalizedVehicle : null;
+  const searchType = (SEARCH_TYPES as readonly string[]).includes(String(row.search_type)) ? row.search_type as SearchType : 'PLATE';
   const result = isFipe
     ? { fipe: publicFipeQuote((normalized as FipeStoredResult).quote), blocks: (normalized as FipeStoredResult).quote.blocks, diagnostic: { level: 'CLEAR', title: 'Valor FIPE consultado', reason: 'A Tabela FIPE foi consultada; a situação documental não está incluída nesta modalidade.' } }
     : vehicle ? { ...publicVehicleResult(vehicle, tierForProductCode(String(row.product_id ?? '')), scopeForProduct(String(row.product_id ?? ''), row.created_at as Date).sections, scopeForProduct(String(row.product_id ?? ''), row.created_at as Date).template), coverage: vehicle.coverage ?? { identification: vehicle.identification ? 'FOUND' : 'NOT_QUERIED', debts: vehicle.debts.length ? 'FOUND' : 'NOT_QUERIED', restrictions: vehicle.restrictions.length ? 'FOUND' : 'NOT_QUERIED', recall: vehicle.recall ? 'FOUND' : 'NOT_QUERIED' }, diagnostic: diagnostic(vehicle) } : null;
   return {
     id: row.id,
-    plate: row.plate,
+    // Em busca por chassi/Renavam a "placa" mostrada é a que a fonte devolveu; a chave pesquisada vai em searchValue.
+    plate: searchType === 'PLATE' ? row.plate : (vehicle?.identification.plate ?? ''),
+    searchType,
+    searchValue: maskSearchValue(searchType, String(row.plate ?? '')),
     productId: row.product_id,
     productName: row.product_name,
     status: row.status,
@@ -1217,19 +1239,21 @@ api.get('/fipe/offers', asyncRoute(async (_req, res) => {
   res.json({ offers: products.rows.map((product) => ({ id: product.id, name: product.name, description: publicOfferDescription(product.id, product.description), priceCents: Boolean(product.is_free) ? 0 : Number(product.price_cents ?? 0), features: product.features, commercialStatus: product.commercial_status, featured: Boolean(product.featured) })) });
 }));
 
-type RunQueryInput = { userId: string; plate: string; productId: string; paymentOrderId?: string; idempotencyKey: string | null; reqId: string; source: 'WEB' | 'API' };
+type RunQueryInput = { userId: string; plate: string; searchType: SearchType; productId: string; paymentOrderId?: string; idempotencyKey: string | null; reqId: string; source: 'WEB' | 'API' };
 
 /** Executa uma consulta de ponta a ponta (cobrança, provedor, armazenamento, estorno em falha). Usada pelo web e pela API pública. */
 async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; body: Record<string, unknown> }> {
   const { userId, idempotencyKey } = input;
   const provider = getProvider();
+  // Antes de qualquer cobrança: a fonte contratada precisa atender este tipo de busca.
+  if (!providerSupports(provider, input.searchType)) throw appError('SEARCH_TYPE_NOT_SUPPORTED', { code: 'SEARCH_TYPE_NOT_SUPPORTED', http: 409, expose: true });
   let queryId: string | null = null;
   let cost = 0;
   let chargeSource = 'WALLET_MONEY';
   let entitlementId: string | null = null;
 
   if (idempotencyKey) {
-    const duplicate = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
+    const duplicate = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
       FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id
       WHERE q.user_id=$1 AND q.idempotency_key=$2`, [userId, idempotencyKey]);
     if (duplicate.rowCount) {
@@ -1254,7 +1278,7 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
       if (input.paymentOrderId) {
         const entitlement = await client.query(`SELECT e.id,e.status,e.user_id,e.product_id,e.plate,o.status AS order_status,o.amount_cents
           FROM query_payment_entitlements e JOIN payment_orders o ON o.id=e.order_id
-          WHERE e.order_id=$1 AND e.user_id=$2 AND e.product_id=$3 AND e.plate=$4 FOR UPDATE`, [input.paymentOrderId, userId, input.productId, input.plate]);
+          WHERE e.order_id=$1 AND e.user_id=$2 AND e.product_id=$3 AND e.plate=$4 AND e.search_type=$5 FOR UPDATE`, [input.paymentOrderId, userId, input.productId, input.plate, input.searchType]);
         if (!entitlement.rowCount) throw appError('QUERY_PAYMENT_NOT_READY', { code: 'QUERY_PAYMENT_NOT_READY', http: 409, expose: true });
         if (String(entitlement.rows[0].status) !== 'READY' || String(entitlement.rows[0].order_status) !== 'PAID') throw appError('QUERY_PAYMENT_ALREADY_USED', { code: 'QUERY_PAYMENT_ALREADY_USED', http: 409, expose: true });
         cost = Number(entitlement.rows[0].amount_cents);
@@ -1266,8 +1290,8 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
         before = Number(wallet.rows[0].balance_cents);
         after = before - cost;
       }
-      const created = await client.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider,idempotency_key,payment_order_id,request_metadata,source)
-        VALUES($1,$2,$3,'PROCESSING',0,$4,$5,$6,$7,$8,$9::jsonb,$10) RETURNING id`, [userId, input.plate, input.productId, cost, chargeSource, provider.name, idempotencyKey, input.paymentOrderId ?? null, JSON.stringify({ requestId: input.reqId, negotiated: pricing.negotiated }), input.source]);
+      const created = await client.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider,idempotency_key,payment_order_id,request_metadata,source,search_type)
+        VALUES($1,$2,$3,'PROCESSING',0,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) RETURNING id`, [userId, input.plate, input.productId, cost, chargeSource, provider.name, idempotencyKey, input.paymentOrderId ?? null, JSON.stringify({ requestId: input.reqId, negotiated: pricing.negotiated }), input.source, input.searchType]);
       queryId = created.rows[0].id as string;
       if (!input.paymentOrderId) {
         await client.query('UPDATE wallets SET balance_cents=$2,updated_at=now() WHERE user_id=$1', [userId, after]);
@@ -1278,7 +1302,7 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
       }
     });
 
-    const output = await executeVehicleLookup({ provider, plate: input.plate, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
+    const output = await executeVehicleLookup({ provider, plate: input.plate, searchType: input.searchType, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
     const normalized = output.normalized;
     const resultHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
     await tx(async (client) => {
@@ -1286,7 +1310,7 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
       await client.query(`UPDATE vehicle_queries SET status='SUCCESS',provider_query_id=$2,result_hash=$3,completed_at=now() WHERE id=$1`, [queryId, output.providerQueryId ?? null, resultHash]);
     });
     await audit(userId, 'VEHICLE_QUERY', 'VEHICLE_QUERY', queryId, { plate: input.plate, productId: input.productId, provider: provider.name, requestId: input.reqId });
-    const completed = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
+    const completed = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
       FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.id=$1`, [queryId]);
     const completedRow = completed.rows[0] as QueryRow & Record<string, unknown>;
     return { status: 201, body: serializeQuery(completedRow) };
@@ -1303,10 +1327,10 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
 
 api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async (req, res) => {
   const parsed = requestQuerySchema.safeParse(req.body);
-  if (!parsed.success) throw appError('INVALID_PLATE', { code: 'INVALID_PLATE', http: 400, expose: true });
+  if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
   const idempotencyKeyHeader = req.headers['idempotency-key'];
   const idempotencyKey = typeof idempotencyKeyHeader === 'string' && /^[a-zA-Z0-9_-]{12,128}$/.test(idempotencyKeyHeader) ? idempotencyKeyHeader : null;
-  const out = await runVehicleQuery({ userId: req.user!.id, plate: parsed.data.plate, productId: parsed.data.productId, paymentOrderId: parsed.data.paymentOrderId, idempotencyKey, reqId: requestId(req), source: 'WEB' });
+  const out = await runVehicleQuery({ userId: req.user!.id, plate: parsed.data.plate, searchType: parsed.data.searchType, productId: parsed.data.productId, paymentOrderId: parsed.data.paymentOrderId, idempotencyKey, reqId: requestId(req), source: 'WEB' });
   res.status(out.status).json(out.body);
 }));
 
@@ -1332,7 +1356,14 @@ v1.get('/products', asyncRoute(async (req, res) => {
   const available = env.DATA_PROVIDER !== 'disabled';
   res.json({ object: 'list', data: products.rows.map((p) => ({ id: p.id, name: p.name, description: p.description, priceCents: Number(p.effective_price_cents ?? 0), currency: 'BRL', free: Boolean(p.is_free), available: Boolean(p.is_free) || (available && p.commercial_status === 'ACTIVE'), sections: sectionsForProduct(String(p.id)) })) });
 }));
-const v1QuerySchema = z.object({ plate: plateSchema, product: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/) }).strict();
+const v1QuerySchema = z.object({ plate: z.string().trim().max(40).optional(), chassis: z.string().trim().max(40).optional(), renavam: z.string().trim().max(40).optional(), product: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/) }).strict()
+  .transform((value, ctx) => {
+    const given = (['plate', 'chassis', 'renavam'] as const).filter((k) => value[k] !== undefined);
+    const type: SearchType | undefined = given.length === 1 ? ({ plate: 'PLATE', chassis: 'CHASSIS', renavam: 'RENAVAM' } as const)[given[0]!] : undefined;
+    const found = type ? resolveSearchInput({ searchType: type, searchValue: value[given[0]!] }) : null;
+    if (!found) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'INVALID_SEARCH' }); return z.NEVER; }
+    return { product: value.product, plate: found.value, searchType: found.type };
+  });
 function v1Query(body: Record<string, any>) {
   return {
     object: 'vehicle_query', id: body.id, plate: body.plate, product: body.productId, productName: body.productName, status: body.status,
@@ -1346,11 +1377,11 @@ v1.post('/vehicles', asyncRoute(async (req, res) => {
   const key = req.headers['idempotency-key'];
   const idempotencyKey = typeof key === 'string' && /^[a-zA-Z0-9_-]{12,128}$/.test(key) ? key : null;
   if (typeof key === 'string' && !idempotencyKey) throw appError('INVALID_IDEMPOTENCY_KEY', { code: 'INVALID_IDEMPOTENCY_KEY', http: 400, expose: true });
-  const out = await runVehicleQuery({ userId: req.user!.id, plate: parsed.data.plate, productId: parsed.data.product, idempotencyKey, reqId: requestId(req), source: 'API' });
+  const out = await runVehicleQuery({ userId: req.user!.id, plate: parsed.data.plate, searchType: parsed.data.searchType, productId: parsed.data.product, idempotencyKey, reqId: requestId(req), source: 'API' });
   res.status(out.status).json(out.status < 300 ? v1Query(out.body) : out.body);
 }));
 v1.get('/vehicles/:id', asyncRoute(async (req, res) => {
-  const query = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
+  const query = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
     FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id
     WHERE q.id=$1 AND q.user_id=$2 AND q.source='API'`, [req.params.id, req.user!.id]);
   if (!query.rowCount) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
@@ -1372,7 +1403,7 @@ const periodFields = {
 };
 const queryListSchema = z.object({
   ...periodFields,
-  plate: z.string().max(12).optional(),
+  plate: z.string().max(24).optional(),
   status: z.enum(['PROCESSING', 'SUCCESS', 'FAILED', 'REFUNDED']).optional(),
   product: z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
@@ -1390,11 +1421,11 @@ async function listClientQueries(userId: string, raw: unknown, max?: number) {
   const parsed = queryListSchema.safeParse(raw);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const f = parsed.data;
-  const plate = (f.plate ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
+  const plate = (f.plate ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17);
   const values: unknown[] = [userId, plate, f.status ?? null, f.product ?? null];
   const period = periodSql('q.created_at', f, values);
   values.push(max ?? f.limit, max ? 0 : f.offset);
-  const results = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
+  const results = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
     FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id
     WHERE q.user_id=$1 AND ($2='' OR q.plate LIKE '%' || $2 || '%') AND ($3::text IS NULL OR q.status=$3) AND ($4::text IS NULL OR q.product_id=$4)${period}
     ORDER BY q.created_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
@@ -1424,7 +1455,7 @@ api.get('/queries.csv', auth, requirePermission('VIEW_HISTORY'), asyncRoute(asyn
 }));
 
 api.get('/queries/:id', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
-  const query = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
+  const query = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
     FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id
     WHERE q.id=$1 AND q.user_id=$2`, [req.params.id, req.user!.id]);
   if (!query.rowCount) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
@@ -1433,7 +1464,7 @@ api.get('/queries/:id', auth, requirePermission('VIEW_HISTORY'), asyncRoute(asyn
 }));
 
 api.get('/queries/:id/export', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
-  const query = await pool.query(`SELECT q.id,q.plate,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
+  const query = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
     FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id
     WHERE q.id=$1 AND q.user_id=$2`, [req.params.id, req.user!.id]);
   if (!query.rowCount) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
@@ -1443,7 +1474,7 @@ api.get('/queries/:id/export', auth, requirePermission('VIEW_HISTORY'), asyncRou
 }));
 
 async function vehicleReportForQuery(queryId: string, userId: string) {
-  const query = await pool.query(`SELECT q.id,q.plate,q.product_id,q.created_at,q.completed_at,q.result_hash,p.name AS product_name,r.normalized
+  const query = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.created_at,q.completed_at,q.result_hash,p.name AS product_name,r.normalized
     FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id
     WHERE q.id=$1 AND q.user_id=$2 AND q.status='SUCCESS'`, [queryId, userId]);
   if (!query.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
@@ -1552,9 +1583,9 @@ api.get('/payments/orders', auth, requirePermission('BUY_CREDITS'), asyncRoute(a
   const values: unknown[] = [req.user!.id];
   const period = periodSql('created_at', parsed.data, values);
   values.push(parsed.data.limit, parsed.data.offset);
-  const orders = await pool.query(`SELECT id,status,amount_cents,purchase_type,product_id,query_plate,provider,checkout_url,created_at,paid_at
+  const orders = await pool.query(`SELECT id,status,amount_cents,purchase_type,product_id,query_plate,query_search_type,provider,checkout_url,created_at,paid_at
     FROM payment_orders WHERE user_id=$1${period} ORDER BY created_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
-  res.json(orders.rows.map((item) => ({ id: item.id, status: item.status, amountCents: Number(item.amount_cents ?? 0), purchaseType: item.purchase_type, productId: item.product_id, plate: item.query_plate, provider: item.provider, checkoutUrl: item.checkout_url, createdAt: item.created_at, paidAt: item.paid_at })));
+  res.json(orders.rows.map((item) => ({ id: item.id, status: item.status, amountCents: Number(item.amount_cents ?? 0), purchaseType: item.purchase_type, productId: item.product_id, plate: item.query_plate, searchType: item.query_search_type, provider: item.provider, checkoutUrl: item.checkout_url, createdAt: item.created_at, paidAt: item.paid_at })));
 }));
 
 /** Notas fiscais emitidas para o cliente logado. */
@@ -1676,6 +1707,14 @@ api.post('/payments/checkout', auth, requirePermission('BUY_CREDITS'), asyncRout
   }
 }));
 
+/** Tipos de busca atendidos pela fonte de dados atual (a tela marca os demais como "em breve"). */
+api.get('/search-types', asyncRoute(async (_req, res) => {
+  let provider: VehicleDataProvider | null = null;
+  try { provider = getProvider(); } catch { provider = null; }
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ types: SEARCH_TYPES.map((id) => ({ id, label: SEARCH_LABELS[id], available: provider ? providerSupports(provider, id) : false })) });
+}));
+
 /** Cupom que zera o total é de uso único por cliente: cada cliente resgata o mesmo cupom grátis uma vez. */
 async function freeCouponAlreadyUsed(client: PoolClient, userId: string, couponId: string): Promise<boolean> {
   const used = await client.query(`SELECT 1 FROM payment_orders WHERE user_id=$1 AND coupon_id=$2 AND amount_cents=0 AND status='PAID' LIMIT 1`, [userId, couponId]);
@@ -1684,7 +1723,7 @@ async function freeCouponAlreadyUsed(client: PoolClient, userId: string, couponI
 
 api.post('/payments/query/quote', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
   const parsed = queryCheckoutSchema.safeParse(req.body);
-  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
   const quote = await tx(async (client) => {
     const product = await client.query('SELECT id,name,description,price_cents,is_free FROM query_products WHERE id=$1 AND active=true', [parsed.data.productId]);
     if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
@@ -1718,7 +1757,7 @@ api.post('/payments/query/quote', auth, requirePermission('BUY_CREDITS'), asyncR
 
 api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
   const parsed = queryCheckoutSchema.safeParse(req.body);
-  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
   const paymentProvider = getPaymentProvider();
   const draft = await tx(async (client) => {
     const product = await client.query('SELECT id,name,description,price_cents,is_free FROM query_products WHERE id=$1 AND active=true', [parsed.data.productId]);
@@ -1762,18 +1801,18 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
     if (free) { affiliateId = null; affiliateCommissionBps = 0; } // sem receita, sem comissão
     const amountCents = free ? 0 : Math.max(1, pricing.priceCents - discountCents);
     const externalReference = `pnm_query_${crypto.randomUUID()}`;
-    const order = await client.query(`INSERT INTO payment_orders(user_id,package_id,purchase_type,product_id,query_plate,status,subtotal_cents,amount_cents,credits,provider,external_reference,discount_cents,coupon_id,affiliate_id,affiliate_commission_bps,paid_at)
-      VALUES($1,NULL,'QUERY',$2,$3,$12,$4,$5,0,$6,$7,$8,$9,$10,$11,CASE WHEN $13::boolean THEN now() END) RETURNING id`, [req.user!.id, productRow.id, parsed.data.plate, pricing.priceCents, amountCents, free ? 'coupon' : paymentProvider.name, externalReference, discountCents, couponId, affiliateId, affiliateCommissionBps, free ? 'PAID' : 'CREATED', free]);
+    const order = await client.query(`INSERT INTO payment_orders(user_id,package_id,purchase_type,product_id,query_plate,query_search_type,status,subtotal_cents,amount_cents,credits,provider,external_reference,discount_cents,coupon_id,affiliate_id,affiliate_commission_bps,paid_at)
+      VALUES($1,NULL,'QUERY',$2,$3,$14,$12,$4,$5,0,$6,$7,$8,$9,$10,$11,CASE WHEN $13::boolean THEN now() END) RETURNING id`, [req.user!.id, productRow.id, parsed.data.plate, pricing.priceCents, amountCents, free ? 'coupon' : paymentProvider.name, externalReference, discountCents, couponId, affiliateId, affiliateCommissionBps, free ? 'PAID' : 'CREATED', free, parsed.data.searchType]);
     if (free) {
       await client.query(`INSERT INTO coupon_redemptions(coupon_id,payment_order_id,status,redeemed_at) VALUES($1,$2,'REDEEMED',now())`, [couponId, order.rows[0].id]);
       await client.query('UPDATE coupons SET redeemed_count=redeemed_count+1,updated_at=now() WHERE id=$1', [couponId]);
-      await client.query(`INSERT INTO query_payment_entitlements(order_id,user_id,product_id,plate,status) VALUES($1,$2,$3,$4,'READY')`, [order.rows[0].id, req.user!.id, productRow.id, parsed.data.plate]);
+      await client.query(`INSERT INTO query_payment_entitlements(order_id,user_id,product_id,plate,search_type,status) VALUES($1,$2,$3,$4,$5,'READY')`, [order.rows[0].id, req.user!.id, productRow.id, parsed.data.plate, parsed.data.searchType]);
     } else if (couponId) await client.query(`INSERT INTO coupon_redemptions(coupon_id,payment_order_id,status) VALUES($1,$2,'RESERVED')`, [couponId, order.rows[0].id]);
     return { orderId: String(order.rows[0].id), externalReference, product: productRow, customer: profile.rows[0] as Record<string, unknown>, subtotalCents: pricing.priceCents, discountCents, amountCents, couponCode, free };
   });
   if (draft.free) {
     await audit(req.user!.id, 'CREATE_FREE_QUERY_ORDER', 'PAYMENT_ORDER', draft.orderId, { productId: parsed.data.productId, plate: parsed.data.plate, coupon: draft.couponCode, requestId: requestId(req) });
-    res.status(201).json({ orderId: draft.orderId, checkoutUrl: null, free: true, provider: 'coupon', purchaseType: 'QUERY', productId: parsed.data.productId, plate: parsed.data.plate, subtotalCents: draft.subtotalCents, discountCents: draft.discountCents, amountCents: 0, couponCode: draft.couponCode });
+    res.status(201).json({ orderId: draft.orderId, checkoutUrl: null, free: true, provider: 'coupon', purchaseType: 'QUERY', productId: parsed.data.productId, plate: parsed.data.plate, searchType: parsed.data.searchType, subtotalCents: draft.subtotalCents, discountCents: draft.discountCents, amountCents: 0, couponCode: draft.couponCode });
     return;
   }
   try {
@@ -1795,12 +1834,12 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
 }));
 
 api.get('/payments/query/:id', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
-  const order = await pool.query(`SELECT o.id,o.status,o.purchase_type,o.product_id,o.query_plate,o.amount_cents,e.status AS entitlement_status
+  const order = await pool.query(`SELECT o.id,o.status,o.purchase_type,o.product_id,o.query_plate,o.query_search_type,o.amount_cents,e.status AS entitlement_status
     FROM payment_orders o LEFT JOIN query_payment_entitlements e ON e.order_id=o.id
     WHERE o.id=$1 AND o.user_id=$2 AND o.purchase_type='QUERY'`, [req.params.id, req.user!.id]);
   if (!order.rowCount) throw appError('PAYMENT_ORDER_NOT_FOUND', { code: 'PAYMENT_ORDER_NOT_FOUND', http: 404, expose: true });
   const row = order.rows[0] as Record<string, unknown>;
-  res.json({ orderId: String(row.id), status: String(row.status), purchaseType: 'QUERY', productId: String(row.product_id), plate: String(row.query_plate), amountCents: Number(row.amount_cents ?? 0), entitlementStatus: row.entitlement_status ? String(row.entitlement_status) : null });
+  res.json({ orderId: String(row.id), status: String(row.status), purchaseType: 'QUERY', productId: String(row.product_id), plate: String(row.query_plate), searchType: String(row.query_search_type ?? 'PLATE'), amountCents: Number(row.amount_cents ?? 0), entitlementStatus: row.entitlement_status ? String(row.entitlement_status) : null });
 }));
 
 async function processPaymentWebhook(providerName: PaymentProviderName, req: Request, res: Response): Promise<void> {
@@ -2175,7 +2214,7 @@ api.get('/admin/queries', adminAuth, requirePermission('VIEW_QUERIES'), asyncRou
   if (f.search) { const l = push(`%${f.search.replace(/[%_\\]/g, (c) => `\\${c}`)}%`); where.push(`(q.plate ILIKE ${l} OR u.name ILIKE ${l} OR u.email ILIKE ${l})`); }
   if (f.from) where.push(`q.created_at >= ${push(f.from)}::date`);
   if (f.to) where.push(`q.created_at < ${push(f.to)}::date + 1`);
-  const queries = await pool.query(`SELECT q.id,q.plate,q.status,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,q.error_code,
+  const queries = await pool.query(`SELECT q.id,q.plate,q.search_type,q.status,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,q.error_code,
       p.name AS product_name,u.id AS customer_id,u.name AS customer_name,u.email AS customer_email,coalesce(up.customer_type,'PARTICULAR') AS customer_type
     FROM vehicle_queries q
     JOIN users u ON u.id=q.user_id
@@ -2633,6 +2672,10 @@ function humanMessage(code: string): string {
     EMAIL_CANCEL_NOT_ALLOWED: 'Este e-mail não pode mais ser cancelado.',
     INVALID_INPUT: 'Revise os dados informados e tente novamente.',
     INVALID_PLATE: 'Informe uma placa válida no padrão brasileiro.',
+    INVALID_CHASSIS: 'Informe um chassi válido (8 a 17 letras e números).',
+    INVALID_RENAVAM: 'Informe um Renavam válido (9 a 11 dígitos).',
+    INVALID_OWNER_DOC: 'Informe um CPF ou CNPJ válido.',
+    SEARCH_TYPE_NOT_SUPPORTED: 'Este tipo de busca ainda não está disponível na fonte de dados atual. Nada foi cobrado.',
     INVALID_CREDENTIALS: 'E-mail ou senha inválidos.',
     EMAIL_ALREADY_EXISTS: 'Já existe uma conta para este e-mail.',
     AUTH_REQUIRED: 'Entre na sua conta para continuar.',

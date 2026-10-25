@@ -1,3 +1,4 @@
+import type { SearchType } from './searchKey.js';
 export type NormalizedVehicle = {
   identification: { plate:string; renavam?:string; chassis?:string; engine?:string; gearbox?:string; brand?:string; model?:string; fullModel?:string };
   characteristics: { manufactureYear?:string; modelYear?:string; color?:string; fuel?:string; power?:string; displacement?:string; type?:string; species?:string; category?:string; body?:string; axles?:string; passengers?:string; loadCapacity?:string; origin?:string };
@@ -69,7 +70,11 @@ export type FipeProviderResult = Omit<FipeQuote, 'documentCode' | 'reportHash' |
 
 export interface VehicleDataProvider {
   name: string;
+  /** Tipos de busca que a fonte atende. Ausente = só placa. */
+  supportedSearchTypes?: readonly SearchType[];
   queryByPlate(plate: string): Promise<{ providerQueryId?: string; raw: unknown }>;
+  /** Busca por chassi, Renavam ou documento do proprietário. Só existe se a fonte atende o tipo. */
+  queryBy?(type: SearchType, value: string): Promise<{ providerQueryId?: string; raw: unknown }>;
 }
 
 export interface FipeProvider {

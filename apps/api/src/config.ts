@@ -216,6 +216,8 @@ const envSchema = z.object({
   VEHICLE_API_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(15000),
   // Adaptador do provedor quando DATA_PROVIDER=real: generic = VEHICLE_API_*; credify = API Credify (auth por ClientID/ClientSecret → JWT 24h); consultarplaca = ConsultarPlaca v2 (Basic: e-mail + chave), para testes.
   VEHICLE_API_PROVIDER: z.enum(['generic', 'credify', 'consultarplaca']).default('generic'),
+  /** Tipos de busca que o contrato do provedor (Credify ou genérico) atende, além da placa: CHASSIS, RENAVAM, OWNER_DOC. */
+  VEHICLE_SEARCH_TYPES: z.string().max(80).default('PLATE'),
   CREDIFY_BASE_URL: optionalUrl,
   CREDIFY_CLIENT_ID: optionalString,
   CREDIFY_CLIENT_SECRET: optionalString,
