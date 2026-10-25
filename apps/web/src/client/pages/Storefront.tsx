@@ -6,7 +6,8 @@ import { errorMessage } from '../../shared/api';
 import { dateOnly, money, num } from '../../shared/format';
 import { api } from '../api';
 
-interface PubStore { name: string; slug: string; whatsapp: string | null; city: string | null; state: string | null; about: string }
+interface PubStore { name: string; slug: string; whatsapp: string | null; city: string | null; state: string | null; about: string; logoUrl: string | null; coverUrl: string | null; accentColor: string | null; instagram: string | null; address: string | null; hours: string | null }
+const accentStyle = (s: PubStore) => (s.accentColor && /^#[0-9a-fA-F]{6}$/.test(s.accentColor) ? ({ '--primary': s.accentColor, '--primary-hover': s.accentColor, '--primary-ink': s.accentColor } as React.CSSProperties) : undefined);
 interface PubVehicle { id: string; brand: string; model: string; version: string; yearManufacture: number | null; yearModel: number | null; color: string; fuel: string; transmission: string; mileageKm: number | null; priceCents: number; description: string; photos: string[]; reserved: boolean; plateEnd: string | null; verified: { code: string; consultedAt: string | null } | null }
 const name = (v: PubVehicle) => [v.brand, v.model, v.version].filter(Boolean).join(' ');
 const wa = (phone: string, text: string) => `https://wa.me/${phone.length <= 11 ? `55${phone}` : phone}?text=${encodeURIComponent(text)}`;
@@ -27,10 +28,14 @@ export function StorePage() {
   const { store, vehicles } = d.data;
   const place = [store.city, store.state].filter(Boolean).join(' - ');
   return (
-    <section className="section">
+    <section className="section" style={accentStyle(store)}>
       <div className="container stack-lg">
+        {safeImg(store.coverUrl ?? undefined) && <img className="store-cover" src={safeImg(store.coverUrl ?? undefined)!} alt="" referrerPolicy="no-referrer" />}
         <header className="store-hero">
-          <div><h1>{store.name}</h1>{place && <p className="muted"><Icon name="map-pin" size={16} /> {place}</p>}{store.about && <p style={{ maxWidth: '62ch' }}>{store.about}</p>}</div>
+          <div className="row" style={{ flexWrap: 'nowrap', gap: 16, alignItems: 'flex-start' }}>
+            {safeImg(store.logoUrl ?? undefined) && <img className="store-logo" src={safeImg(store.logoUrl ?? undefined)!} alt={`Logo ${store.name}`} referrerPolicy="no-referrer" />}
+            <div><h1>{store.name}</h1>{place && <p className="muted"><Icon name="map-pin" size={16} /> {[store.address, place].filter(Boolean).join(' · ')}</p>}{store.hours && <p className="muted"><Icon name="clock" size={16} /> {store.hours}</p>}{store.about && <p style={{ maxWidth: '62ch' }}>{store.about}</p>}{store.instagram && <p><a href={`https://instagram.com/${store.instagram}`} target="_blank" rel="noopener noreferrer">@{store.instagram}</a></p>}</div>
+          </div>
           {store.whatsapp && <a className="btn btn-primary btn-lg" href={wa(store.whatsapp, `Olá! Vi a vitrine da ${store.name}.`)} target="_blank" rel="noopener noreferrer">Chamar no WhatsApp</a>}
         </header>
         <Input icon="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar marca ou modelo" style={{ maxWidth: 360 }} />
@@ -88,7 +93,7 @@ export function StoreVehiclePage() {
   const photos = v.photos.map(safeImg).filter((x): x is string => Boolean(x));
   const specs: Array<[string, string]> = ([['Ano', v.yearManufacture && v.yearModel ? `${v.yearManufacture}/${v.yearModel}` : v.yearModel ? String(v.yearModel) : ''], ['Km', v.mileageKm != null ? `${num(v.mileageKm)} km` : ''], ['Cor', v.color], ['Combustível', v.fuel], ['Câmbio', v.transmission], ['Final da placa', v.plateEnd ?? '']] as Array<[string, string]>).filter(([, x]) => x);
   return (
-    <section className="section">
+    <section className="section" style={accentStyle(store)}>
       <div className="container stack-lg">
         <Link to={`/loja/${store.slug}`} className="muted"><Icon name="arrow-left" size={16} /> {store.name}</Link>
         <div className="vdetail">

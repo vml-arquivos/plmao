@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Icon } from '../../shared/icons';
-import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Select, Switch, Textarea, useAsync, useToast } from '../../shared/ui';
+import { Alert, Badge, Button, ConfirmDialog, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Select, Switch, Textarea, useAsync, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { money, num } from '../../shared/format';
 import { api } from '../api';
@@ -106,11 +106,11 @@ function SellModal({ vehicle, onClose, onDone }: { vehicle: Vehicle; onClose: ()
 }
 
 export default function StoreStock() {
-  const { store, canSeeCost } = useStore();
+  const { store, canSeeCost, canManage } = useStore();
   const toast = useToast();
   const [view, setView] = useState<'OPEN' | 'SOLD' | 'ARCHIVED'>('OPEN'); const [q, setQ] = useState('');
   const list = useAsync(() => api.get<Vehicle[]>(`/dealer/vehicles?status=${view}${q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''}`), [view, q]);
-  const [edit, setEdit] = useState<Vehicle | 'new' | null>(null); const [sell, setSell] = useState<Vehicle | null>(null);
+  const [del, setDel] = useState<Vehicle | null>(null); const [edit, setEdit] = useState<Vehicle | 'new' | null>(null); const [sell, setSell] = useState<Vehicle | null>(null);
   const setStatus = async (v: Vehicle, status: string) => { try { await api.post(`/dealer/vehicles/${v.id}/status`, { status }); list.reload(); } catch (e) { toast.error(errorMessage(e)); } };
   if (list.error != null) return <ErrorState error={list.error} onRetry={list.reload} />;
   const rows = list.data ?? [];
@@ -145,11 +145,13 @@ export default function StoreStock() {
                 {v.status === 'ARCHIVED' && <Button size="sm" onClick={() => void setStatus(v, 'AVAILABLE')}>Reativar</Button>}
                 {v.status !== 'SOLD' && <Button size="sm" variant="ghost" onClick={() => setEdit(v)}>Editar</Button>}
                 {v.status === 'AVAILABLE' && <Button size="sm" variant="ghost" onClick={() => void setStatus(v, 'ARCHIVED')}>Arquivar</Button>}
+                {canManage && v.status !== 'SOLD' && <Button size="sm" variant="ghost" onClick={() => setDel(v)}>Excluir</Button>}
               </td>
             </tr>))}</tbody>
         </table></div>
       )}
       {edit && <VehicleForm vehicle={edit === 'new' ? undefined : edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); list.reload(); }} />}
+      {del && <ConfirmDialog title="Excluir veículo" message={<>Excluir <b>{vName(del)}</b>? As propostas já feitas continuam com o texto. Para só tirar do estoque, use Arquivar.</>} confirmLabel="Excluir" danger onConfirm={async () => { try { await api.del(`/dealer/vehicles/${del.id}`); toast.ok('Excluído.'); list.reload(); } catch (e) { toast.error(errorMessage(e)); } }} onClose={() => setDel(null)} />}
       {sell && <SellModal vehicle={sell} onClose={() => setSell(null)} onDone={() => { setSell(null); list.reload(); }} />}
     </div>
   );

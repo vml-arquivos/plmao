@@ -9,6 +9,7 @@ export const ROLE_RANK: Record<DealerRole, number> = { SELLER: 1, MANAGER: 2, OW
 export interface DealerStore {
   id: string; name: string; slug: string; ownerUserId: string; whatsapp: string | null; email: string | null; city: string | null; state: string | null;
   about: string; publicEnabled: boolean; active: boolean; vehicleLimit: number; memberLimit: number; tradeInDiscountBps: number; staleDays: number;
+  logoUrl: string | null; coverUrl: string | null; accentColor: string | null; instagram: string | null; address: string | null; hours: string | null; archivedAt: string | null;
 }
 export interface DealerCtx { userId: string; role: DealerRole; store: DealerStore }
 
@@ -32,7 +33,9 @@ export function storeFromRow(r: Record<string, unknown>): DealerStore {
   return {
     id: String(r.id), name: String(r.name), slug: String(r.slug), ownerUserId: String(r.owner_user_id), whatsapp: (r.whatsapp as string | null) ?? null, email: (r.email as string | null) ?? null,
     city: (r.city as string | null) ?? null, state: (r.state as string | null) ?? null, about: String(r.about ?? ''), publicEnabled: Boolean(r.public_enabled), active: Boolean(r.active),
-    vehicleLimit: Number(r.vehicle_limit), memberLimit: Number(r.member_limit), tradeInDiscountBps: Number(r.trade_in_discount_bps), staleDays: Number(r.stale_days)
+    vehicleLimit: Number(r.vehicle_limit), memberLimit: Number(r.member_limit), tradeInDiscountBps: Number(r.trade_in_discount_bps), staleDays: Number(r.stale_days),
+    logoUrl: (r.logo_url as string | null) ?? null, coverUrl: (r.cover_url as string | null) ?? null, accentColor: (r.accent_color as string | null) ?? null,
+    instagram: (r.instagram as string | null) ?? null, address: (r.address as string | null) ?? null, hours: (r.hours as string | null) ?? null, archivedAt: r.archived_at instanceof Date ? r.archived_at.toISOString() : null
   };
 }
 
@@ -46,13 +49,14 @@ export async function loadMembership(userId: string): Promise<DealerCtx | null> 
  * Exige login do cliente e participação ativa em uma loja. Loja suspensa pelo painel bloqueia tudo.
  * A loja e o papel vêm do banco a cada chamada: remover alguém da equipe vale na hora.
  */
-export function dealerAccess(minRole: DealerRole = 'SELLER'): RequestHandler {
+export function dealerAccess(minRole: DealerRole = 'SELLER', opts: { allowArchived?: boolean } = {}): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction) => {
     (async () => {
       if (!req.user) throw appError('Faça login.', { code: 'INVALID_TOKEN', http: 401, expose: true });
       const ctx = await loadMembership(req.user.id);
       if (!ctx) throw notFound('Você ainda não tem uma loja.', 'DEALER_NOT_ACTIVATED');
       if (!ctx.store.active) throw forbidden('Esta loja está suspensa. Fale com o suporte.', 'DEALER_SUSPENDED');
+      if (ctx.store.archivedAt && !opts.allowArchived) throw forbidden('Esta loja está arquivada. O dono pode restaurar em Minha loja.', 'DEALER_ARCHIVED');
       if (ROLE_RANK[ctx.role] < ROLE_RANK[minRole]) throw forbidden();
       req.dealer = ctx;
       next();

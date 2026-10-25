@@ -6,6 +6,7 @@ import { pool, tx } from '../db.js';
 import { auth } from '../auth.js';
 import { env } from '../config.js';
 import { asyncRoute, audit, requestId } from '../lib/http.js';
+import { createDealership } from '../dealer/create.js';
 import {
   type DealerCtx, bad, can, centsZ, conflict, dayOut, dayZ, dealerAccess, emailZ, forbidden, iso, isUnique, loadMembership, notFound, phoneZ,
   plateZ, ROLE_RANK, slugify, storeFromRow, uuidParam
@@ -27,7 +28,7 @@ const dealer = (req: { dealer?: DealerCtx }) => req.dealer!;
 dealerRouter.get('/dealer/me', asyncRoute(async (req, res) => {
   const ctx = await loadMembership(req.user!.id);
   if (!ctx) { res.json({ store: null, role: null }); return; }
-  res.json({ store: ctx.store, role: ctx.role, canManage: can.manage(ctx), canSeeCost: can.seeCost(ctx), suspended: !ctx.store.active });
+  res.json({ store: ctx.store, role: ctx.role, canManage: can.manage(ctx), canSeeCost: can.seeCost(ctx), suspended: !ctx.store.active, archived: Boolean(ctx.store.archivedAt) });
 }));
 
 const storeCreate = z.object({
@@ -42,26 +43,12 @@ dealerRouter.post('/dealer', asyncRoute(async (req, res) => {
   const parsed = storeCreate.safeParse(req.body);
   if (!parsed.success) throw bad('Confira o nome da loja e os dados informados.');
   const b = parsed.data;
-  const row = await tx(async (client) => {
-    const member = await client.query('SELECT 1 FROM dealership_members WHERE user_id=$1 AND active', [req.user!.id]);
-    const owned = await client.query('SELECT 1 FROM dealerships WHERE owner_user_id=$1', [req.user!.id]);
-    if (member.rowCount || owned.rowCount) throw conflict('Você já participa de uma loja.', 'DEALER_ALREADY_MEMBER');
-    const base = b.slug ?? slugify(b.name);
-    for (let attempt = 0; attempt < 6; attempt++) {
-      const slug = attempt === 0 ? base : `${base.slice(0, 33)}-${Math.random().toString(36).slice(2, 6)}`;
-      const exists = await client.query('SELECT 1 FROM dealerships WHERE lower(slug)=$1', [slug]);
-      if (exists.rowCount) { if (b.slug && attempt === 0) throw conflict('Este endereço já está em uso. Escolha outro.', 'DEALER_SLUG_TAKEN'); continue; }
-      const ins = await client.query(`INSERT INTO dealerships(owner_user_id,name,slug,whatsapp,city,state,vehicle_limit,member_limit) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [req.user!.id, b.name, slug, b.whatsapp ?? null, b.city || null, b.state ?? null, env.DEALER_DEFAULT_VEHICLE_LIMIT, env.DEALER_DEFAULT_MEMBER_LIMIT]);
-      await client.query(`INSERT INTO dealership_members(dealership_id,user_id,role) VALUES($1,$2,'OWNER')`, [ins.rows[0].id, req.user!.id]);
-      return ins.rows[0] as Record<string, unknown>;
-    }
-    throw conflict('Não foi possível reservar um endereço para a loja. Tente outro nome.', 'DEALER_SLUG_TAKEN');
-  });
-  await audit(req.user!.id, 'DEALER_CREATED', 'DEALERSHIP', String(row.id), { requestId: requestId(req) });
-  res.status(201).json({ store: storeFromRow(row), role: 'OWNER' });
+  const store = await createDealership(req.user!.id, b);
+  await audit(req.user!.id, 'DEALER_CREATED', 'DEALERSHIP', store.id, { requestId: requestId(req) });
+  res.status(201).json({ store, role: 'OWNER' });
 }));
 
+const httpsUrl = z.string().trim().max(500).url().refine((u) => /^https:\/\//i.test(u), 'HTTPS_REQUIRED');
 const storePatch = z.object({
   name: z.string().trim().min(2).max(80),
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).min(3).max(40),
@@ -72,7 +59,13 @@ const storePatch = z.object({
   about: z.string().trim().max(1000),
   publicEnabled: z.boolean(),
   tradeInDiscountBps: z.number().int().min(0).max(5000),
-  staleDays: z.number().int().min(7).max(720)
+  staleDays: z.number().int().min(7).max(720),
+  logoUrl: httpsUrl.nullable(),
+  coverUrl: httpsUrl.nullable(),
+  accentColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
+  instagram: z.string().trim().transform((v) => v.replace(/^@/, '')).pipe(z.string().regex(/^[A-Za-z0-9._]{1,30}$/)).nullable(),
+  address: z.string().trim().max(160).nullable(),
+  hours: z.string().trim().max(120).nullable()
 }).partial().strict();
 
 dealerRouter.patch('/dealer', dealerAccess('MANAGER'), asyncRoute(async (req, res) => {
@@ -81,7 +74,7 @@ dealerRouter.patch('/dealer', dealerAccess('MANAGER'), asyncRoute(async (req, re
   if (!parsed.success || !Object.keys(parsed.data).length) throw bad('Confira os dados da loja.');
   const b = parsed.data;
   if ((b.slug !== undefined || b.publicEnabled !== undefined) && ctx.role !== 'OWNER') throw forbidden('Só o dono altera o endereço e a publicação da vitrine.');
-  const map: Record<string, string> = { name: 'name', slug: 'slug', whatsapp: 'whatsapp', email: 'email', city: 'city', state: 'state', about: 'about', publicEnabled: 'public_enabled', tradeInDiscountBps: 'trade_in_discount_bps', staleDays: 'stale_days' };
+  const map: Record<string, string> = { name: 'name', slug: 'slug', whatsapp: 'whatsapp', email: 'email', city: 'city', state: 'state', about: 'about', publicEnabled: 'public_enabled', tradeInDiscountBps: 'trade_in_discount_bps', staleDays: 'stale_days', logoUrl: 'logo_url', coverUrl: 'cover_url', accentColor: 'accent_color', instagram: 'instagram', address: 'address', hours: 'hours' };
   const sets: string[] = []; const values: unknown[] = [];
   for (const [k, v] of Object.entries(b)) { values.push(v); sets.push(`${map[k]}=$${values.length}`); }
   values.push(ctx.store.id);
@@ -344,4 +337,45 @@ dealerRouter.post('/dealer/vehicles/:id/sell', dealerAccess('SELLER'), asyncRout
   await audit(req.user!.id, 'STOCK_VEHICLE_SOLD', 'STOCK_VEHICLE', id, { leadId: parsed.data.leadId ?? null, requestId: requestId(req) });
   const r = await pool.query(`${VEHICLE_SELECT} WHERE v.id=$1`, [id]);
   res.json(vehicleOut(r.rows[0], ctx));
+}));
+
+// ---------------------------------------------------------------- arquivar, restaurar e excluir (só o dono)
+
+/** Arquivar tira a vitrine do ar e trava a equipe; nada é apagado e o dono restaura quando quiser. */
+dealerRouter.post('/dealer/archive', dealerAccess('OWNER'), asyncRoute(async (req, res) => {
+  const ctx = dealer(req);
+  await pool.query('UPDATE dealerships SET archived_at=now(),updated_at=now() WHERE id=$1', [ctx.store.id]);
+  await audit(req.user!.id, 'DEALER_ARCHIVED', 'DEALERSHIP', ctx.store.id, { requestId: requestId(req) });
+  res.json({ ok: true });
+}));
+
+dealerRouter.post('/dealer/restore', dealerAccess('OWNER', { allowArchived: true }), asyncRoute(async (req, res) => {
+  const ctx = dealer(req);
+  await pool.query('UPDATE dealerships SET archived_at=NULL,updated_at=now() WHERE id=$1', [ctx.store.id]);
+  await audit(req.user!.id, 'DEALER_RESTORED', 'DEALERSHIP', ctx.store.id, { requestId: requestId(req) });
+  res.json({ ok: true });
+}));
+
+/** Exclusão definitiva: só com a loja arquivada e confirmando o endereço. Apaga estoque, leads, propostas e equipe. */
+dealerRouter.delete('/dealer', dealerAccess('OWNER', { allowArchived: true }), asyncRoute(async (req, res) => {
+  const ctx = dealer(req);
+  const parsed = z.object({ confirm: z.string() }).strict().safeParse(req.body);
+  if (!parsed.success || parsed.data.confirm.trim().toLowerCase() !== ctx.store.slug) throw bad('Digite o endereço da loja para confirmar.', 'DEALER_CONFIRM_MISMATCH');
+  if (!ctx.store.archivedAt) throw conflict('Arquive a loja antes de excluir.', 'DEALER_NOT_ARCHIVED');
+  await pool.query('DELETE FROM dealerships WHERE id=$1', [ctx.store.id]);
+  await audit(req.user!.id, 'DEALER_DELETED', 'DEALERSHIP', ctx.store.id, { slug: ctx.store.slug, requestId: requestId(req) });
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- excluir veículo
+
+/** Veículo vendido não se exclui (fica no histórico de vendas); os demais, dono e gerente. Propostas antigas mantêm o texto. */
+dealerRouter.delete('/dealer/vehicles/:id', dealerAccess('MANAGER'), asyncRoute(async (req, res) => {
+  const ctx = dealer(req);
+  const id = uuidParam(req.params.id);
+  const cur = await ownVehicle(ctx, id);
+  if (cur.status === 'SOLD') throw conflict('Veículo vendido fica no histórico. Arquive ou mantenha.', 'DEALER_VEHICLE_SOLD');
+  await pool.query('DELETE FROM stock_vehicles WHERE id=$1 AND dealership_id=$2', [id, ctx.store.id]);
+  await audit(req.user!.id, 'STOCK_VEHICLE_DELETED', 'STOCK_VEHICLE', id, { requestId: requestId(req) });
+  res.json({ ok: true });
 }));

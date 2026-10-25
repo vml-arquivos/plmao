@@ -1494,5 +1494,24 @@ export const placaMigrations: Migration[] = [
         DROP TABLE IF EXISTS dealerships;
       `);
     }
+  },
+  {
+    id: '039_dealer_branding',
+    name: 'Loja: personalização da vitrine (logo, capa, cor, Instagram, endereço, horário) e arquivamento',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE dealerships
+          ADD COLUMN IF NOT EXISTS logo_url text CHECK (logo_url IS NULL OR (logo_url ~ '^https://' AND length(logo_url) <= 500)),
+          ADD COLUMN IF NOT EXISTS cover_url text CHECK (cover_url IS NULL OR (cover_url ~ '^https://' AND length(cover_url) <= 500)),
+          ADD COLUMN IF NOT EXISTS accent_color text CHECK (accent_color IS NULL OR accent_color ~ '^#[0-9a-fA-F]{6}$'),
+          ADD COLUMN IF NOT EXISTS instagram text CHECK (instagram IS NULL OR instagram ~ '^[A-Za-z0-9._]{1,30}$'),
+          ADD COLUMN IF NOT EXISTS address text CHECK (address IS NULL OR length(address) <= 160),
+          ADD COLUMN IF NOT EXISTS hours text CHECK (hours IS NULL OR length(hours) <= 120),
+          ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+      `);
+    },
+    down: async (client) => {
+      await client.query(`ALTER TABLE dealerships DROP COLUMN IF EXISTS logo_url, DROP COLUMN IF EXISTS cover_url, DROP COLUMN IF EXISTS accent_color, DROP COLUMN IF EXISTS instagram, DROP COLUMN IF EXISTS address, DROP COLUMN IF EXISTS hours, DROP COLUMN IF EXISTS archived_at`);
+    }
   }
 ];

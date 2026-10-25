@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.12.1 — Loja: ciclo completo (criar, editar, arquivar, excluir) e personalização
+
+- **Admin > Lojas**: botão **Nova loja** (e-mail do dono, nome, endereço da vitrine, WhatsApp, cidade, UF); editar todos os dados e limites; suspender; **arquivar e restaurar**; **trocar o dono** (o dono anterior vira gerente; quem já tem outra loja não recebe); **excluir de vez** confirmando o endereço. Tudo auditado.
+- **Dono da loja** (responsável pelo contrato): em Minha loja > Equipe, **Arquivar loja** (vitrine sai do ar e a equipe perde o acesso, nada é apagado), **Restaurar** e **Excluir de vez** (só arquivada e digitando o endereço). Só o dono faz isso.
+- **Excluir veículo** (dono e gerente; vendido fica no histórico), **excluir proposta** e **avaliação de troca** (gerente qualquer uma; vendedor as próprias). Propostas já feitas mantêm o texto se o veículo for excluído.
+- **Personalização da vitrine**: logo, capa, cor de destaque, Instagram, endereço e horário (links só https, cor validada). Cor aplicada nos botões e selos da vitrine.
+- Banco: migração `039_dealer_branding` (colunas novas com checagens e `archived_at`), com reversão.
+- Testes: `dealer-crud.test.mjs`; helper de teste passa a enviar `content-length` (corpo em DELETE).
+
 ## 1.12.0 — Minha loja: estoque, leads, propostas e vitrine
 
 Módulo novo para lojas, agências e vendedores. Aparece em **Minha loja** no menu; quem não vende veículos não vê nada diferente.

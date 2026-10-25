@@ -284,3 +284,27 @@ dealerOpsRouter.get('/dealer/summary', dealerAccess('SELLER'), asyncRoute(async 
     sellers: rank ? rank.rows.map((x) => ({ userId: x.id, name: x.name, won: x.won, valueCents: Number(x.value), open: x.open })) : null
   });
 }));
+
+// ---------------------------------------------------------------- excluir proposta e avaliação
+
+/** Dono e gerente excluem qualquer uma; vendedor, só as que ele mesmo criou. */
+async function deleteOwned(table: 'dealer_proposals' | 'dealer_trade_ins', req: { params: { id?: string }; dealer?: DealerCtx }) {
+  const ctx = dealer(req);
+  const id = uuidParam(req.params.id);
+  const values: unknown[] = [id, ctx.store.id];
+  let where = 'id=$1 AND dealership_id=$2';
+  if (!can.manage(ctx)) { values.push(ctx.userId); where += ` AND created_by=$${values.length}`; }
+  const r = await pool.query(`DELETE FROM ${table} WHERE ${where} RETURNING id`, values);
+  if (!r.rowCount) throw notFound('Não encontrado.', 'DEALER_NOT_FOUND');
+  return id;
+}
+dealerOpsRouter.delete('/dealer/proposals/:id', dealerAccess('SELLER'), asyncRoute(async (req, res) => {
+  const id = await deleteOwned('dealer_proposals', req);
+  await audit(req.user!.id, 'DEALER_PROPOSAL_DELETED', 'DEALER_PROPOSAL', id, { requestId: requestId(req) });
+  res.json({ ok: true });
+}));
+dealerOpsRouter.delete('/dealer/trade-ins/:id', dealerAccess('SELLER'), asyncRoute(async (req, res) => {
+  const id = await deleteOwned('dealer_trade_ins', req);
+  await audit(req.user!.id, 'DEALER_TRADE_IN_DELETED', 'DEALER_TRADE_IN', id, { requestId: requestId(req) });
+  res.json({ ok: true });
+}));

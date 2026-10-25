@@ -2688,7 +2688,7 @@ app.get('/sitemap.xml', asyncRoute(async (req, res) => {
   if (isAdminHost(req)) return res.status(404).end();
   const articles = await publishedArticleSlugs();
   const vehicles = await pool.query(`SELECT slug,updated_at FROM vehicle_models WHERE status='PUBLISHED' AND archived_at IS NULL ORDER BY brand,name LIMIT 5000`);
-  const stores = await pool.query(`SELECT slug,updated_at FROM dealerships WHERE public_enabled AND active ORDER BY created_at LIMIT 2000`);
+  const stores = await pool.query(`SELECT slug,updated_at FROM dealerships WHERE public_enabled AND active AND archived_at IS NULL ORDER BY created_at LIMIT 2000`);
   res.type('application/xml').setHeader('Cache-Control', 'public, max-age=3600');
   return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN, [...articles.map((a) => ({ path: `/blog/${a.slug}`, lastmod: a.updatedAt })), ...vehicles.rows.map((v) => ({ path: `/veiculos/${v.slug}`, lastmod: v.updated_at as Date })), ...stores.rows.map((s) => ({ path: `/loja/${s.slug}`, lastmod: s.updated_at as Date }))]));
 }));
@@ -2732,7 +2732,7 @@ app.get('*', asyncRoute(async (req, res, next) => {
     }
   } else if (/^\/loja\/[a-z0-9-]+(\/veiculo\/[0-9a-f-]{36})?\/?$/.test(req.path)) {
     const parts = req.path.split('/');
-    const store = await pool.query(`SELECT id,name,city,state,about FROM dealerships WHERE lower(slug)=$1 AND public_enabled AND active`, [parts[2]]);
+    const store = await pool.query(`SELECT id,name,city,state,about FROM dealerships WHERE lower(slug)=$1 AND public_enabled AND active AND archived_at IS NULL`, [parts[2]]);
     if (!store.rowCount) { res.status(404); override = { notFound: true }; }
     else {
       const st = store.rows[0]!;

@@ -7,8 +7,8 @@ import { money } from '../../shared/format';
 import { api } from '../api';
 
 export type Role = 'OWNER' | 'MANAGER' | 'SELLER';
-export interface StoreInfo { id: string; name: string; slug: string; whatsapp: string | null; email: string | null; city: string | null; state: string | null; about: string; publicEnabled: boolean; active: boolean; vehicleLimit: number; memberLimit: number; tradeInDiscountBps: number; staleDays: number }
-interface MeStore { store: StoreInfo | null; role: Role | null; canManage?: boolean; canSeeCost?: boolean; suspended?: boolean }
+export interface StoreInfo { id: string; name: string; slug: string; whatsapp: string | null; email: string | null; city: string | null; state: string | null; about: string; publicEnabled: boolean; active: boolean; vehicleLimit: number; memberLimit: number; tradeInDiscountBps: number; staleDays: number; logoUrl: string | null; coverUrl: string | null; accentColor: string | null; instagram: string | null; address: string | null; hours: string | null }
+interface MeStore { store: StoreInfo | null; role: Role | null; canManage?: boolean; canSeeCost?: boolean; suspended?: boolean; archived?: boolean }
 export interface StoreCtx { store: StoreInfo; role: Role; canManage: boolean; canSeeCost: boolean; reload: () => void }
 const Ctx = createContext<StoreCtx | null>(null);
 export const useStore = (): StoreCtx => { const v = useContext(Ctx); if (!v) throw new Error('Loja ausente'); return v; };
@@ -43,6 +43,32 @@ function Activate({ onDone }: { onDone: () => void }) {
   );
 }
 
+function Archived({ store, owner, onDone }: { store: StoreInfo; owner: boolean; onDone: () => void }) {
+  const toast = useToast();
+  const [del, setDel] = useState(false); const [confirm, setConfirm] = useState(''); const [busy, setBusy] = useState(false);
+  const run = async (fn: () => Promise<unknown>, ok: string) => { setBusy(true); try { await fn(); toast.ok(ok); onDone(); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); } };
+  return (
+    <div className="stack" style={{ maxWidth: 560 }}>
+      <h1>{store.name}</h1>
+      <Alert tone="info" icon="info" title="Loja arquivada">A vitrine está fora do ar e a equipe sem acesso. Nada foi apagado.</Alert>
+      {owner ? (
+        <div className="row">
+          <Button variant="primary" loading={busy} onClick={() => void run(() => api.post('/dealer/restore'), 'Loja restaurada.')}>Restaurar loja</Button>
+          <Button variant="ghost" onClick={() => setDel(true)}>Excluir de vez</Button>
+        </div>
+      ) : <p className="muted">Só o dono restaura a loja.</p>}
+      {del && (
+        <Modal title="Excluir loja" onClose={() => setDel(false)} footer={<><Button variant="ghost" onClick={() => setDel(false)}>Cancelar</Button><Button variant="danger" loading={busy} disabled={confirm.trim().toLowerCase() !== store.slug} onClick={() => void run(() => api.del('/dealer', { body: { confirm } }), 'Loja excluída.')}>Excluir definitivamente</Button></>}>
+          <div className="stack">
+            <Alert tone="danger" icon="alert-triangle">Estoque, leads, propostas, avaliações e equipe são apagados e não voltam.</Alert>
+            <Field label={`Digite ${store.slug} para confirmar`}><Input value={confirm} onChange={(e) => setConfirm(e.target.value)} autoFocus /></Field>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 const TABS = [
   { to: '/app/loja', label: 'Painel', end: true },
   { to: '/app/loja/estoque', label: 'Estoque' },
@@ -59,6 +85,7 @@ export function StoreShell() {
   const d = me.data!;
   if (!d.store || !d.role) return <Activate onDone={me.reload} />;
   if (d.suspended) return <div className="stack"><h1>{d.store.name}</h1><Alert tone="warn" icon="alert-triangle" title="Loja suspensa">Fale com o suporte para reativar.</Alert></div>;
+  if (d.archived) return <Archived store={d.store} owner={d.role === 'OWNER'} onDone={me.reload} />;
   const ctx: StoreCtx = { store: d.store, role: d.role, canManage: Boolean(d.canManage), canSeeCost: Boolean(d.canSeeCost), reload: me.reload };
   return (
     <Ctx.Provider value={ctx}>
@@ -143,7 +170,7 @@ interface Member { userId: string; name: string; email: string | null; role: Rol
 function Settings() {
   const { store, role, reload } = useStore();
   const toast = useToast();
-  const [f, setF] = useState({ name: store.name, whatsapp: store.whatsapp ?? '', email: store.email ?? '', city: store.city ?? '', state: store.state ?? '', about: store.about, slug: store.slug, discount: String(store.tradeInDiscountBps / 100).replace('.', ','), stale: String(store.staleDays) });
+  const [f, setF] = useState({ name: store.name, whatsapp: store.whatsapp ?? '', email: store.email ?? '', city: store.city ?? '', state: store.state ?? '', about: store.about, slug: store.slug, logoUrl: store.logoUrl ?? '', coverUrl: store.coverUrl ?? '', accent: store.accentColor ?? '#1F5FE0', instagram: store.instagram ?? '', address: store.address ?? '', hours: store.hours ?? '', discount: String(store.tradeInDiscountBps / 100).replace('.', ','), stale: String(store.staleDays) });
   const [pub, setPub] = useState(store.publicEnabled);
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const owner = role === 'OWNER';
@@ -153,6 +180,7 @@ function Settings() {
       const bps = Math.round(Number(f.discount.replace(',', '.')) * 100);
       await api.patch('/dealer', {
         name: f.name, whatsapp: f.whatsapp || null, email: f.email || null, city: f.city || null, state: f.state || null, about: f.about, tradeInDiscountBps: bps, staleDays: Number(f.stale),
+        logoUrl: f.logoUrl.trim() || null, coverUrl: f.coverUrl.trim() || null, accentColor: f.accent || null, instagram: f.instagram.trim() || null, address: f.address.trim() || null, hours: f.hours.trim() || null,
         ...(owner ? { slug: f.slug, publicEnabled: pub } : {})
       });
       toast.ok('Salvo.'); reload();
@@ -170,6 +198,16 @@ function Settings() {
         <Field label="UF"><Input value={f.state} maxLength={2} onChange={(e) => setF((s) => ({ ...s, state: e.target.value.toUpperCase() }))} /></Field>
       </div>
       <Field label="Sobre a loja"><Textarea rows={3} value={f.about} onChange={set('about')} maxLength={1000} /></Field>
+      <div className="card-head" style={{ marginTop: 8 }}><h2>Aparência da vitrine</h2></div>
+      <div className="grid-2">
+        <Field label="Logo" hint="Link https de uma imagem quadrada."><Input value={f.logoUrl} onChange={set('logoUrl')} placeholder="https://..." /></Field>
+        <Field label="Capa" hint="Link https de uma imagem larga."><Input value={f.coverUrl} onChange={set('coverUrl')} placeholder="https://..." /></Field>
+        <Field label="Cor de destaque"><div className="row" style={{ flexWrap: 'nowrap' }}><input type="color" aria-label="Cor de destaque" value={f.accent} onChange={set('accent')} style={{ width: 48, height: 40, padding: 2, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface)' }} /><Input value={f.accent} onChange={set('accent')} maxLength={7} /></div></Field>
+        <Field label="Instagram"><Input value={f.instagram} onChange={set('instagram')} placeholder="@sualoja" maxLength={31} /></Field>
+        <Field label="Endereço"><Input value={f.address} onChange={set('address')} maxLength={160} /></Field>
+        <Field label="Horário"><Input value={f.hours} onChange={set('hours')} placeholder="Seg a sáb, 9h às 18h" maxLength={120} /></Field>
+      </div>
+      <div className="card-head" style={{ marginTop: 8 }}><h2>Regras</h2></div>
       <div className="grid-2">
         <Field label="Margem na troca (%)" hint="Descontada da FIPE na avaliação"><Input inputMode="decimal" value={f.discount} onChange={set('discount')} /></Field>
         <Field label="Veículo parado após (dias)"><Input inputMode="numeric" value={f.stale} onChange={(e) => setF((s) => ({ ...s, stale: e.target.value.replace(/\D/g, '') }))} /></Field>
@@ -206,10 +244,10 @@ function AddMember({ onClose, onDone, owner }: { onClose: () => void; onDone: ()
 }
 
 export function StoreTeam() {
-  const { role, canManage, store } = useStore();
+  const { role, canManage, store, reload } = useStore();
   const toast = useToast();
   const list = useAsync(() => api.get<{ limit: number; members: Member[] }>('/dealer/members'), []);
-  const [adding, setAdding] = useState(false); const [remove, setRemove] = useState<Member | null>(null);
+  const [adding, setAdding] = useState(false); const [remove, setRemove] = useState<Member | null>(null); const [archive, setArchive] = useState(false);
   if (list.loading && !list.data) return <PageLoading />;
   if (list.error != null) return <ErrorState error={list.error} onRetry={list.reload} />;
   const { members, limit } = list.data!;
@@ -231,6 +269,14 @@ export function StoreTeam() {
             </tr>))}</tbody></table></div>
       </section>
       {canManage && <Settings key={store.id} />}
+      {role === 'OWNER' && (
+        <section className="card card-pad stack-sm">
+          <div className="card-head"><h2>Encerrar loja</h2></div>
+          <p className="muted" style={{ margin: 0 }}>Arquivar tira a vitrine do ar e trava a equipe. Você restaura quando quiser; depois de arquivada, pode excluir de vez.</p>
+          <div><Button variant="ghost" onClick={() => setArchive(true)}>Arquivar loja</Button></div>
+        </section>
+      )}
+      {archive && <ConfirmDialog title="Arquivar loja" message="A vitrine sai do ar e a equipe perde o acesso até você restaurar." confirmLabel="Arquivar" danger onConfirm={async () => { try { await api.post('/dealer/archive'); reload(); } catch (e) { toast.error(errorMessage(e)); } }} onClose={() => setArchive(false)} />}
       {adding && <AddMember owner={role === 'OWNER'} onClose={() => setAdding(false)} onDone={() => { setAdding(false); list.reload(); }} />}
       {remove && <ConfirmDialog title="Remover da equipe" message={<>{remove.name} perde o acesso à loja agora. Os leads dela ficam sem responsável.</>} confirmLabel="Remover" danger onConfirm={async () => { await act(remove, { active: false }); setRemove(null); }} onClose={() => setRemove(null)} />}
     </div>

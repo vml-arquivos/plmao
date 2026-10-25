@@ -262,7 +262,7 @@ function ProposalForm({ lead, onClose, onDone }: { lead?: Lead; onClose: () => v
 export function StoreProposals() {
   const toast = useToast();
   const list = useAsync(() => api.get<Proposal[]>('/dealer/proposals'), []);
-  const [adding, setAdding] = useState(false); const [trade, setTrade] = useState(false);
+  const [adding, setAdding] = useState(false); const [trade, setTrade] = useState(false); const [del, setDel] = useState<Proposal | null>(null);
   if (list.loading && !list.data) return <PageLoading />;
   if (list.error != null) return <ErrorState error={list.error} onRetry={list.reload} />;
   const rows = list.data ?? [];
@@ -281,12 +281,13 @@ export function StoreProposals() {
               <td className="r">{money(p.priceCents)}</td>
               <td className="r">{p.installmentCents != null ? `${p.months}x ${money(p.installmentCents)}` : 'À vista'}</td>
               <td>{dateOnly(p.validUntil)}</td>
-              <td className="actions"><Button size="sm" icon="download" onClick={() => void api.download(`/dealer/proposals/${p.id}/pdf`, `proposta-${p.code}.pdf`).catch((e) => toast.error(errorMessage(e)))}>PDF</Button></td>
+              <td className="actions"><Button size="sm" icon="download" onClick={() => void api.download(`/dealer/proposals/${p.id}/pdf`, `proposta-${p.code}.pdf`).catch((e) => toast.error(errorMessage(e)))}>PDF</Button><Button size="sm" variant="ghost" onClick={() => setDel(p)}>Excluir</Button></td>
             </tr>))}</tbody>
         </table></div>
       )}
       {adding && <ProposalForm onClose={() => setAdding(false)} onDone={() => { setAdding(false); list.reload(); }} />}
       {trade && <TradeInModal onClose={() => setTrade(false)} />}
+      {del && <ConfirmDialog title="Excluir proposta" message={<>Excluir a proposta <b>{del.code}</b>? O PDF já enviado continua válido com o cliente.</>} confirmLabel="Excluir" danger onConfirm={async () => { try { await api.del(`/dealer/proposals/${del.id}`); toast.ok('Excluída.'); list.reload(); } catch (e) { toast.error(errorMessage(e)); } }} onClose={() => setDel(null)} />}
       <p className="muted" style={{ fontSize: 13 }}>Parcelas simuladas com a taxa informada ou a média de mercado. A aprovação do crédito depende da financeira. <Link to="/simulador">Abrir simulador</Link></p>
     </div>
   );

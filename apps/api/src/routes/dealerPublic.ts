@@ -19,7 +19,7 @@ const slugParam = (v: unknown) => {
 };
 
 async function publicStore(slug: string) {
-  const r = await pool.query(`SELECT id,name,slug,whatsapp,email,city,state,about,owner_user_id FROM dealerships WHERE lower(slug)=$1 AND public_enabled AND active`, [slug]);
+  const r = await pool.query(`SELECT id,name,slug,whatsapp,email,city,state,about,owner_user_id,logo_url,cover_url,accent_color,instagram,address,hours FROM dealerships WHERE lower(slug)=$1 AND public_enabled AND active AND archived_at IS NULL`, [slug]);
   if (!r.rowCount) throw notFound('Loja não encontrada.', 'STORE_NOT_FOUND');
   return r.rows[0] as Record<string, unknown>;
 }
@@ -33,6 +33,10 @@ function vehicleView(r: Record<string, unknown>) {
     verified: r.seal_enabled && r.q_id ? { code: String(r.q_id).slice(0, 8).toUpperCase(), consultedAt: iso(r.q_at) } : null
   };
 }
+const storeView = (s: Record<string, unknown>) => ({
+  name: s.name, slug: s.slug, whatsapp: s.whatsapp ?? null, city: s.city ?? null, state: s.state ?? null, about: s.about ?? '',
+  logoUrl: s.logo_url ?? null, coverUrl: s.cover_url ?? null, accentColor: s.accent_color ?? null, instagram: s.instagram ?? null, address: s.address ?? null, hours: s.hours ?? null
+});
 const VEHICLE_SELECT = `SELECT v.*, q.id AS q_id, q.completed_at AS q_at FROM stock_vehicles v LEFT JOIN vehicle_queries q ON q.id=v.query_id AND q.status='SUCCESS'`;
 
 dealerPublicRouter.get('/public/stores/:slug', readLimiter, asyncRoute(async (req, res) => {
@@ -44,7 +48,7 @@ dealerPublicRouter.get('/public/stores/:slug', readLimiter, asyncRoute(async (re
   const v = await pool.query(`${VEHICLE_SELECT} WHERE ${where} ORDER BY (v.status='AVAILABLE') DESC, v.created_at DESC LIMIT 100`, values);
   res.setHeader('Cache-Control', 'public, max-age=60');
   res.json({
-    store: { name: s.name, slug: s.slug, whatsapp: s.whatsapp ?? null, city: s.city ?? null, state: s.state ?? null, about: s.about },
+    store: storeView(s),
     vehicles: v.rows.map(vehicleView)
   });
 }));
@@ -54,7 +58,7 @@ dealerPublicRouter.get('/public/stores/:slug/vehicles/:id', readLimiter, asyncRo
   const v = await pool.query(`${VEHICLE_SELECT} WHERE v.id=$1 AND v.dealership_id=$2 AND v.public_listed AND v.status IN ('AVAILABLE','RESERVED')`, [uuidParam(req.params.id), s.id]);
   if (!v.rowCount) throw notFound('Veículo não encontrado.', 'DEALER_VEHICLE_NOT_FOUND');
   res.setHeader('Cache-Control', 'public, max-age=60');
-  res.json({ store: { name: s.name, slug: s.slug, whatsapp: s.whatsapp ?? null, city: s.city ?? null, state: s.state ?? null }, vehicle: vehicleView(v.rows[0]) });
+  res.json({ store: storeView(s), vehicle: vehicleView(v.rows[0]) });
 }));
 
 const publicLead = z.object({
