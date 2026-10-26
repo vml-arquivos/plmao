@@ -13,7 +13,7 @@ describe('contrato de adesão por compra: gerado, confirmado por código e ligad
     server = await startServer();
     withPhone = await startServer({ SUPPORT_PHONE: '(62) 3333-4444', SUPPORT_WHATSAPP: '(62) 99999-0000', SUPPORT_HOURS: 'Seg a sex, 9h às 18h', SUPPORT_EMAIL: 'suporte@exemplo.test' });
   });
-  after(async () => { await server.stop(); await withPhone.stop(); await pool.query(`DELETE FROM email_outbox WHERE related_type='PURCHASE_CONTRACT'`); await pool.end(); });
+  after(async () => { await server.stop(); await withPhone.stop(); await pool.query(`DELETE FROM email_outbox WHERE related_type IN ('PURCHASE_CONTRACT','PURCHASE_RECEIPT')`); await pool.end(); });
 
   const register = async (name = 'Maria da Silva') => {
     const email = `${uid('ct')}@cliente.local`;
@@ -76,7 +76,7 @@ describe('contrato de adesão por compra: gerado, confirmado por código e ligad
     const c = await register(); await prepareContractData(pool, c.id); const code = await coupon();
     const none = await post(c, '/api/payments/query/checkout', queryBody({ couponCode: code }));
     assert.equal(none.status, 400); assert.equal(none.json.error, 'PURCHASE_CONTRACT_REQUIRED');
-    assert.match(none.json.message, /Leia o contrato/);
+    assert.match(none.json.message, /Marque a caixa/);
     const draft = await post(c, '/api/purchase-contracts/draft', queryBody({ couponCode: code }));
     const pending = await post(c, '/api/payments/query/checkout', queryBody({ couponCode: code, contractId: draft.json.id }));
     assert.equal(pending.status, 409); assert.equal(pending.json.error, 'PURCHASE_CONTRACT_NOT_ACCEPTED');

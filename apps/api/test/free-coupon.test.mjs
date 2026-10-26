@@ -11,7 +11,7 @@ describe('cupom de 100% em consulta avulsa: libera a consulta sem meio de pagame
     ({ pool } = await loadCore());
     server = await startServer(); // PAYMENT_PROVIDER=disabled: sem checkout configurado
   });
-  after(async () => { await server.stop(); await pool.query(`DELETE FROM email_outbox WHERE related_type='PURCHASE_CONTRACT'`); await pool.end(); });
+  after(async () => { await server.stop(); await pool.query(`DELETE FROM email_outbox WHERE related_type IN ('PURCHASE_CONTRACT','PURCHASE_RECEIPT')`); await pool.end(); });
 
   const register = async () => {
     const reg = await hostRequest(server.base, '/api/auth/register', { method: 'POST', body: { name: 'Cliente Cupom', email: `${uid('cp')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });

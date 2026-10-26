@@ -34,7 +34,7 @@ import { ensureSchema } from './schema.js';
 import { performAdminLookup } from './adminLookup.js';
 import { executeVehicleLookup, providerSupports } from './vehicleLookup.js';
 import { isPrelaunch, siteOpenFor } from './siteAccess.js';
-import { claimContractForOrder, confirmPurchaseContract, draftPurchaseContract, getUserContract, linkContractToOrder, listUserContracts, reopenContractForOrder, resendPurchaseOtp } from './purchaseContract.js';
+import { acceptContractAtCheckout, claimContractForOrder, previewPurchaseContract, sendPurchaseReceipt, confirmPurchaseContract, draftPurchaseContract, getUserContract, linkContractToOrder, listUserContracts, reopenContractForOrder, resendPurchaseOtp } from './purchaseContract.js';
 import { INVALID_CODE, SEARCH_LABELS, SEARCH_TYPES, maskSearchValue, resolveSearchInput, type SearchType } from './searchKey.js';
 import { calculateAffiliateCommission, calculateCouponDiscount, couponHasCapacity, couponWindowIsOpen, effectiveQueryPriceCents, queryAmountAfterCoupon } from './commercial.js';
 import { publicVehicleResult, sanitizeAuditMetadata } from './privacy.js';
@@ -240,8 +240,8 @@ const adminUserUpdateSchema = z.object({
   amountCents: z.number().int().min(-100000000).max(100000000).refine((value) => value !== 0, 'ZERO_ADJUSTMENT'),
   description: z.string().trim().min(8).max(280)
 }).strict();
-  const checkoutSchema = z.object({ contractId: z.string().uuid().optional(), packageSlug: z.string().trim().min(2).max(80), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict();
-  const queryCheckoutSchema = z.object({ ...searchFields, contractId: z.string().uuid().optional(), productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict()
+  const checkoutSchema = z.object({ contractId: z.string().uuid().optional(), acceptContract: z.literal(true).optional(), packageSlug: z.string().trim().min(2).max(80), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict();
+  const queryCheckoutSchema = z.object({ ...searchFields, contractId: z.string().uuid().optional(), acceptContract: z.literal(true).optional(), productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict()
     .transform((value, ctx) => {
       const found = resolveSearchInput(value);
       if (!found) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'INVALID_SEARCH' }); return z.NEVER; }
@@ -376,6 +376,24 @@ function supportChannels(): { phone: string | null; whatsapp: string | null; wha
 api.get('/support-info', (_req, res) => { res.setHeader('Cache-Control', 'public, max-age=300'); res.json(supportChannels()); });
 const purchaseContractLimit = rateLimit({ windowMs: 10 * 60_000, limit: 40, standardHeaders: true, legacyHeaders: false, skip: () => env.NODE_ENV === 'test' });
 const contractIdParam = (req: Request): string => { const id = String(req.params.id ?? ''); if (!/^[0-9a-f-]{36}$/i.test(id)) throw appError('PURCHASE_CONTRACT_NOT_FOUND', { code: 'PURCHASE_CONTRACT_NOT_FOUND', http: 404, expose: true }); return id; };
+const acceptEvidence = (req: Request) => ({ ipHash: hashIp(req.ip), userAgent: String(req.headers['user-agent'] ?? '').slice(0, 300) || null });
+/** Texto do contrato para o link "ler o contrato" do checkout (não grava nada; ler é opcional). */
+api.post('/purchase-contracts/preview', auth, requirePermission('BUY_CREDITS'), purchaseContractLimit, asyncRoute(async (req, res) => {
+  const isPackage = typeof (req.body as { packageSlug?: unknown } | null)?.packageSlug === 'string';
+  res.setHeader('Cache-Control', 'no-store');
+  if (isPackage) {
+    const parsed = checkoutSchema.safeParse(req.body);
+    if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+    const q = await computePackageQuote(req.user!.id, parsed.data);
+    res.json(await previewPurchaseContract({ userId: req.user!.id, item: { kind: 'PACKAGE', name: q.packageName, description: '', creditsCents: q.credits * 100 }, amounts: { subtotalCents: q.subtotalCents, discountCents: q.discountCents, amountCents: q.amountCents, couponCode: q.couponCode ?? null } }));
+    return;
+  }
+  const parsed = queryCheckoutSchema.safeParse(req.body);
+  if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
+  const q = await computeQueryQuote(req.user!.id, parsed.data);
+  const desc = await pool.query('SELECT description FROM query_products WHERE id=$1', [q.productId]);
+  res.json(await previewPurchaseContract({ userId: req.user!.id, item: { kind: 'QUERY', name: q.productName, description: String(desc.rows[0]?.description ?? ''), creditsCents: 0 }, amounts: { subtotalCents: q.subtotalCents, discountCents: q.discountCents, amountCents: q.amountCents, couponCode: q.couponCode ?? null } }));
+}));
 /** Monta o contrato da compra (dados do cliente + da empresa + do pedido) e envia o código de confirmação ao e-mail do cliente. */
 api.post('/purchase-contracts/draft', auth, requirePermission('BUY_CREDITS'), purchaseContractLimit, asyncRoute(async (req, res) => {
   assertSiteOpenFor(req.user!.email);
@@ -1785,7 +1803,9 @@ api.post('/payments/checkout', auth, requirePermission('BUY_CREDITS'), asyncRout
       if (affiliate.rowCount && (!affiliate.rows[0].user_id || String(affiliate.rows[0].user_id) !== req.user!.id)) { affiliateId = String(affiliate.rows[0].id); affiliateCommissionBps = Number(affiliate.rows[0].commission_bps); }
     }
     const amountCents = Math.max(0, subtotalCents - discountCents);
-    const contractId = await claimContractForOrder(client, req.user!.id, parsed.data.contractId, { kind: 'PACKAGE', itemKey: String(packRow.slug), amountCents });
+    const contractId = !parsed.data.contractId && parsed.data.acceptContract
+      ? await acceptContractAtCheckout(client, { userId: req.user!.id, kind: 'PACKAGE', itemKey: String(packRow.slug), item: { kind: 'PACKAGE', name: String(packRow.name), description: '', creditsCents: Number(packRow.credits) * 100 }, amounts: { subtotalCents, discountCents, amountCents, couponCode }, evidence: acceptEvidence(req) })
+      : await claimContractForOrder(client, req.user!.id, parsed.data.contractId, { kind: 'PACKAGE', itemKey: String(packRow.slug), amountCents });
     const externalReference = `pnm_${crypto.randomUUID()}`;
     const order = await client.query(`INSERT INTO payment_orders(user_id,package_id,status,subtotal_cents,amount_cents,credits,provider,external_reference,discount_cents,coupon_id,affiliate_id,affiliate_commission_bps)
       VALUES($1,$2,'CREATED',$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`, [req.user!.id, packRow.id, subtotalCents, amountCents, packRow.credits, paymentProvider.name, externalReference, discountCents, couponId, affiliateId, affiliateCommissionBps]);
@@ -1879,7 +1899,9 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
     }
     if (free) { affiliateId = null; affiliateCommissionBps = 0; } // sem receita, sem comissão
     const amountCents = free ? 0 : Math.max(1, pricing.priceCents - discountCents);
-    const contractId = await claimContractForOrder(client, req.user!.id, parsed.data.contractId, { kind: 'QUERY', itemKey: String(productRow.id), amountCents });
+    const contractId = !parsed.data.contractId && parsed.data.acceptContract
+      ? await acceptContractAtCheckout(client, { userId: req.user!.id, kind: 'QUERY', itemKey: String(productRow.id), item: { kind: 'QUERY', name: String(productRow.name), description: String(productRow.description ?? ''), creditsCents: 0 }, amounts: { subtotalCents: pricing.priceCents, discountCents, amountCents, couponCode }, evidence: acceptEvidence(req) })
+      : await claimContractForOrder(client, req.user!.id, parsed.data.contractId, { kind: 'QUERY', itemKey: String(productRow.id), amountCents });
     const externalReference = `pnm_query_${crypto.randomUUID()}`;
     const order = await client.query(`INSERT INTO payment_orders(user_id,package_id,purchase_type,product_id,query_plate,query_search_type,status,subtotal_cents,amount_cents,credits,provider,external_reference,discount_cents,coupon_id,affiliate_id,affiliate_commission_bps,paid_at)
       VALUES($1,NULL,'QUERY',$2,$3,$14,$12,$4,$5,0,$6,$7,$8,$9,$10,$11,CASE WHEN $13::boolean THEN now() END) RETURNING id`, [req.user!.id, productRow.id, parsed.data.plate, pricing.priceCents, amountCents, free ? 'coupon' : paymentProvider.name, externalReference, discountCents, couponId, affiliateId, affiliateCommissionBps, free ? 'PAID' : 'CREATED', free, parsed.data.searchType]);
@@ -1892,6 +1914,7 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
     return { orderId: String(order.rows[0].id), externalReference, product: productRow, customer: profile.rows[0] as Record<string, unknown>, subtotalCents: pricing.priceCents, discountCents, amountCents, couponCode, free };
   });
   if (draft.free) {
+    void sendPurchaseReceipt(draft.orderId);
     await audit(req.user!.id, 'CREATE_FREE_QUERY_ORDER', 'PAYMENT_ORDER', draft.orderId, { productId: parsed.data.productId, plate: parsed.data.plate, coupon: draft.couponCode, requestId: requestId(req) });
     res.status(201).json({ orderId: draft.orderId, checkoutUrl: null, free: true, provider: 'coupon', purchaseType: 'QUERY', productId: parsed.data.productId, plate: parsed.data.plate, searchType: parsed.data.searchType, subtotalCents: draft.subtotalCents, discountCents: draft.discountCents, amountCents: 0, couponCode: draft.couponCode });
     return;
@@ -1975,6 +1998,7 @@ async function processPaymentWebhook(providerName: PaymentProviderName, req: Req
     reference: reference ?? null,
     paymentType, feeCents, netCents
   }));
+  if (settled.outcome === 'PAID' && settled.orderId) void sendPurchaseReceipt(settled.orderId);
   const duplicate = settled.outcome === 'DUPLICATE';
   res.status(200).json({ received: true, duplicate });
 }
@@ -2778,7 +2802,7 @@ function humanMessage(code: string): string {
     CREDIT_PACKAGE_NOT_FOUND: 'A oferta legada de saldo pré-pago solicitada não está disponível.',
     PAYMENT_PROVIDER_NOT_CONFIGURED: 'O checkout de pagamento ainda não foi configurado para este ambiente.',
     SITE_NOT_OPEN: 'O site ainda não está aberto ao público.',
-    PURCHASE_CONTRACT_REQUIRED: 'Leia o contrato e confirme com o código enviado ao seu e-mail para continuar.',
+    PURCHASE_CONTRACT_REQUIRED: 'Marque a caixa “Li e aceito o contrato” para continuar.',
     PURCHASE_CONTRACT_NOT_ACCEPTED: 'Falta confirmar o contrato com o código enviado ao seu e-mail.',
     PURCHASE_CONTRACT_EXPIRED: 'O contrato expirou. Gere um novo para continuar.',
     PURCHASE_CONTRACT_USED: 'Este contrato já foi usado em outra compra. Gere um novo.',

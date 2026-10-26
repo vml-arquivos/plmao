@@ -1,66 +1,38 @@
-import { useEffect, useState } from 'react';
-import { Alert, Badge, Button, Field, Input, Modal } from '../../shared/ui';
+import { useState } from 'react';
+import { Alert, Badge, Button, Modal } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { dateTime } from '../../shared/format';
 import { Icon } from '../../shared/icons';
 import { api } from '../api';
 
-interface Draft { id: string; number: string; text: string; email: string; resendAfterSeconds: number }
-
 /**
- * Contrato da compra: o servidor monta o texto com os dados do cliente, da empresa e do pedido,
- * envia um código ao e-mail do cliente, e o pagamento só abre depois que o código confere.
- * `signature` identifica item + valor: se mudar (cupom, produto), o aceite anterior deixa de valer.
+ * Aceite do contrato na compra: uma caixa "Li e aceito". Ler é opcional (link abre o texto), sem código por e-mail.
+ * O servidor monta o contrato com os dados do cliente, da empresa e do pedido no momento do pagamento e guarda o aceite.
+ * Depois de pagar, o cliente recebe o comprovante por e-mail.
  */
-export default function PurchaseContract({ body, signature, contractId, onChange, disabled }: { body: Record<string, unknown>; signature: string; contractId: string; onChange: (id: string) => void; disabled?: boolean }) {
+export default function PurchaseContract({ body, accepted, onChange, disabled }: { body: Record<string, unknown>; accepted: boolean; onChange: (accepted: boolean) => void; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [code, setCode] = useState('');
-  const [agree, setAgree] = useState(false);
-  const [busy, setBusy] = useState<'' | 'draft' | 'confirm' | 'resend'>('');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [wait, setWait] = useState(0);
-  const [number, setNumber] = useState('');
 
-  useEffect(() => { setDraft(null); setCode(''); setAgree(false); setNumber(''); setError(''); onChange(''); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [signature]);
-  useEffect(() => { if (wait <= 0) return; const t = setTimeout(() => setWait((w) => w - 1), 1000); return () => clearTimeout(t); }, [wait]);
-
-  async function start() {
-    setBusy('draft'); setError('');
-    try { const d = await api.post<Draft>('/purchase-contracts/draft', body); setDraft(d); setWait(d.resendAfterSeconds); setCode(''); setAgree(false); setOpen(true); } catch (e) { setError(errorMessage(e)); } finally { setBusy(''); }
-  }
-  async function resend() {
-    if (!draft) return;
-    setBusy('resend'); setError('');
-    try { const r = await api.post<{ resendAfterSeconds: number }>(`/purchase-contracts/${draft.id}/resend`, {}); setWait(r.resendAfterSeconds); } catch (e) { setError(errorMessage(e)); } finally { setBusy(''); }
-  }
-  async function confirm() {
-    if (!draft) return;
-    setBusy('confirm'); setError('');
-    try {
-      const r = await api.post<{ number: string }>(`/purchase-contracts/${draft.id}/confirm`, { code: code.trim(), accept: true });
-      setNumber(r.number); onChange(draft.id); setOpen(false);
-    } catch (e) { setError(errorMessage(e)); } finally { setBusy(''); }
+  async function read(e: React.MouseEvent) {
+    e.preventDefault();
+    setBusy(true); setError('');
+    try { const r = await api.post<{ text: string }>('/purchase-contracts/preview', body); setText(r.text); setOpen(true); } catch (err) { setError(errorMessage(err)); } finally { setBusy(false); }
   }
 
-  if (contractId) return <Alert tone="ok" icon="check" title="Contrato aceito.">{number ? `Nº ${number}. ` : ''}Uma cópia fica em Carteira, Contratos.</Alert>;
   return (
-    <div className="stack" style={{ gap: 8 }}>
-      <Button block icon="file-text" loading={busy === 'draft'} disabled={disabled} onClick={start}>Ler contrato e confirmar por e-mail</Button>
-      {error && !open && <Alert tone="danger">{error}</Alert>}
-      <p className="muted" style={{ fontSize: 13 }}>Antes de pagar, você lê o contrato e confirma com um código enviado ao seu e-mail.</p>
-      {open && draft && (
-        <Modal wide title={`Contrato ${draft.number}`} onClose={() => setOpen(false)} footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Fechar</Button><Button variant="primary" icon="check" loading={busy === 'confirm'} disabled={!agree || code.trim().length !== 6} onClick={confirm}>Aceitar contrato</Button></>}>
-          <div className="stack">
-            <pre className="card card-pad" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.55, maxHeight: '38vh', overflow: 'auto', margin: 0 }} tabIndex={0} aria-label="Texto do contrato">{draft.text}</pre>
-            <Alert tone="info" title={`Enviamos um código de 6 dígitos para ${draft.email}.`}>Ele vale por 10 minutos. Digite abaixo para aceitar.</Alert>
-            <div className="row" style={{ alignItems: 'end', flexWrap: 'nowrap' }}>
-              <Field label="Código do e-mail" className="grow"><Input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="000000" /></Field>
-              <Button loading={busy === 'resend'} disabled={wait > 0} onClick={resend}>{wait > 0 ? `Reenviar em ${wait}s` : 'Reenviar código'}</Button>
-            </div>
-            <label className="check"><input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /> Li o contrato e concordo com os termos.</label>
-            {error && <Alert tone="danger">{error}</Alert>}
-          </div>
+    <div className="stack" style={{ gap: 6 }}>
+      <label className="check" style={{ alignItems: 'flex-start' }}>
+        <input type="checkbox" checked={accepted} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+        <span>Li e aceito o <a href="#contrato" onClick={read} aria-busy={busy}>contrato de compra</a>{busy ? '…' : ''}. Ler é opcional.</span>
+      </label>
+      {error && <Alert tone="danger">{error}</Alert>}
+      {open && (
+        <Modal wide title="Contrato de compra" onClose={() => setOpen(false)} footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Fechar</Button><Button variant="primary" icon="check" onClick={() => { onChange(true); setOpen(false); }}>Li e aceito</Button></>}>
+          <pre className="card card-pad" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.55, maxHeight: '55vh', overflow: 'auto', margin: 0 }} tabIndex={0} aria-label="Texto do contrato">{text}</pre>
+          <p className="muted" style={{ fontSize: 13 }}>O número do contrato sai quando você paga. Você recebe o comprovante por e-mail e a cópia fica em Carteira, Contratos.</p>
         </Modal>
       )}
     </div>

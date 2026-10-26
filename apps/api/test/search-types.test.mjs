@@ -98,7 +98,7 @@ describe('Credify: tipos de busca vêm do contrato', () => {
 describe('API: consulta por chassi, Renavam e documento', integration, () => {
   let pool; let server;
   before(async () => { useTestEnv(); ({ pool } = await loadCore()); server = await startServer({ PUBLIC_API_ENABLED: 'true' }); });
-  after(async () => { await server.stop(); await pool.query(`DELETE FROM email_outbox WHERE related_type='PURCHASE_CONTRACT'`); await pool.end(); });
+  after(async () => { await server.stop(); await pool.query(`DELETE FROM email_outbox WHERE related_type IN ('PURCHASE_CONTRACT','PURCHASE_RECEIPT')`); await pool.end(); });
 
   const register = async (balance = 50000) => {
     const reg = await hostRequest(server.base, '/api/auth/register', { method: 'POST', body: { name: 'Cliente Busca', email: `${uid('bs')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });

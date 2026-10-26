@@ -318,7 +318,7 @@ financeRouter.get('/setup-checklist', requirePermission('MANAGE_BILLING'), async
   const companyOk = Boolean(company?.legal_name?.trim()) && documentKind(String(company?.cnpj ?? '')) === 'CNPJ';
   items.push(
     { key: 'purchase-contract-company', ok: companyOk, severity: 'BLOCKER', title: 'Dados da empresa para o contrato de compra', detail: 'Preencha razão social e CNPJ válido em Notas fiscais. Sem isso o contrato de compra não é gerado e ninguém consegue pagar.' },
-    { key: 'purchase-contract-email', ok: env.EMAIL_PROVIDER !== 'disabled', severity: 'BLOCKER', title: 'E-mail para o código do contrato', detail: 'O cliente aceita o contrato com um código enviado por e-mail. Sem o envio configurado, nenhuma compra é concluída.' },
+    { key: 'purchase-contract-email', ok: env.EMAIL_PROVIDER !== 'disabled', severity: 'WARNING', title: 'E-mail do comprovante de compra', detail: 'Depois de pagar, o cliente recebe o comprovante por e-mail. Sem o envio configurado a compra funciona, mas o comprovante não chega (o contrato fica em Carteira, Contratos).' },
     { key: 'support-channels', ok: Boolean(env.SUPPORT_EMAIL), severity: 'WARNING', title: 'Canais de atendimento', detail: 'Defina SUPPORT_EMAIL (um e-mail que receba mensagens) e, se houver, SUPPORT_PHONE, SUPPORT_WHATSAPP e SUPPORT_HOURS. Aparecem no site e dentro do contrato.' },
     { key: 'raw-retention', ok: !env.STORE_RAW_PROVIDER_RESPONSE || env.RAW_RETENTION_DAYS > 0, severity: 'WARNING', title: 'Prazo para guardar o dado bruto do fornecedor', detail: 'O dado bruto fica cifrado e só é lido pela equipe com motivo registrado. Defina RAW_RETENTION_DAYS (ex.: 90) para apagá-lo depois do prazo; o relatório do cliente continua.' }
   );

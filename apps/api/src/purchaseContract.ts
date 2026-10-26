@@ -5,19 +5,24 @@ import { pool, tx } from './db.js';
 import { documentKind, onlyDigits } from './lib/br.js';
 import { brl, brlExtenso, sha256 } from './lib/contracts.js';
 import { enqueueEmail } from './lib/emailOutbox.js';
-import { appError } from './lib/http.js';
+import { appError, log } from './lib/http.js';
+import { SEARCH_LABELS, type SearchType } from './searchKey.js';
 
 /**
  * Contrato de adesão por compra (pacote de saldo ou consulta avulsa).
- * Fluxo: o servidor monta o contrato com os dados do cliente, da empresa e do pedido, guarda o texto exato (hash),
- * envia um código de 6 dígitos ao e-mail do cliente e só libera o pagamento depois que o código confere.
- * O aceite fica gravado com data, e-mail, IP em hash e navegador. Texto-base: revisão jurídica ainda necessária.
+ * Fluxo atual (v1.12.10): o cliente marca "Li e aceito" no checkout (ler é opcional, sem código por e-mail). No mesmo
+ * instante o servidor monta o contrato com os dados do cliente, da empresa e do pedido, grava o texto exato (hash) e o aceite
+ * (data, IP em hash e navegador) e vincula ao pedido. Depois do pagamento, o cliente recebe por e-mail o comprovante
+ * (consulta avulsa) ou a cópia do contrato (saldo). O fluxo antigo, com código por e-mail, continua nas rotas /draft e /confirm.
+ * Texto-base: revisão jurídica ainda necessária.
  */
 export const CONTRACT_MODEL_VERSION = '2026-10-c1';
+export const CONTRACT_MODEL_VERSION_CHECKBOX = '2026-10-c2';
+export type AcceptMethod = 'EMAIL_CODE' | 'CHECKBOX';
 export type PurchaseKind = 'PACKAGE' | 'QUERY';
 const err = (code: string, http = 400) => appError(code, { code, http, expose: true });
 
-export interface ContractParty { name: string; document: string; docType: 'CPF' | 'CNPJ'; email: string; phone: string; address: string; representative: string }
+export interface ContractParty { name: string; document: string; docType: 'CPF' | 'CNPJ' | ''; email: string; phone: string; address: string; representative: string }
 export interface ContractContractor { name: string; document: string; address: string; email: string; phone: string }
 export interface ContractItem { kind: PurchaseKind; name: string; description: string; creditsCents: number }
 export interface ContractAmounts { subtotalCents: number; discountCents: number; amountCents: number; couponCode: string | null }
@@ -32,8 +37,10 @@ export function maskEmail(email: string): string {
 }
 
 /** Texto do contrato. Tudo o que muda de um cliente para outro entra pelos dados; as cláusulas só mudam com a versão do modelo. */
-export function renderPurchaseContract(ctx: { number: string; at: Date; contractor: ContractContractor; party: ContractParty; item: ContractItem; amounts: ContractAmounts }): string {
+export function renderPurchaseContract(ctx: { number: string; at: Date; contractor: ContractContractor; party: ContractParty; item: ContractItem; amounts: ContractAmounts; method?: AcceptMethod }): string {
   const { contractor: c, party: p, item, amounts: a } = ctx;
+  const method: AcceptMethod = ctx.method ?? 'EMAIL_CODE';
+  const modelVersion = method === 'CHECKBOX' ? CONTRACT_MODEL_VERSION_CHECKBOX : CONTRACT_MODEL_VERSION;
   const isPackage = item.kind === 'PACKAGE';
   const title = isPackage ? 'CONTRATO DE ADESÃO: COMPRA DE SALDO PRÉ-PAGO' : 'CONTRATO DE ADESÃO: CONSULTA VEICULAR AVULSA';
   const contact = [`e-mail ${c.email}`, c.phone ? `telefone/WhatsApp ${c.phone}` : ''].filter(Boolean).join(', ');
@@ -41,8 +48,8 @@ export function renderPurchaseContract(ctx: { number: string; at: Date; contract
     ? `Preço de tabela ${brl(a.subtotalCents)}, com desconto de ${brl(a.discountCents)}${a.couponCode ? ` (cupom ${a.couponCode})` : ''}. Total a pagar: R$ 0,00 (zero reais).`
     : `Preço de tabela ${brl(a.subtotalCents)}${a.discountCents > 0 ? `, desconto de ${brl(a.discountCents)}${a.couponCode ? ` (cupom ${a.couponCode})` : ''}` : ''}. Total a pagar: ${brl(a.amountCents)} (${brlExtenso(a.amountCents)}), pelos meios de pagamento mostrados no checkout.`;
   const parts: string[] = [
-    `${title}\nNº ${ctx.number} | modelo ${CONTRACT_MODEL_VERSION} | ${dateLong(ctx.at)}, ${timeShort(ctx.at)}`,
-    `PARTES\nCONTRATADA: ${c.name}, CNPJ ${fmtDoc(c.document)}, ${c.address}, titular da plataforma Placa na Mão (${publicAppUrl()}). Atendimento: ${contact}.\nCONTRATANTE: ${p.name}, ${p.docType} ${fmtDoc(p.document)}${p.representative ? `, representada por ${p.representative}` : ''}, e-mail ${p.email}${p.phone ? `, telefone ${p.phone}` : ''}${p.address ? `, ${p.address}` : ''}.`
+    `${title}\nNº ${ctx.number} | modelo ${modelVersion} | ${dateLong(ctx.at)}, ${timeShort(ctx.at)}`,
+    `PARTES\nCONTRATADA: ${c.name}, CNPJ ${fmtDoc(c.document)}, ${c.address}, titular da plataforma Placa na Mão (${publicAppUrl()}). Atendimento: ${contact}.\nCONTRATANTE: ${p.name}${p.document ? `, ${p.docType} ${fmtDoc(p.document)}` : ''}${p.representative ? `, representada por ${p.representative}` : ''}, e-mail ${p.email}${p.phone ? `, telefone ${p.phone}` : ''}${p.address ? `, ${p.address}` : ''}.`
   ];
   if (isPackage) {
     parts.push(
@@ -63,7 +70,9 @@ export function renderPurchaseContract(ctx: { number: string; at: Date; contract
     `6. NATUREZA DO RELATÓRIO\nO relatório reúne dados de fornecedores e apoia a decisão do CONTRATANTE. Não substitui vistoria nem consulta aos órgãos competentes. Quando a fonte não informa um dado, o relatório mostra "não fornecido", nunca "nada consta".`,
     `7. ARREPENDIMENTO E REEMBOLSO\nA compra é feita pela internet: o CONTRATANTE pode desistir em até 7 dias e receber de volta o valor do que ainda não usou (Código de Defesa do Consumidor, art. 49). Consulta já entregue não é reembolsada, porque é serviço digital de execução imediata, salvo erro da CONTRATADA ou falha comprovada do relatório. O pedido de estorno é feito pelo suporte.`,
     `8. DADOS PESSOAIS (LGPD)\nA CONTRATADA trata os dados do CONTRATANTE para cumprir este contrato, cobrar, emitir documento fiscal, prestar suporte e cumprir obrigações legais, conforme a Política de Privacidade (${publicAppUrl()}/privacidade). O CONTRATANTE pode pedir acesso, correção ou exclusão dos seus dados pelo suporte.`,
-    `9. ACEITE ELETRÔNICO E PROVA\nAs partes reconhecem como válido o aceite feito por código enviado ao e-mail do CONTRATANTE (assinatura eletrônica simples: Lei 14.063/2020, art. 4º, I, e MP 2.200-2/2001, art. 10, §2º). A CONTRATADA guarda o texto exato deste contrato (com impressão digital SHA-256), a data e a hora do aceite, o e-mail que recebeu o código, o IP em formato protegido e o navegador. O CONTRATANTE recebe aviso por e-mail e pode rever o contrato em "Meus contratos".`,
+    method === 'CHECKBOX'
+      ? `9. ACEITE ELETRÔNICO E PROVA\nAs partes reconhecem como válido o aceite feito pelo CONTRATANTE ao marcar a opção "Li e aceito" no momento da compra, dentro da sua conta (assinatura eletrônica simples: Lei 14.063/2020, art. 4º, I, e MP 2.200-2/2001, art. 10, §2º). A CONTRATADA guarda o texto exato deste contrato (com impressão digital SHA-256), a data e a hora do aceite, o IP em formato protegido e o navegador. O CONTRATANTE recebe por e-mail o comprovante da compra e pode rever o contrato em Carteira, Contratos.`
+      : `9. ACEITE ELETRÔNICO E PROVA\nAs partes reconhecem como válido o aceite feito por código enviado ao e-mail do CONTRATANTE (assinatura eletrônica simples: Lei 14.063/2020, art. 4º, I, e MP 2.200-2/2001, art. 10, §2º). A CONTRATADA guarda o texto exato deste contrato (com impressão digital SHA-256), a data e a hora do aceite, o e-mail que recebeu o código, o IP em formato protegido e o navegador. O CONTRATANTE recebe aviso por e-mail e pode rever o contrato em "Meus contratos".`,
     `10. SUPORTE E FORO\nSuporte: ${contact}. Fica eleito o foro do domicílio do CONTRATANTE quando ele for consumidor; nos demais casos, o da sede da CONTRATADA.`
   );
   return parts.join('\n\n');
@@ -102,18 +111,19 @@ export async function loadContractor(db: Pick<PoolClient, 'query'> = pool): Prom
   return { name: String(f.legal_name), document: onlyDigits(String(f.cnpj)), address, email: env.SUPPORT_EMAIL?.trim() || env.EMAIL_REPLY_TO?.trim() || 'contato@placanamao.com.br', phone: env.SUPPORT_WHATSAPP?.trim() || env.SUPPORT_PHONE?.trim() || '' };
 }
 
-export async function loadParty(userId: string, db: Pick<PoolClient, 'query'> = pool): Promise<ContractParty> {
+export async function loadParty(userId: string, db: Pick<PoolClient, 'query'> = pool, opts: { requireDocument?: boolean } = {}): Promise<ContractParty> {
+  const requireDocument = opts.requireDocument ?? true;
   const r = await db.query(`SELECT u.name,u.email,pr.cpf_cnpj,pr.phone,pr.company_name,pr.zip,pr.street,pr.street_number,pr.complement,pr.district,pr.city,pr.state
     FROM users u LEFT JOIN user_profiles pr ON pr.user_id=u.id WHERE u.id=$1 AND u.active=true`, [userId]);
   if (!r.rowCount) throw err('AUTH_REQUIRED', 401);
   const u = r.rows[0] as Record<string, unknown>;
   const doc = onlyDigits(String(u.cpf_cnpj ?? ''));
   const kind = documentKind(doc);
-  if (!kind) throw err('CONTRACT_PROFILE_INCOMPLETE', 422);
+  if (!kind && requireDocument) throw err('CONTRACT_PROFILE_INCOMPLETE', 422);
   const address = [u.street, u.street_number, u.complement, u.district, u.city, u.state, u.zip].filter((x) => typeof x === 'string' && x.trim()).join(', ');
   const company = String(u.company_name ?? '').trim();
   const personName = String(u.name);
-  return { name: kind === 'CNPJ' ? (company || personName) : personName, document: doc, docType: kind, email: String(u.email), phone: String(u.phone ?? ''), address, representative: kind === 'CNPJ' && company ? personName : '' };
+  return { name: kind === 'CNPJ' ? (company || personName) : personName, document: kind ? doc : '', docType: kind ?? '', email: String(u.email), phone: String(u.phone ?? ''), address, representative: kind === 'CNPJ' && company ? personName : '' };
 }
 
 export interface DraftInput { userId: string; kind: PurchaseKind; itemKey: string; item: ContractItem; amounts: ContractAmounts }
@@ -206,17 +216,100 @@ export async function linkContractToOrder(client: Pick<PoolClient, 'query'>, con
 }
 /** Se o meio de pagamento falhar ao abrir o checkout, o contrato aceito volta a valer para uma nova tentativa. */
 export async function reopenContractForOrder(orderId: string): Promise<void> {
-  await pool.query(`UPDATE purchase_contracts SET status='ACEITO',order_id=NULL,expires_at=now() + make_interval(mins => $2::int),updated_at=now() WHERE order_id=$1 AND status='USADO'`, [orderId, CONTRACT_TTL_MIN]);
+  // Aceite por caixinha: o contrato nasce junto com o pedido; se o pedido falha, ele só fica como expirado (a pessoa aceita de novo na próxima tentativa).
+  await pool.query(`UPDATE purchase_contracts SET status='EXPIRADO',updated_at=now() WHERE order_id=$1 AND status='USADO' AND otp_channel='CHECKBOX'`, [orderId]);
+  await pool.query(`UPDATE purchase_contracts SET status='ACEITO',order_id=NULL,expires_at=now() + make_interval(mins => $2::int),updated_at=now() WHERE order_id=$1 AND status='USADO' AND otp_channel<>'CHECKBOX'`, [orderId, CONTRACT_TTL_MIN]);
 }
 
 export async function listUserContracts(userId: string) {
   const r = await pool.query(`SELECT c.id,c.number,c.kind,c.status,c.amount_cents,c.model_version,c.accepted_at,c.created_at,c.order_id,o.status AS order_status
     FROM purchase_contracts c LEFT JOIN payment_orders o ON o.id=c.order_id
-    WHERE c.user_id=$1 AND c.accepted_at IS NOT NULL ORDER BY c.accepted_at DESC LIMIT 100`, [userId]);
+    WHERE c.user_id=$1 AND c.accepted_at IS NOT NULL AND NOT (c.otp_channel='CHECKBOX' AND c.status='EXPIRADO') ORDER BY c.accepted_at DESC LIMIT 100`, [userId]);
   return r.rows;
 }
 export async function getUserContract(userId: string, id: string) {
   const r = await pool.query(`SELECT id,number,kind,status,amount_cents,model_version,body,body_hash,accepted_at,order_id FROM purchase_contracts WHERE id=$1 AND user_id=$2`, [id, userId]);
   if (!r.rowCount) throw err('PURCHASE_CONTRACT_NOT_FOUND', 404);
   return r.rows[0];
+}
+
+// ---------------------------------------------------------------- aceite por caixinha (v1.12.10)
+
+/** Prévia do texto (sem gravar nada): o link "ler o contrato" do checkout. O número definitivo sai quando o pedido é criado. */
+export async function previewPurchaseContract(input: { userId: string; item: ContractItem; amounts: ContractAmounts }) {
+  const contractor = await loadContractor();
+  const party = await loadParty(input.userId, pool, { requireDocument: false });
+  const text = renderPurchaseContract({ number: 'definido ao pagar', at: new Date(), contractor, party, item: input.item, amounts: input.amounts, method: 'CHECKBOX' });
+  return { text, modelVersion: CONTRACT_MODEL_VERSION_CHECKBOX };
+}
+
+/**
+ * Dentro da transação do checkout: o cliente marcou "Li e aceito". Cria o contrato já aceito e usado por este pedido
+ * (texto exato, hash, data, IP em hash e navegador). Não pede CPF/CNPJ nem código: quem comprar sem documento no perfil
+ * tem o contrato sem essa linha.
+ */
+export async function acceptContractAtCheckout(client: PoolClient, input: DraftInput & { evidence: { ipHash: string | null; userAgent: string | null } }): Promise<string> {
+  const contractor = await loadContractor(client);
+  const party = await loadParty(input.userId, client, { requireDocument: false });
+  const seq = await client.query(`SELECT nextval('purchase_contract_seq') AS n`);
+  const now = new Date();
+  const number = `PNM-${now.getFullYear()}-${String(seq.rows[0].n).padStart(6, '0')}`;
+  const body = renderPurchaseContract({ number, at: now, contractor, party, item: input.item, amounts: input.amounts, method: 'CHECKBOX' });
+  const row = await client.query(`INSERT INTO purchase_contracts(number,user_id,kind,item_key,amount_cents,model_version,party,body,body_hash,otp_channel,status,accepted_at,accept_ip_hash,accept_user_agent,expires_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,'CHECKBOX','USADO',now(),$10,$11,now() + interval '30 minutes') RETURNING id`,
+    [number, input.userId, input.kind, input.itemKey, input.amounts.amountCents, CONTRACT_MODEL_VERSION_CHECKBOX, JSON.stringify({ ...party, contractor: contractor.name }), body, sha256(body), input.evidence.ipHash, input.evidence.userAgent]);
+  return String(row.rows[0].id);
+}
+
+const fmtDateTime = (d: Date) => `${dateLong(d)}, ${timeShort(d)}`;
+
+/**
+ * E-mail depois do pagamento confirmado (ou do cupom de 100%): consulta avulsa recebe o comprovante; saldo recebe também
+ * a cópia do contrato. Idempotente por pedido e nunca derruba o pagamento: erro aqui só vai para o log.
+ */
+export async function sendPurchaseReceipt(orderId: string): Promise<void> {
+  try {
+    const r = await pool.query(`SELECT o.id,o.user_id,o.purchase_type,o.amount_cents,o.subtotal_cents,o.discount_cents,o.paid_at,o.query_plate,o.query_search_type,o.credits,
+        u.name AS user_name,u.email,
+        qp.name AS product_name, cp.name AS package_name,
+        c.number AS contract_number,c.body AS contract_body,c.accepted_at,
+        cu.code AS coupon_code
+      FROM payment_orders o JOIN users u ON u.id=o.user_id
+      LEFT JOIN query_products qp ON qp.id=o.product_id
+      LEFT JOIN credit_packages cp ON cp.id=o.package_id
+      LEFT JOIN purchase_contracts c ON c.order_id=o.id
+      LEFT JOIN coupons cu ON cu.id=o.coupon_id
+      WHERE o.id=$1 AND o.status='PAID'`, [orderId]);
+    if (!r.rowCount) return;
+    const o = r.rows[0] as Record<string, unknown>;
+    const isQuery = String(o.purchase_type) === 'QUERY';
+    const first = String(o.user_name).split(' ')[0];
+    const paidAt = o.paid_at ? new Date(o.paid_at as string) : new Date();
+    const amount = Number(o.amount_cents);
+    const itemName = String(isQuery ? o.product_name ?? 'Consulta veicular' : o.package_name ?? 'Saldo pré-pago');
+    const searchLabel = isQuery ? (SEARCH_LABELS[String(o.query_search_type ?? 'PLATE') as SearchType] ?? 'Dado consultado') : '';
+    const lines = [
+      `Compra confirmada em ${fmtDateTime(paidAt)}.`,
+      '',
+      `Pedido: ${String(o.id).slice(0, 8).toUpperCase()}`,
+      `O que você contratou: ${itemName}`,
+      ...(isQuery ? [`${searchLabel}: ${String(o.query_plate ?? '')}`] : [`Saldo lançado na carteira: ${brl(Number(o.credits ?? 0) * 100)}`]),
+      `Valor: ${Number(o.subtotal_cents) !== amount ? `${brl(Number(o.subtotal_cents))}, ` : ''}${Number(o.discount_cents) > 0 ? `desconto de ${brl(Number(o.discount_cents))}${o.coupon_code ? ` (cupom ${String(o.coupon_code)})` : ''}, ` : ''}total ${brl(amount)}`,
+      ...(o.contract_number ? [`Contrato aceito: ${String(o.contract_number)}`] : []),
+      '',
+      isQuery
+        ? 'Seu relatório fica em "Consultas" na sua conta. Se a consulta falhar por problema técnico, o valor é estornado automaticamente.'
+        : 'Seu saldo já está na carteira. Se ele não aparecer em até 24 horas, o valor é devolvido.',
+      'Este e-mail é o seu comprovante. Guarde-o. O contrato fica sempre disponível em Carteira, Contratos.',
+      `Dúvidas: ${env.SUPPORT_EMAIL?.trim() || env.EMAIL_REPLY_TO?.trim() || 'pelo Suporte do site'}.`
+    ];
+    if (!isQuery && o.contract_body) lines.push('', '--- CÓPIA DO CONTRATO ---', '', String(o.contract_body));
+    await enqueueEmail({
+      idempotencyKey: `purchase-receipt:${orderId}`, template: 'GENERIC_NOTICE', toEmail: String(o.email), toName: String(o.user_name),
+      data: { name: first, documentTitle: isQuery ? 'Comprovante da sua consulta' : 'Comprovante da sua compra', message: lines.join('\n') },
+      relatedType: 'PURCHASE_RECEIPT', relatedId: orderId, createdBy: String(o.user_id)
+    });
+  } catch (error) {
+    log('warn', 'purchase_receipt_failed', { orderId, error: error instanceof Error ? error.message : String(error) });
+  }
 }

@@ -3,6 +3,7 @@ import { pool, tx } from '../db.js';
 import { MercadoPagoProvider } from '../payments/mercadopago.js';
 import { settlePaymentEvent } from '../payments/settle.js';
 import { log } from './http.js';
+import { sendPurchaseReceipt } from '../purchaseContract.js';
 
 export type SyncedPayment = { paymentId: string; status: string; outcome: string };
 const OPEN = ['CREATED', 'CHECKOUT_ACTIVE'];
@@ -20,6 +21,7 @@ export async function syncOrderByReference(reference: string): Promise<SyncedPay
       provider: 'mercadopago', eventId: `payment:${p.id}:${p.status}`, eventType: `payment.${p.status}`, rawStatus: p.status,
       externalPaymentId: p.id, reference, paymentType: p.paymentType ?? null, feeCents: p.feeCents ?? null, netCents: p.netCents ?? null
     }));
+    if (settled.outcome === 'PAID' && settled.orderId) void sendPurchaseReceipt(settled.orderId);
     out.push({ paymentId: p.id, status: p.status, outcome: settled.outcome });
   }
   return out;

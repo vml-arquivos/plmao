@@ -32,7 +32,7 @@ export default function NewQuery() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'' | 'wallet' | 'pay' | 'quote'>('');
   const [step, setStep] = useState(0);
-  const [contractId, setContractId] = useState('');
+  const [accepted, setAccepted] = useState(false);
   const [wantDirect, setWantDirect] = useState(false);
   const idem = useRef<string>('');
   const { data, error: loadErr, loading, reload } = useAsync(async () => {
@@ -85,12 +85,12 @@ export default function NewQuery() {
 
   async function payDirect() {
     if (!can || !product) return;
-    if (!contractId) { setError('Leia o contrato e confirme o código do e-mail para continuar.'); return; }
+    if (!accepted) { setError('Marque a caixa “Li e aceito o contrato” para continuar.'); return; }
     setBusy('pay'); setError('');
     trackFunnel('CHECKOUT_STARTED', { productId: product.id, amountCents: due, hasCoupon: Boolean(quote?.couponCode) });
     try {
       const ref = storedReferral();
-      const r = await api.post<{ checkoutUrl: string | null; free?: boolean; orderId: string }>('/payments/query/checkout', { productId: product.id, ...searchBody, contractId, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(ref ? { affiliateCode: ref } : {}) });
+      const r = await api.post<{ checkoutUrl: string | null; free?: boolean; orderId: string }>('/payments/query/checkout', { productId: product.id, ...searchBody, acceptContract: true, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(ref ? { affiliateCode: ref } : {}) });
       if (r.free) {
         // Cupom de 100%: sem pagamento. Executa a consulta liberada pelo pedido.
         try {
@@ -174,18 +174,18 @@ export default function NewQuery() {
           <div className="sum-line"><span className="muted">Seu saldo</span><b className="num" style={{ color: enough ? 'var(--ok-ink)' : 'var(--warn-ink)' }}>{money(balance)}</b></div>
           {error && <Alert tone="danger">{error}</Alert>}
 {(quote?.free || !enough || wantDirect) && (
-                      <PurchaseContract body={{ productId: product?.id, ...searchBody, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(storedReferral() ? { affiliateCode: storedReferral() } : {}) }} signature={`${product?.id ?? ''}:${shownKey}:${due}`} contractId={contractId} onChange={setContractId} disabled={!can || !product} />
+                      <PurchaseContract body={{ productId: product?.id, ...searchBody, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(storedReferral() ? { affiliateCode: storedReferral() } : {}) }} accepted={accepted} onChange={setAccepted} disabled={!can || !product} />
           )}
           {quote?.free ? (
-            <Button variant="primary" size="lg" block disabled={!can || !contractId} loading={busy === 'pay'} onClick={payDirect} icon="search">Consultar grátis</Button>
+            <Button variant="primary" size="lg" block disabled={!can || !accepted} loading={busy === 'pay'} onClick={payDirect} icon="search">Consultar grátis</Button>
           ) : enough ? (
             <>
               <Button variant="primary" size="lg" block disabled={!can} onClick={runWallet} icon="search">Consultar agora · {money(price)}</Button>
-              <Button variant="ghost" block disabled={!can || (wantDirect && !contractId)} loading={busy === 'pay'} onClick={() => { if (!wantDirect) { setWantDirect(true); return; } void payDirect(); }}>{wantDirect ? `Pagar ${money(due)} com Pix ou cartão` : 'Prefiro pagar com Pix ou cartão'}</Button>
+              <Button variant="ghost" block disabled={!can || (wantDirect && !accepted)} loading={busy === 'pay'} onClick={() => { if (!wantDirect) { setWantDirect(true); return; } void payDirect(); }}>{wantDirect ? `Pagar ${money(due)} com Pix ou cartão` : 'Prefiro pagar com Pix ou cartão'}</Button>
             </>
           ) : (
             <>
-              <Button variant="primary" size="lg" block disabled={!can || !contractId} loading={busy === 'pay'} onClick={payDirect} icon="credit-card">Pagar {money(due)} com Pix ou cartão</Button>
+              <Button variant="primary" size="lg" block disabled={!can || !accepted} loading={busy === 'pay'} onClick={payDirect} icon="credit-card">Pagar {money(due)} com Pix ou cartão</Button>
               <Link className="btn btn-block" to="/app/carteira">Adicionar saldo à carteira</Link>
               <p className="muted" style={{ fontSize: 13 }}>Seu saldo não cobre esta consulta. Pague direto ou recarregue a carteira.</p>
             </>

@@ -1,10 +1,20 @@
 # Changelog
 
+## 1.12.10 — Contrato mais simples na compra: caixinha "Li e aceito" e comprovante por e-mail
+
+- Checkout (consulta avulsa e saldo): some o botão "Ler contrato e confirmar por e-mail" e o código. Entra uma caixinha "Li e aceito o contrato de compra". Ler é opcional: o link abre o texto já preenchido com os dados da pessoa, da empresa e do pedido.
+- Ao pagar, o servidor cria o contrato aceito no mesmo instante (texto exato, hash, data, IP em hash e navegador) e liga ao pedido. Contrato novo usa o modelo `2026-10-c2` (aceite por caixinha). Quem não tem CPF/CNPJ no perfil também consegue comprar; a linha do documento só sai do contrato.
+- Depois do pagamento confirmado (ou do cupom de 100%), a pessoa recebe um e-mail de comprovante: consulta avulsa recebe o resumo do que contratou (item, dado consultado, valor, número do contrato); compra de saldo recebe o resumo e a cópia do contrato. Um e-mail por pedido, sem duplicar.
+- Se o pagamento falhar ao abrir, o contrato daquela tentativa fica expirado e não aparece em Carteira, Contratos.
+- O fluxo antigo com código por e-mail continua na API (`/purchase-contracts/draft` e `/confirm`), sem uso na tela. Nova rota `POST /api/purchase-contracts/preview` para ler o texto sem gravar nada.
+- Checklist de implantação: o aviso de e-mail passou de bloqueio para aviso, porque a compra não depende mais de código por e-mail (o e-mail serve ao comprovante).
+- Testes: `purchase-checkbox.test.mjs` (6) e ajuste dos testes de contrato.
+
 ## 1.12.9 — Segurança das dependências, retenção do dado bruto e checklist de lançamento
 
 - Dependências: `body-parser` 1.20.9 (alerta de segurança fechado). O `nodemailer` ficou na 10.0.9: a 10.2.1 quebrou o envio nos testes de e-mail, então não entrou. O `zod` continua na versão 3: a versão 4 foi testada e mudou o comportamento de 11 testes, então não entrou. Alerta restante é de consumo de memória em listas enormes; o limite de corpo da requisição (256 kb) já restringe isso.
 - Novo `RAW_RETENTION_DAYS`: apaga o dado bruto cifrado do fornecedor depois do prazo (0 = não apaga; sugestão 90). O relatório do cliente não muda. Roda a cada 6 horas e registra na auditoria.
-- Checklist de implantação (Financeiro): bloqueios novos para dados da empresa do contrato de compra (razão social e CNPJ) e e-mail do código; avisos para canais de atendimento e prazo do dado bruto.
+- Checklist de implantação (Financeiro): bloqueios novos para dados da empresa do contrato de compra (razão social e CNPJ) e e-mail do comprovante (aviso); avisos para canais de atendimento e prazo do dado bruto.
 - Testes: `raw-retention.test.mjs` e caso novo no checklist.
 
 ## 1.12.8 — Estoque da loja: preenchimento pela placa e importação do histórico

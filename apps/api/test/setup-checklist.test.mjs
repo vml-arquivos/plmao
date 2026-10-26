@@ -31,7 +31,7 @@ describe('checklist de implantação financeira', integration, () => {
       await pool.query(`UPDATE fiscal_settings SET legal_name=NULL,cnpj=NULL WHERE id=1`);
       let byKey = Object.fromEntries((await sa.call('/api/admin/finance/setup-checklist')).json.items.map((i) => [i.key, i]));
       assert.equal(byKey['purchase-contract-company'].ok, false); assert.equal(byKey['purchase-contract-company'].severity, 'BLOCKER');
-      assert.equal(byKey['purchase-contract-email'].severity, 'BLOCKER');
+      assert.equal(byKey['purchase-contract-email'].severity, 'WARNING');
       assert.equal(byKey['support-channels'].ok, false); assert.equal(byKey['raw-retention'].severity, 'WARNING');
       await pool.query(`UPDATE fiscal_settings SET legal_name='EMPRESA TESTE LTDA',cnpj='11222333000181' WHERE id=1`);
       byKey = Object.fromEntries((await sa.call('/api/admin/finance/setup-checklist')).json.items.map((i) => [i.key, i]));
