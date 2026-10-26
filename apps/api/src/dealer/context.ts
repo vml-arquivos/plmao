@@ -17,10 +17,10 @@ declare module 'express-serve-static-core' {
   interface Request { dealer?: DealerCtx }
 }
 
-export const bad = (message: string, code = 'INVALID_INPUT', http = 400) => appError(message, { code, http, expose: true });
-export const notFound = (message = 'Não encontrado.', code = 'DEALER_NOT_FOUND') => appError(message, { code, http: 404, expose: true });
-export const forbidden = (message = 'Você não tem permissão para isso.', code = 'DEALER_FORBIDDEN') => appError(message, { code, http: 403, expose: true });
-export const conflict = (message: string, code: string) => appError(message, { code, http: 409, expose: true });
+export const bad = (message: string, code = 'INVALID_INPUT', http = 400) => appError(message, { code, http, expose: true, showMessage: true });
+export const notFound = (message = 'Não encontrado.', code = 'DEALER_NOT_FOUND') => appError(message, { code, http: 404, expose: true, showMessage: true });
+export const forbidden = (message = 'Você não tem permissão para isso.', code = 'DEALER_FORBIDDEN') => appError(message, { code, http: 403, expose: true, showMessage: true });
+export const conflict = (message: string, code: string) => appError(message, { code, http: 409, expose: true, showMessage: true });
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Identificador inválido vira 404 (nunca 500 nem vazamento de existência). */

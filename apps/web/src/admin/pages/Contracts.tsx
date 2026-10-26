@@ -20,12 +20,12 @@ interface Detail extends Row { rendered_body: string; terms: { resolved: { items
 
 export default function Contracts() {
   usePageTitle('Contratos');
-  const [tab, setTab] = useState<'contracts' | 'models'>('contracts');
+  const [tab, setTab] = useState<'contracts' | 'purchases' | 'models'>('contracts');
   return (
     <>
       <PageHead title="Contratos" sub="Modelos revisados, aprovação por outra pessoa e assinatura eletrônica. Assinar um contrato não libera consultas nem cobra: as condições são aplicadas à parte." />
-      <Tabs label="Seções" value={tab} onChange={setTab} items={[{ id: 'contracts', label: 'Contratos' }, { id: 'models', label: 'Modelos' }]} />
-      {tab === 'contracts' ? <List /> : <Models />}
+      <Tabs label="Seções" value={tab} onChange={setTab} items={[{ id: 'contracts', label: 'Contratos' }, { id: 'purchases', label: 'Aceites de compra' }, { id: 'models', label: 'Modelos' }]} />
+      {tab === 'contracts' ? <List /> : tab === 'purchases' ? <Purchases /> : <Models />}
     </>
   );
 }
@@ -256,6 +256,37 @@ function Models() {
               {['Partes', 'Valores e cálculos', 'Prazos', 'Comissão', 'Geral'].map((g) => <div key={g} style={{ margin: '8px 0' }}><b style={{ fontSize: 13 }}>{g}</b><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>{(vars.data?.items ?? []).filter((v) => v.group === g).map((v) => <button key={v.key} type="button" className="btn btn-sm" title={`${v.label}. Exemplo: ${v.example}`} onClick={() => insertVar(v.key)}>{`{{${v.key}}}`}</button>)}</div></div>)}
             </details>}
             {preview && (preview.unknown.length ? <Alert tone="danger">Variáveis desconhecidas: {preview.unknown.join(', ')}</Alert> : <div><b>Pré-visualização (dados fictícios)</b><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', maxHeight: 260, overflow: 'auto', border: '1px solid var(--line, #d7ddd9)', borderRadius: 8, padding: 12 }}>{preview.text}</pre></div>)}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+interface PRow { id: string; number: string; kind: string; amount_cents: number; accepted_at: string; order_id: string | null; order_status: string | null; party_name: string; party_email: string }
+interface PFull extends PRow { body: string; body_hash: string; model_version: string; otp_destination: string; accept_ip_hash: string | null; accept_user_agent: string | null }
+
+/** Contratos de adesão aceitos nas compras (pacote e consulta avulsa), com as evidências do aceite. */
+function Purchases() {
+  const [q, setQ] = useState('');
+  const [view, setView] = useState<PFull | null>(null);
+  const toast = useToast();
+  const list = useAsync(() => api.get<{ items: PRow[] }>(`/admin/purchase-contracts${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''}`), [q]);
+  async function open(id: string) { try { setView(await api.get<PFull>(`/admin/purchase-contracts/${id}`)); } catch (e) { toast.error(errorMessage(e)); } }
+  return (
+    <div className="stack">
+      <Field label="Buscar por número, nome ou e-mail"><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="PNM-2026-000001" /></Field>
+      {list.error != null && <ErrorState error={list.error} onRetry={list.reload} />}
+      <div className="table-wrap"><table className="table"><thead><tr><th>Contrato</th><th>Cliente</th><th>Tipo</th><th className="r">Valor</th><th>Aceito em</th><th>Pedido</th><th /></tr></thead><tbody>
+        {list.data?.items.map((c) => <tr key={c.id}><td className="mono">{c.number}</td><td>{c.party_name}<br /><small className="muted">{c.party_email}</small></td><td>{c.kind === 'PACKAGE' ? 'Saldo' : 'Consulta'}</td><td className="r num">{(c.amount_cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td><td>{dateTime(c.accepted_at)}</td><td>{c.order_status ? <Badge tone={c.order_status === 'PAID' ? 'ok' : 'neutral'}>{c.order_status === 'PAID' ? 'Pago' : c.order_status}</Badge> : <span className="muted">sem pedido</span>}</td><td className="r"><Button size="sm" onClick={() => open(c.id)}>Abrir</Button></td></tr>)}
+        {list.data && !list.data.items.length && <tr className="empty"><td colSpan={7}>Nenhum aceite encontrado.</td></tr>}
+      </tbody></table></div>
+      {view && (
+        <Modal wide title={`Contrato ${view.number}`} onClose={() => setView(null)} footer={<Button onClick={() => setView(null)}>Fechar</Button>}>
+          <div className="stack">
+            <Alert tone="info" title="Evidências do aceite.">Código enviado para {view.otp_destination} · aceito em {dateTime(view.accepted_at)} · modelo {view.model_version} · IP (hash) {view.accept_ip_hash?.slice(0, 16) ?? '—'} · navegador {view.accept_user_agent ?? '—'}</Alert>
+            <pre className="card card-pad" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, maxHeight: '50vh', overflow: 'auto', margin: 0 }}>{view.body}</pre>
+            <p className="muted mono" style={{ fontSize: 12, wordBreak: 'break-all' }}>SHA-256: {view.body_hash}</p>
           </div>
         </Modal>
       )}

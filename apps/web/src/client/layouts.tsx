@@ -6,6 +6,7 @@ import { initials, money } from '../shared/format';
 import { BRAND } from './config';
 import { useSession } from './session';
 import { InstallButton, InstallLink, InstallPrompt, OfflineBanner } from './components/PwaBits';
+import SupportChannels from './components/SupportChannels';
 
 /* ---------- Rolagem ao navegar ---------- */
 export function ScrollManager() {
@@ -84,6 +85,7 @@ export function PublicFooter() {
             <Logo forceDark />
             <p style={{ maxWidth: 320, marginTop: 10 }}>Consulta veicular completa por placa, com relatório detalhado e PDF para imprimir. {BRAND.slogan}</p>
             <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>
+            <SupportChannels />
           </div>
           <div><h5>Consultas</h5><ul><li><Link to="/consulta-placa">Consulta de placa</Link></li><li><Link to="/consultar-debitos-veiculo">Débitos e multas</Link></li><li><Link to="/consultar-gravame">Gravame</Link></li><li><Link to="/consultar-leilao-veiculo">Leilão</Link></li><li><Link to="/fipe">FIPE grátis</Link></li><li><Link to="/veiculos">Guia de veículos</Link></li><li><Link to="/comparar">Comparar veículos</Link></li><li><Link to="/veiculos/mais-economicos">Carros mais econômicos</Link></li><li><Link to="/combustivel">Etanol ou gasolina?</Link></li><li><Link to="/simulador">Simulador de financiamento</Link></li></ul></div>
           <div><h5>Empresa</h5><ul><li><Link to="/sobre">Sobre</Link></li><li><Link to="/para-lojistas">Para lojistas</Link></li><li><Link to="/blog">Blog</Link></li><li><InstallLink /></li><li><Link to="/perguntas-frequentes">Perguntas frequentes</Link></li><li><Link to="/contato">Contato</Link></li></ul></div>

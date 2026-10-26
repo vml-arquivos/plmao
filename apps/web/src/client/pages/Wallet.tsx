@@ -7,6 +7,7 @@ import { dateTime, money } from '../../shared/format';
 import { api } from '../api';
 import { useSession } from '../session';
 import { storedReferral, trackFunnel } from '../funnel';
+import PurchaseContract, { MyContracts } from '../components/PurchaseContract';
 import PaidQueries from '../components/PaidQueries';
 import PeriodFilter, { NO_PERIOD, periodParams, qs, type Period } from '../components/Period';
 
@@ -25,6 +26,7 @@ function Checkout({ pack, onClose }: { pack: Pack; onClose: () => void }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [busy, setBusy] = useState<'' | 'quote' | 'pay'>('');
   const [error, setError] = useState('');
+  const [contractId, setContractId] = useState('');
   const ref = storedReferral();
   useEffect(() => {
     api.post<Quote>('/payments/quote', { packageSlug: pack.slug, ...(ref ? { affiliateCode: ref } : {}) }).then((q) => { setQuote(q); trackFunnel('CHECKOUT_QUOTE_VIEWED', { amountCents: q.amountCents, paymentConfigured: q.paymentProviderConfigured }); }, (e) => setError(errorMessage(e)));
@@ -34,15 +36,16 @@ function Checkout({ pack, onClose }: { pack: Pack; onClose: () => void }) {
     try { setQuote(await api.post<Quote>('/payments/quote', { packageSlug: pack.slug, couponCode: coupon.trim(), ...(ref ? { affiliateCode: ref } : {}) })); } catch (e) { setError(errorMessage(e)); } finally { setBusy(''); }
   }
   async function pay() {
+    if (!contractId) { setError('Leia o contrato e confirme o código do e-mail para continuar.'); return; }
     setBusy('pay'); setError('');
     trackFunnel('CHECKOUT_STARTED', { amountCents: quote?.amountCents ?? pack.priceCents, hasCoupon: Boolean(quote?.couponCode), hasAffiliate: Boolean(ref) });
     try {
-      const r = await api.post<{ checkoutUrl: string }>('/payments/checkout', { packageSlug: pack.slug, ...(quote?.couponCode ? { couponCode: quote.couponCode } : {}), ...(ref ? { affiliateCode: ref } : {}) });
+      const r = await api.post<{ checkoutUrl: string }>('/payments/checkout', { packageSlug: pack.slug, contractId, ...(quote?.couponCode ? { couponCode: quote.couponCode } : {}), ...(ref ? { affiliateCode: ref } : {}) });
       window.location.assign(r.checkoutUrl);
     } catch (e) { setError(errorMessage(e)); setBusy(''); }
   }
   return (
-    <Modal title={`Comprar ${pack.name}`} onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" icon="credit-card" loading={busy === 'pay'} disabled={!quote || quote.paymentProviderConfigured === false} onClick={pay}>Pagar {money(quote?.amountCents ?? pack.priceCents)}</Button></>}>
+    <Modal title={`Comprar ${pack.name}`} onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" icon="credit-card" loading={busy === 'pay'} disabled={!quote || !contractId || quote.paymentProviderConfigured === false} onClick={pay}>Pagar {money(quote?.amountCents ?? pack.priceCents)}</Button></>}>
       <div className="stack">
         <div className="sum-line"><span className="muted">Saldo recebido</span><b className="num">{money(pack.credits * 100)}</b></div>
         <div className="sum-line"><span className="muted">Valor do pacote</span><b className="num">{money(quote?.subtotalCents ?? pack.priceCents)}</b></div>
@@ -51,6 +54,7 @@ function Checkout({ pack, onClose }: { pack: Pack; onClose: () => void }) {
         <div className="row" style={{ alignItems: 'end', flexWrap: 'nowrap' }}><Field label="Cupom (opcional)" className="grow"><Input value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())} placeholder="CUPOM10" /></Field><Button loading={busy === 'quote'} onClick={apply} disabled={coupon.trim().length < 3}>Aplicar</Button></div>
         {quote && quote.paymentProviderConfigured === false && <Alert tone="warn" title="Pagamento indisponível.">O checkout ainda não está ativo neste ambiente.</Alert>}
         {error && <Alert tone="danger">{error}</Alert>}
+        <PurchaseContract body={{ packageSlug: pack.slug, ...(quote?.couponCode ? { couponCode: quote.couponCode } : {}), ...(ref ? { affiliateCode: ref } : {}) }} signature={`${pack.slug}:${quote?.amountCents ?? ''}`} contractId={contractId} onChange={setContractId} disabled={!quote} />
         <p className="muted" style={{ fontSize: 13 }}><Icon name="lock" size={13} /> Pix ou cartão no checkout seguro.</p>
       </div>
     </Modal>
@@ -63,7 +67,7 @@ export default function Wallet() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const { me, refresh } = useSession();
-  const [tab, setTab] = useState<'tx' | 'orders' | 'docs'>('tx');
+  const [tab, setTab] = useState<'tx' | 'orders' | 'docs' | 'contracts'>('tx');
   const [period, setPeriod] = useState<Period>(NO_PERIOD);
   const pq = qs(periodParams(period));
   const [pack, setPack] = useState<Pack | null>(null);
@@ -71,6 +75,7 @@ export default function Wallet() {
   const packs = useAsync(() => api.get<Pack[]>('/credit-packages'), []);
   const txs = useAsync(() => api.get<Tx[]>(`/wallet/transactions${pq}`), [pq]);
   const orders = useAsync(() => api.get<Order[]>(`/payments/orders${pq}`), [pq]);
+  const contracts = useAsync(() => api.get<{ items: Parameters<typeof MyContracts>[0]['rows'] }>('/purchase-contracts').then((r) => r.items), []);
   const docs = useAsync(() => api.get<Doc[]>(`/account/fiscal-documents${pq}`), [pq]);
   const checkout = params.get('checkout');
   const wanted = params.get('pacote');
@@ -123,7 +128,7 @@ export default function Wallet() {
           </div>); })}</div>}
       </section>
       <section className="stack">
-        <div className="row-between"><Tabs label="Movimentações" value={tab} onChange={setTab} items={[{ id: 'tx', label: 'Extrato' }, { id: 'orders', label: 'Pagamentos' }, { id: 'docs', label: 'Notas fiscais' }]} />{tab === 'tx' && <Button size="sm" icon="download" disabled={!txs.data?.length} onClick={() => api.download(`/wallet/transactions.csv${pq}`, 'extrato.csv').catch((e) => toast.error(errorMessage(e)))}>CSV</Button>}</div>
+        <div className="row-between"><Tabs label="Movimentações" value={tab} onChange={setTab} items={[{ id: 'tx', label: 'Extrato' }, { id: 'orders', label: 'Pagamentos' }, { id: 'docs', label: 'Notas fiscais' }, { id: 'contracts', label: 'Contratos' }]} />{tab === 'tx' && <Button size="sm" icon="download" disabled={!txs.data?.length} onClick={() => api.download(`/wallet/transactions.csv${pq}`, 'extrato.csv').catch((e) => toast.error(errorMessage(e)))}>CSV</Button>}</div>
         <PeriodFilter value={period} onChange={setPeriod} />
         {tab === 'tx' && (
           <div className="table-wrap"><table className="table"><thead><tr><th>Data</th><th>Descrição</th><th className="r">Valor</th><th className="r">Saldo</th></tr></thead><tbody>
@@ -132,6 +137,7 @@ export default function Wallet() {
             {txs.loading && !txs.data && <tr className="empty"><td colSpan={4}>Carregando…</td></tr>}
           </tbody></table></div>
         )}
+        {tab === 'contracts' && <MyContracts rows={contracts.data ?? undefined} loading={contracts.loading} />}
         {tab === 'orders' && (
           <div className="table-wrap"><table className="table"><thead><tr><th>Data</th><th>Tipo</th><th>Situação</th><th className="r">Valor</th><th /></tr></thead><tbody>
             {orders.data?.map((o) => { const st = ORDER_STATUS[o.status] ?? { tone: 'neutral' as const, label: o.status }; return <tr key={o.id}><td>{dateTime(o.createdAt)}</td><td>{o.purchaseType === 'QUERY' ? `Consulta ${o.plate ?? ''}` : 'Pacote de saldo'}</td><td><Badge tone={st.tone} dot>{st.label}</Badge></td><td className="r num">{money(o.amountCents)}</td><td className="actions">{o.status === 'CHECKOUT_ACTIVE' && o.checkoutUrl && <a className="btn btn-sm" href={o.checkoutUrl}>Pagar</a>}</td></tr>; })}

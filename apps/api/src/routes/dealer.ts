@@ -7,6 +7,7 @@ import { auth } from '../auth.js';
 import { env } from '../config.js';
 import { asyncRoute, audit, requestId } from '../lib/http.js';
 import { createDealership } from '../dealer/create.js';
+import { importCandidates, suggestForPlate } from '../dealer/vehicleHistory.js';
 import {
   type DealerCtx, bad, can, centsZ, conflict, dayOut, dayZ, dealerAccess, emailZ, forbidden, iso, isUnique, loadMembership, notFound, phoneZ,
   plateZ, ROLE_RANK, slugify, storeFromRow, uuidParam
@@ -241,6 +242,7 @@ dealerRouter.post('/dealer/vehicles', dealerAccess('SELLER'), asyncRoute(async (
   if (!parsed.success) throw bad('Confira os dados do veículo (marca, modelo e preço são obrigatórios).');
   const b = parsed.data;
   if (b.costCents != null && !can.seeCost(ctx)) throw forbidden('Só dono e gerente informam o custo.');
+  if (b.publicListed === true && b.priceCents === 0) throw bad('Informe o preço para mostrar na vitrine.');
   try {
     const id = await tx(async (client) => {
       await assertVehicleRoom(client, ctx);
@@ -263,6 +265,60 @@ async function ownVehicle(ctx: DealerCtx, id: string, client: Pick<PoolClient, '
   return r.rows[0] as Record<string, unknown>;
 }
 
+/** Dados que a equipe já tem para a placa (consultas, FIPE, garagem, estoque anterior). Não consulta fonte externa e não cobra. */
+dealerRouter.get('/dealer/vehicle-lookup', dealerAccess('SELLER'), asyncRoute(async (req, res) => {
+  const ctx = dealer(req);
+  const plate = plateZ.safeParse(String(req.query.plate ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ''));
+  if (!plate.success) throw bad('Informe uma placa válida.');
+  const [s, open] = await Promise.all([
+    suggestForPlate(ctx.store.id, plate.data),
+    pool.query(`SELECT id FROM stock_vehicles WHERE dealership_id=$1 AND plate=$2 AND status IN ('AVAILABLE','RESERVED') LIMIT 1`, [ctx.store.id, plate.data])
+  ]);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ plate: plate.data, found: s.sources.length > 0, fields: s.fields, sources: s.sources, inStock: open.rowCount ? String(open.rows[0].id) : null });
+}));
+
+/** Placas já consultadas ou guardadas na garagem pela equipe, ainda fora do estoque. */
+dealerRouter.get('/dealer/import-candidates', dealerAccess('SELLER'), asyncRoute(async (req, res) => {
+  const ctx = dealer(req);
+  const q = z.object({ q: z.string().trim().max(40).optional() }).safeParse(req.query);
+  if (!q.success) throw bad('Filtro inválido.');
+  const items = await importCandidates(ctx.store.id, q.data.q ? q.data.q.toUpperCase() : undefined);
+  const used = await pool.query(`SELECT count(*)::int AS n FROM stock_vehicles WHERE dealership_id=$1 AND status IN ('AVAILABLE','RESERVED')`, [ctx.store.id]);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ items, room: Math.max(0, ctx.store.vehicleLimit - Number(used.rows[0].n)) });
+}));
+
+const importBody = z.object({ plates: z.array(plateZ).min(1).max(30) }).strict();
+/** Cria no estoque, de uma vez, os veículos escolhidos. Entram como rascunho: sem preço e fora da vitrine. */
+dealerRouter.post('/dealer/vehicles/import', dealerAccess('SELLER'), asyncRoute(async (req, res) => {
+  const ctx = dealer(req);
+  const p = importBody.safeParse(req.body);
+  if (!p.success) throw bad('Escolha de 1 a 30 placas.');
+  const plates = [...new Set(p.data.plates)];
+  const created = await tx(async (client) => {
+    await client.query('SELECT 1 FROM dealerships WHERE id=$1 FOR UPDATE', [ctx.store.id]);
+    const n = await client.query(`SELECT count(*)::int AS n FROM stock_vehicles WHERE dealership_id=$1 AND status IN ('AVAILABLE','RESERVED')`, [ctx.store.id]);
+    if (Number(n.rows[0].n) + plates.length > ctx.store.vehicleLimit) throw conflict(`O limite de ${ctx.store.vehicleLimit} veículos em estoque seria ultrapassado. Importe menos veículos, arquive ou venda algum, ou fale com o suporte.`, 'DEALER_VEHICLE_LIMIT');
+    const ids: string[] = []; let skipped = 0;
+    for (const plate of plates) {
+      const dup = await client.query(`SELECT 1 FROM stock_vehicles WHERE dealership_id=$1 AND plate=$2 AND status IN ('AVAILABLE','RESERVED')`, [ctx.store.id, plate]);
+      if (dup.rowCount) { skipped += 1; continue; }
+      const s = await suggestForPlate(ctx.store.id, plate, client);
+      if (!s.sources.length) { skipped += 1; continue; }
+      const f = s.fields;
+      const queryId = await latestTeamQuery(client, ctx.store.id, plate);
+      const r = await client.query(`INSERT INTO stock_vehicles(dealership_id,created_by,query_id,plate,brand,model,version,year_manufacture,year_model,color,fuel,transmission,mileage_km,price_cents,fipe_cents,public_listed,seal_enabled)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,0,$14,false,true) RETURNING id`,
+        [ctx.store.id, ctx.userId, queryId, plate, f.brand || 'Sem marca', f.model || 'Sem modelo', f.version ?? '', f.yearManufacture ?? null, f.yearModel ?? null, f.color ?? '', f.fuel ?? '', f.transmission ?? '', f.mileageKm ?? null, f.fipeCents ?? null]);
+      ids.push(String(r.rows[0].id));
+    }
+    return { ids, skipped };
+  });
+  for (const id of created.ids) await audit(req.user!.id, 'STOCK_VEHICLE_IMPORTED', 'STOCK_VEHICLE', id, { dealershipId: ctx.store.id, requestId: requestId(req) });
+  res.status(201).json({ imported: created.ids.length, skipped: created.skipped, ids: created.ids });
+}));
+
 dealerRouter.get('/dealer/vehicles/:id', dealerAccess('SELLER'), asyncRoute(async (req, res) => {
   const ctx = dealer(req);
   const id = uuidParam(req.params.id);
@@ -282,6 +338,7 @@ dealerRouter.patch('/dealer/vehicles/:id', dealerAccess('SELLER'), asyncRoute(as
     await tx(async (client) => {
       const cur = await ownVehicle(ctx, id, client, true);
       if (cur.status === 'SOLD' && !can.manage(ctx)) throw forbidden('Veículo vendido: só dono e gerente alteram.');
+      if ((b.publicListed ?? cur.public_listed) === true && Number(b.priceCents ?? cur.price_cents) <= 0) throw bad('Informe o preço para mostrar na vitrine.');
       const sets: string[] = []; const values: unknown[] = [];
       for (const [k, v] of Object.entries(b)) { if (k === 'photos') { values.push(JSON.stringify(v)); sets.push(`photos=$${values.length}`); } else { values.push(v); sets.push(`${VCOLS[k]}=$${values.length}`); } }
       if (b.plate !== undefined && b.plate !== cur.plate) { values.push(await latestTeamQuery(client, ctx.store.id, b.plate)); sets.push(`query_id=$${values.length}`); }

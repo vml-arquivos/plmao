@@ -218,6 +218,14 @@ const envSchema = z.object({
   VEHICLE_API_PROVIDER: z.enum(['generic', 'credify', 'consultarplaca']).default('generic'),
   /** Tipos de busca que o contrato do provedor (Credify ou genérico) atende, além da placa: CHASSIS, RENAVAM, OWNER_DOC. */
   VEHICLE_SEARCH_TYPES: z.string().max(80).default('PLATE'),
+  /** prelaunch = site fechado ao público: sem indexação e só e-mails da lista criam conta, pagam e consultam. */
+  SITE_MODE: z.enum(['public', 'prelaunch']).default('public'),
+  PRELAUNCH_ALLOWED_EMAILS: z.string().max(2000).default(''),
+  /** Canais de atendimento por telefone (opcionais). Aparecem no rodapé, no contato e no suporte sem rebuild. */
+  SUPPORT_EMAIL: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().trim().email().max(254).optional()),
+  SUPPORT_PHONE: z.string().trim().max(40).optional(),
+  SUPPORT_WHATSAPP: z.string().trim().max(40).optional(),
+  SUPPORT_HOURS: z.string().trim().max(120).optional(),
   CREDIFY_BASE_URL: optionalUrl,
   CREDIFY_CLIENT_ID: optionalString,
   CREDIFY_CLIENT_SECRET: optionalString,

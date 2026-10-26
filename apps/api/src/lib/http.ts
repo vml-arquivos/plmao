@@ -3,9 +3,10 @@ import { env } from '../config.js';
 import { pool } from '../db.js';
 import { sanitizeAuditMetadata } from '../privacy.js';
 
-export type AppError = Error & { code?: string; http?: number; expose?: boolean };
+/** `showMessage`: a mensagem já foi escrita para o cliente e vai como está (sem passar pelo dicionário de códigos). */
+export type AppError = Error & { code?: string; http?: number; expose?: boolean; showMessage?: boolean };
 
-export function appError(message: string, options: Pick<AppError, 'code' | 'http' | 'expose'> = {}): AppError {
+export function appError(message: string, options: Pick<AppError, 'code' | 'http' | 'expose' | 'showMessage'> = {}): AppError {
   const error = new Error(message) as AppError;
   Object.assign(error, options);
   return error;

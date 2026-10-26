@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.12.8 — Estoque da loja: preenchimento pela placa e importação do histórico
+
+- Novo veículo: ao digitar a placa, o formulário preenche marca, modelo, versão, anos, cor, combustível, Km e valor FIPE com o que a equipe já tem no sistema (consulta concluída, FIPE consultada, garagem de quem é da equipe e estoque anterior da loja). Só campos vazios são preenchidos; o aviso diz de onde veio. Não chama fonte externa e não cobra. Sem dados salvos, o aviso leva à consulta.
+- Estoque > Importar do histórico: lista as placas que a equipe já consultou ou guardou na garagem e que ainda não estão em estoque; escolhe vários e importa de uma vez (até 30). Entram em rascunho: sem preço, fora da vitrine, com selo ligado à consulta. Mostra "Falta preço" até o preço ser informado.
+- Vitrine só liga com preço maior que zero (tela e API).
+- Respeita o limite de veículos da loja (importação não cria nada pela metade) e a placa duplicada.
+- Correção: as mensagens escritas para o cliente nas telas da Loja (limite atingido, placa repetida, dados inválidos) apareciam como texto genérico; agora aparecem como foram escritas.
+- Rotas: `GET /api/dealer/vehicle-lookup`, `GET /api/dealer/import-candidates`, `POST /api/dealer/vehicles/import`.
+- Testes: `dealer-history.test.mjs`.
+
+## 1.12.7 — Contrato automático em cada compra, com código por e-mail
+
+- Cada compra (pacote de saldo ou consulta avulsa, inclusive cupom de 100%) gera um **contrato de adesão** com dados do cliente (nome, CPF/CNPJ, e-mail, endereço), da empresa (razão social, CNPJ e endereço do cadastro fiscal, canais de suporte) e do pedido (item, preço, desconto, total por extenso).
+- O cliente lê o contrato, recebe um **código de 6 dígitos no e-mail** e só então o pagamento abre. Código vale 10 min, 5 tentativas, reenvio com intervalo e limite. O contrato aceito vale 30 min e só serve para o mesmo item e valor.
+- O aceite grava: texto exato e SHA-256, data/hora, e-mail que recebeu o código (mascarado), IP em hash, navegador e o pedido. O texto não muda depois de gerado (trava no banco). O cliente recebe aviso por e-mail (sem CPF) e vê o contrato em Carteira > Contratos, com download.
+- Garantia de entrega escrita no contrato e sustentada pelo sistema: consulta que falha volta ao saldo ou ao direito de consulta; pagamento confirmado sem entrega em 24 h = entrega ou devolução.
+- Painel: Contratos > Aceites de compra, com busca, texto e evidências.
+- Telefone, WhatsApp, horário e e-mail de suporte por variável (`SUPPORT_*`), no rodapé, em Contato, no Suporte e no contrato.
+- Migração 042. Substitui o aceite por caixinha (que não chegou a ser publicado).
+- Testes: `purchase-contract.test.mjs`; testes de cupom e de busca passaram a aceitar o contrato antes do checkout.
+
+## 1.12.6 — Modo pré-lançamento (site fechado ao público)
+
+- Novo `SITE_MODE=prelaunch`: o endereço continua abrindo, mas o site não é indexado (robots.txt bloqueia tudo, sitemap some, todas as respostas levam `X-Robots-Tag: noindex` e a página leva meta noindex).
+- Só e-mails de `PRELAUNCH_ALLOWED_EMAILS` (endereço completo ou `@domínio`) criam conta, compram saldo ou consultam. Os demais veem "O site ainda não está aberto ao público." Contas antigas fora da lista também não pagam nem consultam.
+- Nenhum texto de aviso foi colocado nas páginas. Para abrir ao público: `SITE_MODE=public` e redeploy.
+- Admin > Integrações mostra o estado do modo.
+- Testes: `site-mode.test.mjs`; o teste de lista por período passou a pegar o dia do próprio banco (falhava à noite no horário do Brasil).
+
 ## 1.12.5 — Consulta por chassi, Renavam e documento do proprietário
 
 - Nova consulta aceita quatro tipos de busca: placa, chassi, Renavam e CPF/CNPJ do proprietário. A tela Nova consulta ganhou o seletor de tipo, com validação de cada um (dígito verificador do Renavam, CPF e CNPJ).

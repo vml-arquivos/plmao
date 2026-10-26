@@ -5,6 +5,7 @@ import { api } from '../api';
 import { Alert, Button, EmptyState, ErrorState, Field, Input, PageLoading, Select, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { dateTime } from '../../shared/format';
+import SupportChannels from '../components/SupportChannels';
 import { CATEGORY_LABEL, Composer, StatusBadge, Thread } from '../../shared/SupportThread';
 import type { ThreadAttachment, ThreadMessage } from '../../shared/SupportThread';
 
@@ -77,7 +78,7 @@ export default function Support() {
   return (
     <div className="page">
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <h1 style={{ fontSize: 24 }}>Suporte</h1>
+        <div><h1 style={{ fontSize: 24 }}>Suporte</h1><SupportChannels inline /></div>
         <Button variant="primary" onClick={() => { setOpen('new'); }}>Nova conversa</Button>
       </div>
       {list.loading && !list.data ? <PageLoading /> : list.error && !list.data ? <ErrorState error={list.error} onRetry={list.reload} /> : (

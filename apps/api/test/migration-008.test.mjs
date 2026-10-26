@@ -42,6 +42,6 @@ test('migration 008 conecta preço negociado ao fluxo atual de pacotes de crédi
 test('server resolve preço da organização tanto na lista quanto na cotação e checkout', () => {
   const server = serverSource.replace(/\r\n/g, '\n');
   assert.match(server, /effectivePackagePrice\(client, req\.user!\.id, String\(item\.id\), Number\(item\.price_cents\)\)/);
-  assert.ok((server.match(/effectivePackagePrice\(client, req\.user!\.id, String\(packRow\.id\), basePriceCents\)/g) ?? []).length >= 2);
+  assert.ok((server.match(/effectivePackagePrice\(client, (?:req\.user!\.id|userId), String\(packRow\.id\), basePriceCents\)/g) ?? []).length >= 2);
   assert.match(server, /amountCents: draft\.amountCents/);
 });

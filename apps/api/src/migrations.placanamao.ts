@@ -1554,5 +1554,56 @@ export const placaMigrations: Migration[] = [
         ALTER TABLE vehicle_queries DROP COLUMN IF EXISTS search_type;
       `);
     }
+  },
+  {
+    id: '042_purchase_contracts',
+    name: 'Contrato de adesão por compra: texto exato, código de confirmação por e-mail, aceite com evidências, vínculo ao pedido',
+    up: async (client) => {
+      await client.query(`
+        CREATE SEQUENCE IF NOT EXISTS purchase_contract_seq;
+        CREATE TABLE IF NOT EXISTS purchase_contracts (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          number text NOT NULL UNIQUE,
+          user_id uuid NOT NULL REFERENCES users(id),
+          kind text NOT NULL CHECK (kind IN ('PACKAGE','QUERY')),
+          item_key text NOT NULL,
+          amount_cents integer NOT NULL CHECK (amount_cents >= 0),
+          model_version text NOT NULL,
+          party jsonb NOT NULL,
+          body text NOT NULL,
+          body_hash text NOT NULL,
+          status text NOT NULL DEFAULT 'PENDENTE' CHECK (status IN ('PENDENTE','ACEITO','USADO','EXPIRADO')),
+          otp_channel text NOT NULL DEFAULT 'EMAIL',
+          otp_destination text,
+          otp_hash text,
+          otp_expires_at timestamptz,
+          otp_attempts integer NOT NULL DEFAULT 0,
+          otp_sent_count integer NOT NULL DEFAULT 0,
+          otp_last_sent_at timestamptz,
+          accepted_at timestamptz,
+          accept_ip_hash text,
+          accept_user_agent text,
+          order_id uuid REFERENCES payment_orders(id),
+          expires_at timestamptz NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_contracts_order ON purchase_contracts(order_id) WHERE order_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_purchase_contracts_user ON purchase_contracts(user_id, created_at DESC);
+        CREATE OR REPLACE FUNCTION purchase_contracts_frozen() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.body IS DISTINCT FROM OLD.body OR NEW.body_hash IS DISTINCT FROM OLD.body_hash OR NEW.party IS DISTINCT FROM OLD.party
+             OR NEW.amount_cents IS DISTINCT FROM OLD.amount_cents OR NEW.number IS DISTINCT FROM OLD.number OR NEW.user_id IS DISTINCT FROM OLD.user_id THEN
+            RAISE EXCEPTION 'purchase_contracts: texto e partes nao mudam depois de gerados';
+          END IF;
+          RETURN NEW;
+        END; $$ LANGUAGE plpgsql;
+        DROP TRIGGER IF EXISTS trg_purchase_contracts_frozen ON purchase_contracts;
+        CREATE TRIGGER trg_purchase_contracts_frozen BEFORE UPDATE ON purchase_contracts FOR EACH ROW EXECUTE FUNCTION purchase_contracts_frozen();
+      `);
+    },
+    down: async (client) => {
+      await client.query('DROP TABLE IF EXISTS purchase_contracts; DROP FUNCTION IF EXISTS purchase_contracts_frozen(); DROP SEQUENCE IF EXISTS purchase_contract_seq;');
+    }
   }
 ];

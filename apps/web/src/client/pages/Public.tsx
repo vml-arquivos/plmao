@@ -9,6 +9,7 @@ import { BRAND } from '../config';
 import { useSession } from '../session';
 import { CompareMatrix, PackageCards, ProductCards, SmartPicker, useCatalog } from '../components/Catalog';
 import Faq from '../components/Faq';
+import SupportChannels from '../components/SupportChannels';
 import { InstallButton, InstallGuide, useInstall, type InstallPlatform } from '../components/PwaBits';
 import { money } from '../../shared/format';
 
@@ -172,7 +173,7 @@ export function Contact() {
   return (
     <section className="section">
       <div className="container" style={{ maxWidth: 720 }}>
-        <div className="section-head"><span className="eyebrow">Contato</span><h2>Como podemos ajudar?</h2><p>Escreva sua dúvida e responderemos por e-mail. Você também pode escrever para <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>.</p></div>
+        <div className="section-head"><span className="eyebrow">Contato</span><h2>Como podemos ajudar?</h2><p>Escreva sua dúvida e responderemos por e-mail. Você também pode escrever para <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>. <SupportChannels inline /></p></div>
         {done ? <Alert tone="ok" title="Mensagem enviada.">{done}</Alert> : (
           <form className="card card-pad stack" onSubmit={submit}>
             <div className="form-grid cols-2">

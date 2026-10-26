@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { before, after, describe, it } from 'node:test';
 import { integration, loadCore, uid, useTestEnv } from './helpers/db.mjs';
 import { hostRequest, startServer } from './helpers/server.mjs';
+import { checkoutWithContract } from './helpers/contract.mjs';
 
 describe('cupom de 100% em consulta avulsa: libera a consulta sem meio de pagamento', integration, () => {
   let pool; let server;
@@ -10,7 +11,7 @@ describe('cupom de 100% em consulta avulsa: libera a consulta sem meio de pagame
     ({ pool } = await loadCore());
     server = await startServer(); // PAYMENT_PROVIDER=disabled: sem checkout configurado
   });
-  after(async () => { await server.stop(); await pool.end(); });
+  after(async () => { await server.stop(); await pool.query(`DELETE FROM email_outbox WHERE related_type='PURCHASE_CONTRACT'`); await pool.end(); });
 
   const register = async () => {
     const reg = await hostRequest(server.base, '/api/auth/register', { method: 'POST', body: { name: 'Cliente Cupom', email: `${uid('cp')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });
@@ -34,7 +35,7 @@ describe('cupom de 100% em consulta avulsa: libera a consulta sem meio de pagame
 
   it('checkout grátis: pedido PAID com valor zero, direito READY, cupom resgatado, sem comissão; consulta roda e consome o direito', async () => {
     const c = await register(); const cp = await mkCoupon('PERCENT', 100, 5);
-    const r = await hostRequest(server.base, '/api/payments/query/checkout', { method: 'POST', token: c.token, body: body(cp.code) });
+    const r = await checkoutWithContract(server.base, pool, c, '/api/payments/query/checkout', body(cp.code));
     assert.equal(r.status, 201, r.text);
     assert.equal(r.json.free, true); assert.equal(r.json.checkoutUrl, null); assert.equal(r.json.amountCents, 0);
     const order = (await pool.query('SELECT status,amount_cents,provider,paid_at FROM payment_orders WHERE id=$1', [r.json.orderId])).rows[0];
@@ -56,29 +57,29 @@ describe('cupom de 100% em consulta avulsa: libera a consulta sem meio de pagame
 
   it('cada conta resgata o mesmo cupom grátis uma vez; outra conta ainda pode', async () => {
     const a = await register(); const b = await register(); const cp = await mkCoupon('PERCENT', 100);
-    assert.equal((await hostRequest(server.base, '/api/payments/query/checkout', { method: 'POST', token: a.token, body: body(cp.code) })).status, 201);
-    const second = await hostRequest(server.base, '/api/payments/query/checkout', { method: 'POST', token: a.token, body: body(cp.code) });
+    assert.equal((await checkoutWithContract(server.base, pool, a, '/api/payments/query/checkout', body(cp.code))).status, 201);
+    const second = await checkoutWithContract(server.base, pool, a, '/api/payments/query/checkout', body(cp.code));
     assert.equal(second.status, 400); assert.equal(second.json.error, 'COUPON_ALREADY_USED');
     assert.match(second.json.message, /já usou este cupom/);
     const quote = await hostRequest(server.base, '/api/payments/query/quote', { method: 'POST', token: a.token, body: body(cp.code) });
     assert.equal(quote.json.error, 'COUPON_ALREADY_USED');
-    assert.equal((await hostRequest(server.base, '/api/payments/query/checkout', { method: 'POST', token: b.token, body: body(cp.code) })).status, 201);
+    assert.equal((await checkoutWithContract(server.base, pool, b, '/api/payments/query/checkout', body(cp.code))).status, 201);
   });
 
   it('respeita o limite de resgates do cupom', async () => {
     const a = await register(); const b = await register(); const cp = await mkCoupon('PERCENT', 100, 1);
-    assert.equal((await hostRequest(server.base, '/api/payments/query/checkout', { method: 'POST', token: a.token, body: body(cp.code) })).status, 201);
-    const r = await hostRequest(server.base, '/api/payments/query/checkout', { method: 'POST', token: b.token, body: body(cp.code) });
+    assert.equal((await checkoutWithContract(server.base, pool, a, '/api/payments/query/checkout', body(cp.code))).status, 201);
+    const r = await checkoutWithContract(server.base, pool, b, '/api/payments/query/checkout', body(cp.code));
     assert.equal(r.status, 400); assert.equal(r.json.error, 'COUPON_UNAVAILABLE');
   });
 
   it('cupom parcial ou sem cupom continua exigindo o meio de pagamento, com mensagem clara', async () => {
     const c = await register(); const cp = await mkCoupon('PERCENT', 50);
-    const partial = await hostRequest(server.base, '/api/payments/query/checkout', { method: 'POST', token: c.token, body: body(cp.code) });
+    const partial = await checkoutWithContract(server.base, pool, c, '/api/payments/query/checkout', body(cp.code));
     assert.equal(partial.status, 503); assert.equal(partial.json.error, 'PAYMENT_PROVIDER_NOT_CONFIGURED');
     assert.match(partial.json.message, /checkout de pagamento ainda não foi configurado/);
     assert.equal((await pool.query(`SELECT 1 FROM payment_orders WHERE user_id=$1`, [c.id])).rowCount, 0);
-    const none = await hostRequest(server.base, '/api/payments/query/checkout', { method: 'POST', token: c.token, body: { productId: 'COMPLETE', plate: 'DEV1B11' } });
+    const none = await checkoutWithContract(server.base, pool, c, '/api/payments/query/checkout', { productId: 'COMPLETE', plate: 'DEV1B11' });
     assert.equal(none.status, 503);
   });
 

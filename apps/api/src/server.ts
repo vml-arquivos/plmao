@@ -33,6 +33,8 @@ import { getPaymentProvider, getPaymentProviderFor, type PaymentProviderName } f
 import { ensureSchema } from './schema.js';
 import { performAdminLookup } from './adminLookup.js';
 import { executeVehicleLookup, providerSupports } from './vehicleLookup.js';
+import { isPrelaunch, siteOpenFor } from './siteAccess.js';
+import { claimContractForOrder, confirmPurchaseContract, draftPurchaseContract, getUserContract, linkContractToOrder, listUserContracts, reopenContractForOrder, resendPurchaseOtp } from './purchaseContract.js';
 import { INVALID_CODE, SEARCH_LABELS, SEARCH_TYPES, maskSearchValue, resolveSearchInput, type SearchType } from './searchKey.js';
 import { calculateAffiliateCommission, calculateCouponDiscount, couponHasCapacity, couponWindowIsOpen, effectiveQueryPriceCents, queryAmountAfterCoupon } from './commercial.js';
 import { publicVehicleResult, sanitizeAuditMetadata } from './privacy.js';
@@ -237,8 +239,8 @@ const adminUserUpdateSchema = z.object({
   amountCents: z.number().int().min(-100000000).max(100000000).refine((value) => value !== 0, 'ZERO_ADJUSTMENT'),
   description: z.string().trim().min(8).max(280)
 }).strict();
-  const checkoutSchema = z.object({ packageSlug: z.string().trim().min(2).max(80), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict();
-  const queryCheckoutSchema = z.object({ ...searchFields, productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict()
+  const checkoutSchema = z.object({ contractId: z.string().uuid().optional(), packageSlug: z.string().trim().min(2).max(80), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict();
+  const queryCheckoutSchema = z.object({ ...searchFields, contractId: z.string().uuid().optional(), productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict()
     .transform((value, ctx) => {
       const found = resolveSearchInput(value);
       if (!found) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'INVALID_SEARCH' }); return z.NEVER; }
@@ -352,6 +354,66 @@ function serializeQuery(row: QueryRow & Record<string, unknown>): Record<string,
 }
 
 app.set('trust proxy', env.TRUST_PROXY);
+// Pré-lançamento: nenhuma resposta é indexável, mesmo que alguém ache o endereço.
+app.use((_req, res, next) => { if (isPrelaunch()) res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive'); next(); });
+/** Com o site fechado (pré-lançamento), só e-mails da lista criam conta, pagam e consultam. */
+function assertSiteOpenFor(email: string | undefined): void {
+  if (!siteOpenFor(String(email ?? ''))) throw appError('SITE_NOT_OPEN', { code: 'SITE_NOT_OPEN', http: 403, expose: true });
+}
+/** Canais de atendimento por telefone/WhatsApp, definidos por variável de ambiente. */
+function supportChannels(): { phone: string | null; whatsapp: string | null; whatsappUrl: string | null; hours: string | null } {
+  const digits = (v?: string) => String(v ?? '').replace(/\D/g, '');
+  const wa = digits(env.SUPPORT_WHATSAPP);
+  const full = wa.length >= 10 && wa.length <= 11 ? `55${wa}` : wa;
+  return {
+    phone: env.SUPPORT_PHONE?.trim() || null,
+    whatsapp: wa ? env.SUPPORT_WHATSAPP!.trim() : null,
+    whatsappUrl: full.length >= 12 && full.length <= 15 ? `https://wa.me/${full}` : null,
+    hours: env.SUPPORT_HOURS?.trim() || null
+  };
+}
+api.get('/support-info', (_req, res) => { res.setHeader('Cache-Control', 'public, max-age=300'); res.json(supportChannels()); });
+const purchaseContractLimit = rateLimit({ windowMs: 10 * 60_000, limit: 40, standardHeaders: true, legacyHeaders: false, skip: () => env.NODE_ENV === 'test' });
+const contractIdParam = (req: Request): string => { const id = String(req.params.id ?? ''); if (!/^[0-9a-f-]{36}$/i.test(id)) throw appError('PURCHASE_CONTRACT_NOT_FOUND', { code: 'PURCHASE_CONTRACT_NOT_FOUND', http: 404, expose: true }); return id; };
+/** Monta o contrato da compra (dados do cliente + da empresa + do pedido) e envia o código de confirmação ao e-mail do cliente. */
+api.post('/purchase-contracts/draft', auth, requirePermission('BUY_CREDITS'), purchaseContractLimit, asyncRoute(async (req, res) => {
+  assertSiteOpenFor(req.user!.email);
+  const isPackage = typeof (req.body as { packageSlug?: unknown } | null)?.packageSlug === 'string';
+  if (isPackage) {
+    const parsed = checkoutSchema.safeParse(req.body);
+    if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+    const q = await computePackageQuote(req.user!.id, parsed.data);
+    const out = await draftPurchaseContract({ userId: req.user!.id, kind: 'PACKAGE', itemKey: q.packageSlug, item: { kind: 'PACKAGE', name: q.packageName, description: '', creditsCents: q.credits * 100 }, amounts: { subtotalCents: q.subtotalCents, discountCents: q.discountCents, amountCents: q.amountCents, couponCode: q.couponCode } });
+    res.status(201).json({ ...out, amountCents: q.amountCents });
+    return;
+  }
+  const parsed = queryCheckoutSchema.safeParse(req.body);
+  if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
+  const q = await computeQueryQuote(req.user!.id, parsed.data);
+  const desc = await pool.query('SELECT description FROM query_products WHERE id=$1', [q.productId]);
+  const out = await draftPurchaseContract({ userId: req.user!.id, kind: 'QUERY', itemKey: q.productId, item: { kind: 'QUERY', name: q.productName, description: String(desc.rows[0]?.description ?? ''), creditsCents: 0 }, amounts: { subtotalCents: q.subtotalCents, discountCents: q.discountCents, amountCents: q.amountCents, couponCode: q.couponCode } });
+  res.status(201).json({ ...out, amountCents: q.amountCents });
+}));
+api.post('/purchase-contracts/:id/resend', auth, requirePermission('BUY_CREDITS'), purchaseContractLimit, asyncRoute(async (req, res) => {
+  res.json(await resendPurchaseOtp(req.user!.id, contractIdParam(req)));
+}));
+const confirmContractSchema = z.object({ code: z.string().trim().regex(/^\d{6}$/), accept: z.literal(true) }).strict();
+api.post('/purchase-contracts/:id/confirm', auth, requirePermission('BUY_CREDITS'), purchaseContractLimit, asyncRoute(async (req, res) => {
+  const parsed = confirmContractSchema.safeParse(req.body);
+  if (!parsed.success) throw appError('PURCHASE_OTP_INVALID', { code: 'PURCHASE_OTP_INVALID', http: 400, expose: true });
+  const id = contractIdParam(req);
+  try {
+    const out = await confirmPurchaseContract(req.user!.id, id, parsed.data.code, { ipHash: hashIp(req.ip), userAgent: String(req.headers['user-agent'] ?? '').slice(0, 300) || null });
+    await audit(req.user!.id, 'PURCHASE_CONTRACT_ACCEPTED', 'PURCHASE_CONTRACT', id, { number: out.number, requestId: requestId(req) });
+    res.json({ accepted: true, contractId: id, number: out.number });
+  } catch (error) {
+    const left = (error as { attemptsLeft?: number }).attemptsLeft;
+    if (left !== undefined && (error as { code?: string }).code === 'PURCHASE_OTP_INVALID') { res.status(400).json({ error: 'PURCHASE_OTP_INVALID', message: humanMessage('PURCHASE_OTP_INVALID'), attemptsLeft: left }); return; }
+    throw error;
+  }
+}));
+api.get('/purchase-contracts', auth, asyncRoute(async (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ items: await listUserContracts(req.user!.id) }); }));
+api.get('/purchase-contracts/:id', auth, asyncRoute(async (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(await getUserContract(req.user!.id, contractIdParam(req))); }));
 app.disable('x-powered-by');
 app.use((req, res, next) => {
   const id = typeof req.headers['x-request-id'] === 'string' && /^[a-zA-Z0-9_-]{8,80}$/.test(req.headers['x-request-id'])
@@ -486,6 +548,7 @@ api.post('/auth/register', asyncRoute(async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const email = parsed.data.email.toLowerCase();
+  assertSiteOpenFor(email);
   const passwordHash = await bcrypt.hash(parsed.data.password, 12);
   try {
     const created = await tx(async (client) => {
@@ -1326,6 +1389,7 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
 }
 
 api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async (req, res) => {
+  assertSiteOpenFor(req.user!.email);
   const parsed = requestQuerySchema.safeParse(req.body);
   if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
   const idempotencyKeyHeader = req.headers['idempotency-key'];
@@ -1372,6 +1436,7 @@ function v1Query(body: Record<string, any>) {
   };
 }
 v1.post('/vehicles', asyncRoute(async (req, res) => {
+  assertSiteOpenFor(req.user!.email);
   const parsed = v1QuerySchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_REQUEST', { code: 'INVALID_REQUEST', http: 400, expose: true });
   const key = req.headers['idempotency-key'];
@@ -1612,21 +1677,19 @@ api.post('/payments/sync', auth, requirePermission('BUY_CREDITS'), asyncRoute(as
   catch { throw appError('PAYMENT_PROVIDER_REQUEST_FAILED', { code: 'PAYMENT_PROVIDER_REQUEST_FAILED', http: 502, expose: true }); }
 }));
 
-api.post('/payments/quote', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
-  const parsed = checkoutSchema.safeParse(req.body);
-  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
-  const quote = await tx(async (client) => {
-    const pack = await client.query('SELECT id,slug,name,credits,price_cents FROM credit_packages WHERE slug=$1 AND active=true', [parsed.data.packageSlug]);
+async function computePackageQuote(userId: string, data: z.infer<typeof checkoutSchema>) {
+  return tx(async (client) => {
+    const pack = await client.query('SELECT id,slug,name,credits,price_cents FROM credit_packages WHERE slug=$1 AND active=true', [data.packageSlug]);
     if (!pack.rowCount) throw appError('CREDIT_PACKAGE_NOT_FOUND', { code: 'CREDIT_PACKAGE_NOT_FOUND', http: 404, expose: true });
     const packRow = pack.rows[0] as Record<string, unknown>;
     const basePriceCents = Number(packRow.price_cents);
-    const pricing = await effectivePackagePrice(client, req.user!.id, String(packRow.id), basePriceCents);
+    const pricing = await effectivePackagePrice(client, userId, String(packRow.id), basePriceCents);
     const subtotalCents = pricing.priceCents;
     let discountCents = 0;
     let couponCode: string | null = null;
-    if (parsed.data.couponCode) {
+    if (data.couponCode) {
       const coupon = await client.query(`SELECT id,code,discount_type,discount_value,max_redemptions,redeemed_count,active,starts_at,expires_at
-        FROM coupons WHERE upper(code)=upper($1) FOR SHARE`, [parsed.data.couponCode]);
+        FROM coupons WHERE upper(code)=upper($1) FOR SHARE`, [data.couponCode]);
       if (!coupon.rowCount) throw appError('COUPON_INVALID', { code: 'COUPON_INVALID', http: 400, expose: true });
       const couponRow = coupon.rows[0] as Record<string, unknown>;
       const reservations = await client.query(`SELECT count(*)::int AS reserved_count FROM coupon_redemptions WHERE coupon_id=$1 AND status='RESERVED'`, [couponRow.id]);
@@ -1637,12 +1700,50 @@ api.post('/payments/quote', auth, requirePermission('BUY_CREDITS'), asyncRoute(a
       discountCents = calculateCouponDiscount(subtotalCents, String(couponRow.discount_type) as 'PERCENT' | 'FIXED', Number(couponRow.discount_value));
       if (discountCents >= subtotalCents) throw appError('COUPON_ZERO_TOTAL_UNSUPPORTED', { code: 'COUPON_ZERO_TOTAL_UNSUPPORTED', http: 400, expose: true });
     }
-    return { packageSlug: String(packRow.slug), packageName: String(packRow.name), credits: Number(packRow.credits), couponCode, affiliateCode: parsed.data.affiliateCode ?? null, basePriceCents, negotiated: pricing.negotiated, subtotalCents, discountCents, amountCents: Math.max(0, subtotalCents - discountCents) };
+    return { packageSlug: String(packRow.slug), packageName: String(packRow.name), credits: Number(packRow.credits), couponCode, affiliateCode: data.affiliateCode ?? null, basePriceCents, negotiated: pricing.negotiated, subtotalCents, discountCents, amountCents: Math.max(0, subtotalCents - discountCents) };
   });
+}
+
+async function computeQueryQuote(userId: string, data: z.infer<typeof queryCheckoutSchema>) {
+  return tx(async (client) => {
+    const product = await client.query('SELECT id,name,description,price_cents,is_free FROM query_products WHERE id=$1 AND active=true', [data.productId]);
+    if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
+    const productRow = product.rows[0] as Record<string, unknown>;
+    const pricing = await effectiveQueryPrice(client, userId, String(productRow.id), Number(productRow.price_cents ?? 0), Boolean(productRow.is_free));
+    if (pricing.priceCents <= 0) throw appError('QUERY_NOT_CHARGEABLE', { code: 'QUERY_NOT_CHARGEABLE', http: 400, expose: true });
+    let discountCents = 0;
+    let couponCode: string | null = null;
+    if (data.couponCode) {
+      const coupon = await client.query(`SELECT id,code,discount_type,discount_value,max_redemptions,redeemed_count,active,starts_at,expires_at
+        FROM coupons WHERE upper(code)=upper($1) FOR SHARE`, [data.couponCode]);
+      if (!coupon.rowCount) throw appError('COUPON_INVALID', { code: 'COUPON_INVALID', http: 400, expose: true });
+      const couponRow = coupon.rows[0] as Record<string, unknown>;
+      const reservations = await client.query(`SELECT count(*)::int AS reserved_count FROM coupon_redemptions WHERE coupon_id=$1 AND status='RESERVED'`, [couponRow.id]);
+      if (!couponWindowIsOpen({ active: Boolean(couponRow.active), startsAt: couponRow.starts_at as string | Date | null, expiresAt: couponRow.expires_at as string | Date | null }) || !couponHasCapacity(couponRow.max_redemptions == null ? null : Number(couponRow.max_redemptions), Number(couponRow.redeemed_count), Number(reservations.rows[0]?.reserved_count ?? 0))) {
+        throw appError('COUPON_UNAVAILABLE', { code: 'COUPON_UNAVAILABLE', http: 400, expose: true });
+      }
+      couponCode = String(couponRow.code);
+      discountCents = queryAmountAfterCoupon(pricing.priceCents, String(couponRow.discount_type) as 'PERCENT' | 'FIXED', Number(couponRow.discount_value)).discountCents;
+      if (discountCents >= pricing.priceCents && await freeCouponAlreadyUsed(client, userId, String(couponRow.id))) throw appError('COUPON_ALREADY_USED', { code: 'COUPON_ALREADY_USED', http: 400, expose: true });
+    }
+    if (data.affiliateCode) {
+      const affiliate = await client.query('SELECT id,user_id FROM affiliates WHERE upper(code)=upper($1) AND active=true', [data.affiliateCode]);
+      if (!affiliate.rowCount || (affiliate.rows[0].user_id && String(affiliate.rows[0].user_id) === userId)) throw appError('AFFILIATE_INVALID', { code: 'AFFILIATE_INVALID', http: 400, expose: true });
+    }
+    const totals = { subtotalCents: pricing.priceCents, discountCents, amountCents: Math.max(0, pricing.priceCents - discountCents) };
+    return { purchaseType: 'QUERY', productId: String(productRow.id), productName: String(productRow.name), plate: data.plate, basePriceCents: Number(productRow.price_cents ?? 0), negotiated: pricing.negotiated, couponCode, affiliateCode: data.affiliateCode ?? null, ...totals };
+  });
+}
+
+api.post('/payments/quote', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
+  const parsed = checkoutSchema.safeParse(req.body);
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const quote = await computePackageQuote(req.user!.id, parsed.data);
   res.json({ ...quote, paymentProviderConfigured: getPaymentProvider().isConfigured(), usageCountChangesOnlyAfterPaid: true });
 }));
 
 api.post('/payments/checkout', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
+  assertSiteOpenFor(req.user!.email);
   const parsed = checkoutSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const paymentProvider = getPaymentProvider();
@@ -1683,9 +1784,11 @@ api.post('/payments/checkout', auth, requirePermission('BUY_CREDITS'), asyncRout
       if (affiliate.rowCount && (!affiliate.rows[0].user_id || String(affiliate.rows[0].user_id) !== req.user!.id)) { affiliateId = String(affiliate.rows[0].id); affiliateCommissionBps = Number(affiliate.rows[0].commission_bps); }
     }
     const amountCents = Math.max(0, subtotalCents - discountCents);
+    const contractId = await claimContractForOrder(client, req.user!.id, parsed.data.contractId, { kind: 'PACKAGE', itemKey: String(packRow.slug), amountCents });
     const externalReference = `pnm_${crypto.randomUUID()}`;
     const order = await client.query(`INSERT INTO payment_orders(user_id,package_id,status,subtotal_cents,amount_cents,credits,provider,external_reference,discount_cents,coupon_id,affiliate_id,affiliate_commission_bps)
       VALUES($1,$2,'CREATED',$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`, [req.user!.id, packRow.id, subtotalCents, amountCents, packRow.credits, paymentProvider.name, externalReference, discountCents, couponId, affiliateId, affiliateCommissionBps]);
+    await linkContractToOrder(client, contractId, String(order.rows[0].id));
     if (couponId) await client.query(`INSERT INTO coupon_redemptions(coupon_id,payment_order_id,status) VALUES($1,$2,'RESERVED')`, [couponId, order.rows[0].id]);
     return { orderId: order.rows[0].id as string, externalReference, pack: packRow, customer: profile.rows[0] as Record<string, unknown>, subtotalCents, discountCents, amountCents, couponCode, couponId, affiliateId };
   });
@@ -1703,6 +1806,7 @@ api.post('/payments/checkout', auth, requirePermission('BUY_CREDITS'), asyncRout
   } catch (error) {
     await pool.query(`UPDATE payment_orders SET status='FAILED',updated_at=now() WHERE id=$1`, [draft.orderId]);
     await pool.query(`UPDATE coupon_redemptions SET status='RELEASED',updated_at=now() WHERE payment_order_id=$1 AND status='RESERVED'`, [draft.orderId]);
+    await reopenContractForOrder(draft.orderId);
     throw error;
   }
 }));
@@ -1724,38 +1828,12 @@ async function freeCouponAlreadyUsed(client: PoolClient, userId: string, couponI
 api.post('/payments/query/quote', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
   const parsed = queryCheckoutSchema.safeParse(req.body);
   if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
-  const quote = await tx(async (client) => {
-    const product = await client.query('SELECT id,name,description,price_cents,is_free FROM query_products WHERE id=$1 AND active=true', [parsed.data.productId]);
-    if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
-    const productRow = product.rows[0] as Record<string, unknown>;
-    const pricing = await effectiveQueryPrice(client, req.user!.id, String(productRow.id), Number(productRow.price_cents ?? 0), Boolean(productRow.is_free));
-    if (pricing.priceCents <= 0) throw appError('QUERY_NOT_CHARGEABLE', { code: 'QUERY_NOT_CHARGEABLE', http: 400, expose: true });
-    let discountCents = 0;
-    let couponCode: string | null = null;
-    if (parsed.data.couponCode) {
-      const coupon = await client.query(`SELECT id,code,discount_type,discount_value,max_redemptions,redeemed_count,active,starts_at,expires_at
-        FROM coupons WHERE upper(code)=upper($1) FOR SHARE`, [parsed.data.couponCode]);
-      if (!coupon.rowCount) throw appError('COUPON_INVALID', { code: 'COUPON_INVALID', http: 400, expose: true });
-      const couponRow = coupon.rows[0] as Record<string, unknown>;
-      const reservations = await client.query(`SELECT count(*)::int AS reserved_count FROM coupon_redemptions WHERE coupon_id=$1 AND status='RESERVED'`, [couponRow.id]);
-      if (!couponWindowIsOpen({ active: Boolean(couponRow.active), startsAt: couponRow.starts_at as string | Date | null, expiresAt: couponRow.expires_at as string | Date | null }) || !couponHasCapacity(couponRow.max_redemptions == null ? null : Number(couponRow.max_redemptions), Number(couponRow.redeemed_count), Number(reservations.rows[0]?.reserved_count ?? 0))) {
-        throw appError('COUPON_UNAVAILABLE', { code: 'COUPON_UNAVAILABLE', http: 400, expose: true });
-      }
-      couponCode = String(couponRow.code);
-      discountCents = queryAmountAfterCoupon(pricing.priceCents, String(couponRow.discount_type) as 'PERCENT' | 'FIXED', Number(couponRow.discount_value)).discountCents;
-      if (discountCents >= pricing.priceCents && await freeCouponAlreadyUsed(client, req.user!.id, String(couponRow.id))) throw appError('COUPON_ALREADY_USED', { code: 'COUPON_ALREADY_USED', http: 400, expose: true });
-    }
-    if (parsed.data.affiliateCode) {
-      const affiliate = await client.query('SELECT id,user_id FROM affiliates WHERE upper(code)=upper($1) AND active=true', [parsed.data.affiliateCode]);
-      if (!affiliate.rowCount || (affiliate.rows[0].user_id && String(affiliate.rows[0].user_id) === req.user!.id)) throw appError('AFFILIATE_INVALID', { code: 'AFFILIATE_INVALID', http: 400, expose: true });
-    }
-    const totals = { subtotalCents: pricing.priceCents, discountCents, amountCents: Math.max(0, pricing.priceCents - discountCents) };
-    return { purchaseType: 'QUERY', productId: String(productRow.id), productName: String(productRow.name), plate: parsed.data.plate, basePriceCents: Number(productRow.price_cents ?? 0), negotiated: pricing.negotiated, couponCode, affiliateCode: parsed.data.affiliateCode ?? null, ...totals };
-  });
+  const quote = await computeQueryQuote(req.user!.id, parsed.data);
   res.json({ ...quote, free: quote.amountCents === 0, paymentProviderConfigured: quote.amountCents === 0 || getPaymentProvider().isConfigured(), usageCountChangesOnlyAfterPaid: true });
 }));
 
 api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
+  assertSiteOpenFor(req.user!.email);
   const parsed = queryCheckoutSchema.safeParse(req.body);
   if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
   const paymentProvider = getPaymentProvider();
@@ -1800,9 +1878,11 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
     }
     if (free) { affiliateId = null; affiliateCommissionBps = 0; } // sem receita, sem comissão
     const amountCents = free ? 0 : Math.max(1, pricing.priceCents - discountCents);
+    const contractId = await claimContractForOrder(client, req.user!.id, parsed.data.contractId, { kind: 'QUERY', itemKey: String(productRow.id), amountCents });
     const externalReference = `pnm_query_${crypto.randomUUID()}`;
     const order = await client.query(`INSERT INTO payment_orders(user_id,package_id,purchase_type,product_id,query_plate,query_search_type,status,subtotal_cents,amount_cents,credits,provider,external_reference,discount_cents,coupon_id,affiliate_id,affiliate_commission_bps,paid_at)
       VALUES($1,NULL,'QUERY',$2,$3,$14,$12,$4,$5,0,$6,$7,$8,$9,$10,$11,CASE WHEN $13::boolean THEN now() END) RETURNING id`, [req.user!.id, productRow.id, parsed.data.plate, pricing.priceCents, amountCents, free ? 'coupon' : paymentProvider.name, externalReference, discountCents, couponId, affiliateId, affiliateCommissionBps, free ? 'PAID' : 'CREATED', free, parsed.data.searchType]);
+    await linkContractToOrder(client, contractId, String(order.rows[0].id));
     if (free) {
       await client.query(`INSERT INTO coupon_redemptions(coupon_id,payment_order_id,status,redeemed_at) VALUES($1,$2,'REDEEMED',now())`, [couponId, order.rows[0].id]);
       await client.query('UPDATE coupons SET redeemed_count=redeemed_count+1,updated_at=now() WHERE id=$1', [couponId]);
@@ -1829,6 +1909,7 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
   } catch (error) {
     await pool.query(`UPDATE payment_orders SET status='FAILED',updated_at=now() WHERE id=$1`, [draft.orderId]);
     await pool.query(`UPDATE coupon_redemptions SET status='RELEASED',updated_at=now() WHERE payment_order_id=$1 AND status='RESERVED'`, [draft.orderId]);
+    await reopenContractForOrder(draft.orderId);
     throw error;
   }
 }));
@@ -2593,7 +2674,7 @@ app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
   const code = known.code ?? 'INTERNAL_ERROR';
   log('error', 'request_failed', { requestId: requestId(req), path: req.path, method: req.method, status, code, message: error instanceof Error ? error.message : 'Unknown error' });
   const details = known.expose ? (known as AppError & { details?: unknown }).details : undefined;
-  res.status(status).json({ error: code, message: known.expose ? (code.startsWith('SIM_') ? known.message : humanMessage(code)) : 'Não foi possível concluir esta operação agora. Tente novamente.', ...(Array.isArray(details) ? { details } : {}) });
+  res.status(status).json({ error: code, message: known.expose ? (code.startsWith('SIM_') || known.showMessage ? known.message : humanMessage(code)) : 'Não foi possível concluir esta operação agora. Tente novamente.', ...(Array.isArray(details) ? { details } : {}) });
 });
 
 const escapeHtmlText = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
@@ -2695,6 +2776,22 @@ function humanMessage(code: string): string {
     WALLET_BALANCE_INVALID: 'Este ajuste deixaria a carteira com saldo negativo.',
     CREDIT_PACKAGE_NOT_FOUND: 'A oferta legada de saldo pré-pago solicitada não está disponível.',
     PAYMENT_PROVIDER_NOT_CONFIGURED: 'O checkout de pagamento ainda não foi configurado para este ambiente.',
+    SITE_NOT_OPEN: 'O site ainda não está aberto ao público.',
+    PURCHASE_CONTRACT_REQUIRED: 'Leia o contrato e confirme com o código enviado ao seu e-mail para continuar.',
+    PURCHASE_CONTRACT_NOT_ACCEPTED: 'Falta confirmar o contrato com o código enviado ao seu e-mail.',
+    PURCHASE_CONTRACT_EXPIRED: 'O contrato expirou. Gere um novo para continuar.',
+    PURCHASE_CONTRACT_USED: 'Este contrato já foi usado em outra compra. Gere um novo.',
+    PURCHASE_CONTRACT_MISMATCH: 'O valor ou o item mudou depois do contrato. Gere um novo contrato.',
+    PURCHASE_CONTRACT_NOT_FOUND: 'Contrato não encontrado.',
+    PURCHASE_CONTRACT_NOT_PENDING: 'Este contrato não aguarda mais confirmação.',
+    PURCHASE_CONTRACT_RATE_LIMIT: 'Muitos contratos gerados em pouco tempo. Tente de novo mais tarde.',
+    PURCHASE_OTP_INVALID: 'Código incorreto. Confira o e-mail e tente de novo.',
+    PURCHASE_OTP_EXPIRED: 'O código expirou. Peça um novo código.',
+    PURCHASE_OTP_LOCKED: 'Muitas tentativas erradas. Peça um novo código.',
+    PURCHASE_OTP_TOO_SOON: 'Aguarde alguns segundos antes de pedir outro código.',
+    PURCHASE_OTP_SEND_LIMIT: 'Limite de códigos atingido. Gere um novo contrato.',
+    CONTRACT_PROFILE_INCOMPLETE: 'Informe seu CPF ou CNPJ no perfil para gerar o contrato.',
+    PURCHASE_CONTRACTOR_MISSING: 'O contrato não pôde ser gerado agora. Fale com o suporte.',
     COUPON_ZERO_TOTAL_UNSUPPORTED: 'Cupom de 100% vale apenas para consulta avulsa, não para pacote de saldo.',
     COUPON_INVALID: 'Cupom não encontrado. Confira o código.',
     COUPON_UNAVAILABLE: 'Este cupom não está disponível (expirado, desativado ou esgotado).',
@@ -2751,9 +2848,9 @@ const adminHtmlPath = path.join(webDist, 'admin.html');
 const adminHtmlTemplate = existsSync(adminHtmlPath) ? readFileSync(adminHtmlPath, 'utf8') : undefined;
 const staticOptions = { index: false, maxAge: env.NODE_ENV === 'production' ? '1h' : 0, etag: true } as const;
 const serveStatic = express.static(webDist, staticOptions);
-app.get('/robots.txt', (req, res) => { res.type('text/plain').setHeader('Cache-Control', 'public, max-age=3600'); res.send(renderRobotsTxt(env.APP_URL ?? env.WEB_ORIGIN, isAdminHost(req))); });
+app.get('/robots.txt', (req, res) => { res.type('text/plain').setHeader('Cache-Control', 'public, max-age=3600'); res.send(renderRobotsTxt(env.APP_URL ?? env.WEB_ORIGIN, isAdminHost(req) || isPrelaunch())); });
 app.get('/sitemap.xml', asyncRoute(async (req, res) => {
-  if (isAdminHost(req)) return res.status(404).end();
+  if (isAdminHost(req) || isPrelaunch()) return res.status(404).end();
   const articles = await publishedArticleSlugs();
   const vehicles = await pool.query(`SELECT slug,updated_at FROM vehicle_models WHERE status='PUBLISHED' AND archived_at IS NULL ORDER BY brand,name LIMIT 5000`);
   const stores = await pool.query(`SELECT slug,updated_at FROM dealerships WHERE public_enabled AND active AND archived_at IS NULL ORDER BY created_at LIMIT 2000`);
@@ -2817,7 +2914,8 @@ app.get('*', asyncRoute(async (req, res, next) => {
     if (faqs.rowCount) override = { bodyHtml: `<section>${faqs.rows.slice(0, 30).map((f) => `<h2>${escapeHtmlText(f.question)}</h2><p>${escapeHtmlText(f.answer)}</p>`).join('')}</section>`, jsonLd: [{ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.rows.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })) }] };
   }
   if (!isKnownPath(req.path)) { res.status(404); override = { notFound: true }; }
-  res.type('html').send(renderSeoHtml(indexHtmlTemplate, req.path, env.APP_URL ?? env.WEB_ORIGIN, override));
+  const page = renderSeoHtml(indexHtmlTemplate, req.path, env.APP_URL ?? env.WEB_ORIGIN, override);
+  res.type('html').send(isPrelaunch() ? page.replace(/<meta name="robots" content="[^"]*"\s*\/>/, '<meta name="robots" content="noindex,nofollow,noarchive" />') : page);
 }));
 
 setInterval(() => { sweepStuckQueries(env.QUERY_STUCK_MINUTES).catch((error) => log('error', 'query_sweeper_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 2 * 60 * 1000).unref();

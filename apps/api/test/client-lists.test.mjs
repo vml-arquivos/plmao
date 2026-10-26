@@ -63,7 +63,8 @@ describe('listas do cliente: consultas, extrato, notas e comissões por mês', i
     assert.equal(d30.json.length, 2);
     const d90 = await call(server.base, '/api/queries?days=90', { token });
     assert.equal(d90.json.length, 3);
-    const day = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+    // o dia vem do próprio banco: o filtro usa o fuso do banco, e a data em UTC divergia à noite no Brasil
+    const day = (await pool.query(`SELECT to_char((now() - interval '10 days')::date, 'YYYY-MM-DD') AS d`)).rows[0].d;
     const range = await call(server.base, `/api/queries?from=${day}&to=${day}`, { token });
     assert.deepEqual(range.json.map((x) => x.plate), ['ABC1D24']);
   });

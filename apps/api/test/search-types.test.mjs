@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test, { describe, before, after, it } from 'node:test';
 import { integration, loadCore, uid, useTestEnv } from './helpers/db.mjs';
+import { checkoutWithContract } from './helpers/contract.mjs';
 import { hostRequest, startServer } from './helpers/server.mjs';
 
 useTestEnv();
@@ -97,7 +98,7 @@ describe('Credify: tipos de busca vêm do contrato', () => {
 describe('API: consulta por chassi, Renavam e documento', integration, () => {
   let pool; let server;
   before(async () => { useTestEnv(); ({ pool } = await loadCore()); server = await startServer({ PUBLIC_API_ENABLED: 'true' }); });
-  after(async () => { await server.stop(); await pool.end(); });
+  after(async () => { await server.stop(); await pool.query(`DELETE FROM email_outbox WHERE related_type='PURCHASE_CONTRACT'`); await pool.end(); });
 
   const register = async (balance = 50000) => {
     const reg = await hostRequest(server.base, '/api/auth/register', { method: 'POST', body: { name: 'Cliente Busca', email: `${uid('bs')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });
@@ -181,7 +182,7 @@ describe('API: consulta por chassi, Renavam e documento', integration, () => {
     const code = uid('BUSCA').toUpperCase().replace(/-/g, '');
     await pool.query(`INSERT INTO coupons(code,discount_type,discount_value) VALUES($1,'PERCENT',100)`, [code]);
     const body = { productId: 'COMPLETE', searchType: 'CHASSIS', searchValue: '9ZZSANDBXXDEV1B11', couponCode: code };
-    const order = await hostRequest(server.base, '/api/payments/query/checkout', { method: 'POST', token: c.token, body });
+    const order = await checkoutWithContract(server.base, pool, c, '/api/payments/query/checkout', body);
     assert.equal(order.status, 201, order.text);
     assert.equal(order.json.searchType, 'CHASSIS');
     const ent = (await pool.query('SELECT search_type,plate FROM query_payment_entitlements WHERE order_id=$1', [order.json.orderId])).rows[0];

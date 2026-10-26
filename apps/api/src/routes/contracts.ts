@@ -178,6 +178,26 @@ flow('cancel', manage, 'CONTRACT_CANCELLED', (id, a, b) => C.cancel(id, a, b.rea
 flow('send', manage, 'CONTRACT_SENT_FOR_SIGNATURE', (id, a) => C.sendForSignature(id, a));
 flow('apply', pricing, 'CONTRACT_TERMS_APPLIED', (id, a) => C.applyTerms(id, a));
 
+
+// ------------------------------------------------------------- contratos de compra (adesão)
+
+adminContractsRouter.get('/purchase-contracts', view, asyncRoute(async (req, res) => {
+  const q = z.object({ q: z.string().trim().max(120).optional(), orderId: uuid.optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).safeParse(req.query); if (!q.success) throw bad();
+  const like = q.data.q ? `%${q.data.q.replace(/[%_]/g, '')}%` : null;
+  const r = await pool.query(`SELECT c.id,c.number,c.kind,c.status,c.amount_cents,c.accepted_at,c.created_at,c.order_id,c.party->>'name' AS party_name,c.party->>'email' AS party_email,o.status AS order_status
+    FROM purchase_contracts c LEFT JOIN payment_orders o ON o.id=c.order_id
+    WHERE c.accepted_at IS NOT NULL AND ($1::uuid IS NULL OR c.order_id=$1) AND ($2::text IS NULL OR c.number ILIKE $2 OR c.party->>'name' ILIKE $2 OR c.party->>'email' ILIKE $2)
+    ORDER BY c.accepted_at DESC LIMIT $3`, [q.data.orderId ?? null, like, q.data.limit]);
+  res.json({ items: r.rows });
+}));
+
+adminContractsRouter.get('/purchase-contracts/:id', view, asyncRoute(async (req, res) => {
+  const r = await pool.query(`SELECT id,number,user_id,kind,item_key,status,amount_cents,model_version,party,body,body_hash,otp_channel,otp_destination,otp_sent_count,accepted_at,accept_ip_hash,accept_user_agent,order_id,created_at FROM purchase_contracts WHERE id=$1`, [idOf(req)]);
+  if (!r.rowCount) throw appError('PURCHASE_CONTRACT_NOT_FOUND', { code: 'PURCHASE_CONTRACT_NOT_FOUND', http: 404, expose: true });
+  await audit(req.user!.id, 'PURCHASE_CONTRACT_VIEWED', 'PURCHASE_CONTRACT', r.rows[0].id, { requestId: requestId(req) });
+  res.json(r.rows[0]);
+}));
+
 // ------------------------------------------------------------- páginas públicas (token)
 
 export const contractsPublicRouter = Router();

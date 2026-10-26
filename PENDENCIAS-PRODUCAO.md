@@ -1,4 +1,4 @@
-# Pendências para produção (1.12.5)
+# Pendências para produção (1.12.8)
 
 ## Roteiro de configuração (teste e produção)
 
@@ -66,6 +66,14 @@ Em produção `PAYMENT_PROVIDER=sandbox` é proibido. `APP_URL` precisa ser `htt
 3. Redeploy, **Testar conexão** (deve dizer "Credencial de produção") e fazer uma compra real do menor valor. Estornar depois, se quiser.
 
 **Não implementado:** estorno parcial, parcelamento personalizado, exclusão de meios de pagamento, Pix com QR code dentro do site (hoje o Pix e o cartão acontecem na página do Mercado Pago).
+
+## Contrato de compra (adesão)
+
+- Gerado em cada compra, com código de 6 dígitos por e-mail. **Exige**: razão social e CNPJ em Admin > Notas fiscais (sem isso o contrato não é gerado) e CPF ou CNPJ no perfil do cliente.
+- O texto está em `apps/api/src/purchaseContract.ts` (versão `2026-10-c1`). Foi escrito como ponto de partida e **não passou por advogado**. Pontos para o advogado decidir: validade do saldo (hoje o contrato não fixa prazo), foro, prazo de 24 h de entrega e regra de arrependimento para pessoa jurídica. Qualquer mudança no texto exige subir a versão.
+- Canal do código: só e-mail. WhatsApp exige contratar um provedor (API oficial da Meta ou intermediário) e criar modelo de mensagem aprovado; ainda não foi feito.
+- Variáveis de atendimento: `SUPPORT_EMAIL` (precisa receber e-mail: Cloudflare Email Routing para o Gmail), `SUPPORT_PHONE`, `SUPPORT_WHATSAPP`, `SUPPORT_HOURS`.
+- Quem aceitou, quando e com qual texto: Admin > Contratos > Aceites de compra.
 
 ## Contratos e assinatura
 

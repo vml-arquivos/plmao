@@ -4,7 +4,7 @@ import { env, publicAppUrl } from '../config.js';
  * Modelos aprovados de e-mail transacional. Regras: nenhum CPF/CNPJ, relatório ou documento anexado no corpo;
  * documentos sensíveis só por link seguro expirável.
  */
-export type EmailTemplateName = 'CONTRACT_SIGN_REQUEST' | 'CONTRACT_SIGNED' | 'FISCAL_DOCUMENT_READY' | 'GENERIC_NOTICE';
+export type EmailTemplateName = 'CONTRACT_SIGN_REQUEST' | 'CONTRACT_SIGNED' | 'FISCAL_DOCUMENT_READY' | 'PURCHASE_OTP' | 'GENERIC_NOTICE';
 export interface RenderedEmail { subject: string; text: string; html: string }
 export type TemplateData = { name?: string; documentTitle?: string; documentNumber?: string; linkPath?: string; token?: string; expiresAt?: string; message?: string };
 
@@ -44,6 +44,14 @@ export function renderEmail(template: EmailTemplateName, d: TemplateData): Rende
         subject: `Seu documento fiscal está disponível | ${app}`,
         text: `${greeting}\n\nSeu documento fiscal${d.documentNumber ? ` nº ${d.documentNumber}` : ''} foi emitido. Acesse: ${link}\n\n${exp}`,
         html: shell('Documento fiscal disponível', `<p>${esc(greeting)}</p><p>Seu documento fiscal${d.documentNumber ? ` nº <b>${esc(d.documentNumber)}</b>` : ''} foi emitido.</p><p>${esc(exp)}</p>`, { href: link, label: 'Acessar documento' })
+      };
+    }
+    case 'PURCHASE_OTP': {
+      const code = d.token ?? '';
+      return {
+        subject: `Código para confirmar seu contrato | ${app}`,
+        text: `${greeting}\n\nSeu código para aceitar o contrato${d.documentNumber ? ` ${d.documentNumber}` : ''}: ${code}\n\n${d.expiresAt ? `O código vale até ${when(d.expiresAt)}. ` : ''}Não passe este código a ninguém. Se você não pediu, ignore esta mensagem.`,
+        html: shell('Confirme seu contrato', `<p>${esc(greeting)}</p><p>Seu código para aceitar o contrato${d.documentNumber ? ` <b>${esc(d.documentNumber)}</b>` : ''}:</p><p style="font-size:30px;letter-spacing:6px;font-weight:bold;color:#166534">${esc(code)}</p><p>${d.expiresAt ? `O código vale até ${esc(when(d.expiresAt))}. ` : ''}Não passe este código a ninguém.</p>`)
       };
     }
     default:
