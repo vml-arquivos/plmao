@@ -24,4 +24,20 @@ describe('checklist de implantação financeira', integration, () => {
     assert.equal(byKey['cost:COMPLETE'].severity, 'BLOCKER');
     assert.match(r.json.fiscalWarning, /contador/);
   });
+
+  it('avisa quando faltam dados da empresa para o contrato de compra e canais de atendimento', async () => {
+    const saved = (await pool.query('SELECT legal_name,cnpj FROM fiscal_settings WHERE id=1')).rows[0];
+    try {
+      await pool.query(`UPDATE fiscal_settings SET legal_name=NULL,cnpj=NULL WHERE id=1`);
+      let byKey = Object.fromEntries((await sa.call('/api/admin/finance/setup-checklist')).json.items.map((i) => [i.key, i]));
+      assert.equal(byKey['purchase-contract-company'].ok, false); assert.equal(byKey['purchase-contract-company'].severity, 'BLOCKER');
+      assert.equal(byKey['purchase-contract-email'].severity, 'BLOCKER');
+      assert.equal(byKey['support-channels'].ok, false); assert.equal(byKey['raw-retention'].severity, 'WARNING');
+      await pool.query(`UPDATE fiscal_settings SET legal_name='EMPRESA TESTE LTDA',cnpj='11222333000181' WHERE id=1`);
+      byKey = Object.fromEntries((await sa.call('/api/admin/finance/setup-checklist')).json.items.map((i) => [i.key, i]));
+      assert.equal(byKey['purchase-contract-company'].ok, true);
+    } finally {
+      await pool.query('UPDATE fiscal_settings SET legal_name=$1,cnpj=$2 WHERE id=1', [saved?.legal_name ?? null, saved?.cnpj ?? null]);
+    }
+  });
 });

@@ -1,3 +1,4 @@
+import { documentKind } from '../lib/br.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { env } from '../config.js';
@@ -313,6 +314,14 @@ financeRouter.get('/setup-checklist', requirePermission('MANAGE_BILLING'), async
     pool.query(`SELECT count(*)::int AS n FROM users u WHERE u.active=true AND u.deleted_at IS NULL AND u.role IN ('SUPER_ADMIN','ADMIN','FINANCEIRO','OPERADOR','SUPORTE','CONTEUDO') AND NOT EXISTS (SELECT 1 FROM team_totp t WHERE t.user_id=u.id AND t.enabled_at IS NOT NULL)`),
     pool.query(`SELECT count(*)::int AS n FROM faqs WHERE active=true`)
   ]);
+  const company = (await pool.query('SELECT legal_name,cnpj FROM fiscal_settings WHERE id=1')).rows[0] as { legal_name?: string | null; cnpj?: string | null } | undefined;
+  const companyOk = Boolean(company?.legal_name?.trim()) && documentKind(String(company?.cnpj ?? '')) === 'CNPJ';
+  items.push(
+    { key: 'purchase-contract-company', ok: companyOk, severity: 'BLOCKER', title: 'Dados da empresa para o contrato de compra', detail: 'Preencha razão social e CNPJ válido em Notas fiscais. Sem isso o contrato de compra não é gerado e ninguém consegue pagar.' },
+    { key: 'purchase-contract-email', ok: env.EMAIL_PROVIDER !== 'disabled', severity: 'BLOCKER', title: 'E-mail para o código do contrato', detail: 'O cliente aceita o contrato com um código enviado por e-mail. Sem o envio configurado, nenhuma compra é concluída.' },
+    { key: 'support-channels', ok: Boolean(env.SUPPORT_EMAIL), severity: 'WARNING', title: 'Canais de atendimento', detail: 'Defina SUPPORT_EMAIL (um e-mail que receba mensagens) e, se houver, SUPPORT_PHONE, SUPPORT_WHATSAPP e SUPPORT_HOURS. Aparecem no site e dentro do contrato.' },
+    { key: 'raw-retention', ok: !env.STORE_RAW_PROVIDER_RESPONSE || env.RAW_RETENTION_DAYS > 0, severity: 'WARNING', title: 'Prazo para guardar o dado bruto do fornecedor', detail: 'O dado bruto fica cifrado e só é lido pela equipe com motivo registrado. Defina RAW_RETENTION_DAYS (ex.: 90) para apagá-lo depois do prazo; o relatório do cliente continua.' }
+  );
   const ref = (await pool.query('SELECT rates_reference_month AS m FROM financing_settings LIMIT 1')).rows[0]?.m as string | undefined;
   const refAge = ref && /^\d{4}-\d{2}$/.test(ref) ? (new Date().getFullYear() - Number(ref.slice(0, 4))) * 12 + (new Date().getMonth() + 1 - Number(ref.slice(5, 7))) : null;
   items.push(

@@ -44,6 +44,7 @@ import { renderVehiclePdf, type ReportMeta } from './report/pdf.js';
 import { renderVehicleHtml } from './report/printHtml.js';
 import { encryptRaw } from './lib/rawStore.js';
 import { refundProcessingQuery, sweepStuckQueries } from './lib/queryRefund.js';
+import { purgeExpiredRaw } from './lib/rawRetention.js';
 import { adminPeopleRouter } from './routes/adminPeople.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
 import { adminVehiclesRouter } from './routes/adminVehicles.js';
@@ -2920,6 +2921,7 @@ app.get('*', asyncRoute(async (req, res, next) => {
 
 setInterval(() => { sweepStuckQueries(env.QUERY_STUCK_MINUTES).catch((error) => log('error', 'query_sweeper_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 2 * 60 * 1000).unref();
 setInterval(() => { releaseCommissions().catch((error) => log('error', 'commission_release_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 60 * 60 * 1000).unref();
+setInterval(() => { purgeExpiredRaw(env.RAW_RETENTION_DAYS).catch((error) => log('error', 'raw_retention_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 6 * 60 * 60 * 1000).unref();
 const httpServer = app.listen(env.PORT, '0.0.0.0', () => log('info', 'server_started', { port: env.PORT, provider: env.DATA_PROVIDER, environment: env.NODE_ENV }));
 let shuttingDown = false;
 function shutdown(signal: string): void {

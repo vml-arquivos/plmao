@@ -1,4 +1,4 @@
-# Pendências para produção (1.12.8)
+# Pendências para produção (1.12.9)
 
 ## Roteiro de configuração (teste e produção)
 
@@ -154,8 +154,8 @@ curl -i -X POST https://placanamao.com.br/api/webhooks/email/brevo -H "Authoriza
 
 - MFA da equipe segue opcional por decisão; o checklist avisa quem está sem. Recomendado ativar para financeiro, clientes e contratos.
 - Simulador: as taxas ficam defasadas se a atualização automática (Banco Central) falhar; o site avisa depois de 3 meses e o checklist também.
-- Rodar `npm audit --omit=dev --audit-level=high` e avaliar a atualização do `react-router`.
-- Política de retenção do `STORE_RAW` (dado bruto do fornecedor) ainda precisa de decisão.
+- `npm audit`: restam `zod` (versão 4 muda comportamento) e `nodemailer` (10.2.1 quebrou o envio nos testes); os dois ficam para uma versão própria, com teste. `body-parser` já está atualizado.
+- Dado bruto do fornecedor: defina `RAW_RETENTION_DAYS` (sugestão 90). Em 0 nada é apagado. Decisão sua e do jurídico.
 - Opcional: dupla aprovação para estornos de alto valor.
 - Usar `GET /ready` como verificação de prontidão no Coolify (além de `/health`).
-- Antes do deploy: backup do banco; migrações 027–037 rodam sozinhas na subida; `npm run db:rollback -- 9` reverte.
+- Antes do deploy: backup do banco; migrações 027–042 rodam sozinhas na subida; `npm run db:rollback -- 16` reverte todas elas.

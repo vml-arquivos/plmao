@@ -269,6 +269,8 @@ const envSchema = z.object({
   AUDIT_LOG_ENABLED: booleanFromEnv.default(true),
   QUERY_STUCK_MINUTES: z.coerce.number().int().min(2).max(240).default(10),
   STORE_RAW_PROVIDER_RESPONSE: booleanFromEnv.default(true),
+  /** Dias para manter o dado bruto cifrado do fornecedor. 0 = não apaga. O relatório normalizado do cliente não é afetado. */
+  RAW_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(0),
 
   // Bootstrap administrativo: uso pontual, explicitamente habilitado e removido após a promoção auditada.
   SUPER_ADMIN_BOOTSTRAP_ENABLED: booleanFromEnv.default(false),

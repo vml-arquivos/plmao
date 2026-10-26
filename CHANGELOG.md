@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.12.9 — Segurança das dependências, retenção do dado bruto e checklist de lançamento
+
+- Dependências: `body-parser` 1.20.9 (alerta de segurança fechado). O `nodemailer` ficou na 10.0.9: a 10.2.1 quebrou o envio nos testes de e-mail, então não entrou. O `zod` continua na versão 3: a versão 4 foi testada e mudou o comportamento de 11 testes, então não entrou. Alerta restante é de consumo de memória em listas enormes; o limite de corpo da requisição (256 kb) já restringe isso.
+- Novo `RAW_RETENTION_DAYS`: apaga o dado bruto cifrado do fornecedor depois do prazo (0 = não apaga; sugestão 90). O relatório do cliente não muda. Roda a cada 6 horas e registra na auditoria.
+- Checklist de implantação (Financeiro): bloqueios novos para dados da empresa do contrato de compra (razão social e CNPJ) e e-mail do código; avisos para canais de atendimento e prazo do dado bruto.
+- Testes: `raw-retention.test.mjs` e caso novo no checklist.
+
 ## 1.12.8 — Estoque da loja: preenchimento pela placa e importação do histórico
 
 - Novo veículo: ao digitar a placa, o formulário preenche marca, modelo, versão, anos, cor, combustível, Km e valor FIPE com o que a equipe já tem no sistema (consulta concluída, FIPE consultada, garagem de quem é da equipe e estoque anterior da loja). Só campos vazios são preenchidos; o aviso diz de onde veio. Não chama fonte externa e não cobra. Sem dados salvos, o aviso leva à consulta.
