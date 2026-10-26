@@ -34,6 +34,7 @@ import { ensureSchema } from './schema.js';
 import { performAdminLookup } from './adminLookup.js';
 import { executeVehicleLookup, providerSupports } from './vehicleLookup.js';
 import { isPrelaunch, siteOpenFor } from './siteAccess.js';
+import { legalAcceptanceStatus, requireLegalAcceptanceForQuery } from './legalAcceptance.js';
 import { acceptContractAtCheckout, claimContractForOrder, previewPurchaseContract, sendPurchaseReceipt, confirmPurchaseContract, draftPurchaseContract, getUserContract, linkContractToOrder, listUserContracts, reopenContractForOrder, resendPurchaseOtp } from './purchaseContract.js';
 import { INVALID_CODE, SEARCH_LABELS, SEARCH_TYPES, maskSearchValue, resolveSearchInput, type SearchType } from './searchKey.js';
 import { calculateAffiliateCommission, calculateCouponDiscount, couponHasCapacity, couponWindowIsOpen, effectiveQueryPriceCents, queryAmountAfterCoupon } from './commercial.js';
@@ -143,7 +144,7 @@ function searchErrorCode(body: unknown): string {
   if (type === undefined) return 'INVALID_PLATE';
   return typeof type === 'string' && (SEARCH_TYPES as readonly string[]).includes(type) ? INVALID_CODE[type as SearchType] : 'INVALID_INPUT';
 }
-const requestQuerySchema = z.object({ ...searchFields, productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), paymentOrderId: z.string().uuid().optional() }).strict()
+const requestQuerySchema = z.object({ ...searchFields, productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), paymentOrderId: z.string().uuid().optional(), acceptContract: z.literal(true).optional(), acceptPrivacy: z.literal(true).optional() }).strict()
   .transform((value, ctx) => {
     const found = resolveSearchInput(value);
     if (!found) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'INVALID_SEARCH' }); return z.NEVER; }
@@ -240,8 +241,8 @@ const adminUserUpdateSchema = z.object({
   amountCents: z.number().int().min(-100000000).max(100000000).refine((value) => value !== 0, 'ZERO_ADJUSTMENT'),
   description: z.string().trim().min(8).max(280)
 }).strict();
-  const checkoutSchema = z.object({ contractId: z.string().uuid().optional(), acceptContract: z.literal(true).optional(), packageSlug: z.string().trim().min(2).max(80), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict();
-  const queryCheckoutSchema = z.object({ ...searchFields, contractId: z.string().uuid().optional(), acceptContract: z.literal(true).optional(), productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict()
+  const checkoutSchema = z.object({ contractId: z.string().uuid().optional(), acceptContract: z.literal(true).optional(), acceptPrivacy: z.literal(true).optional(), packageSlug: z.string().trim().min(2).max(80), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict();
+  const queryCheckoutSchema = z.object({ ...searchFields, contractId: z.string().uuid().optional(), acceptContract: z.literal(true).optional(), acceptPrivacy: z.literal(true).optional(), productId: z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/), couponCode: z.string().trim().min(3).max(40).optional(), affiliateCode: z.string().trim().min(3).max(40).optional() }).strict()
     .transform((value, ctx) => {
       const found = resolveSearchInput(value);
       if (!found) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'INVALID_SEARCH' }); return z.NEVER; }
@@ -376,7 +377,8 @@ function supportChannels(): { phone: string | null; whatsapp: string | null; wha
 api.get('/support-info', (_req, res) => { res.setHeader('Cache-Control', 'public, max-age=300'); res.json(supportChannels()); });
 const purchaseContractLimit = rateLimit({ windowMs: 10 * 60_000, limit: 40, standardHeaders: true, legacyHeaders: false, skip: () => env.NODE_ENV === 'test' });
 const contractIdParam = (req: Request): string => { const id = String(req.params.id ?? ''); if (!/^[0-9a-f-]{36}$/i.test(id)) throw appError('PURCHASE_CONTRACT_NOT_FOUND', { code: 'PURCHASE_CONTRACT_NOT_FOUND', http: 404, expose: true }); return id; };
-const acceptEvidence = (req: Request) => ({ ipHash: hashIp(req.ip), userAgent: String(req.headers['user-agent'] ?? '').slice(0, 300) || null });
+api.get('/legal/acceptance', auth, asyncRoute(async (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(await legalAcceptanceStatus(req.user!.id)); }));
+const acceptEvidence = (req: Request) => ({ ip: String(req.ip ?? '').slice(0, 64) || null, ipHash: hashIp(req.ip), userAgent: String(req.headers['user-agent'] ?? '').slice(0, 300) || null });
 /** Texto do contrato para o link "ler o contrato" do checkout (não grava nada; ler é opcional). */
 api.post('/purchase-contracts/preview', auth, requirePermission('BUY_CREDITS'), purchaseContractLimit, asyncRoute(async (req, res) => {
   const isPackage = typeof (req.body as { packageSlug?: unknown } | null)?.packageSlug === 'string';
@@ -1413,6 +1415,8 @@ api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async 
   if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
   const idempotencyKeyHeader = req.headers['idempotency-key'];
   const idempotencyKey = typeof idempotencyKeyHeader === 'string' && /^[a-zA-Z0-9_-]{12,128}$/.test(idempotencyKeyHeader) ? idempotencyKeyHeader : null;
+  // Consulta paga com saldo: precisa de aceite vigente (ou das duas caixas marcadas agora). Consulta já paga no checkout aceitou lá.
+  if (!parsed.data.paymentOrderId) await requireLegalAcceptanceForQuery(req.user!.id, { acceptContract: parsed.data.acceptContract, acceptPrivacy: parsed.data.acceptPrivacy }, acceptEvidence(req));
   const out = await runVehicleQuery({ userId: req.user!.id, plate: parsed.data.plate, searchType: parsed.data.searchType, productId: parsed.data.productId, paymentOrderId: parsed.data.paymentOrderId, idempotencyKey, reqId: requestId(req), source: 'WEB' });
   res.status(out.status).json(out.body);
 }));
@@ -1803,6 +1807,7 @@ api.post('/payments/checkout', auth, requirePermission('BUY_CREDITS'), asyncRout
       if (affiliate.rowCount && (!affiliate.rows[0].user_id || String(affiliate.rows[0].user_id) !== req.user!.id)) { affiliateId = String(affiliate.rows[0].id); affiliateCommissionBps = Number(affiliate.rows[0].commission_bps); }
     }
     const amountCents = Math.max(0, subtotalCents - discountCents);
+    if (!parsed.data.contractId && parsed.data.acceptContract && !parsed.data.acceptPrivacy) throw appError('PURCHASE_PRIVACY_REQUIRED', { code: 'PURCHASE_PRIVACY_REQUIRED', http: 400, expose: true });
     const contractId = !parsed.data.contractId && parsed.data.acceptContract
       ? await acceptContractAtCheckout(client, { userId: req.user!.id, kind: 'PACKAGE', itemKey: String(packRow.slug), item: { kind: 'PACKAGE', name: String(packRow.name), description: '', creditsCents: Number(packRow.credits) * 100 }, amounts: { subtotalCents, discountCents, amountCents, couponCode }, evidence: acceptEvidence(req) })
       : await claimContractForOrder(client, req.user!.id, parsed.data.contractId, { kind: 'PACKAGE', itemKey: String(packRow.slug), amountCents });
@@ -1899,6 +1904,7 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
     }
     if (free) { affiliateId = null; affiliateCommissionBps = 0; } // sem receita, sem comissão
     const amountCents = free ? 0 : Math.max(1, pricing.priceCents - discountCents);
+    if (!parsed.data.contractId && parsed.data.acceptContract && !parsed.data.acceptPrivacy) throw appError('PURCHASE_PRIVACY_REQUIRED', { code: 'PURCHASE_PRIVACY_REQUIRED', http: 400, expose: true });
     const contractId = !parsed.data.contractId && parsed.data.acceptContract
       ? await acceptContractAtCheckout(client, { userId: req.user!.id, kind: 'QUERY', itemKey: String(productRow.id), item: { kind: 'QUERY', name: String(productRow.name), description: String(productRow.description ?? ''), creditsCents: 0 }, amounts: { subtotalCents: pricing.priceCents, discountCents, amountCents, couponCode }, evidence: acceptEvidence(req) })
       : await claimContractForOrder(client, req.user!.id, parsed.data.contractId, { kind: 'QUERY', itemKey: String(productRow.id), amountCents });
@@ -2802,7 +2808,9 @@ function humanMessage(code: string): string {
     CREDIT_PACKAGE_NOT_FOUND: 'A oferta legada de saldo pré-pago solicitada não está disponível.',
     PAYMENT_PROVIDER_NOT_CONFIGURED: 'O checkout de pagamento ainda não foi configurado para este ambiente.',
     SITE_NOT_OPEN: 'O site ainda não está aberto ao público.',
-    PURCHASE_CONTRACT_REQUIRED: 'Marque a caixa “Li e aceito o contrato” para continuar.',
+    PURCHASE_CONTRACT_REQUIRED: 'Marque “Li e aceito os Termos do Contrato de Uso” para continuar.',
+    PURCHASE_PRIVACY_REQUIRED: 'Marque “Estou ciente e concordo com a Política de Privacidade (LGPD)” para continuar.',
+    TERMS_ACCEPTANCE_REQUIRED: 'Marque que aceita os Termos do Contrato de Uso e a Política de Privacidade (LGPD) para consultar.',
     PURCHASE_CONTRACT_NOT_ACCEPTED: 'Falta confirmar o contrato com o código enviado ao seu e-mail.',
     PURCHASE_CONTRACT_EXPIRED: 'O contrato expirou. Gere um novo para continuar.',
     PURCHASE_CONTRACT_USED: 'Este contrato já foi usado em outra compra. Gere um novo.',
@@ -2816,7 +2824,7 @@ function humanMessage(code: string): string {
     PURCHASE_OTP_TOO_SOON: 'Aguarde alguns segundos antes de pedir outro código.',
     PURCHASE_OTP_SEND_LIMIT: 'Limite de códigos atingido. Gere um novo contrato.',
     CONTRACT_PROFILE_INCOMPLETE: 'Informe seu CPF ou CNPJ no perfil para gerar o contrato.',
-    PURCHASE_CONTRACTOR_MISSING: 'O contrato não pôde ser gerado agora. Fale com o suporte.',
+    PURCHASE_CONTRACTOR_MISSING: 'Esta compra está temporariamente indisponível. Nossa equipe já foi avisada; tente de novo mais tarde.',
     COUPON_ZERO_TOTAL_UNSUPPORTED: 'Cupom de 100% vale apenas para consulta avulsa, não para pacote de saldo.',
     COUPON_INVALID: 'Cupom não encontrado. Confira o código.',
     COUPON_UNAVAILABLE: 'Este cupom não está disponível (expirado, desativado ou esgotado).',

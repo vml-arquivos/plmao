@@ -7,7 +7,7 @@ import { dateTime, money } from '../../shared/format';
 import { api } from '../api';
 import { useSession } from '../session';
 import { storedReferral, trackFunnel } from '../funnel';
-import PurchaseContract, { MyContracts } from '../components/PurchaseContract';
+import PurchaseContract, { ACCEPT_MISSING, MyContracts, NO_ACCEPT, bothAccepted, type LegalAccept } from '../components/PurchaseContract';
 import PaidQueries from '../components/PaidQueries';
 import PeriodFilter, { NO_PERIOD, periodParams, qs, type Period } from '../components/Period';
 
@@ -26,7 +26,7 @@ function Checkout({ pack, onClose }: { pack: Pack; onClose: () => void }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [busy, setBusy] = useState<'' | 'quote' | 'pay'>('');
   const [error, setError] = useState('');
-  const [accepted, setAccepted] = useState(false);
+  const [accept, setAccept] = useState<LegalAccept>(NO_ACCEPT);
   const ref = storedReferral();
   useEffect(() => {
     api.post<Quote>('/payments/quote', { packageSlug: pack.slug, ...(ref ? { affiliateCode: ref } : {}) }).then((q) => { setQuote(q); trackFunnel('CHECKOUT_QUOTE_VIEWED', { amountCents: q.amountCents, paymentConfigured: q.paymentProviderConfigured }); }, (e) => setError(errorMessage(e)));
@@ -36,16 +36,16 @@ function Checkout({ pack, onClose }: { pack: Pack; onClose: () => void }) {
     try { setQuote(await api.post<Quote>('/payments/quote', { packageSlug: pack.slug, couponCode: coupon.trim(), ...(ref ? { affiliateCode: ref } : {}) })); } catch (e) { setError(errorMessage(e)); } finally { setBusy(''); }
   }
   async function pay() {
-    if (!accepted) { setError('Marque a caixa “Li e aceito o contrato” para continuar.'); return; }
+    if (!bothAccepted(accept)) { setError(ACCEPT_MISSING); return; }
     setBusy('pay'); setError('');
     trackFunnel('CHECKOUT_STARTED', { amountCents: quote?.amountCents ?? pack.priceCents, hasCoupon: Boolean(quote?.couponCode), hasAffiliate: Boolean(ref) });
     try {
-      const r = await api.post<{ checkoutUrl: string }>('/payments/checkout', { packageSlug: pack.slug, acceptContract: true, ...(quote?.couponCode ? { couponCode: quote.couponCode } : {}), ...(ref ? { affiliateCode: ref } : {}) });
+      const r = await api.post<{ checkoutUrl: string }>('/payments/checkout', { packageSlug: pack.slug, acceptContract: true, acceptPrivacy: true, ...(quote?.couponCode ? { couponCode: quote.couponCode } : {}), ...(ref ? { affiliateCode: ref } : {}) });
       window.location.assign(r.checkoutUrl);
     } catch (e) { setError(errorMessage(e)); setBusy(''); }
   }
   return (
-    <Modal title={`Comprar ${pack.name}`} onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" icon="credit-card" loading={busy === 'pay'} disabled={!quote || !accepted || quote.paymentProviderConfigured === false} onClick={pay}>Pagar {money(quote?.amountCents ?? pack.priceCents)}</Button></>}>
+    <Modal title={`Comprar ${pack.name}`} onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" icon="credit-card" loading={busy === 'pay'} disabled={!quote || !bothAccepted(accept) || quote.paymentProviderConfigured === false} onClick={pay}>Pagar {money(quote?.amountCents ?? pack.priceCents)}</Button></>}>
       <div className="stack">
         <div className="sum-line"><span className="muted">Saldo recebido</span><b className="num">{money(pack.credits * 100)}</b></div>
         <div className="sum-line"><span className="muted">Valor do pacote</span><b className="num">{money(quote?.subtotalCents ?? pack.priceCents)}</b></div>
@@ -54,7 +54,7 @@ function Checkout({ pack, onClose }: { pack: Pack; onClose: () => void }) {
         <div className="row" style={{ alignItems: 'end', flexWrap: 'nowrap' }}><Field label="Cupom (opcional)" className="grow"><Input value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())} placeholder="CUPOM10" /></Field><Button loading={busy === 'quote'} onClick={apply} disabled={coupon.trim().length < 3}>Aplicar</Button></div>
         {quote && quote.paymentProviderConfigured === false && <Alert tone="warn" title="Pagamento indisponível.">O checkout ainda não está ativo neste ambiente.</Alert>}
         {error && <Alert tone="danger">{error}</Alert>}
-        <PurchaseContract body={{ packageSlug: pack.slug, ...(quote?.couponCode ? { couponCode: quote.couponCode } : {}), ...(ref ? { affiliateCode: ref } : {}) }} accepted={accepted} onChange={setAccepted} disabled={!quote} />
+        <PurchaseContract body={{ packageSlug: pack.slug, ...(quote?.couponCode ? { couponCode: quote.couponCode } : {}), ...(ref ? { affiliateCode: ref } : {}) }} value={accept} onChange={setAccept} disabled={!quote} />
         <p className="muted" style={{ fontSize: 13 }}><Icon name="lock" size={13} /> Pix ou cartão no checkout seguro.</p>
       </div>
     </Modal>

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.12.11 — Aceite com duas caixas obrigatórias, registro auditável e textos de responsabilidade
+
+- Causa do erro "O contrato não pôde ser gerado agora": a compra depende da razão social e do CNPJ da empresa (Admin > Notas fiscais). Sem eles o servidor responde 503 `PURCHASE_CONTRACTOR_MISSING`. Agora a empresa também pode vir das variáveis `COMPANY_LEGAL_NAME`, `COMPANY_CNPJ` e `COMPANY_ADDRESS` (usadas só se o cadastro fiscal estiver vazio), o servidor registra o problema no log com a orientação, e o cliente vê "compra temporariamente indisponível".
+- Checkout (consulta e saldo): saiu o texto "ler é opcional". Entram duas caixas obrigatórias, "Li e aceito os Termos do Contrato de Uso." e "Estou ciente e concordo com a Política de Privacidade (LGPD).", com o botão **Ler Contrato** (janela, sem sair da tela) e link para a política. O servidor recusa o pedido se qualquer uma faltar (`PURCHASE_CONTRACT_REQUIRED`, `PURCHASE_PRIVACY_REQUIRED`).
+- Consulta com saldo: exige aceite vigente dos dois documentos (quem se cadastrou já tem) ou as duas caixas marcadas na hora; sem isso o servidor responde `TERMS_ACCEPTANCE_REQUIRED` e nada é cobrado. Nova rota `GET /api/legal/acceptance`. A tela só mostra as caixas no saldo se ainda faltar aceite.
+- Registro auditável (migração 043): contrato de compra guarda IP, IP em hash, navegador, data e hora do aceite, versão do contrato, data e versão da política; `user_consents` ganha IP, navegador e vínculo (compra ou consulta) e recebe duas linhas por aceite. A equipe vê tudo em Contratos, Aceites de compra.
+- Contrato modelo `2026-10-c3`: novas cláusulas de responsabilidade exclusiva do usuário pelo uso, destinação e manuseio dos dados, regresso, limites de responsabilidade da plataforma sobre o resultado, papéis na LGPD e registro de consultas. Termos de Uso e Política de Privacidade do site receberam as mesmas regras. Rascunho, sem revisão de advogado: ver `TEXTOS-LEGAIS.md`.
+- Testes: `purchase-checkbox.test.mjs` (10), `migration-rollback` (027–043).
+
 ## 1.12.10 — Contrato mais simples na compra: caixinha "Li e aceito" e comprovante por e-mail
 
 - Checkout (consulta avulsa e saldo): some o botão "Ler contrato e confirmar por e-mail" e o código. Entra uma caixinha "Li e aceito o contrato de compra". Ler é opcional: o link abre o texto já preenchido com os dados da pessoa, da empresa e do pedido.

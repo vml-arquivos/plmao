@@ -192,7 +192,7 @@ adminContractsRouter.get('/purchase-contracts', view, asyncRoute(async (req, res
 }));
 
 adminContractsRouter.get('/purchase-contracts/:id', view, asyncRoute(async (req, res) => {
-  const r = await pool.query(`SELECT id,number,user_id,kind,item_key,status,amount_cents,model_version,party,body,body_hash,otp_channel,otp_destination,otp_sent_count,accepted_at,accept_ip_hash,accept_user_agent,order_id,created_at FROM purchase_contracts WHERE id=$1`, [idOf(req)]);
+  const r = await pool.query(`SELECT id,number,user_id,kind,item_key,status,amount_cents,model_version,party,body,body_hash,otp_channel,otp_destination,otp_sent_count,accepted_at,accept_ip_hash,accept_ip,accept_user_agent,privacy_accepted_at,privacy_version,order_id,created_at FROM purchase_contracts WHERE id=$1`, [idOf(req)]);
   if (!r.rowCount) throw appError('PURCHASE_CONTRACT_NOT_FOUND', { code: 'PURCHASE_CONTRACT_NOT_FOUND', http: 404, expose: true });
   await audit(req.user!.id, 'PURCHASE_CONTRACT_VIEWED', 'PURCHASE_CONTRACT', r.rows[0].id, { requestId: requestId(req) });
   res.json(r.rows[0]);

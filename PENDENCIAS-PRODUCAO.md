@@ -1,4 +1,4 @@
-# Pendências para produção (1.12.10)
+# Pendências para produção (1.12.11)
 
 ## Roteiro de configuração (teste e produção)
 
@@ -69,8 +69,8 @@ Em produção `PAYMENT_PROVIDER=sandbox` é proibido. `APP_URL` precisa ser `htt
 
 ## Contrato de compra (adesão)
 
-- Gerado em cada compra: o cliente marca "Li e aceito" (ler é opcional, sem código) e recebe o comprovante por e-mail depois de pagar. **Exige**: razão social e CNPJ em Admin > Notas fiscais (sem isso o contrato não é gerado). CPF ou CNPJ no perfil do cliente não é mais obrigatório para comprar.
-- O texto está em `apps/api/src/purchaseContract.ts` (versão `2026-10-c2` por caixinha; `2026-10-c1` é o modelo do fluxo antigo com código). Foi escrito como ponto de partida e **não passou por advogado**. Pontos para o advogado decidir: validade do saldo (hoje o contrato não fixa prazo), foro, prazo de 24 h de entrega e regra de arrependimento para pessoa jurídica. Qualquer mudança no texto exige subir a versão.
+- Gerado em cada compra: o cliente marca as duas caixas ("Li e aceito os Termos do Contrato de Uso" e "Estou ciente e concordo com a Política de Privacidade (LGPD)"), sem código, e recebe o comprovante por e-mail depois de pagar. **Exige**: razão social e CNPJ em Admin > Notas fiscais, ou as variáveis `COMPANY_LEGAL_NAME`, `COMPANY_CNPJ` (e `COMPANY_ADDRESS`). Sem isso a compra não abre e o cliente vê "compra temporariamente indisponível". CPF ou CNPJ no perfil do cliente não é mais obrigatório para comprar.
+- O texto está em `apps/api/src/purchaseContract.ts` (versão `2026-10-c3` por caixas, com a responsabilidade do usuário pelo uso dos dados; `2026-10-c1` é o modelo do fluxo antigo com código). Foi escrito como ponto de partida e **não passou por advogado**. Pontos para o advogado decidir: validade do saldo (hoje o contrato não fixa prazo), foro, prazo de 24 h de entrega e regra de arrependimento para pessoa jurídica. Qualquer mudança no texto exige subir a versão.
 - Código de confirmação por e-mail ou WhatsApp: não é mais usado na compra. Se um dia contratos de valor maior pedirem confirmação extra, o fluxo antigo por e-mail continua na API; WhatsApp exigiria contratar um provedor.
 - O comprovante por e-mail depende do e-mail configurado (Brevo). Sem e-mail, a compra funciona, só não chega o comprovante; o contrato fica em Carteira, Contratos.
 - Variáveis de atendimento: `SUPPORT_EMAIL` (precisa receber e-mail: Cloudflare Email Routing para o Gmail), `SUPPORT_PHONE`, `SUPPORT_WHATSAPP`, `SUPPORT_HOURS`.
@@ -159,4 +159,6 @@ curl -i -X POST https://placanamao.com.br/api/webhooks/email/brevo -H "Authoriza
 - Dado bruto do fornecedor: defina `RAW_RETENTION_DAYS` (sugestão 90). Em 0 nada é apagado. Decisão sua e do jurídico.
 - Opcional: dupla aprovação para estornos de alto valor.
 - Usar `GET /ready` como verificação de prontidão no Coolify (além de `/health`).
-- Antes do deploy: backup do banco; migrações 027–042 rodam sozinhas na subida; `npm run db:rollback -- 16` reverte todas elas.
+- Antes do deploy: backup do banco; migrações 027–043 rodam sozinhas na subida; `npm run db:rollback -- 17` reverte todas elas.
+
+- Textos legais, onde estão e o que o advogado precisa decidir: `TEXTOS-LEGAIS.md`.

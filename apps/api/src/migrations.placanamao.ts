@@ -1605,5 +1605,33 @@ export const placaMigrations: Migration[] = [
     down: async (client) => {
       await client.query('DROP TABLE IF EXISTS purchase_contracts; DROP FUNCTION IF EXISTS purchase_contracts_frozen(); DROP SEQUENCE IF EXISTS purchase_contract_seq;');
     }
+  },
+  {
+    id: '043_legal_acceptance_audit',
+    name: 'Aceite auditável: IP, navegador, versão e vínculo no registro de consentimentos e no contrato de compra',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE user_consents ADD COLUMN IF NOT EXISTS ip text;
+        ALTER TABLE user_consents ADD COLUMN IF NOT EXISTS user_agent text;
+        ALTER TABLE user_consents ADD COLUMN IF NOT EXISTS related_type text;
+        ALTER TABLE user_consents ADD COLUMN IF NOT EXISTS related_id text;
+        ALTER TABLE purchase_contracts ADD COLUMN IF NOT EXISTS accept_ip text;
+        ALTER TABLE purchase_contracts ADD COLUMN IF NOT EXISTS privacy_accepted_at timestamptz;
+        ALTER TABLE purchase_contracts ADD COLUMN IF NOT EXISTS privacy_version text;
+        CREATE INDEX IF NOT EXISTS idx_user_consents_related ON user_consents(related_type, related_id) WHERE related_id IS NOT NULL;
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        DROP INDEX IF EXISTS idx_user_consents_related;
+        ALTER TABLE purchase_contracts DROP COLUMN IF EXISTS privacy_version;
+        ALTER TABLE purchase_contracts DROP COLUMN IF EXISTS privacy_accepted_at;
+        ALTER TABLE purchase_contracts DROP COLUMN IF EXISTS accept_ip;
+        ALTER TABLE user_consents DROP COLUMN IF EXISTS related_id;
+        ALTER TABLE user_consents DROP COLUMN IF EXISTS related_type;
+        ALTER TABLE user_consents DROP COLUMN IF EXISTS user_agent;
+        ALTER TABLE user_consents DROP COLUMN IF EXISTS ip;
+      `);
+    }
   }
 ];

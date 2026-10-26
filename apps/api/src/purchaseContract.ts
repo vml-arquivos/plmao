@@ -7,6 +7,7 @@ import { brl, brlExtenso, sha256 } from './lib/contracts.js';
 import { enqueueEmail } from './lib/emailOutbox.js';
 import { appError, log } from './lib/http.js';
 import { SEARCH_LABELS, type SearchType } from './searchKey.js';
+import { LEGAL_VERSION, recordLegalAcceptance, type AcceptanceEvidence } from './legalAcceptance.js';
 
 /**
  * Contrato de adesão por compra (pacote de saldo ou consulta avulsa).
@@ -17,7 +18,7 @@ import { SEARCH_LABELS, type SearchType } from './searchKey.js';
  * Texto-base: revisão jurídica ainda necessária.
  */
 export const CONTRACT_MODEL_VERSION = '2026-10-c1';
-export const CONTRACT_MODEL_VERSION_CHECKBOX = '2026-10-c2';
+export const CONTRACT_MODEL_VERSION_CHECKBOX = '2026-10-c3';
 export type AcceptMethod = 'EMAIL_CODE' | 'CHECKBOX';
 export type PurchaseKind = 'PACKAGE' | 'QUERY';
 const err = (code: string, http = 400) => appError(code, { code, http, expose: true });
@@ -66,12 +67,19 @@ export function renderPurchaseContract(ctx: { number: string; at: Date; contract
   }
   parts.push(
     `4. O QUE A CONTRATADA SE COMPROMETE\nEntregar o que foi contratado como descrito na cláusula 3; informar o preço antes de cobrar; manter canais de suporte; emitir documento fiscal quando a lei exigir; e proteger os dados do CONTRATANTE conforme a Política de Privacidade.`,
-    `5. O QUE O CONTRATANTE SE COMPROMETE\nPagar o preço; informar dados verdadeiros; guardar o acesso à sua conta; usar as consultas só para fins legítimos, como avaliar compra, venda, financiamento ou regularização de veículo; e não repassar nem revender relatórios que contenham dados pessoais de terceiros.`,
-    `6. NATUREZA DO RELATÓRIO\nO relatório reúne dados de fornecedores e apoia a decisão do CONTRATANTE. Não substitui vistoria nem consulta aos órgãos competentes. Quando a fonte não informa um dado, o relatório mostra "não fornecido", nunca "nada consta".`,
+    ...(method === 'CHECKBOX' ? [
+      `5. RESPONSABILIDADE DO CONTRATANTE PELO USO DOS DADOS\nO CONTRATANTE é o único e exclusivo responsável pelo uso, pela destinação, pelo armazenamento, pelo compartilhamento e pelo descarte dos dados e informações obtidos nas consultas, e responde por qualquer dano, multa, indenização ou sanção que decorra desse uso, perante si mesmo, a CONTRATADA, os titulares dos dados e terceiros. O CONTRATANTE declara que: (a) tem finalidade legítima e base legal (LGPD, arts. 7º e 11) para cada consulta que fizer, como avaliar compra, venda, financiamento, seguro, regularização ou cobrança relacionada a veículo; (b) não usará os dados para perseguição, vigilância, discriminação, fraude, golpe, constrangimento, exposição de terceiros ou qualquer fim ilícito; (c) é o controlador dos dados que obtém e atenderá os titulares quanto ao uso que fizer deles; (d) guardará os relatórios com segurança, só os compartilhará com quem precisar e os descartará quando a finalidade acabar; (e) não repassará nem revenderá relatórios; e (f) informará dados verdadeiros e guardará o acesso à sua conta, respondendo por tudo o que for feito com ela. Se a CONTRATADA for acionada por causa do uso feito pelo CONTRATANTE, ele assume a defesa e ressarce os custos, os danos e os honorários, com direito de regresso.`,
+      `6. NATUREZA DO RELATÓRIO E LIMITES DE RESPONSABILIDADE DA CONTRATADA\nOs dados vêm de fontes públicas e de fornecedores terceiros e são entregues como foram recebidos. A CONTRATADA não garante que sejam completos, exatos ou atualizados, e o relatório não substitui vistoria nem consulta aos órgãos competentes. Quando a fonte não informa um dado, o relatório mostra "não fornecido", nunca "nada consta". A CONTRATADA não responde por decisões tomadas, negócios feitos ou perdidos, lucros cessantes ou danos indiretos decorrentes do resultado da consulta ou do uso do relatório. A responsabilidade da CONTRATADA por falha na entrega fica limitada a entregar o relatório ou devolver o valor pago, como previsto na cláusula 3. Esses limites valem na máxima extensão permitida em lei e não afastam direitos que a lei garante ao consumidor.`
+    ] : [
+      `5. O QUE O CONTRATANTE SE COMPROMETE\nPagar o preço; informar dados verdadeiros; guardar o acesso à sua conta; usar as consultas só para fins legítimos, como avaliar compra, venda, financiamento ou regularização de veículo; e não repassar nem revender relatórios que contenham dados pessoais de terceiros.`,
+      `6. NATUREZA DO RELATÓRIO\nO relatório reúne dados de fornecedores e apoia a decisão do CONTRATANTE. Não substitui vistoria nem consulta aos órgãos competentes. Quando a fonte não informa um dado, o relatório mostra "não fornecido", nunca "nada consta".`
+    ]),
     `7. ARREPENDIMENTO E REEMBOLSO\nA compra é feita pela internet: o CONTRATANTE pode desistir em até 7 dias e receber de volta o valor do que ainda não usou (Código de Defesa do Consumidor, art. 49). Consulta já entregue não é reembolsada, porque é serviço digital de execução imediata, salvo erro da CONTRATADA ou falha comprovada do relatório. O pedido de estorno é feito pelo suporte.`,
-    `8. DADOS PESSOAIS (LGPD)\nA CONTRATADA trata os dados do CONTRATANTE para cumprir este contrato, cobrar, emitir documento fiscal, prestar suporte e cumprir obrigações legais, conforme a Política de Privacidade (${publicAppUrl()}/privacidade). O CONTRATANTE pode pedir acesso, correção ou exclusão dos seus dados pelo suporte.`,
     method === 'CHECKBOX'
-      ? `9. ACEITE ELETRÔNICO E PROVA\nAs partes reconhecem como válido o aceite feito pelo CONTRATANTE ao marcar a opção "Li e aceito" no momento da compra, dentro da sua conta (assinatura eletrônica simples: Lei 14.063/2020, art. 4º, I, e MP 2.200-2/2001, art. 10, §2º). A CONTRATADA guarda o texto exato deste contrato (com impressão digital SHA-256), a data e a hora do aceite, o IP em formato protegido e o navegador. O CONTRATANTE recebe por e-mail o comprovante da compra e pode rever o contrato em Carteira, Contratos.`
+      ? `8. DADOS PESSOAIS (LGPD)\nSobre os dados do cadastro do CONTRATANTE, a CONTRATADA é a controladora: trata esses dados para cumprir este contrato, cobrar, emitir documento fiscal, prestar suporte, prevenir fraude e cumprir obrigações legais, conforme a Política de Privacidade (${publicAppUrl()}/privacidade, versão ${LEGAL_VERSION}). Sobre os dados consultados, que dizem respeito a veículos e a seus proprietários, a CONTRATADA apenas os intermedeia a partir das fontes, e o CONTRATANTE é o controlador do tratamento que fizer deles (cláusula 5). A CONTRATADA registra cada consulta (quem, quando, o dado consultado e o IP) para segurança e auditoria, e pode fornecer esses registros a autoridades mediante ordem legal ou para sua própria defesa. O CONTRATANTE pode pedir acesso, correção ou exclusão dos dados do seu cadastro pelo suporte.`
+      : `8. DADOS PESSOAIS (LGPD)\nA CONTRATADA trata os dados do CONTRATANTE para cumprir este contrato, cobrar, emitir documento fiscal, prestar suporte e cumprir obrigações legais, conforme a Política de Privacidade (${publicAppUrl()}/privacidade). O CONTRATANTE pode pedir acesso, correção ou exclusão dos seus dados pelo suporte.`,
+    method === 'CHECKBOX'
+      ? `9. ACEITE ELETRÔNICO E PROVA\nO CONTRATANTE declara que leu, ou teve a oportunidade de ler, este contrato e que marcou as duas opções antes de pagar: "Li e aceito os Termos do Contrato de Uso" e "Estou ciente e concordo com a Política de Privacidade (LGPD)". As partes reconhecem como válido esse aceite, feito dentro da conta do CONTRATANTE (assinatura eletrônica simples: Lei 14.063/2020, art. 4º, I, e MP 2.200-2/2001, art. 10, §2º). A CONTRATADA guarda o texto exato deste contrato (com impressão digital SHA-256), a versão do contrato e da política, a data e a hora do aceite, o IP e o navegador. O CONTRATANTE recebe por e-mail o comprovante da compra e pode rever o contrato em Carteira, Contratos.`
       : `9. ACEITE ELETRÔNICO E PROVA\nAs partes reconhecem como válido o aceite feito por código enviado ao e-mail do CONTRATANTE (assinatura eletrônica simples: Lei 14.063/2020, art. 4º, I, e MP 2.200-2/2001, art. 10, §2º). A CONTRATADA guarda o texto exato deste contrato (com impressão digital SHA-256), a data e a hora do aceite, o e-mail que recebeu o código, o IP em formato protegido e o navegador. O CONTRATANTE recebe aviso por e-mail e pode rever o contrato em "Meus contratos".`,
     `10. SUPORTE E FORO\nSuporte: ${contact}. Fica eleito o foro do domicílio do CONTRATANTE quando ele for consumidor; nos demais casos, o da sede da CONTRATADA.`
   );
@@ -106,9 +114,17 @@ async function sendOtp(client: Pick<PoolClient, 'query'>, row: { id: string; num
 export async function loadContractor(db: Pick<PoolClient, 'query'> = pool): Promise<ContractContractor> {
   const r = await db.query('SELECT legal_name,cnpj,street,street_number,district,city,state,zip FROM fiscal_settings WHERE id=1');
   const f = (r.rows[0] ?? {}) as Record<string, unknown>;
-  if (!f.legal_name || documentKind(String(f.cnpj ?? '')) !== 'CNPJ') throw err('PURCHASE_CONTRACTOR_MISSING', 503);
-  const address = [f.street, f.street_number, f.district, f.city, f.state, f.zip].filter((x) => typeof x === 'string' && x.trim()).join(', ') || 'endereço do cadastro fiscal';
-  return { name: String(f.legal_name), document: onlyDigits(String(f.cnpj)), address, email: env.SUPPORT_EMAIL?.trim() || env.EMAIL_REPLY_TO?.trim() || 'contato@placanamao.com.br', phone: env.SUPPORT_WHATSAPP?.trim() || env.SUPPORT_PHONE?.trim() || '' };
+  const contact = { email: env.SUPPORT_EMAIL?.trim() || env.EMAIL_REPLY_TO?.trim() || 'contato@placanamao.com.br', phone: env.SUPPORT_WHATSAPP?.trim() || env.SUPPORT_PHONE?.trim() || '' };
+  // 1) Admin > Notas fiscais; 2) variáveis COMPANY_* (só se o cadastro fiscal ainda estiver vazio).
+  if (f.legal_name && documentKind(String(f.cnpj ?? '')) === 'CNPJ') {
+    const address = [f.street, f.street_number, f.district, f.city, f.state, f.zip].filter((x) => typeof x === 'string' && x.trim()).join(', ') || env.COMPANY_ADDRESS?.trim() || 'endereço do cadastro fiscal';
+    return { name: String(f.legal_name), document: onlyDigits(String(f.cnpj)), address, ...contact };
+  }
+  if (env.COMPANY_LEGAL_NAME?.trim() && documentKind(env.COMPANY_CNPJ ?? '') === 'CNPJ') {
+    return { name: env.COMPANY_LEGAL_NAME.trim(), document: onlyDigits(env.COMPANY_CNPJ ?? ''), address: env.COMPANY_ADDRESS?.trim() || 'endereço do cadastro fiscal', ...contact };
+  }
+  log('error', 'purchase_contractor_missing', { hint: 'Preencha razão social e CNPJ em Admin > Notas fiscais (ou COMPANY_LEGAL_NAME e COMPANY_CNPJ). Sem isso ninguém consegue pagar.' });
+  throw err('PURCHASE_CONTRACTOR_MISSING', 503);
 }
 
 export async function loadParty(userId: string, db: Pick<PoolClient, 'query'> = pool, opts: { requireDocument?: boolean } = {}): Promise<ContractParty> {
@@ -248,17 +264,19 @@ export async function previewPurchaseContract(input: { userId: string; item: Con
  * (texto exato, hash, data, IP em hash e navegador). Não pede CPF/CNPJ nem código: quem comprar sem documento no perfil
  * tem o contrato sem essa linha.
  */
-export async function acceptContractAtCheckout(client: PoolClient, input: DraftInput & { evidence: { ipHash: string | null; userAgent: string | null } }): Promise<string> {
+export async function acceptContractAtCheckout(client: PoolClient, input: DraftInput & { evidence: AcceptanceEvidence }): Promise<string> {
   const contractor = await loadContractor(client);
   const party = await loadParty(input.userId, client, { requireDocument: false });
   const seq = await client.query(`SELECT nextval('purchase_contract_seq') AS n`);
   const now = new Date();
   const number = `PNM-${now.getFullYear()}-${String(seq.rows[0].n).padStart(6, '0')}`;
   const body = renderPurchaseContract({ number, at: now, contractor, party, item: input.item, amounts: input.amounts, method: 'CHECKBOX' });
-  const row = await client.query(`INSERT INTO purchase_contracts(number,user_id,kind,item_key,amount_cents,model_version,party,body,body_hash,otp_channel,status,accepted_at,accept_ip_hash,accept_user_agent,expires_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,'CHECKBOX','USADO',now(),$10,$11,now() + interval '30 minutes') RETURNING id`,
-    [number, input.userId, input.kind, input.itemKey, input.amounts.amountCents, CONTRACT_MODEL_VERSION_CHECKBOX, JSON.stringify({ ...party, contractor: contractor.name }), body, sha256(body), input.evidence.ipHash, input.evidence.userAgent]);
-  return String(row.rows[0].id);
+  const row = await client.query(`INSERT INTO purchase_contracts(number,user_id,kind,item_key,amount_cents,model_version,party,body,body_hash,otp_channel,status,accepted_at,accept_ip_hash,accept_ip,accept_user_agent,privacy_accepted_at,privacy_version,expires_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,'CHECKBOX','USADO',now(),$10,$11,$12,now(),$13,now() + interval '30 minutes') RETURNING id`,
+    [number, input.userId, input.kind, input.itemKey, input.amounts.amountCents, CONTRACT_MODEL_VERSION_CHECKBOX, JSON.stringify({ ...party, contractor: contractor.name }), body, sha256(body), input.evidence.ipHash, input.evidence.ip, input.evidence.userAgent, LEGAL_VERSION]);
+  const id = String(row.rows[0].id);
+  await recordLegalAcceptance(client, input.userId, 'purchase', input.evidence, { type: 'PURCHASE_CONTRACT', id });
+  return id;
 }
 
 const fmtDateTime = (d: Date) => `${dateLong(d)}, ${timeShort(d)}`;

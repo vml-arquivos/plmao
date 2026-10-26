@@ -76,7 +76,7 @@ describe('contrato de adesão por compra: gerado, confirmado por código e ligad
     const c = await register(); await prepareContractData(pool, c.id); const code = await coupon();
     const none = await post(c, '/api/payments/query/checkout', queryBody({ couponCode: code }));
     assert.equal(none.status, 400); assert.equal(none.json.error, 'PURCHASE_CONTRACT_REQUIRED');
-    assert.match(none.json.message, /Marque a caixa/);
+    assert.match(none.json.message, /Termos do Contrato de Uso/);
     const draft = await post(c, '/api/purchase-contracts/draft', queryBody({ couponCode: code }));
     const pending = await post(c, '/api/payments/query/checkout', queryBody({ couponCode: code, contractId: draft.json.id }));
     assert.equal(pending.status, 409); assert.equal(pending.json.error, 'PURCHASE_CONTRACT_NOT_ACCEPTED');

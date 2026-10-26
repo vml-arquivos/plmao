@@ -226,6 +226,10 @@ const envSchema = z.object({
   SUPPORT_PHONE: z.string().trim().max(40).optional(),
   SUPPORT_WHATSAPP: z.string().trim().max(40).optional(),
   SUPPORT_HOURS: z.string().trim().max(120).optional(),
+  /** Dados da empresa para o contrato de compra, usados só se Admin > Notas fiscais ainda não tiver razão social e CNPJ. */
+  COMPANY_LEGAL_NAME: z.string().trim().max(200).optional(),
+  COMPANY_CNPJ: z.string().trim().max(24).optional(),
+  COMPANY_ADDRESS: z.string().trim().max(300).optional(),
   CREDIFY_BASE_URL: optionalUrl,
   CREDIFY_CLIENT_ID: optionalString,
   CREDIFY_CLIENT_SECRET: optionalString,

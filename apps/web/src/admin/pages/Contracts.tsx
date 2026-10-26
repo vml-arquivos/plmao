@@ -264,7 +264,7 @@ function Models() {
 }
 
 interface PRow { id: string; number: string; kind: string; amount_cents: number; accepted_at: string; order_id: string | null; order_status: string | null; party_name: string; party_email: string }
-interface PFull extends PRow { body: string; body_hash: string; model_version: string; otp_destination: string; accept_ip_hash: string | null; accept_user_agent: string | null }
+interface PFull extends PRow { body: string; body_hash: string; model_version: string; otp_destination: string | null; otp_channel?: string; accept_ip_hash: string | null; accept_ip?: string | null; accept_user_agent: string | null; privacy_accepted_at?: string | null; privacy_version?: string | null }
 
 /** Contratos de adesão aceitos nas compras (pacote e consulta avulsa), com as evidências do aceite. */
 function Purchases() {
@@ -284,7 +284,7 @@ function Purchases() {
       {view && (
         <Modal wide title={`Contrato ${view.number}`} onClose={() => setView(null)} footer={<Button onClick={() => setView(null)}>Fechar</Button>}>
           <div className="stack">
-            <Alert tone="info" title="Evidências do aceite.">Código enviado para {view.otp_destination} · aceito em {dateTime(view.accepted_at)} · modelo {view.model_version} · IP (hash) {view.accept_ip_hash?.slice(0, 16) ?? '—'} · navegador {view.accept_user_agent ?? '—'}</Alert>
+            <Alert tone="info" title="Evidências do aceite.">{view.otp_destination ? `Código enviado para ${view.otp_destination}` : 'Aceite por caixas (Termos do Contrato + Política de Privacidade)'} · aceito em {dateTime(view.accepted_at)} · modelo {view.model_version}{view.privacy_accepted_at ? ` · política ${view.privacy_version ?? ''} aceita em ${dateTime(view.privacy_accepted_at)}` : ''} · IP {view.accept_ip ?? `(hash) ${view.accept_ip_hash?.slice(0, 16) ?? '—'}`} · navegador {view.accept_user_agent ?? '—'}</Alert>
             <pre className="card card-pad" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, maxHeight: '50vh', overflow: 'auto', margin: 0 }}>{view.body}</pre>
             <p className="muted mono" style={{ fontSize: 12, wordBreak: 'break-all' }}>SHA-256: {view.body_hash}</p>
           </div>

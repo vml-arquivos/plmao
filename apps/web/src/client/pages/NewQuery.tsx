@@ -9,7 +9,7 @@ import { api, type Catalog } from '../api';
 import { useSession } from '../session';
 import { storedReferral, trackFunnel } from '../funnel';
 import PaidQueries from '../components/PaidQueries';
-import PurchaseContract from '../components/PurchaseContract';
+import PurchaseContract, { ACCEPT_MISSING, NO_ACCEPT, bothAccepted, type LegalAccept } from '../components/PurchaseContract';
 
 interface QProduct { id: string; name: string; description: string; priceCents: number; basePriceCents: number; negotiated: boolean; features: string[] | null; isFree: boolean; featured: boolean; commercialStatus: string }
 interface Quote { amountCents: number; subtotalCents: number; discountCents: number; couponCode: string | null; paymentProviderConfigured: boolean; free?: boolean }
@@ -32,7 +32,8 @@ export default function NewQuery() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'' | 'wallet' | 'pay' | 'quote'>('');
   const [step, setStep] = useState(0);
-  const [accepted, setAccepted] = useState(false);
+  const [accept, setAccept] = useState<LegalAccept>(NO_ACCEPT);
+  const legal = useAsync(async () => api.get<{ accepted: boolean }>('/legal/acceptance').catch(() => null), []);
   const [wantDirect, setWantDirect] = useState(false);
   const idem = useRef<string>('');
   const { data, error: loadErr, loading, reload } = useAsync(async () => {
@@ -52,6 +53,10 @@ export default function NewQuery() {
   const searchBody = { searchType: kind, searchValue: plate };
   const shownKey = kind === 'PLATE' ? formatPlate(plate) : kind === 'OWNER_DOC' ? formatDocument(plate) : plate;
   const due = quote ? quote.amountCents : price;
+  const payingDirect = Boolean(quote?.free) || !enough || wantDirect;
+  const needAcceptBalance = !payingDirect && !legal.loading && legal.data?.accepted !== true;
+  const showAccept = payingDirect || needAcceptBalance;
+  const acceptOk = !showAccept || bothAccepted(accept);
   useEffect(() => { setQuote(null); }, [productId, plate, kind]);
   useEffect(() => { if (busy !== 'wallet') return; const t = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 1600); return () => clearInterval(t); }, [busy]);
 
@@ -66,12 +71,14 @@ export default function NewQuery() {
 
   async function runWallet() {
     if (!can || !product) return;
+    if (needAcceptBalance && !bothAccepted(accept)) { setError(ACCEPT_MISSING); return; }
     setBusy('wallet'); setStep(0); setError('');
     idem.current ||= crypto.randomUUID();
     trackFunnel('CTA_CLICKED', { placement: 'new_query_wallet', productId: product.id });
     try {
-      const r = await api.post<{ id: string }>('/queries', { ...searchBody, productId: product.id }, { headers: { 'Idempotency-Key': idem.current } });
+      const r = await api.post<{ id: string }>('/queries', { ...searchBody, productId: product.id, ...(needAcceptBalance ? { acceptContract: true, acceptPrivacy: true } : {}) }, { headers: { 'Idempotency-Key': idem.current } });
       idem.current = '';
+      if (needAcceptBalance) void legal.reload();
       const balanceNow = await api.get<{ balanceCents: number }>('/me').then((m) => m.balanceCents).catch(() => undefined);
       if (balanceNow !== undefined) setBalance(balanceNow); else void refresh();
       nav(`/app/consulta/${r.id}`);
@@ -85,12 +92,12 @@ export default function NewQuery() {
 
   async function payDirect() {
     if (!can || !product) return;
-    if (!accepted) { setError('Marque a caixa “Li e aceito o contrato” para continuar.'); return; }
+    if (!bothAccepted(accept)) { setError(ACCEPT_MISSING); return; }
     setBusy('pay'); setError('');
     trackFunnel('CHECKOUT_STARTED', { productId: product.id, amountCents: due, hasCoupon: Boolean(quote?.couponCode) });
     try {
       const ref = storedReferral();
-      const r = await api.post<{ checkoutUrl: string | null; free?: boolean; orderId: string }>('/payments/query/checkout', { productId: product.id, ...searchBody, acceptContract: true, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(ref ? { affiliateCode: ref } : {}) });
+      const r = await api.post<{ checkoutUrl: string | null; free?: boolean; orderId: string }>('/payments/query/checkout', { productId: product.id, ...searchBody, acceptContract: true, acceptPrivacy: true, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(ref ? { affiliateCode: ref } : {}) });
       if (r.free) {
         // Cupom de 100%: sem pagamento. Executa a consulta liberada pelo pedido.
         try {
@@ -173,19 +180,19 @@ export default function NewQuery() {
           <div className="sum-line total"><span>Total</span><span className="num">{money(due)}</span></div>
           <div className="sum-line"><span className="muted">Seu saldo</span><b className="num" style={{ color: enough ? 'var(--ok-ink)' : 'var(--warn-ink)' }}>{money(balance)}</b></div>
           {error && <Alert tone="danger">{error}</Alert>}
-{(quote?.free || !enough || wantDirect) && (
-                      <PurchaseContract body={{ productId: product?.id, ...searchBody, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(storedReferral() ? { affiliateCode: storedReferral() } : {}) }} accepted={accepted} onChange={setAccepted} disabled={!can || !product} />
+{showAccept && (
+                      <PurchaseContract body={{ productId: product?.id, ...searchBody, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(storedReferral() ? { affiliateCode: storedReferral() } : {}) }} value={accept} onChange={setAccept} disabled={!can || !product} />
           )}
           {quote?.free ? (
-            <Button variant="primary" size="lg" block disabled={!can || !accepted} loading={busy === 'pay'} onClick={payDirect} icon="search">Consultar grátis</Button>
+            <Button variant="primary" size="lg" block disabled={!can || !acceptOk} loading={busy === 'pay'} onClick={payDirect} icon="search">Consultar grátis</Button>
           ) : enough ? (
             <>
-              <Button variant="primary" size="lg" block disabled={!can} onClick={runWallet} icon="search">Consultar agora · {money(price)}</Button>
-              <Button variant="ghost" block disabled={!can || (wantDirect && !accepted)} loading={busy === 'pay'} onClick={() => { if (!wantDirect) { setWantDirect(true); return; } void payDirect(); }}>{wantDirect ? `Pagar ${money(due)} com Pix ou cartão` : 'Prefiro pagar com Pix ou cartão'}</Button>
+              <Button variant="primary" size="lg" block disabled={!can || !acceptOk} onClick={runWallet} icon="search">Consultar agora · {money(price)}</Button>
+              <Button variant="ghost" block disabled={!can || (wantDirect && !acceptOk)} loading={busy === 'pay'} onClick={() => { if (!wantDirect) { setWantDirect(true); return; } void payDirect(); }}>{wantDirect ? `Pagar ${money(due)} com Pix ou cartão` : 'Prefiro pagar com Pix ou cartão'}</Button>
             </>
           ) : (
             <>
-              <Button variant="primary" size="lg" block disabled={!can || !accepted} loading={busy === 'pay'} onClick={payDirect} icon="credit-card">Pagar {money(due)} com Pix ou cartão</Button>
+              <Button variant="primary" size="lg" block disabled={!can || !acceptOk} loading={busy === 'pay'} onClick={payDirect} icon="credit-card">Pagar {money(due)} com Pix ou cartão</Button>
               <Link className="btn btn-block" to="/app/carteira">Adicionar saldo à carteira</Link>
               <p className="muted" style={{ fontSize: 13 }}>Seu saldo não cobre esta consulta. Pague direto ou recarregue a carteira.</p>
             </>

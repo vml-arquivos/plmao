@@ -31,13 +31,13 @@ describe('aceite do contrato por caixinha (sem ler, sem código) e comprovante p
     const c = await register(); await prepareContractData(pool, null);
     await pool.query(`UPDATE user_profiles SET cpf_cnpj=NULL WHERE user_id=$1`, [c.id]); // sem CPF no perfil: não trava a compra
     const code = await coupon();
-    const r = await post(c, '/api/payments/query/checkout', queryBody({ couponCode: code, acceptContract: true }));
+    const r = await post(c, '/api/payments/query/checkout', queryBody({ couponCode: code, acceptContract: true, acceptPrivacy: true }));
     assert.equal(r.status, 201, r.text); assert.equal(r.json.free, true);
     const row = (await pool.query(`SELECT number,status,order_id,otp_channel,model_version,body,accepted_at,accept_ip_hash FROM purchase_contracts WHERE user_id=$1`, [c.id])).rows;
     assert.equal(row.length, 1);
     assert.equal(row[0].status, 'USADO'); assert.equal(row[0].order_id, r.json.orderId); assert.equal(row[0].otp_channel, 'CHECKBOX');
-    assert.equal(row[0].model_version, '2026-10-c2'); assert.ok(row[0].accepted_at); assert.ok(row[0].accept_ip_hash);
-    assert.match(row[0].body, /marcar a opção "Li e aceito"/); assert.match(row[0].body, /Joana Souza/);
+    assert.equal(row[0].model_version, '2026-10-c3'); assert.ok(row[0].accepted_at); assert.ok(row[0].accept_ip_hash);
+    assert.match(row[0].body, /Li e aceito os Termos do Contrato de Uso/); assert.match(row[0].body, /RESPONSABILIDADE DO CONTRATANTE PELO USO DOS DADOS/); assert.match(row[0].body, /Joana Souza/);
     assert.equal((await pool.query(`SELECT 1 FROM email_outbox WHERE related_type='PURCHASE_CONTRACT' AND created_by=$1 AND template='PURCHASE_OTP'`, [c.id])).rowCount, 0, 'nenhum código por e-mail');
     // comprovante
     let mail;
@@ -53,7 +53,7 @@ describe('aceite do contrato por caixinha (sem ler, sem código) e comprovante p
   it('sem marcar nada, o checkout não cria pedido nem contrato', async () => {
     const c = await register(); await prepareContractData(pool, c.id); const code = await coupon();
     const r = await post(c, '/api/payments/query/checkout', queryBody({ couponCode: code }));
-    assert.equal(r.status, 400); assert.equal(r.json.error, 'PURCHASE_CONTRACT_REQUIRED'); assert.match(r.json.message, /Marque a caixa/);
+    assert.equal(r.status, 400); assert.equal(r.json.error, 'PURCHASE_CONTRACT_REQUIRED'); assert.match(r.json.message, /Termos do Contrato de Uso/);
     assert.equal((await pool.query('SELECT 1 FROM payment_orders WHERE user_id=$1', [c.id])).rowCount, 0);
     assert.equal((await pool.query('SELECT 1 FROM purchase_contracts WHERE user_id=$1', [c.id])).rowCount, 0);
   });
@@ -62,7 +62,7 @@ describe('aceite do contrato por caixinha (sem ler, sem código) e comprovante p
     const c = await register('Carlos Lima'); await prepareContractData(pool, c.id);
     const p = await post(c, '/api/purchase-contracts/preview', queryBody());
     assert.equal(p.status, 200, p.text);
-    assert.match(p.json.text, /CONTRATO DE ADESÃO: CONSULTA VEICULAR AVULSA/); assert.match(p.json.text, /Carlos Lima/); assert.match(p.json.text, /marcar a opção "Li e aceito"/);
+    assert.match(p.json.text, /CONTRATO DE ADESÃO: CONSULTA VEICULAR AVULSA/); assert.match(p.json.text, /Carlos Lima/); assert.match(p.json.text, /Estou ciente e concordo com a Política de Privacidade/); assert.match(p.json.text, /LIMITES DE RESPONSABILIDADE DA CONTRATADA/);
     assert.equal((await pool.query('SELECT 1 FROM purchase_contracts WHERE user_id=$1', [c.id])).rowCount, 0);
     const pack = (await pool.query(`SELECT slug FROM credit_packages WHERE active=true ORDER BY price_cents LIMIT 1`)).rows[0];
     const pp = await post(c, '/api/purchase-contracts/preview', { packageSlug: pack.slug });
@@ -81,7 +81,7 @@ describe('aceite do contrato por caixinha (sem ler, sem código) e comprovante p
     const order = (await pool.query(`INSERT INTO payment_orders(user_id,package_id,status,subtotal_cents,amount_cents,credits,provider,external_reference,paid_at)
       VALUES($1,$2,'PAID',$3,$3,$4,'mercadopago',$5,now()) RETURNING id`, [c.id, pack.id, pack.price_cents, pack.credits, `pnm_${uid('x')}`])).rows[0];
     await pool.query(`INSERT INTO purchase_contracts(number,user_id,kind,item_key,amount_cents,model_version,party,body,body_hash,otp_channel,status,accepted_at,expires_at,order_id)
-      VALUES($1,$2,'PACKAGE',$3,$4,'2026-10-c2','{}'::jsonb,'TEXTO DO CONTRATO DE SALDO','h','CHECKBOX','USADO',now(),now(),$5)`, [`PNM-T-${uid('n')}`, c.id, pack.slug, pack.price_cents, order.id]);
+      VALUES($1,$2,'PACKAGE',$3,$4,'2026-10-c3','{}'::jsonb,'TEXTO DO CONTRATO DE SALDO','h','CHECKBOX','USADO',now(),now(),$5)`, [`PNM-T-${uid('n')}`, c.id, pack.slug, pack.price_cents, order.id]);
     const { sendPurchaseReceipt } = await import('../dist/purchaseContract.js');
     await sendPurchaseReceipt(order.id); await sendPurchaseReceipt(order.id);
     const mails = (await pool.query(`SELECT subject,payload FROM email_outbox WHERE related_type='PURCHASE_RECEIPT' AND related_id=$1`, [order.id])).rows;
@@ -98,5 +98,67 @@ describe('aceite do contrato por caixinha (sem ler, sem código) e comprovante p
     const { sendPurchaseReceipt } = await import('../dist/purchaseContract.js');
     await sendPurchaseReceipt(order.id);
     assert.equal((await pool.query(`SELECT 1 FROM email_outbox WHERE related_type='PURCHASE_RECEIPT' AND related_id=$1`, [order.id])).rowCount, 0);
+  });
+  it('só os Termos marcados, sem a Política de Privacidade: recusa e não cria nada', async () => {
+    const c = await register(); await prepareContractData(pool, c.id); const code = await coupon();
+    const r = await post(c, '/api/payments/query/checkout', queryBody({ couponCode: code, acceptContract: true }));
+    assert.equal(r.status, 400); assert.equal(r.json.error, 'PURCHASE_PRIVACY_REQUIRED'); assert.match(r.json.message, /Política de Privacidade/);
+    assert.equal((await pool.query('SELECT 1 FROM payment_orders WHERE user_id=$1', [c.id])).rowCount, 0);
+    assert.equal((await pool.query('SELECT 1 FROM purchase_contracts WHERE user_id=$1', [c.id])).rowCount, 0);
+    const bad = await post(c, '/api/payments/query/checkout', queryBody({ couponCode: code, acceptContract: false, acceptPrivacy: true }));
+    assert.equal(bad.status, 400);
+  });
+
+  it('o aceite grava data, IP, navegador e versão do contrato e da política, ligados ao pedido', async () => {
+    const c = await register(); await prepareContractData(pool, c.id); const code = await coupon();
+    const r = await post(c, '/api/payments/query/checkout', queryBody({ couponCode: code, acceptContract: true, acceptPrivacy: true }));
+    assert.equal(r.status, 201, r.text);
+    const ct = (await pool.query('SELECT id,model_version,accept_ip,accept_ip_hash,accept_user_agent,accepted_at,privacy_accepted_at,privacy_version FROM purchase_contracts WHERE order_id=$1', [r.json.orderId])).rows[0];
+    assert.ok(ct.accept_ip, 'IP gravado'); assert.ok(ct.accept_ip_hash); assert.ok(ct.accepted_at); assert.ok(ct.privacy_accepted_at); assert.equal(ct.privacy_version, '2026-08'); assert.equal(ct.model_version, '2026-10-c3');
+    const cons = (await pool.query(`SELECT consent_type,policy_version,source,ip,related_type,related_id FROM user_consents WHERE user_id=$1 AND source='purchase' ORDER BY consent_type`, [c.id])).rows;
+    assert.deepEqual(cons.map((x) => x.consent_type), ['PRIVACY_POLICY', 'TERMS_OF_SERVICE']);
+    for (const x of cons) { assert.equal(x.policy_version, '2026-08'); assert.ok(x.ip); assert.equal(x.related_type, 'PURCHASE_CONTRACT'); assert.equal(x.related_id, ct.id); }
+  });
+
+  it('consulta com saldo: exige aceite vigente ou as duas caixas, e grava o que foi marcado', async () => {
+    const c = await register();
+    const status = await hostRequest(server.base, '/api/legal/acceptance', { token: c.token });
+    assert.equal(status.status, 200); assert.equal(status.json.accepted, true); assert.equal(status.json.version, '2026-08');
+    await pool.query(`DELETE FROM user_consents WHERE user_id=$1 AND consent_type IN ('TERMS_OF_SERVICE','PRIVACY_POLICY')`, [c.id]);
+    assert.equal((await hostRequest(server.base, '/api/legal/acceptance', { token: c.token })).json.accepted, false);
+    await pool.query(`UPDATE wallets SET balance=500,balance_cents=50000 WHERE user_id=$1`, [c.id]);
+    const blocked = await post(c, '/api/queries', queryBody());
+    assert.equal(blocked.status, 400); assert.equal(blocked.json.error, 'TERMS_ACCEPTANCE_REQUIRED'); assert.match(blocked.json.message, /Termos do Contrato de Uso e a Política de Privacidade/);
+    const half = await post(c, '/api/queries', queryBody({ acceptContract: true }));
+    assert.equal(half.status, 400); assert.equal(half.json.error, 'PURCHASE_PRIVACY_REQUIRED');
+    assert.equal((await pool.query('SELECT 1 FROM vehicle_queries WHERE user_id=$1', [c.id])).rowCount, 0, 'nada foi cobrado nem consultado');
+    const ok = await post(c, '/api/queries', queryBody({ acceptContract: true, acceptPrivacy: true }));
+    assert.equal(ok.status, 201, ok.text);
+    const rows = (await pool.query(`SELECT consent_type,source,ip FROM user_consents WHERE user_id=$1 AND source='query'`, [c.id])).rows;
+    assert.equal(rows.length, 2); assert.ok(rows.every((x) => x.ip));
+    assert.equal((await hostRequest(server.base, '/api/legal/acceptance', { token: c.token })).json.accepted, true);
+    const again = await post(c, '/api/queries', queryBody()); // aceite vigente: não precisa marcar de novo
+    assert.equal(again.status, 201, again.text);
+  });
+
+  it('sem razão social e CNPJ da empresa a compra não abre e a mensagem é clara; com COMPANY_* funciona', async () => {
+    const old = (await pool.query('SELECT legal_name,cnpj FROM fiscal_settings WHERE id=1')).rows[0];
+    const fb = await startServer({ COMPANY_LEGAL_NAME: 'EMPRESA TESTE LTDA', COMPANY_CNPJ: '11222333000181', COMPANY_ADDRESS: 'Rua A, 1, Goiânia, GO' });
+    try {
+      await pool.query(`UPDATE fiscal_settings SET legal_name='',cnpj='' WHERE id=1`);
+      const c = await register(); const code = await coupon();
+      const none = await post(c, '/api/payments/query/checkout', queryBody({ couponCode: code, acceptContract: true, acceptPrivacy: true }));
+      assert.equal(none.status, 503); assert.equal(none.json.error, 'PURCHASE_CONTRACTOR_MISSING'); assert.match(none.json.message, /temporariamente indisponível/);
+      assert.equal((await pool.query('SELECT 1 FROM payment_orders WHERE user_id=$1', [c.id])).rowCount, 0);
+      const code2 = await coupon();
+      const reg = await hostRequest(fb.base, '/api/auth/register', { method: 'POST', body: { name: 'Pedro Alves', email: `${uid('fb')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });
+      const ok = await hostRequest(fb.base, '/api/payments/query/checkout', { method: 'POST', token: reg.json.token, body: queryBody({ couponCode: code2, acceptContract: true, acceptPrivacy: true }) });
+      assert.equal(ok.status, 201, ok.text);
+      const body = (await pool.query('SELECT body FROM purchase_contracts WHERE order_id=$1', [ok.json.orderId])).rows[0].body;
+      assert.match(body, /EMPRESA TESTE LTDA, CNPJ 11\.222\.333\/0001-81, Rua A, 1, Goiânia, GO/);
+    } finally {
+      await pool.query(`UPDATE fiscal_settings SET legal_name=$1,cnpj=$2 WHERE id=1`, [old?.legal_name ?? null, old?.cnpj ?? null]);
+      await fb.stop();
+    }
   });
 });
