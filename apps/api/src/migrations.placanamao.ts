@@ -1645,5 +1645,17 @@ export const placaMigrations: Migration[] = [
     down: async (client) => {
       await client.query(`UPDATE query_products SET report_sections = array_remove(array_remove(report_sections,'HISTORICO'),'FIPE') WHERE id='COMPLETE' AND report_sections IS NOT NULL`);
     }
+  },
+  {
+    id: '045_vehicle_queries_archived',
+    name: 'Cliente pode arquivar consultas (estornadas, falhas ou antigas) para limpar o histórico',
+    up: async (client) => {
+      await client.query(`ALTER TABLE vehicle_queries ADD COLUMN IF NOT EXISTS archived_at timestamptz`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_vehicle_queries_user_archived ON vehicle_queries(user_id, archived_at)`);
+    },
+    down: async (client) => {
+      await client.query(`DROP INDEX IF EXISTS idx_vehicle_queries_user_archived`);
+      await client.query(`ALTER TABLE vehicle_queries DROP COLUMN IF EXISTS archived_at`);
+    }
   }
 ];

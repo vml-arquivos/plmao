@@ -322,6 +322,8 @@
 .quick-plate input::placeholder { color: #8b8da0; font-weight: 500; letter-spacing: 0; text-transform: none; font-family: var(--font-body); font-size: 15px; }
 .q-list { display: grid; gap: 10px; }
 .q-row { display: flex; gap: 16px; align-items: center; padding: 14px 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); color: var(--text); transition: border-color .15s, transform .15s; }
+.q-wrap { display: flex; gap: 8px; align-items: center; }
+.q-wrap .q-row { flex: 1; min-width: 0; }
 .q-row:hover { border-color: var(--violet); text-decoration: none; transform: translateY(-1px); }
 .q-row .info { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .q-row .info b { font-family: var(--font-display); font-size: 15.5px; }

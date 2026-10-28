@@ -27,6 +27,7 @@ import type { PoolClient } from 'pg';
 import { normalizeBdrp } from './normalizer.js';
 import { hasPermission, outranks, permissionsFor, requirePermission, rolesBelow } from './permissions.js';
 import { getProvider } from './providers/index.js';
+import { startCredifyTokenKeeper } from './providers/credifyProvider.js';
 import { getFipeProvider, quoteWithFallback, type FipeCatalogProvider } from './providers/fipeProvider.js';
 import { fipePdf, fipePrintHtml, makeFipeQuote, reportSnapshot, type ReportBranding } from './fipeReport.js';
 import { getPaymentProvider, getPaymentProviderFor, type PaymentProviderName } from './payments/index.js';
@@ -1509,6 +1510,7 @@ const queryListSchema = z.object({
   plate: z.string().max(24).optional(),
   status: z.enum(['PROCESSING', 'SUCCESS', 'FAILED', 'REFUNDED']).optional(),
   product: z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/).optional(),
+  archived: z.enum(['1', '0']).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
   offset: z.coerce.number().int().min(0).max(100000).default(0)
 });
@@ -1525,12 +1527,12 @@ async function listClientQueries(userId: string, raw: unknown, max?: number) {
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const f = parsed.data;
   const plate = (f.plate ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17);
-  const values: unknown[] = [userId, plate, f.status ?? null, f.product ?? null];
+  const values: unknown[] = [userId, plate, f.status ?? null, f.product ?? null, f.archived === '1'];
   const period = periodSql('q.created_at', f, values);
   values.push(max ?? f.limit, max ? 0 : f.offset);
   const results = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
     FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id
-    WHERE q.user_id=$1 AND ($2='' OR q.plate LIKE '%' || $2 || '%') AND ($3::text IS NULL OR q.status=$3) AND ($4::text IS NULL OR q.product_id=$4)${period}
+    WHERE q.user_id=$1 AND ($2='' OR q.plate LIKE '%' || $2 || '%') AND ($3::text IS NULL OR q.status=$3) AND ($4::text IS NULL OR q.product_id=$4) AND (($5::boolean AND q.archived_at IS NOT NULL) OR (NOT $5::boolean AND q.archived_at IS NULL))${period}
     ORDER BY q.created_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
   return results.rows;
 }
@@ -1538,6 +1540,31 @@ async function listClientQueries(userId: string, raw: unknown, max?: number) {
 api.get('/queries', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
   const rows = await listClientQueries(req.user!.id, req.query);
   res.json(rows.map((row) => serializeQuery(row as QueryRow & Record<string, unknown>)));
+}));
+
+/** Arquiva (esconde do histórico) todas as consultas estornadas ou com falha. Nada é apagado: dinheiro e auditoria ficam guardados. */
+api.post('/queries/archive-failed', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const r = await pool.query(`UPDATE vehicle_queries SET archived_at=now() WHERE user_id=$1 AND status IN ('REFUNDED','FAILED') AND archived_at IS NULL`, [req.user!.id]);
+  res.json({ archived: r.rowCount ?? 0 });
+}));
+
+/** Arquiva uma consulta (qualquer uma que não esteja em andamento). */
+api.post('/queries/:id/archive', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
+  const own = await pool.query('SELECT status FROM vehicle_queries WHERE id=$1 AND user_id=$2', [id.data, req.user!.id]);
+  if (!own.rowCount) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
+  if (own.rows[0].status === 'PROCESSING') throw appError('QUERY_IN_PROGRESS', { code: 'QUERY_IN_PROGRESS', http: 409, expose: true });
+  await pool.query('UPDATE vehicle_queries SET archived_at=COALESCE(archived_at,now()) WHERE id=$1 AND user_id=$2', [id.data, req.user!.id]);
+  res.json({ id: id.data, archived: true });
+}));
+
+api.post('/queries/:id/unarchive', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
+  const r = await pool.query('UPDATE vehicle_queries SET archived_at=NULL WHERE id=$1 AND user_id=$2', [id.data, req.user!.id]);
+  if (!r.rowCount) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
+  res.json({ id: id.data, archived: false });
 }));
 
 /** Tipos de consulta que o cliente já fez (para o filtro). */
@@ -2997,6 +3024,9 @@ app.get('*', asyncRoute(async (req, res, next) => {
 setInterval(() => { sweepStuckQueries(env.QUERY_STUCK_MINUTES).catch((error) => log('error', 'query_sweeper_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 2 * 60 * 1000).unref();
 setInterval(() => { releaseCommissions().catch((error) => log('error', 'commission_release_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 60 * 60 * 1000).unref();
 setInterval(() => { purgeExpiredRaw(env.RAW_RETENTION_DAYS).catch((error) => log('error', 'raw_retention_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 6 * 60 * 60 * 1000).unref();
+if (env.DATA_PROVIDER === 'real' && env.VEHICLE_API_PROVIDER === 'credify' && env.CREDIFY_CLIENT_ID && env.CREDIFY_CLIENT_SECRET && process.env.NODE_TEST_CONTEXT === undefined) {
+  startCredifyTokenKeeper((message) => log('warn', 'credify_token_refresh_failed', { message }));
+}
 const httpServer = app.listen(env.PORT, '0.0.0.0', () => log('info', 'server_started', { port: env.PORT, provider: env.DATA_PROVIDER, environment: env.NODE_ENV }));
 let shuttingDown = false;
 function shutdown(signal: string): void {

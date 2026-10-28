@@ -56,12 +56,27 @@ test('o retorno real do fornecedor passa pelo normalizador v2 sem adaptação', 
 test('token recusado no meio: renova uma vez e repete a consulta; credencial inválida vira erro de autenticação', async () => {
   resetCredifyTokenCache();
   const t1 = jwt(Math.floor(Date.now() / 1000) + 86400);
-  const f = fakeFetch([{ body: { Success: true, Dados: t1 } }, { status: 401 }, { body: { Success: true, Dados: `${t1}x` } }, { body: sample }]);
+  const f = fakeFetch([{ body: { Success: true, Dados: t1 } }, { status: 401 }, { status: 401 }, { body: { Success: true, Dados: `${t1}x` } }, { body: sample }]);
   const out = await new CredifyVehicleProvider({ ...base, fetchImpl: f }).queryByPlate('AAA0000');
   assert.equal(out.providerQueryId, '51727690');
   assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 2);
   resetCredifyTokenCache();
   await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: fakeFetch([{ status: 401, body: { Message: 'LOGON OU SENHA INVALIDOS' } }]) }).queryByPlate('AAA0000'), { code: 'DATA_PROVIDER_AUTH_FAILED' });
+});
+
+test('cabeçalho Authorization: se "Bearer token" é recusado, tenta o token puro e passa a usar o formato que funcionou', async () => {
+  resetCredifyTokenCache();
+  const t = jwt(Math.floor(Date.now() / 1000) + 86400);
+  const f = fakeFetch([{ body: { Success: true, Dados: t } }, { status: 401 }, { body: sample }, { body: sample }]);
+  const p = new CredifyVehicleProvider({ ...base, fetchImpl: f });
+  const out = await p.queryByPlate('AAA0000');
+  assert.equal(out.providerQueryId, '51727690');
+  assert.equal(f.calls[1].init.headers.authorization, `Bearer ${t}`);
+  assert.equal(f.calls[2].init.headers.authorization, t);
+  await p.queryByPlate('AAA0000');
+  assert.equal(f.calls[3].init.headers.authorization, t);
+  assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 1);
+  resetCredifyTokenCache();
 });
 
 test('mapeia erros do fornecedor para códigos internos e nunca devolve segredo', async () => {
@@ -135,4 +150,41 @@ test('testConnection só faz o login e informa a validade do token', async () =>
   assert.equal(f.calls.length, 1); assert.ok(f.calls[0].url.endsWith('/auth'));
   resetCredifyTokenCache();
   await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: fakeFetch([{ status: 403, body: {} }]) }).testConnection(), (e) => e.code === 'DATA_PROVIDER_AUTH_FAILED');
+});
+
+test('login: segredo só com dígitos recusado como texto (200 sem token) é reenviado como número', async () => {
+  resetCredifyTokenCache();
+  const t = jwt(Math.floor(Date.now() / 1000) + 86400);
+  const f = fakeFetch([{ body: { Success: false, Message: 'LOGON OU SENHA INVALIDOS', Dados: false } }, { body: { Success: true, Dados: t } }]);
+  const out = await new CredifyVehicleProvider({ ...base, clientSecret: '123456', fetchImpl: f }).testConnection();
+  assert.equal(out.ok, true);
+  assert.equal(JSON.parse(f.calls[0].init.body).ClientSecret, '123456');
+  assert.equal(JSON.parse(f.calls[1].init.body).ClientSecret, 123456);
+  resetCredifyTokenCache();
+});
+
+test('após 24 h o token vence e o próximo pedido faz um novo login sozinho', async () => {
+  resetCredifyTokenCache();
+  let now = Date.parse('2026-10-21T12:00:00Z');
+  const t1 = jwt(Math.floor(now / 1000) + 24 * 3600);
+  const t2 = jwt(Math.floor(now / 1000) + 48 * 3600);
+  const f = fakeFetch([{ body: { Success: true, Dados: t1 } }, { body: sample }, { body: { Success: true, Dados: t2 } }, { body: sample }]);
+  const p = new CredifyVehicleProvider({ ...base, fetchImpl: f, now: () => now });
+  await p.queryByPlate('AAA0000');
+  now += 23 * 3600_000 + 56 * 60_000; // faltam menos de 5 min: já renova
+  await p.queryByPlate('AAA0000');
+  assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 2);
+  assert.equal(f.calls[3].init.headers.authorization, `Bearer ${t2}`);
+  resetCredifyTokenCache();
+});
+
+test('consultas simultâneas com token vencido fazem um único login', async () => {
+  resetCredifyTokenCache();
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const t = jwt(Math.floor(now / 1000) + 24 * 3600);
+  const f = fakeFetch([{ body: { Success: true, Dados: t } }, { body: sample }, { body: sample }, { body: sample }]);
+  const p = new CredifyVehicleProvider({ ...base, fetchImpl: f, now: () => now });
+  await Promise.all([p.queryByPlate('AAA0000'), p.queryByPlate('BBB1111'), p.queryByPlate('CCC2222')]);
+  assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 1);
+  resetCredifyTokenCache();
 });

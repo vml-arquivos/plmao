@@ -128,4 +128,24 @@ describe('cancelamento de consulta (em andamento e já paga) e falhas visíveis'
     const again = await hostRequest(server.base, '/api/queries', { method: 'POST', token, headers: { 'idempotency-key': key }, body: { plate: 'TIM0E00', productId: 'COMPLETE' } });
     assert.equal(again.status, 424, again.text); // roda de novo (não fica preso em QUERY_IN_PROGRESS)
   });
+
+  it('arquivar: esconde da lista, restaura, não mexe em consulta em andamento nem em consulta de outra pessoa', async () => {
+    const a = (await pool.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider) VALUES($1,'ARQ1A11','COMPLETE','REFUNDED',0,2490,'WALLET_MONEY','mock-bdrp') RETURNING id`, [userId])).rows[0].id;
+    const b = (await pool.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider) VALUES($1,'ARQ2B22','COMPLETE','FAILED',0,2490,'WALLET_MONEY','mock-bdrp') RETURNING id`, [userId])).rows[0].id;
+    const run = (await pool.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider) VALUES($1,'ARQ3C33','COMPLETE','PROCESSING',0,2490,'WALLET_MONEY','mock-bdrp') RETURNING id`, [userId])).rows[0].id;
+    const list = async (q = '') => (await hostRequest(server.base, `/api/queries?plate=ARQ${q}`, { token })).json.map((x) => x.plate).sort();
+    assert.deepEqual(await list(), ['ARQ1A11', 'ARQ2B22', 'ARQ3C33']);
+    assert.equal((await hostRequest(server.base, `/api/queries/${a}/archive`, { method: 'POST', token: otherToken, body: {} })).status, 404);
+    assert.equal((await hostRequest(server.base, `/api/queries/${run}/archive`, { method: 'POST', token, body: {} })).status, 409);
+    assert.equal((await hostRequest(server.base, `/api/queries/${a}/archive`, { method: 'POST', token, body: {} })).status, 200);
+    assert.deepEqual(await list(), ['ARQ2B22', 'ARQ3C33']);
+    assert.deepEqual(await list('&archived=1'), ['ARQ1A11']);
+    const all = await hostRequest(server.base, '/api/queries/archive-failed', { method: 'POST', token, body: {} });
+    assert.equal(all.status, 200); assert.ok(all.json.archived >= 1);
+    assert.deepEqual(await list(), ['ARQ3C33']);
+    assert.equal((await hostRequest(server.base, `/api/queries/${b}/unarchive`, { method: 'POST', token, body: {} })).status, 200);
+    assert.deepEqual(await list(), ['ARQ2B22', 'ARQ3C33']);
+    // o registro continua no banco (cobrança e auditoria)
+    assert.equal(Number((await pool.query('SELECT count(*) FROM vehicle_queries WHERE id=ANY($1)', [[a, b]])).rows[0].count), 2);
+  });
 });

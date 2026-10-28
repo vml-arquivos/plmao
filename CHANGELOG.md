@@ -9,9 +9,12 @@
 - Motivo técnico guardado: cada consulta estornada grava o detalhe da Credify (status HTTP, mensagem, bloco com erro) em `error_message`; aparece em Admin > Consultas (lista com o mouse sobre o código, e no detalhe em "Motivo"). Nada de chaves ou tokens.
 - Admin > Integrações: botão "Testar login na Credify (sem consulta)": confirma ClientID/ClientSecret e mostra o IP de saída do servidor (o que precisa estar em "IPs Autorizados" na Credify).
 - Tempo limite: `VEHICLE_API_TIMEOUT_MS` 15000 para 50000 e `QUERY_REQUEST_TIMEOUT_MS` 20000 para 60000 (padrões). O Veículo Total junta 8 fontes e passa de 20 s com frequência. Quem definiu esses valores no Coolify precisa trocá-los.
+- Token da Credify (vale 24 h): o servidor faz o login sozinho, guarda o token em memória e renova 5 min antes de vencer ou se a Credify recusar. Novo: consultas simultâneas fazem um único login, e uma rotina em segundo plano confere a cada 30 min e renova se faltar menos de 2 h (também faz o login ao iniciar, para o primeiro cliente não esperar). Falha de renovação vai para o log (`credify_token_refresh_failed`).
 - A chave de idempotência é liberada quando a consulta é estornada: tentar de novo com a mesma chave (tela de pagamento, API pública) executa de novo em vez de ficar em "consulta em andamento".
 - Estorno de pedido já revogado pelo cliente não gera mais a anotação `REVERSED_AFTER_CONSUMPTION`.
-- Testes: `query-cancel.test.mjs` (9), novos casos em `credify-provider` e `veiculototal`.
+- Histórico: botão "Arquivar" em cada consulta, "Arquivar estornadas e falhas" (limpa tudo de uma vez) e aba "Arquivadas" com "Restaurar". Arquivar só esconde da lista (migração 045, coluna `archived_at`); os registros de cobrança e estorno não são apagados. Consulta em andamento não pode ser arquivada. A equipe continua vendo tudo no painel.
+- Credify, cabeçalho: a documentação diz "Bearer {token}", mas o esquema OpenAPI descreve o cabeçalho como chave direta. Se o formato "Bearer" for recusado (401), o sistema tenta o token puro e passa a usar o que funcionou; depois, renova o token e tenta os dois de novo. No login, segredo só com dígitos que não gera token (401 ou resposta 200 sem token) é reenviado como número.
+- Testes: `query-cancel.test.mjs` (10), novos casos em `credify-provider` e `veiculototal`, `migration-rollback` (027–045).
 
 ## 1.12.12 — Credify Veículo Total: consultas reais
 

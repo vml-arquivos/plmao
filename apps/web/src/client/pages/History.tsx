@@ -7,7 +7,7 @@ import QueryRow, { type QuerySummary } from '../components/QueryRow';
 import PeriodFilter, { NO_PERIOD, periodParams, qs, type Period } from '../components/Period';
 
 const PAGE = 30;
-type Status = '' | 'SUCCESS' | 'PROCESSING' | 'FAILED' | 'REFUNDED';
+type Status = '' | 'SUCCESS' | 'PROCESSING' | 'FAILED' | 'REFUNDED' | 'ARCHIVED';
 
 export default function History() {
   usePageTitle('Consultas');
@@ -26,7 +26,7 @@ export default function History() {
 
   useEffect(() => { api.get<Array<{ id: string; name: string }>>('/queries/types').then(setTypes, () => setTypes([])); }, []);
 
-  const filters = useCallback(() => ({ status, plate: plate.length >= 2 ? plate : '', product, ...periodParams(period) }), [status, plate, product, period]);
+  const filters = useCallback(() => ({ status: status === 'ARCHIVED' ? '' : status, ...(status === 'ARCHIVED' ? { archived: '1' } : {}), plate: plate.length >= 2 ? plate : '', product, ...periodParams(period) }), [status, plate, product, period]);
   const load = useCallback(async (offset: number) => {
     const my = ++seq.current;
     setLoading(true); setError(null);
@@ -43,12 +43,25 @@ export default function History() {
     setCsvBusy(true);
     try { await api.download(`/queries.csv${qs(filters())}`, 'consultas.csv'); } catch (e) { toast.error(errorMessage(e)); } finally { setCsvBusy(false); }
   }
+  const [archiving, setArchiving] = useState('');
+  async function archive(id: string, undo = false) {
+    setArchiving(id);
+    try { await api.post(`/queries/${id}/${undo ? 'unarchive' : 'archive'}`, {}); setRows((prev) => prev.filter((r) => r.id !== id)); toast.ok(undo ? 'Consulta restaurada.' : 'Consulta arquivada. Ela fica na aba Arquivadas.'); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setArchiving(''); }
+  }
+  async function archiveFailed() {
+    setArchiving('all');
+    try { const r = await api.post<{ archived: number }>('/queries/archive-failed', {}); toast.ok(r.archived ? `${r.archived} consulta(s) arquivada(s).` : 'Nada para arquivar.'); void load(0); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setArchiving(''); }
+  }
+  const hasClutter = rows.some((r) => r.status === 'REFUNDED' || r.status === 'FAILED');
   const filtered = Boolean(status || plate || product || period.days || period.from || period.to);
 
   return (
     <div className="stack-lg">
       <div className="page-head"><h1>Consultas</h1><div className="row"><Button icon="download" loading={csvBusy} onClick={csv} disabled={!rows.length}>Exportar CSV</Button><LinkButton to="/app/consultar" variant="primary" icon="search">Nova consulta</LinkButton></div></div>
-      <Tabs label="Situação" value={status} onChange={setStatus} items={[{ id: '', label: 'Todas' }, { id: 'SUCCESS', label: 'Realizadas' }, { id: 'PROCESSING', label: 'Em processamento' }, { id: 'FAILED', label: 'Falha' }, { id: 'REFUNDED', label: 'Estornadas' }]} />
+      <Tabs label="Situação" value={status} onChange={setStatus} items={[{ id: '', label: 'Todas' }, { id: 'SUCCESS', label: 'Realizadas' }, { id: 'PROCESSING', label: 'Em processamento' }, { id: 'FAILED', label: 'Falha' }, { id: 'REFUNDED', label: 'Estornadas' }, { id: 'ARCHIVED', label: 'Arquivadas' }]} />
+      {hasClutter && status !== 'ARCHIVED' && <div className="row"><Button size="sm" loading={archiving === 'all'} onClick={() => void archiveFailed()}>Arquivar estornadas e falhas</Button><span className="muted" style={{ fontSize: 13 }}>Esconde da lista; os registros ficam guardados na aba Arquivadas.</span></div>}
       <div className="filters">
         <Input icon="search" aria-label="Placa" value={plate} onChange={(e) => setPlate(normalizePlate(e.target.value))} placeholder="Placa" />
         <Select aria-label="Tipo de consulta" value={product} onChange={(e) => setProduct(e.target.value)}><option value="">Todos os tipos</option>{types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>
@@ -56,8 +69,8 @@ export default function History() {
       </div>
       {loading && !rows.length && <div className="q-list"><Skeleton h={64} r={12} /><Skeleton h={64} r={12} /><Skeleton h={64} r={12} /></div>}
       {error != null && <ErrorState error={error} onRetry={() => void load(0)} />}
-      {!loading && error == null && !rows.length && <div className="card"><EmptyState icon="clock" title={filtered ? 'Nada encontrado' : 'Nenhuma consulta'} action={!filtered ? <LinkButton to="/app/consultar" variant="primary" icon="search">Nova consulta</LinkButton> : undefined}>{filtered ? 'Mude os filtros.' : 'Suas consultas ficam aqui.'}</EmptyState></div>}
-      {rows.length > 0 && <div className="q-list">{rows.map((q) => <QueryRow key={q.id} q={q} />)}</div>}
+      {!loading && error == null && !rows.length && <div className="card"><EmptyState icon="clock" title={status === 'ARCHIVED' ? 'Nenhuma consulta arquivada' : filtered ? 'Nada encontrado' : 'Nenhuma consulta'} action={!filtered ? <LinkButton to="/app/consultar" variant="primary" icon="search">Nova consulta</LinkButton> : undefined}>{filtered ? 'Mude os filtros.' : 'Suas consultas ficam aqui.'}</EmptyState></div>}
+      {rows.length > 0 && <div className="q-list">{rows.map((q) => <div key={q.id} className="q-wrap"><QueryRow q={q} />{q.status !== 'PROCESSING' && <Button size="sm" variant="ghost" loading={archiving === q.id} onClick={() => void archive(q.id, status === 'ARCHIVED')}>{status === 'ARCHIVED' ? 'Restaurar' : 'Arquivar'}</Button>}</div>)}</div>}
       {more && <div style={{ textAlign: 'center' }}><Button loading={loading} onClick={() => void load(rows.length)}>Ver mais</Button></div>}
     </div>
   );

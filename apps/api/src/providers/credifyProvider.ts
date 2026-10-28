@@ -39,7 +39,24 @@ function tokenExpiry(token: string, now: number): number {
 }
 
 let shared: { token: string; expiresAt: number } | null = null;
-export function resetCredifyTokenCache(): void { shared = null; }
+/** A documentação diz "Bearer {token}", mas o esquema OpenAPI descreve o cabeçalho como chave direta. Guarda o formato que a Credify aceitou. */
+let authStyle: 'bearer' | 'raw' = 'bearer';
+let inflight: Promise<string> | null = null;
+export function resetCredifyTokenCache(): void { shared = null; inflight = null; authStyle = 'bearer'; }
+
+/** Mantém o token sempre novo: ao subir e a cada 30 min renova se faltar menos de 2 h para vencer. Falha aqui só é registrada; a consulta tenta o login de novo. */
+export function startCredifyTokenKeeper(onError: (message: string) => void = () => undefined, provider = new CredifyVehicleProvider()): NodeJS.Timeout {
+  const tick = async () => {
+    try {
+      const left = shared ? shared.expiresAt - Date.now() : 0;
+      if (left < 2 * 3600_000) await provider.testConnection();
+    } catch (e) { onError(e instanceof Error ? e.message : 'erro desconhecido'); }
+  };
+  void tick();
+  const timer = setInterval(() => { void tick(); }, 30 * 60_000);
+  timer.unref();
+  return timer;
+}
 
 export class CredifyVehicleProvider implements VehicleDataProvider {
   readonly name = 'credify';
@@ -67,17 +84,27 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     } catch (e) { throw fail('PROVIDER_TIMEOUT', `Sem resposta da Credify (${e instanceof Error ? e.name : 'erro de rede'}).`); }
   }
 
+  /** Várias consultas ao mesmo tempo com o token vencido fazem um único login (os demais esperam o mesmo resultado). */
   private async token(force = false): Promise<string> {
     const now = (this.o.now ?? Date.now)();
     if (!force && shared && shared.expiresAt > now) return shared.token;
+    if (inflight) return inflight;
+    inflight = this.login(now).finally(() => { inflight = null; });
+    return inflight;
+  }
+
+  private async login(now: number): Promise<string> {
     const c = this.cfg();
     const login = (secret: string | number) => this.http(`${c.baseUrl}/auth`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ ClientID: c.clientId, ClientSecret: secret }) });
+    const numeric = /^[1-9]\d{0,14}$/.test(c.clientSecret);
+    const valid = (r: Response, body: { Success?: boolean; Dados?: unknown } | null) => r.ok && Boolean(body) && body!.Success !== false && typeof body!.Dados === 'string' && Boolean(body!.Dados);
+    const read = async (r: Response) => (r.ok ? await r.clone().json().catch(() => null) as { Success?: boolean; Message?: string; Dados?: unknown } | null : null);
     let response = await login(c.clientSecret);
-    // A documentação do /auth descreve ClientSecret como inteiro; se a chave for só números e o texto for recusado, tenta como número.
-    if ((response.status === 401 || response.status === 403) && /^[1-9]\d{0,14}$/.test(c.clientSecret)) response = await login(Number(c.clientSecret));
+    let json = await read(response);
+    // A documentação do /auth descreve ClientSecret como inteiro; se a chave for só números e o texto não gerar token, tenta como número.
+    if (!valid(response, json) && numeric && response.status !== 408 && response.status < 500) { response = await login(Number(c.clientSecret)); json = await read(response); }
     if (response.status === 401 || response.status === 403) throw fail('DATA_PROVIDER_AUTH_FAILED', `Login recusado (${await reason(response)}). Confira ClientID/ClientSecret e se o IP do servidor está em "IPs Autorizados" na Credify.`);
     if (!response.ok) throw fail('DATA_PROVIDER_UNAVAILABLE', `Login: ${await reason(response)}`);
-    const json = await response.json().catch(() => null) as { Success?: boolean; Message?: string; Dados?: unknown } | null;
     if (!json || json.Success === false || typeof json.Dados !== 'string' || !json.Dados) throw fail('DATA_PROVIDER_AUTH_FAILED', `Login sem token${json?.Message ? `: ${String(json.Message)}` : ''}. Confira ClientID/ClientSecret e o IP autorizado.`);
     shared = { token: json.Dados, expiresAt: tokenExpiry(json.Dados, now) };
     return json.Dados;
@@ -121,16 +148,26 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     const values: Record<string, string> = { plate: '', chassis: '', renavam: '', document: '', queryId, [name]: value };
     // Para tipos além da placa, o caminho ou o corpo precisa dizer onde a chave entra; senão não há como chamar.
     if (type !== 'PLATE' && !c.path.includes(`{${name}}`) && !(c.method === 'post' && c.bodyTemplate?.includes(`{{${name}}}`))) throw fail('SEARCH_TYPE_NOT_SUPPORTED');
-    const call = async (token: string) => {
-      const headers: Record<string, string> = { accept: 'application/json', authorization: `Bearer ${token}` };
+    const call = async (token: string, style: 'bearer' | 'raw') => {
+      const headers: Record<string, string> = { accept: 'application/json', authorization: style === 'bearer' ? `Bearer ${token}` : token };
       const init: RequestInit = { method: c.method.toUpperCase(), headers };
       let url = `${c.baseUrl}${Object.entries(values).reduce((acc, [k, x]) => acc.replaceAll(`{${k}}`, encodeURIComponent(x)), c.path)}`;
       if (c.method === 'post') { headers['content-type'] = 'application/json'; try { init.body = this.body(c.bodyTemplate!, values); } catch { throw fail('DATA_PROVIDER_NOT_CONFIGURED'); } }
       else if (!c.path.includes(`{${name}}`)) url += `${url.includes('?') ? '&' : '?'}${queryParam}=${encodeURIComponent(value)}`;
       return this.http(url, init);
     };
-    let response = await call(await this.token());
-    if (response.status === 401) response = await call(await this.token(true));
+    const other = (s: 'bearer' | 'raw') => (s === 'bearer' ? 'raw' : 'bearer');
+    let response = await call(await this.token(), authStyle);
+    if (response.status === 401) {
+      // 1) o outro formato de cabeçalho com o mesmo token; 2) token novo com os dois formatos.
+      const alt = await call(await this.token(), other(authStyle));
+      if (alt.status !== 401) { authStyle = other(authStyle); response = alt; }
+      else {
+        const fresh = await this.token(true);
+        response = await call(fresh, authStyle);
+        if (response.status === 401) { const again = await call(fresh, other(authStyle)); if (again.status !== 401) { authStyle = other(authStyle); response = again; } }
+      }
+    }
     if (response.status === 404 || response.status === 410) throw fail('NOT_FOUND', await reason(response));
     if (response.status === 401 || response.status === 403) throw fail('DATA_PROVIDER_AUTH_FAILED', `Consulta recusada (${await reason(response)}). Confira as Finalidades de Consumo, o plano e o IP autorizado na Credify.`);
     if (response.status === 408 || response.status === 429) throw fail('DATA_PROVIDER_RATE_LIMITED', await reason(response));
