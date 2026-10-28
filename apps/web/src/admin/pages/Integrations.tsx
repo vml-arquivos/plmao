@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
-import { Alert, Badge, Button, CopyField, EmptyState, ErrorState, PageLoading, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { Alert, Badge, Button, CopyField, Input, EmptyState, ErrorState, PageLoading, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { Card, PageHead } from '../parts';
 
@@ -14,13 +14,15 @@ export default function Integrations() {
   const list = useAsync(() => api.get<{ items: Item[] }>('/admin/integrations'));
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState<Record<string, string>>({});
-  async function test(key: string) {
+  const [plate, setPlate] = useState('');
+  async function test(key: string, withQuery = false) {
     setBusy(key); setResult((r) => ({ ...r, [key]: '' }));
     try {
-      const r = await api.post<Record<string, unknown>>(`/admin/integrations/${key}/test`);
+      const r = await api.post<Record<string, unknown>>(`/admin/integrations/${key}/test`, withQuery ? { plate } : undefined);
       if (key === 'vehicle') {
         const ip = r.serverIp ? ` IP de saída deste servidor: ${String(r.serverIp)} (cadastre em "IPs Autorizados" na Credify).` : '';
-        if (r.ok === false) { const m = `Falhou: ${String(r.detail ?? r.code)} (${String(r.code)}).${ip}`; setResult((x) => ({ ...x, [key]: m })); toast.error('Credify recusou o login.'); return; }
+        if (r.ok === false) { const m = `Falhou: ${String(r.detail ?? r.code)} (${String(r.code)}).${ip}`; setResult((x) => ({ ...x, [key]: m })); toast.error(r.queryTested ? 'A consulta de teste falhou.' : 'Credify recusou o login.'); return; }
+        if (r.queryOk) { const m = `Consulta real ok na placa ${String(r.plate)}: a Credify respondeu${r.providerQueryId ? ` (código ${String(r.providerQueryId)})` : ''}. Blocos recebidos: ${Array.isArray(r.blocks) ? (r.blocks as string[]).join(', ') : '-'}.${ip}`; setResult((x) => ({ ...x, [key]: m })); toast.ok('Consulta de teste concluída.'); return; }
         const m = `Login na Credify ok (token válido por cerca de ${String(r.expiresInMinutes)} min).${r.queryEnabled ? '' : ' Atenção: DATA_PROVIDER não está em real.'}${ip}`;
         setResult((x) => ({ ...x, [key]: m })); toast.ok('Teste concluído.'); return;
       }
@@ -41,7 +43,7 @@ export default function Integrations() {
             </ul>
             {i.webhookUrl && <div style={{ marginTop: 10 }}><CopyField label="URL do webhook" value={i.webhookUrl} /></div>}
             {i.webhookNote && <p className="muted" style={{ fontSize: 13 }}>{i.webhookNote}</p>}
-            {i.canTest && <div className="row" style={{ gap: 8, marginTop: 8 }}><Button size="sm" loading={busy === i.key} disabled={i.state === 'OFF' && i.key !== 'mercadopago' && i.key !== 'email' && i.key !== 'vehicle'} onClick={() => void test(i.key)}>{i.key === 'email' ? 'Testar conexão e enviar e-mail de teste' : i.key === 'vehicle' ? 'Testar login na Credify (sem consulta)' : 'Testar conexão (sem cobrança)'}</Button></div>}
+            {i.canTest && <div className="row" style={{ gap: 8, marginTop: 8 }}><Button size="sm" loading={busy === i.key} disabled={i.state === 'OFF' && i.key !== 'mercadopago' && i.key !== 'email' && i.key !== 'vehicle'} onClick={() => void test(i.key)}>{i.key === 'email' ? 'Testar conexão e enviar e-mail de teste' : i.key === 'vehicle' ? 'Testar login na Credify (sem consulta)' : 'Testar conexão (sem cobrança)'}</Button>{i.key === 'vehicle' && <><Input style={{ maxWidth: 140 }} placeholder="Placa (ex: ABC1D23)" value={plate} maxLength={8} onChange={(e) => setPlate(e.target.value.toUpperCase())} aria-label="Placa para consulta de teste" /><Button size="sm" loading={busy === i.key} disabled={plate.replace(/[^A-Z0-9]/gi, '').length < 7} onClick={() => void test(i.key, true)}>Testar consulta real (gasta 1 consulta)</Button></>}</div>}
             {result[i.key] && <Alert tone={result[i.key]!.startsWith('Falhou') ? 'danger' : 'ok'}>{result[i.key]}</Alert>}
           </Card>
         ))}</div>

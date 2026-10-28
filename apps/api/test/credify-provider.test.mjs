@@ -188,3 +188,12 @@ test('consultas simultâneas com token vencido fazem um único login', async () 
   assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 1);
   resetCredifyTokenCache();
 });
+
+test('credenciais com espaço, quebra de linha ou aspas coladas são limpas antes do login', async () => {
+  resetCredifyTokenCache();
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const f = fakeFetch([{ body: { Success: true, Dados: jwt(Math.floor(now / 1000) + 24 * 3600) } }]);
+  await new CredifyVehicleProvider({ ...base, clientId: ' "46905"\n', clientSecret: "  'abc123' \n", fetchImpl: f, now: () => now }).testConnection();
+  assert.deepEqual(JSON.parse(f.calls[0].init.body), { ClientID: '46905', ClientSecret: 'abc123' });
+  resetCredifyTokenCache();
+});

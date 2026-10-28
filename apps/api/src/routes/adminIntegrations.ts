@@ -93,19 +93,27 @@ async function outboundIp(): Promise<string | null> {
   } catch { return null; }
 }
 
-/** Só o login na Credify: não consome consulta. Devolve o motivo técnico quando falha, sem expor chaves. */
+/** Login na Credify (não consome consulta) e, se vier `plate`, uma consulta real (gasta 1 consulta do plano). Devolve o motivo técnico quando falha, sem expor chaves. */
 adminIntegrationsRouter.post('/integrations/vehicle/test', adminAuth, guard, asyncRoute(async (req, res) => {
   if (env.VEHICLE_API_PROVIDER !== 'credify') throw fail('INTEGRATION_NOT_CONFIGURED');
   if (!env.CREDIFY_CLIENT_ID || !env.CREDIFY_CLIENT_SECRET) throw fail('INTEGRATION_NOT_CONFIGURED');
   const serverIp = await outboundIp();
+  const plate = typeof req.body?.plate === 'string' ? req.body.plate.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+  if (plate && !/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(plate)) throw fail('INVALID_PLATE');
   let result: Record<string, unknown>;
   try {
-    const r = await new CredifyVehicleProvider().testConnection();
+    const provider = new CredifyVehicleProvider();
+    const r = await provider.testConnection();
     result = { ok: true, expiresInMinutes: r.expiresInMinutes, serverIp, queryEnabled: env.DATA_PROVIDER === 'real' };
+    if (plate) {
+      const out = await provider.queryByPlate(plate);
+      const raw = (out.raw ?? {}) as Record<string, unknown>;
+      result = { ...result, plate, queryOk: true, providerQueryId: out.providerQueryId ?? null, blocks: Object.keys(raw).slice(0, 20) };
+    }
   } catch (error) {
     const e = error as Error & { code?: string; detail?: string };
-    result = { ok: false, code: e.code ?? 'PROVIDER_ERROR', detail: e.detail ?? e.message, serverIp };
+    result = { ok: false, code: e.code ?? 'PROVIDER_ERROR', detail: e.detail ?? e.message, serverIp, ...(plate ? { plate, queryTested: true } : {}) };
   }
-  await audit(req.user!.id, 'INTEGRATION_TESTED', 'INTEGRATION', null, { integration: 'credify', ok: result.ok, code: result.code ?? null, requestId: requestId(req) });
+  await audit(req.user!.id, 'INTEGRATION_TESTED', 'INTEGRATION', null, { integration: 'credify', ok: result.ok, code: result.code ?? null, withQuery: Boolean(plate), requestId: requestId(req) });
   res.json(result);
 }));
