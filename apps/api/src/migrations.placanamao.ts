@@ -1633,5 +1633,17 @@ export const placaMigrations: Migration[] = [
         ALTER TABLE user_consents DROP COLUMN IF EXISTS ip;
       `);
     }
+  },
+  {
+    id: '044_complete_product_vehicle_total_sections',
+    name: 'Consulta Completa passa a exibir histórico/ocorrências e FIPE (blocos do Veículo Total)',
+    up: async (client) => {
+      // Aditivo: só acrescenta as duas seções novas ao produto COMPLETE, se ele usa lista de seções e ainda não as tem.
+      await client.query(`UPDATE query_products SET report_sections = report_sections || ARRAY(SELECT x FROM unnest(ARRAY['HISTORICO','FIPE']) x WHERE NOT (x = ANY(report_sections)))
+        WHERE id='COMPLETE' AND report_sections IS NOT NULL`);
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET report_sections = array_remove(array_remove(report_sections,'HISTORICO'),'FIPE') WHERE id='COMPLETE' AND report_sections IS NOT NULL`);
+    }
   }
 ];

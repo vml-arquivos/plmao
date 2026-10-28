@@ -31,6 +31,10 @@ function isHttpsUrl(value: string | undefined): boolean {
 }
 
 /** O corpo precisa ser JSON válido e conter {{plate}} em algum valor; sem isso a consulta nunca identificaria a placa. */
+/** Consulta padrão: Veículo Total. Com o caminho padrão não é preciso configurar o corpo. */
+export const CREDIFY_DEFAULT_PATH = '/veiculototal';
+export const CREDIFY_DEFAULT_BODY = '{"Consulta":{"IdConsulta":"{{queryId}}","Placa":"{{plate}}"}}';
+
 export function credifyBodyTemplateValid(template: string | undefined): boolean {
   if (!template) return false;
   try {
@@ -65,7 +69,8 @@ function validateProductionConfig(value: ParsedEnv): void {
 
   if (value.DATA_PROVIDER === 'real' && value.VEHICLE_API_PROVIDER === 'credify') {
     requireProduction(Boolean(value.CREDIFY_CLIENT_ID && value.CREDIFY_CLIENT_SECRET), 'CREDIFY_CREDENTIALS_REQUIRED', issues);
-    requireProduction(credifyBodyTemplateValid(value.CREDIFY_QUERY_BODY_TEMPLATE), 'CREDIFY_QUERY_BODY_TEMPLATE_INVALID', issues);
+    const credifyPath = (value.CREDIFY_QUERY_PATH ?? CREDIFY_DEFAULT_PATH).replace(/^\/?/, '/');
+    requireProduction(credifyBodyTemplateValid(value.CREDIFY_QUERY_BODY_TEMPLATE ?? (credifyPath === CREDIFY_DEFAULT_PATH ? CREDIFY_DEFAULT_BODY : undefined)), 'CREDIFY_QUERY_BODY_TEMPLATE_INVALID', issues);
     requireProduction(!value.CREDIFY_BASE_URL || isHttpsUrl(value.CREDIFY_BASE_URL), 'CREDIFY_BASE_URL_HTTPS_REQUIRED', issues);
   }
   if (value.DATA_PROVIDER === 'real' && value.VEHICLE_API_PROVIDER === 'consultarplaca') {

@@ -22,7 +22,7 @@ export interface FieldDef {
   doc?: 'CPF_CNPJ' | 'NAME' | 'VEHICLE_ID';
 }
 
-export type SectionKey = 'IDENTIFICACAO' | 'CARACTERISTICAS' | 'REGISTRO' | 'DEBITOS' | 'RESTRICOES' | 'GRAVAME' | 'INSPECAO_RECALL' | 'PROPRIETARIO' | 'INTERNO';
+export type SectionKey = 'IDENTIFICACAO' | 'CARACTERISTICAS' | 'REGISTRO' | 'DEBITOS' | 'RESTRICOES' | 'HISTORICO' | 'GRAVAME' | 'INSPECAO_RECALL' | 'FIPE' | 'PROPRIETARIO' | 'INTERNO';
 
 export const SECTIONS: Array<{ key: SectionKey; label: string; description: string; order: number }> = [
   { key: 'IDENTIFICACAO', label: 'Identificação do veículo', description: 'Marca, modelo e identificadores', order: 10 },
@@ -30,8 +30,10 @@ export const SECTIONS: Array<{ key: SectionKey; label: string; description: stri
   { key: 'REGISTRO', label: 'Registro e licenciamento', description: 'Emplacamento, situação, CRV e comunicação de venda', order: 30 },
   { key: 'DEBITOS', label: 'Débitos', description: 'IPVA, licenciamento, multas, DPVAT e demais débitos', order: 40 },
   { key: 'RESTRICOES', label: 'Restrições', description: 'Furto/roubo, judicial, administrativa, tributária, ambiental e outras', order: 50 },
+  { key: 'HISTORICO', label: 'Histórico e ocorrências', description: 'Indício de sinistro, roubo/furto, leilão e número de proprietários', order: 55 },
   { key: 'GRAVAME', label: 'Financiamento e gravame', description: 'Restrição financeira, intenção de gravame e contratos', order: 60 },
   { key: 'INSPECAO_RECALL', label: 'Inspeção e recall', description: 'Inspeção veicular e campanhas de recall', order: 70 },
+  { key: 'FIPE', label: 'Valor de referência (FIPE)', description: 'Preço FIPE e preço médio de mercado', order: 72 },
   { key: 'PROPRIETARIO', label: 'Proprietário (dados protegidos)', description: 'Tipo de documento; dados pessoais protegidos pela LGPD', order: 80 },
   { key: 'INTERNO', label: 'Controle interno', description: 'Metadados técnicos do provedor', order: 99 }
 ];
@@ -161,4 +163,24 @@ export const FIELD_CATALOG: FieldDef[] = [
   internal('REDUNDANCIA', 'Redundância', 'text')
 ];
 
-export const CATALOG_BY_KEY: ReadonlyMap<string, FieldDef> = new Map(FIELD_CATALOG.map((def) => [def.key, def]));
+/**
+ * Campos extras da consulta "Veículo Total" (Credify), fora do bloco VEICULOSBDRP.
+ * Só entram no relatório quando a resposta do fornecedor é do tipo Veículo Total (ver vehicleTotal.ts).
+ */
+export const VT_CATALOG: FieldDef[] = [
+  f('VT_PLACA_MERCOSUL', 'Placa (padrão Mercosul)', 'IDENTIFICACAO', 'text', 1),
+  f('VT_EMPLACAMENTO', 'Data de emplacamento', 'REGISTRO', 'text', 2),
+  f('VT_SINISTRO', 'Indício de sinistro', 'HISTORICO', 'flag', 2),
+  f('VT_ROUBOFURTO', 'Histórico de roubo ou furto', 'HISTORICO', 'flag', 2, { high: true }),
+  f('VT_LEILAO', 'Participação em leilão', 'HISTORICO', 'flag', 2),
+  f('VT_PROPRIETARIOS_QTD', 'Proprietários no histórico', 'HISTORICO', 'number', 2),
+  f('VT_RECALL', 'Recall (fabricante)', 'INSPECAO_RECALL', 'flag', 2),
+  f('VT_FIPE_PRECO', 'Preço FIPE', 'FIPE', 'text', 2),
+  f('VT_FIPE_PRECO_MEDIO', 'Preço médio de mercado', 'FIPE', 'text', 2),
+  f('VT_FIPE_CODIGO', 'Código FIPE', 'FIPE', 'text', 2),
+  f('VT_FIPE_MODELO', 'Modelo na tabela FIPE', 'FIPE', 'text', 2),
+  f('VT_FIPE_VIGENCIA', 'Vigência da tabela', 'FIPE', 'text', 2),
+  f('VT_PROPRIETARIOS_LISTA', 'Histórico de proprietários (mascarado)', 'PROPRIETARIO', 'text', 3, { sensitivity: 'OWNER' })
+];
+
+export const CATALOG_BY_KEY: ReadonlyMap<string, FieldDef> = new Map([...FIELD_CATALOG, ...VT_CATALOG].map((def) => [def.key, def]));

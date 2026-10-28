@@ -1,0 +1,16 @@
+{
+  "CONSULTA": {
+    "CODIGORESPOSTA": "*********",
+    "DATAHORA": "01/01/2026 10:00:00",
+    "LOGON": "*****",
+    "IDCONSULTA": "467"
+  },
+  "RESPOSTA": {
+    "CODIGO": [
+      "2"
+    ],
+    "DADOS": {
+      "MSG": "Dado não encontrado na base de dados."
+    }
+  }
+}

@@ -292,7 +292,10 @@ async function authResultForUser(user: AuthUser, flow: string, req: Request): Pr
 
 function toSafeQueryError(error: unknown): { status: number; code: string; message: string } {
   const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
-  if (code === 'NOT_FOUND') return { status: 404, code: 'PLACA_NAO_ENCONTRADA_SANDBOX', message: 'Esta placa não está disponível no ambiente de testes.' };
+  if (code === 'NOT_FOUND') {
+    if (env.DATA_PROVIDER === 'real') return { status: 404, code: 'PLACA_NAO_ENCONTRADA', message: 'Não encontramos dados para esta placa nas bases consultadas. Se houve débito de saldo, ele foi estornado; pagamento direto confirmado permanece disponível para nova tentativa.' };
+    return { status: 404, code: 'PLACA_NAO_ENCONTRADA_SANDBOX', message: 'Esta placa não está disponível no ambiente de testes.' };
+  }
   if (code === 'INVALID_PLATE') return { status: 400, code, message: 'Informe uma placa válida no padrão brasileiro.' };
   if (code === 'INSUFFICIENT_BALANCE' || code === 'INSUFFICIENT_CREDITS') return { status: 402, code: 'INSUFFICIENT_BALANCE', message: 'Seu saldo pré-pago não é suficiente para esta consulta.' };
   if (code === 'QUERY_PAYMENT_NOT_READY') return { status: 409, code, message: 'A confirmação do pagamento ainda não está disponível. Aguarde a atualização do provedor.' };
@@ -2368,7 +2371,7 @@ api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), 
 }));
 
 const ADMIN_PRODUCT_COLS = 'p.archived_at,p.id,p.name,p.description,p.price_cents,p.reference_price_cents,p.active,p.slug,p.features,p.is_free,p.commercial_status,p.featured,p.display_order,p.source,p.coverage,p.tagline,p.long_description,p.badge,p.list_price_cents,p.show_on_home,p.report_sections,EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) AS has_source';
-const SELLABLE_REPORT_SECTIONS = new Set(['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO', 'DEBITOS', 'RESTRICOES', 'GRAVAME', 'INSPECAO_RECALL']);
+const SELLABLE_REPORT_SECTIONS = new Set(['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO', 'DEBITOS', 'RESTRICOES', 'HISTORICO', 'GRAVAME', 'INSPECAO_RECALL', 'FIPE']);
 /** O que o público realmente vê: "à venda" só vale com fonte de dados ativa e provedor/gateway configurados. */
 function productAvailability(row: Record<string, unknown>) {
   const blockers: string[] = [];

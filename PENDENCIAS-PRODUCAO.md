@@ -1,4 +1,4 @@
-# Pendências para produção (1.12.11)
+# Pendências para produção (1.12.12)
 
 ## Roteiro de configuração (teste e produção)
 
@@ -19,7 +19,7 @@ O que o código já faz está no CHANGELOG. Aqui está só o que falta, quem pre
 
 | Item | O que falta | Quem |
 |---|---|---|
-| Credify | Corpo da requisição (`CREDIFY_QUERY_BODY_TEMPLATE`), caminho e método finais, credenciais de homologação, preço por consulta e contrato. O adaptador não consulta nada sem isso. | Você + fornecedor |
+| Credify | Cliente já tem a documentação do Veículo Total (implementada na 1.12.12). Falta: `CREDIFY_CLIENT_ID` e `CREDIFY_CLIENT_SECRET` no Coolify, confirmar com a Credify o preço por consulta e o ambiente (produção ou homologação) das credenciais, e validar com uma consulta real de uma placa conhecida (conferir o texto que a Credify devolve em recall e roubo/furto quando há ocorrência). |
 | Mercado Pago | Variáveis `PAYMENT_PROVIDER=mercadopago`, `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET`; cadastrar no painel do Mercado Pago a URL `https://SEU-DOMINIO/api/payments/mercadopago/webhook` (evento Pagamentos). Comece com a credencial de teste e use Integrações > Testar conexão; teste pagamento, estorno e conciliação antes de trocar para a de produção. Não implementado: reembolso parcial, parcelamento, exclusão de meios de pagamento. Conciliação não tem tela para pedido sem linha de pagamento. | Você |
 | Dados do fornecedor | Contrato/DPA (LGPD) com quem fornece os dados veiculares. | Você + jurídico |
 | Fiscal | Definir com o contador regime, alíquotas e se a nota é emitida por provedor ou à mão. Não existe adaptador de NFS-e; a emissão automática não é disparada sozinha. | Contador |
@@ -159,6 +159,6 @@ curl -i -X POST https://placanamao.com.br/api/webhooks/email/brevo -H "Authoriza
 - Dado bruto do fornecedor: defina `RAW_RETENTION_DAYS` (sugestão 90). Em 0 nada é apagado. Decisão sua e do jurídico.
 - Opcional: dupla aprovação para estornos de alto valor.
 - Usar `GET /ready` como verificação de prontidão no Coolify (além de `/health`).
-- Antes do deploy: backup do banco; migrações 027–043 rodam sozinhas na subida; `npm run db:rollback -- 17` reverte todas elas.
+- Antes do deploy: backup do banco; migrações 027–044 rodam sozinhas na subida; `npm run db:rollback -- 18` reverte todas elas.
 
 - Textos legais, onde estão e o que o advogado precisa decidir: `TEXTOS-LEGAIS.md`.

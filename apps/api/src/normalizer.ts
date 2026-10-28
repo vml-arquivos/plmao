@@ -1,5 +1,6 @@
 import type { NormalizedVehicle } from './types.js';
 import { buildReportV2 } from './report/normalizeV2.js';
+import { adaptVehicleTotal, isVehicleTotal, vehicleTotalOutcome } from './report/vehicleTotal.js';
 import { maskDocument, maskName, maskVehicleId } from './report/mask.js';
 
 const cents = (v: unknown) => {
@@ -61,8 +62,8 @@ function tryReportV2(raw: unknown) {
 }
 
 /** Débitos sem dupla contagem: multas por órgão são componentes do total de multas. */
-function legacyDebts(raw: unknown): NormalizedVehicle['debts'] {
-  const v2 = tryReportV2(raw);
+function legacyDebts(raw: unknown, original: unknown = raw): NormalizedVehicle['debts'] {
+  const v2 = tryReportV2(original);
   if (v2) {
     const legacyKey: Record<string, string> = { DEBIPVA: 'IPVA', VALORTOTALDEBITOMULTA: 'MULTAS', EXISTEDEBITODELICENCIAMENTOVL: 'LICENCIAMENTO', DPVAT: 'DPVAT', DEBMUNICIPAIS: 'MUNICIPAIS', DEBCETESB: 'CETESB' };
     const flagged = v2.debts.items.map((i) => ({ key: legacyKey[i.key] ?? i.key, label: i.label, amountCents: i.amountCents, hasDebt: true }));
@@ -74,7 +75,11 @@ function legacyDebts(raw: unknown): NormalizedVehicle['debts'] {
   return [['MULTAS', 'Multas', fine], ['LICENCIAMENTO', 'Licenciamento', lic], ['IPVA', 'IPVA', ipva]].map(([key, label, amountCents]) => ({ key: String(key), label: String(label), amountCents: Number(amountCents), hasDebt: Number(amountCents) > 0 }));
 }
 
-export function normalizeBdrp(raw: any): NormalizedVehicle {
+export function normalizeBdrp(original: any): NormalizedVehicle {
+  // Veículo Total: o formato legado lê o envelope plano (BDRP + base nacional); o v2 lê a resposta completa.
+  const total = isVehicleTotal(original);
+  if (total && !vehicleTotalOutcome(original).ok) throw new Error('Resposta do provedor inválida');
+  const raw: any = total ? adaptVehicleTotal(original).flat : original;
   if (!successfulResponse(raw)) throw new Error('Resposta do provedor inválida');
   const plate = text(valueOf(raw, ['PLACA', 'plate', 'licensePlate', 'placaVeiculo']));
   const brand = text(valueOf(raw, ['MARCA', 'brand', 'make', 'marcaVeiculo']));
@@ -141,7 +146,7 @@ export function normalizeBdrp(raw: any): NormalizedVehicle {
       document: maskDocument(text(valueOf(raw, ['CPF_CNPJ_PROPRIETARIO', 'cpfCnpjProprietario', 'ownerDocument']))) ?? undefined,
       documentType: text(valueOf(raw, ['TIPODOCUMENTOPROPRIETARIO', 'tipoDocumentoProprietario', 'ownerDocumentType']))
     },
-    debts: legacyDebts(raw),
+    debts: legacyDebts(raw, original),
     restrictions: [
       ['FURTO', 'Furto/Roubo', restrictionAliases[0]],
       ['JUDICIAL', 'Judicial', restrictionAliases[1]],
@@ -159,7 +164,7 @@ export function normalizeBdrp(raw: any): NormalizedVehicle {
       restrictions: restrictionAliases.some((aliases) => valueOf(raw, aliases) !== undefined) ? 'FOUND' : 'NOT_QUERIED',
       recall: recall ? 'FOUND' : 'NOT_QUERIED'
     },
-    v2: tryReportV2(raw)
+    v2: tryReportV2(original)
   };
 }
 

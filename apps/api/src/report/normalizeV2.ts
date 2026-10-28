@@ -7,7 +7,8 @@
  *  - multas por órgão são COMPONENTES do total de multas (nunca somadas em dobro);
  *  - o veredito só é "sem alertas" se as restrições foram de fato retornadas.
  */
-import { CATALOG_BY_KEY, FIELD_CATALOG, SECTIONS, type FieldDef, type SectionKey, type Tier } from './catalog.js';
+import { CATALOG_BY_KEY, FIELD_CATALOG, SECTIONS, VT_CATALOG, type FieldDef, type SectionKey, type Tier } from './catalog.js';
+import { adaptVehicleTotal, isVehicleTotal, vehicleTotalExtras, vehicleTotalOutcome } from './vehicleTotal.js';
 import { maskDocument, maskName, maskVehicleId } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
 
@@ -101,7 +102,9 @@ export function parseCents(value: unknown): number {
 const MONEY_RE = /^\d{1,3}(\.\d{3})*,\d{2}$|^\d+(,\d{1,2})?$|^\d+\.\d{2}$/;
 
 /** Localiza o objeto RETORNO no envelope do provedor (ou o próprio objeto, se já for plano). */
-export function extractReturn(raw: unknown): Record<string, unknown> | null {
+export function extractReturn(rawInput: unknown): Record<string, unknown> | null {
+  // Veículo Total: o RETORNO é o do BDRP completado com a base nacional e a FIPE.
+  const raw = isVehicleTotal(rawInput) ? adaptVehicleTotal(rawInput).flat : rawInput;
   const seen = new Set<unknown>();
   const visit = (value: unknown, depth: number): Record<string, unknown> | null => {
     if (!value || typeof value !== 'object' || Array.isArray(value) || seen.has(value) || depth > 6) return null;
@@ -133,7 +136,8 @@ function findScalar(raw: unknown, wanted: string, depth = 0, seen = new Set<unkn
 }
 
 /** Sucesso do provedor: CODIGO=="1" && DESCRICAORETORNO=="SUCESSO" && EXISTE_ERRO=="0". Campos ausentes não reprovam. */
-export function providerOutcome(raw: unknown): { ok: boolean; reason?: string } {
+export function providerOutcome(raw: unknown): { ok: boolean; reason?: string; notFound?: boolean } {
+  if (isVehicleTotal(raw)) return vehicleTotalOutcome(raw);
   const code = findScalar(raw, 'CODIGO');
   if (code !== undefined && code.trim() !== '1') return { ok: false, reason: `CODIGO=${code}` };
   const desc = findScalar(raw, 'DESCRICAORETORNO');
@@ -180,6 +184,7 @@ const sectionStatus = (items: ReportItem[]): ItemState => {
 };
 
 export function buildReportV2(raw: unknown): ReportV2 {
+  const vt = isVehicleTotal(raw);
   const ret = extractReturn(raw);
   if (!ret) throw new Error('Resposta do provedor inválida');
   const outcome = providerOutcome(raw);
@@ -197,6 +202,15 @@ export function buildReportV2(raw: unknown): ReportV2 {
 
   const items = new Map<string, ReportItem>();
   for (const def of FIELD_CATALOG) items.set(def.key, buildItem(def, upper[def.key]));
+  // Veículo Total: campos extras (sinistro, roubo/furto, leilão, recall, proprietários, FIPE).
+  const defs: FieldDef[] = vt ? [...FIELD_CATALOG, ...VT_CATALOG] : FIELD_CATALOG;
+  if (vt) {
+    const extras = vehicleTotalExtras(raw);
+    for (const def of VT_CATALOG) {
+      const x = extras.get(def.key) ?? { state: 'NOT_PROVIDED' as const, value: null };
+      items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, ...(x.masked ? { masked: true } : {}), sensitivity: def.sensitivity, tier: def.tier, high: def.high && x.state === 'ALERT' ? true : undefined });
+    }
+  }
   const unknownFieldCount = Object.keys(upper).filter((k) => !CATALOG_BY_KEY.has(k)).length;
 
   // Débitos: multas pelo total (fallback soma dos componentes); nunca soma componente + total.
@@ -219,10 +233,10 @@ export function buildReportV2(raw: unknown): ReportV2 {
   const flaggedWithoutValue = DEBT_SUMMANDS.filter(([f, v]) => items.get(f)!.kind === 'flag' && items.get(f)!.state === 'ALERT' && !debtItems.some((d) => d.key === v));
 
   const sections: ReportSection[] = SECTIONS.map((s) => {
-    const list = FIELD_CATALOG.filter((d) => d.section === s.key).map((d) => items.get(d.key)!);
+    const list = defs.filter((d) => d.section === s.key).map((d) => items.get(d.key)!);
     const providedCount = list.filter((i) => i.state !== 'NOT_PROVIDED').length;
     return { key: s.key, label: s.label, description: s.description, status: sectionStatus(list), items: list, providedCount, notProvidedCount: list.length - providedCount };
-  });
+  }).filter((s) => s.items.length > 0);
 
   const restrictionItems = [...items.values()].filter((i) => CATALOG_BY_KEY.get(i.key)!.section === 'RESTRICOES' || CATALOG_BY_KEY.get(i.key)!.section === 'GRAVAME');
   const restrictionFlags = restrictionItems.filter((i) => i.kind === 'flag' && i.state !== 'NOT_PROVIDED');
@@ -250,7 +264,7 @@ export function buildReportV2(raw: unknown): ReportV2 {
   }
 
   const v = (key: string) => (items.get(key)!.state !== 'NOT_PROVIDED' ? items.get(key)!.value ?? undefined : undefined);
-  const visibleKeys = FIELD_CATALOG.filter((d) => d.sensitivity !== 'INTERNAL');
+  const visibleKeys = defs.filter((d) => d.sensitivity !== 'INTERNAL');
   const notProvidedKeys = visibleKeys.filter((d) => items.get(d.key)!.state === 'NOT_PROVIDED').map((d) => d.key);
 
   return {

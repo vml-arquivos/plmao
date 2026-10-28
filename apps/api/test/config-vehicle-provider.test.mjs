@@ -32,3 +32,10 @@ test('adaptador genérico continua exigindo endereço e credenciais', () => {
   const list = issues({ VEHICLE_API_PROVIDER: 'generic' });
   assert.ok(list.includes('VEHICLE_PROVIDER_ENDPOINT_REQUIRED'), list.join(','));
 });
+
+test('Credify: o corpo do Veículo Total é padrão (não exige CREDIFY_QUERY_BODY_TEMPLATE); caminho próprio exige corpo', () => {
+  const padrao = issues({ VEHICLE_API_PROVIDER: 'credify', CREDIFY_CLIENT_ID: 'a', CREDIFY_CLIENT_SECRET: 'b' });
+  assert.ok(!padrao.includes('CREDIFY_QUERY_BODY_TEMPLATE_INVALID') && !padrao.includes('CREDIFY_CREDENTIALS_REQUIRED'), padrao.join(','));
+  const outro = issues({ VEHICLE_API_PROVIDER: 'credify', CREDIFY_CLIENT_ID: 'a', CREDIFY_CLIENT_SECRET: 'b', CREDIFY_QUERY_PATH: '/outra' });
+  assert.ok(outro.includes('CREDIFY_QUERY_BODY_TEMPLATE_INVALID'), outro.join(','));
+});

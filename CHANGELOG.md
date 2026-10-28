@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.12.12 — Credify Veículo Total: consultas reais
+
+- Conexão com a Credify (`POST /veiculototal`): corpo `{"Consulta":{"IdConsulta","Placa"}}` gerado sozinho (IdConsulta único por chamada, só dígitos), `Authorization: Bearer` com o token de 24 h do `/auth`. Caminho e corpo padrão passam a ser os do Veículo Total: não é mais preciso configurar `CREDIFY_QUERY_BODY_TEMPLATE` (o modelo aceita `{{queryId}}` e `{{plate}}`)
+- `/auth`: se o segredo for só números e for recusado como texto, o sistema reenvia como número (a documentação descreve o campo como inteiro)
+- Placa não encontrada (`RESPOSTA.CODIGO = ["2"]`): erro `PLACA_NAO_ENCONTRADA`, cobrança estornada (saldo volta; pagamento direto fica disponível para nova tentativa). Falha no bloco principal (VEICULOSBDRP código 3, EXISTE_ERRO, ou ausente) = resposta inválida, também com estorno
+- Relatório: blocos novos. Histórico e ocorrências (indício de sinistro, roubo/furto, leilão, nº de proprietários), recall do fabricante, FIPE (preço, preço médio, código, vigência), placa Mercosul e data de emplacamento. Campos que o BDRP deixa vazios são completados com a base nacional
+- Regra de honestidade: bloco com erro (código 3) ou "não foi possível localizar" no recall nunca vira "sem ocorrência"; fica "não informado". Roubo/furto encontrado = risco alto; leilão e sinistro = ponto de atenção
+- LGPD: o histórico de proprietários só aparece para a equipe, e mascarado (nome abreviado e documento parcial). O cliente vê apenas a quantidade
+- Migração 044: a Consulta Completa passa a incluir as seções Histórico e FIPE (só acrescenta; produto com modelo publicado não muda). Demais produtos: ajustar em Admin > Produtos
+- Consultas antigas (formato só VEICULOSBDRP) não mudam
+- Testes: `veiculototal.test.mjs` (11, com o exemplo oficial da documentação), `migration-rollback` (027–044).
+
 ## 1.12.11 — Aceite com duas caixas obrigatórias, registro auditável e textos de responsabilidade
 
 - Causa do erro "O contrato não pôde ser gerado agora": a compra depende da razão social e do CNPJ da empresa (Admin > Notas fiscais). Sem eles o servidor responde 503 `PURCHASE_CONTRACTOR_MISSING`. Agora a empresa também pode vir das variáveis `COMPANY_LEGAL_NAME`, `COMPANY_CNPJ` e `COMPANY_ADDRESS` (usadas só se o cadastro fiscal estiver vazio), o servidor registra o problema no log com a orientação, e o cliente vê "compra temporariamente indisponível".
