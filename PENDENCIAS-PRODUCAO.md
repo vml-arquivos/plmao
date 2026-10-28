@@ -1,4 +1,4 @@
-# Pendências para produção (1.12.12)
+# Pendências para produção (1.12.13)
 
 ## Roteiro de configuração (teste e produção)
 
@@ -19,7 +19,7 @@ O que o código já faz está no CHANGELOG. Aqui está só o que falta, quem pre
 
 | Item | O que falta | Quem |
 |---|---|---|
-| Credify | Cliente já tem a documentação do Veículo Total (implementada na 1.12.12). Falta: `CREDIFY_CLIENT_ID` e `CREDIFY_CLIENT_SECRET` no Coolify, confirmar com a Credify o preço por consulta e o ambiente (produção ou homologação) das credenciais, e validar com uma consulta real de uma placa conhecida (conferir o texto que a Credify devolve em recall e roubo/furto quando há ocorrência). |
+| Credify | Cliente já tem a documentação do Veículo Total (implementada na 1.12.12). Falta: cadastrar o IP do servidor em "IPs Autorizados" (Admin > Integrações > Testar login na Credify mostra o IP), trocar `VEHICLE_API_TIMEOUT_MS` para 50000 e `QUERY_REQUEST_TIMEOUT_MS` para 60000 se estiverem com 15000/20000, `CREDIFY_CLIENT_ID` e `CREDIFY_CLIENT_SECRET` no Coolify, confirmar com a Credify o preço por consulta e o ambiente (produção ou homologação) das credenciais, e validar com uma consulta real de uma placa conhecida (conferir o texto que a Credify devolve em recall e roubo/furto quando há ocorrência). |
 | Mercado Pago | Variáveis `PAYMENT_PROVIDER=mercadopago`, `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET`; cadastrar no painel do Mercado Pago a URL `https://SEU-DOMINIO/api/payments/mercadopago/webhook` (evento Pagamentos). Comece com a credencial de teste e use Integrações > Testar conexão; teste pagamento, estorno e conciliação antes de trocar para a de produção. Não implementado: reembolso parcial, parcelamento, exclusão de meios de pagamento. Conciliação não tem tela para pedido sem linha de pagamento. | Você |
 | Dados do fornecedor | Contrato/DPA (LGPD) com quem fornece os dados veiculares. | Você + jurídico |
 | Fiscal | Definir com o contador regime, alíquotas e se a nota é emitida por provedor ou à mão. Não existe adaptador de NFS-e; a emissão automática não é disparada sozinha. | Contador |

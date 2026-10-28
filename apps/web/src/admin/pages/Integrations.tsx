@@ -18,6 +18,12 @@ export default function Integrations() {
     setBusy(key); setResult((r) => ({ ...r, [key]: '' }));
     try {
       const r = await api.post<Record<string, unknown>>(`/admin/integrations/${key}/test`);
+      if (key === 'vehicle') {
+        const ip = r.serverIp ? ` IP de saída deste servidor: ${String(r.serverIp)} (cadastre em "IPs Autorizados" na Credify).` : '';
+        if (r.ok === false) { const m = `Falhou: ${String(r.detail ?? r.code)} (${String(r.code)}).${ip}`; setResult((x) => ({ ...x, [key]: m })); toast.error('Credify recusou o login.'); return; }
+        const m = `Login na Credify ok (token válido por cerca de ${String(r.expiresInMinutes)} min).${r.queryEnabled ? '' : ' Atenção: DATA_PROVIDER não está em real.'}${ip}`;
+        setResult((x) => ({ ...x, [key]: m })); toast.ok('Teste concluído.'); return;
+      }
       const msg = key === 'mercadopago'
         ? `Conexão ok. Credencial de ${String(r.mode)}${r.siteId ? ` (site ${String(r.siteId)})` : ''}. ${r.webhookSecretSet ? 'Segredo do webhook definido.' : 'Falta MP_WEBHOOK_SECRET.'} ${r.checkoutActive ? 'Checkout ativo.' : 'Checkout ainda não ativo: defina PAYMENT_PROVIDER=mercadopago.'}`
         : `Conexão SMTP ok. Enviamos um e-mail de teste para você${r.workerOn ? '' : ' (o envio automático está desligado: EMAIL_OUTBOX_WORKER=false)'}.`;
@@ -35,7 +41,7 @@ export default function Integrations() {
             </ul>
             {i.webhookUrl && <div style={{ marginTop: 10 }}><CopyField label="URL do webhook" value={i.webhookUrl} /></div>}
             {i.webhookNote && <p className="muted" style={{ fontSize: 13 }}>{i.webhookNote}</p>}
-            {i.canTest && <div className="row" style={{ gap: 8, marginTop: 8 }}><Button size="sm" loading={busy === i.key} disabled={i.state === 'OFF' && i.key !== 'mercadopago' && i.key !== 'email'} onClick={() => void test(i.key)}>{i.key === 'email' ? 'Testar conexão e enviar e-mail de teste' : 'Testar conexão (sem cobrança)'}</Button></div>}
+            {i.canTest && <div className="row" style={{ gap: 8, marginTop: 8 }}><Button size="sm" loading={busy === i.key} disabled={i.state === 'OFF' && i.key !== 'mercadopago' && i.key !== 'email' && i.key !== 'vehicle'} onClick={() => void test(i.key)}>{i.key === 'email' ? 'Testar conexão e enviar e-mail de teste' : i.key === 'vehicle' ? 'Testar login na Credify (sem consulta)' : 'Testar conexão (sem cobrança)'}</Button></div>}
             {result[i.key] && <Alert tone={result[i.key]!.startsWith('Falhou') ? 'danger' : 'ok'}>{result[i.key]}</Alert>}
           </Card>
         ))}</div>

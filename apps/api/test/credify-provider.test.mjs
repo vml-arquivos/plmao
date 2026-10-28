@@ -102,3 +102,37 @@ test('configuração de produção da Credify exige credenciais e corpo com {{pl
   assert.equal(credifyBodyTemplateValid('nao-json'), false);
   assert.equal(credifyBodyTemplateValid(undefined), false);
 });
+
+test('falha de login guarda o motivo técnico (status e mensagem) sem expor chaves', async () => {
+  resetCredifyTokenCache();
+  const f = fakeFetch([{ status: 401, body: { Success: false, Message: 'IP nao autorizado' } }]);
+  await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: f }).queryByPlate('AAA0000'), (e) => {
+    assert.equal(e.code, 'DATA_PROVIDER_AUTH_FAILED');
+    assert.match(e.detail, /HTTP 401/); assert.match(e.detail, /IP nao autorizado/); assert.match(e.detail, /IPs Autorizados/);
+    assert.ok(!e.detail.includes('segredo-teste')); return true;
+  });
+});
+
+test('resposta que não é JSON ou sem o bloco RESPOSTA vira DATA_PROVIDER_INVALID_RESPONSE com detalhe', async () => {
+  resetCredifyTokenCache();
+  const tk = { body: { Success: true, Dados: jwt(Math.floor(Date.now() / 1000) + 86400) } };
+  const html = async () => new Response('<html>Bad gateway</html>', { status: 200 });
+  let n = 0;
+  const f1 = async (url) => (String(url).endsWith('/auth') ? new Response(JSON.stringify(tk.body), { status: 200 }) : html());
+  await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: f1 }).queryByPlate('AAA0000'), (e) => { n++; assert.equal(e.code, 'DATA_PROVIDER_INVALID_RESPONSE'); assert.match(e.detail, /não é JSON/); return true; });
+  resetCredifyTokenCache();
+  const f2 = fakeFetch([tk, { body: { Message: 'Sem permissao' } }]);
+  await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: f2 }).queryByPlate('AAA0000'), (e) => { n++; assert.match(e.detail, /sem o bloco RESPOSTA/); assert.match(e.detail, /Sem permissao/); return true; });
+  assert.equal(n, 2);
+});
+
+test('testConnection só faz o login e informa a validade do token', async () => {
+  resetCredifyTokenCache();
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const f = fakeFetch([{ body: { Success: true, Dados: jwt(Math.floor(now / 1000) + 24 * 3600) } }]);
+  const out = await new CredifyVehicleProvider({ ...base, fetchImpl: f, now: () => now }).testConnection();
+  assert.equal(out.ok, true); assert.ok(out.expiresInMinutes > 1000);
+  assert.equal(f.calls.length, 1); assert.ok(f.calls[0].url.endsWith('/auth'));
+  resetCredifyTokenCache();
+  await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: fakeFetch([{ status: 403, body: {} }]) }).testConnection(), (e) => e.code === 'DATA_PROVIDER_AUTH_FAILED');
+});

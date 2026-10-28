@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
-import { Alert, Badge, Button, EmptyState, Field, Input, Skeleton, useAsync, usePageTitle } from '../../shared/ui';
+import { Alert, Badge, Button, EmptyState, Field, Input, Skeleton, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { ApiError, errorMessage } from '../../shared/api';
 import { formatPlate, money } from '../../shared/format';
 import { SEARCH_HINT, SEARCH_LABELS, SEARCH_PLACEHOLDER, SEARCH_SHORT, SEARCH_TYPES, cleanSearchInput, formatDocument, isValidSearch, type SearchType } from '../../shared/searchKey';
@@ -31,6 +31,8 @@ export default function NewQuery() {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'' | 'wallet' | 'pay' | 'quote'>('');
+  const [cancelling, setCancelling] = useState(false);
+  const toast = useToast();
   const [step, setStep] = useState(0);
   const [accept, setAccept] = useState<LegalAccept>(NO_ACCEPT);
   const legal = useAsync(async () => api.get<{ accepted: boolean }>('/legal/acceptance').catch(() => null), []);
@@ -69,6 +71,14 @@ export default function NewQuery() {
     catch (e) { setQuote(null); setError(errorMessage(e)); } finally { setBusy(''); }
   }
 
+  async function cancelRunning() {
+    setCancelling(true);
+    try {
+      const r = await api.post<{ cancelled: number }>('/queries/cancel-processing', {});
+      if (!r.cancelled) toast.ok('A consulta já terminou ou ainda está iniciando. Aguarde um instante.');
+    } catch (e) { toast.error(errorMessage(e)); } finally { setCancelling(false); }
+  }
+
   async function runWallet() {
     if (!can || !product) return;
     if (needAcceptBalance && !bothAccepted(accept)) { setError(ACCEPT_MISSING); return; }
@@ -84,6 +94,7 @@ export default function NewQuery() {
       nav(`/app/consulta/${r.id}`);
     } catch (e) {
       idem.current = '';
+      if (e instanceof ApiError && e.code === 'QUERY_CANCELLED') { toast.ok('Consulta cancelada. O valor voltou para o seu saldo.'); void refresh(); setBusy(''); return; }
       const refunded = e instanceof ApiError && e.data.refunded === true;
       setError(errorMessage(e) + (refunded ? ' O valor debitado foi estornado ao seu saldo.' : ''));
       void refresh();
@@ -121,6 +132,7 @@ export default function NewQuery() {
             {STEPS.map((s, i) => <li key={s} className={i < step ? 'done' : i === step ? 'cur' : ''}>{i < step ? <Icon name="check-circle" size={20} /> : i === step ? <span className="spin" style={{ width: 18, height: 18 }} /> : <Icon name="clock" size={20} />} {s}</li>)}
           </ol>
           <p className="muted" style={{ fontSize: 13.5 }}>Não feche esta página. Se algo falhar, o valor é estornado automaticamente.</p>
+          <Button variant="ghost" size="sm" loading={cancelling} onClick={() => void cancelRunning()}>Cancelar consulta</Button>
         </div>
       </div>
     );

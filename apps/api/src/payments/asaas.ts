@@ -8,6 +8,7 @@ export type AsaasCheckoutInput = {
   itemDescription: string;
   amountCents: number;
   customer: { name: string; email: string; cpfCnpj?: string; phone?: string };
+  returnQueryOrderId?: string;
 };
 
 export type AsaasCheckoutResult = {
@@ -69,9 +70,9 @@ export async function createAsaasCheckout(input: AsaasCheckoutInput): Promise<As
       minutesToExpire: 60,
       externalReference: input.orderId,
       callback: {
-        successUrl: `${origin}/?checkout=success`,
-        cancelUrl: `${origin}/?checkout=cancelled`,
-        expiredUrl: `${origin}/?checkout=expired`
+        successUrl: `${origin}/?checkout=success${input.returnQueryOrderId ? `&tipo=consulta&pedido=${encodeURIComponent(input.returnQueryOrderId)}` : ''}`,
+        cancelUrl: `${origin}/?checkout=cancelled${input.returnQueryOrderId ? `&tipo=consulta&pedido=${encodeURIComponent(input.returnQueryOrderId)}` : ''}`,
+        expiredUrl: `${origin}/?checkout=expired${input.returnQueryOrderId ? `&tipo=consulta&pedido=${encodeURIComponent(input.returnQueryOrderId)}` : ''}`
       },
       customerData,
       items: [{

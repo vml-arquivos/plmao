@@ -79,6 +79,7 @@ import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh
 import { scopeForProduct } from './lib/reportScope.js';
 import { isKnownPath, renderRobotsTxt, renderSeoHtml, renderSitemapXml, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
+import { cancelAllProcessing, cancelPaidQuery, cancelProcessingQuery } from './lib/queryCancel.js';
 import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle, VehicleDataProvider } from './types.js';
 
 await ensureSchema();
@@ -290,6 +291,8 @@ async function authResultForUser(user: AuthUser, flow: string, req: Request): Pr
   return { token: issued.token, user };
 }
 
+const RETRY_MESSAGE = 'Não foi possível concluir a consulta agora. Nada foi perdido: se o valor saiu do saldo, ele foi estornado; se você pagou direto, a consulta paga continua disponível para tentar de novo ou cancelar.';
+/** Falhas da consulta usam 424 (e não 5xx) para a resposta e a mensagem sempre chegarem ao app, sem serem trocadas por páginas de erro do proxy. */
 function toSafeQueryError(error: unknown): { status: number; code: string; message: string } {
   const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
   if (code === 'NOT_FOUND') {
@@ -300,12 +303,14 @@ function toSafeQueryError(error: unknown): { status: number; code: string; messa
   if (code === 'INSUFFICIENT_BALANCE' || code === 'INSUFFICIENT_CREDITS') return { status: 402, code: 'INSUFFICIENT_BALANCE', message: 'Seu saldo pré-pago não é suficiente para esta consulta.' };
   if (code === 'QUERY_PAYMENT_NOT_READY') return { status: 409, code, message: 'A confirmação do pagamento ainda não está disponível. Aguarde a atualização do provedor.' };
   if (code === 'QUERY_PAYMENT_ALREADY_USED') return { status: 409, code, message: 'Este pagamento já foi utilizado ou não pode ser reutilizado.' };
-  if (code === 'PROVIDER_TIMEOUT') return { status: 502, code: 'QUERY_RETRY_AVAILABLE', message: 'Não foi possível concluir a consulta agora. O saldo será estornado quando debitado; uma consulta já paga permanece disponível para nova tentativa.' };
+  if (code === 'QUERY_CANCELLED') return { status: 409, code, message: 'Esta consulta foi cancelada.' };
+  if (code === 'PROVIDER_TIMEOUT') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A fonte de dados demorou para responder. ${RETRY_MESSAGE}` };
   if (code === 'DATA_PROVIDER_NOT_CONFIGURED') return { status: 503, code, message: 'A consulta está em ativação. Tente novamente quando a fonte de dados estiver disponível.' };
-  if (code === 'DATA_PROVIDER_AUTH_FAILED' || code === 'DATA_PROVIDER_UNAVAILABLE' || code === 'DATA_PROVIDER_INVALID_RESPONSE') return { status: 502, code: 'QUERY_RETRY_AVAILABLE', message: 'A fonte de dados não respondeu de forma válida. Se houve débito de saldo, ele foi estornado; pagamento direto confirmado permanece disponível para nova tentativa.' };
+  if (code === 'DATA_PROVIDER_RATE_LIMITED') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A fonte de dados está com muitas consultas no momento. ${RETRY_MESSAGE}` };
+  if (code === 'DATA_PROVIDER_AUTH_FAILED' || code === 'DATA_PROVIDER_UNAVAILABLE' || code === 'DATA_PROVIDER_INVALID_RESPONSE' || code === 'DATA_PROVIDER_QUOTA_EXHAUSTED') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A fonte de dados não respondeu de forma válida. ${RETRY_MESSAGE}` };
   if (code === 'PRODUCT_NOT_FOUND') return { status: 404, code, message: 'Este produto de consulta não está disponível.' };
   if (code === 'PRODUCT_NOT_AVAILABLE') return { status: 409, code, message: 'Esta consulta ainda não está à venda. Nada foi cobrado.' };
-  return { status: 502, code: 'QUERY_RETRY_AVAILABLE', message: 'Não foi possível concluir a consulta agora. Se houve débito de saldo, ele foi estornado; pagamento direto confirmado permanece disponível para nova tentativa.' };
+  return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: RETRY_MESSAGE };
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -1393,6 +1398,9 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
     const normalized = output.normalized;
     const resultHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
     await tx(async (client) => {
+      // Se o cliente cancelou enquanto a fonte respondia, descarta o resultado (a consulta já foi estornada).
+      const still = await client.query(`SELECT status FROM vehicle_queries WHERE id=$1 FOR UPDATE`, [queryId]);
+      if (still.rows[0]?.status !== 'PROCESSING') throw Object.assign(new Error('QUERY_CANCELLED'), { code: 'QUERY_CANCELLED' });
       await client.query('INSERT INTO vehicle_query_results(query_id,normalized,raw_response,raw_enc,normalizer_version) VALUES($1,$2::jsonb,$3::jsonb,$4,$5)', [queryId, JSON.stringify(normalized), JSON.stringify({ stored: env.STORE_RAW_PROVIDER_RESPONSE, encrypted: env.STORE_RAW_PROVIDER_RESPONSE }), env.STORE_RAW_PROVIDER_RESPONSE ? encryptRaw(output.raw) : null, NORMALIZER_VERSION]);
       await client.query(`UPDATE vehicle_queries SET status='SUCCESS',provider_query_id=$2,result_hash=$3,completed_at=now() WHERE id=$1`, [queryId, output.providerQueryId ?? null, resultHash]);
     });
@@ -1404,8 +1412,12 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
   } catch (error: unknown) {
     if (queryId) {
       const errorCode = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'PROVIDER_ERROR';
-      await tx((client) => refundProcessingQuery(client, queryId!, errorCode));
-      await audit(userId, 'QUERY_REFUND', 'VEHICLE_QUERY', queryId, { plate: input.plate, requestId: input.reqId });
+      const detail = error instanceof Error ? ((error as Error & { detail?: string }).detail ?? (error.message && error.message !== errorCode ? error.message : undefined)) : undefined;
+      const refundedNow = await tx((client) => refundProcessingQuery(client, queryId!, errorCode, detail));
+      if (refundedNow) {
+        log('warn', 'query_failed_refunded', { queryId, errorCode, detail: detail?.slice(0, 200) });
+        await audit(userId, 'QUERY_REFUND', 'VEHICLE_QUERY', queryId, { plate: input.plate, requestId: input.reqId });
+      }
     }
     const safe = toSafeQueryError(error);
     return { status: safe.status, body: { error: safe.code, message: safe.message, refunded: Boolean(queryId) && chargeSource !== 'DIRECT_PAYMENT' } };
@@ -1934,7 +1946,8 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
       itemName: String(draft.product.name),
       itemDescription: String(draft.product.description),
       amountCents: draft.amountCents,
-      customer: { name: String(draft.customer.name), email: String(draft.customer.email), cpfCnpj: draft.customer.cpf_cnpj ? String(draft.customer.cpf_cnpj) : undefined, phone: draft.customer.phone ? String(draft.customer.phone) : undefined }
+      customer: { name: String(draft.customer.name), email: String(draft.customer.email), cpfCnpj: draft.customer.cpf_cnpj ? String(draft.customer.cpf_cnpj) : undefined, phone: draft.customer.phone ? String(draft.customer.phone) : undefined },
+      returnQueryOrderId: draft.orderId
     });
     await pool.query(`UPDATE payment_orders SET status='CHECKOUT_ACTIVE',provider_checkout_id=$2,checkout_url=$3,updated_at=now() WHERE id=$1`, [draft.orderId, checkout.id, checkout.link]);
     await audit(req.user!.id, 'CREATE_QUERY_CHECKOUT', 'PAYMENT_ORDER', draft.orderId, { productId: parsed.data.productId, plate: parsed.data.plate, amountCents: draft.amountCents, requestId: requestId(req) });
@@ -1947,13 +1960,36 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
   }
 }));
 
+/** Cancela as consultas em andamento do cliente (usado pela tela "Consultando…", que ainda não conhece o id). */
+api.post('/queries/cancel-processing', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async (req, res) => {
+  const cancelled = await cancelAllProcessing(req.user!.id);
+  res.json({ cancelled });
+}));
+
+/** Cancela uma consulta em andamento do próprio cliente (estorno imediato do saldo ou do direito pago). */
+api.post('/queries/:id/cancel', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
+  const out = await cancelProcessingQuery(req.user!.id, id.data);
+  await audit(req.user!.id, 'QUERY_CANCELLED', 'VEHICLE_QUERY', id.data, { requestId: requestId(req) });
+  res.json({ id: id.data, ...out, cancelled: true });
+}));
+
+/** Cancela uma consulta já paga e ainda não usada; o estorno do pagamento é pedido ao provedor. */
+api.post('/payments/query/:id/cancel', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) throw appError('PAYMENT_ORDER_NOT_FOUND', { code: 'PAYMENT_ORDER_NOT_FOUND', http: 404, expose: true });
+  const out = await cancelPaidQuery(req.user!.id, id.data);
+  res.status(out.status === 'REFUND_REQUESTED' ? 202 : 200).json({ orderId: id.data, ...out });
+}));
+
 api.get('/payments/query/:id', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
-  const order = await pool.query(`SELECT o.id,o.status,o.purchase_type,o.product_id,o.query_plate,o.query_search_type,o.amount_cents,e.status AS entitlement_status
+  const order = await pool.query(`SELECT o.id,o.status,o.purchase_type,o.product_id,o.query_plate,o.query_search_type,o.amount_cents,e.status AS entitlement_status,e.query_id AS entitlement_query_id
     FROM payment_orders o LEFT JOIN query_payment_entitlements e ON e.order_id=o.id
     WHERE o.id=$1 AND o.user_id=$2 AND o.purchase_type='QUERY'`, [req.params.id, req.user!.id]);
   if (!order.rowCount) throw appError('PAYMENT_ORDER_NOT_FOUND', { code: 'PAYMENT_ORDER_NOT_FOUND', http: 404, expose: true });
   const row = order.rows[0] as Record<string, unknown>;
-  res.json({ orderId: String(row.id), status: String(row.status), purchaseType: 'QUERY', productId: String(row.product_id), plate: String(row.query_plate), searchType: String(row.query_search_type ?? 'PLATE'), amountCents: Number(row.amount_cents ?? 0), entitlementStatus: row.entitlement_status ? String(row.entitlement_status) : null });
+  res.json({ orderId: String(row.id), status: String(row.status), purchaseType: 'QUERY', productId: String(row.product_id), plate: String(row.query_plate), searchType: String(row.query_search_type ?? 'PLATE'), amountCents: Number(row.amount_cents ?? 0), entitlementStatus: row.entitlement_status ? String(row.entitlement_status) : null, queryId: row.entitlement_query_id ? String(row.entitlement_query_id) : null });
 }));
 
 async function processPaymentWebhook(providerName: PaymentProviderName, req: Request, res: Response): Promise<void> {
@@ -2329,7 +2365,7 @@ api.get('/admin/queries', adminAuth, requirePermission('VIEW_QUERIES'), asyncRou
   if (f.search) { const l = push(`%${f.search.replace(/[%_\\]/g, (c) => `\\${c}`)}%`); where.push(`(q.plate ILIKE ${l} OR u.name ILIKE ${l} OR u.email ILIKE ${l})`); }
   if (f.from) where.push(`q.created_at >= ${push(f.from)}::date`);
   if (f.to) where.push(`q.created_at < ${push(f.to)}::date + 1`);
-  const queries = await pool.query(`SELECT q.id,q.plate,q.search_type,q.status,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,q.error_code,
+  const queries = await pool.query(`SELECT q.id,q.plate,q.search_type,q.status,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,q.error_code,q.error_message,
       p.name AS product_name,u.id AS customer_id,u.name AS customer_name,u.email AS customer_email,coalesce(up.customer_type,'PARTICULAR') AS customer_type
     FROM vehicle_queries q
     JOIN users u ON u.id=q.user_id
@@ -2348,6 +2384,7 @@ api.get('/admin/queries', adminAuth, requirePermission('VIEW_QUERIES'), asyncRou
     createdAt: row.created_at,
     completedAt: row.completed_at,
     errorCode: row.error_code,
+    errorMessage: row.error_message,
     customerType: row.customer_type,
     customer: { id: row.customer_id, name: row.customer_name, email: row.customer_email }
   })));
@@ -2749,7 +2786,10 @@ function humanMessage(code: string): string {
     SUPPORT_ATTACHMENT_NOT_FOUND: 'Anexo não encontrado.',
     SUPPORT_ASSIGNEE_INVALID: 'Esta pessoa não pode atender o suporte.',
     PAYMENT_ORDER_NOT_FOUND: 'Pedido não encontrado.',
-    PAYMENT_NOT_REFUNDABLE: 'Este pagamento não pode ser estornado por aqui.',
+    QUERY_NOT_CANCELLABLE: 'Esta consulta já foi concluída e não pode ser cancelada.',
+    PAYMENT_NOT_PAID: 'O pagamento deste pedido ainda não foi confirmado.',
+    PAYMENT_REFUND_FAILED: 'Não foi possível pedir o estorno agora. Sua consulta paga continua disponível; tente novamente em instantes.',
+    PAYMENT_NOT_REFUNDABLE: 'Este pagamento não pode ser estornado por aqui. Fale com o suporte.',
     PAYMENT_REFUND_IN_PROGRESS: 'Já existe um estorno solicitado para este pedido.',
     PAYMENT_REFUND_REJECTED: 'O Mercado Pago recusou o estorno. Verifique o pagamento no painel do provedor.',
     CNPJ_INVALID: 'CNPJ inválido.',

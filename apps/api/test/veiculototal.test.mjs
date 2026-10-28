@@ -135,3 +135,12 @@ test('provider: segredo só com números recusado como texto é reenviado como n
   assert.equal(JSON.parse(f.calls[0].init.body).ClientSecret, '123456');
   assert.equal(JSON.parse(f.calls[1].init.body).ClientSecret, 123456);
 });
+
+test('BDRP ausente ou com erro continua sendo resposta inválida (estorno), mesmo com a base nacional presente', () => {
+  const x = structuredClone(ok);
+  delete x.RESPOSTA.VEICULOSBDRP;
+  assert.equal(providerOutcome(x).ok, false);
+  const y = structuredClone(ok);
+  y.RESPOSTA.CODIGO = y.RESPOSTA.CODIGO.map((c, i) => (i === 7 ? '3' : c));
+  assert.equal(providerOutcome(y).ok, false);
+});

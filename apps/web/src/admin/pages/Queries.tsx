@@ -10,7 +10,7 @@ import type { ReportV2 } from '../../shared/reportTypes';
 import { Card, PageHead, QueryStatusBadge } from '../parts';
 import { TypeBadge } from '../people';
 
-interface Row { id: string; plate: string; status: string; priceCents: number; chargeSource: string; provider: string; productName: string; createdAt: string; completedAt: string | null; errorCode: string | null; customerType?: string; customer: { name: string; email: string } }
+interface Row { id: string; plate: string; status: string; priceCents: number; chargeSource: string; provider: string; productName: string; createdAt: string; completedAt: string | null; errorCode: string | null; errorMessage?: string | null; customerType?: string; customer: { name: string; email: string } }
 
 export function QueriesList() {
   usePageTitle('Consultas');
@@ -37,7 +37,7 @@ export function QueriesList() {
             <tr key={r.id} className="clickable" onClick={() => nav(`/consultas/${r.id}`)}>
               <td><b className="mono">{formatPlate(r.plate)}</b></td><td>{r.productName}</td>
               <td>{r.customer.name} <TypeBadge type={r.customerType} /><div className="muted" style={{ fontSize: 12.5 }}>{r.customer.email}</div></td>
-              <td><QueryStatusBadge status={r.status} />{r.errorCode && <div className="muted" style={{ fontSize: 12 }}>{r.errorCode}</div>}</td>
+              <td><QueryStatusBadge status={r.status} />{r.errorCode && <div className="muted" style={{ fontSize: 12 }} title={r.errorMessage ?? undefined}>{r.errorCode}</div>}</td>
               <td className="r num">{money(r.priceCents)}</td><td><Badge>{r.chargeSource}</Badge></td><td>{dateTime(r.createdAt)}</td>
             </tr>
           ))}
@@ -72,7 +72,7 @@ function LookupModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-interface Detail { id: string; plate: string; status: string; priceCents: number; chargeSource: string; provider: string; source: string; productName: string; createdAt: string; completedAt: string | null; errorCode: string | null; customer: { name: string; email: string }; hasRaw: boolean; revealableFields: string[]; report: ReportV2 | null }
+interface Detail { id: string; plate: string; status: string; priceCents: number; chargeSource: string; provider: string; source: string; productName: string; createdAt: string; completedAt: string | null; errorCode: string | null; errorMessage?: string | null; customer: { name: string; email: string }; hasRaw: boolean; revealableFields: string[]; report: ReportV2 | null }
 interface Reveal { id: string; field: string; reason: string; createdAt: string; by: { name: string; email: string } }
 
 const FIELD_LABEL: Record<string, string> = { PRONOME: 'Nome do proprietário', PRONOMEANTERIOR: 'Proprietário anterior', CPF_CNPJ_PROPRIETARIO: 'CPF/CNPJ do proprietário', CPFCNPJFATURADO: 'CPF/CNPJ faturado', CPFCNPJCOMPRADOR: 'CPF/CNPJ do comprador', CHASSI: 'Chassi', RENAVAM: 'RENAVAM', MOTOR: 'Motor' };
@@ -98,6 +98,7 @@ export function QueryDetailPage() {
             <dt>Cliente</dt><dd>{x.customer.name}<br /><span className="muted">{x.customer.email}</span></dd><dt>Provedor</dt><dd>{x.provider} · {x.source}</dd>
             <dt>Criada</dt><dd>{dateTime(x.createdAt)}</dd><dt>Concluída</dt><dd>{dateTime(x.completedAt)}</dd>
             {x.errorCode && <><dt>Erro</dt><dd>{x.errorCode}</dd></>}
+            {x.errorMessage && x.errorCode && <><dt>Motivo</dt><dd style={{ overflowWrap: 'anywhere' }}>{x.errorMessage}</dd></>}
           </dl>
         </Card>
         <Card title="Revelações de dados protegidos" >

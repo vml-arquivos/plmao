@@ -4,6 +4,8 @@ export type CheckoutInput = {
   itemDescription: string;
   amountCents: number;
   customer: { name: string; email: string; cpfCnpj?: string; phone?: string };
+  /** Pedido de consulta (id interno): o retorno do checkout volta direto para a consulta e a executa. */
+  returnQueryOrderId?: string;
 };
 
 export type CheckoutResult = { id: string; link: string; status: string };

@@ -7,7 +7,7 @@ import { audit, log } from './http.js';
  * Idempotente: só age se a consulta ainda está PROCESSING (trava a linha). Saldo volta à carteira
  * (cobrança por saldo) ou o direito pago volta a READY (pagamento direto).
  */
-export async function refundProcessingQuery(client: PoolClient, queryId: string, errorCode: string): Promise<boolean> {
+export async function refundProcessingQuery(client: PoolClient, queryId: string, errorCode: string, detail?: string): Promise<boolean> {
   const q = await client.query('SELECT user_id,plate,status,price_cents,charge_source FROM vehicle_queries WHERE id=$1 FOR UPDATE', [queryId]);
   if (!q.rowCount || q.rows[0].status !== 'PROCESSING') return false;
   const row = q.rows[0] as { user_id: string; plate: string; price_cents: number; charge_source: string };
@@ -22,7 +22,7 @@ export async function refundProcessingQuery(client: PoolClient, queryId: string,
     await client.query(`INSERT INTO wallet_transactions(user_id,kind,amount,balance_before,balance_after,amount_cents,balance_before_cents,balance_after_cents,query_id,description,metadata)
       VALUES($1,'REFUND',0,0,0,$2,$3,$4,$5,$6,$7::jsonb)`, [row.user_id, cost, before, after, queryId, `Estorno consulta ${row.plate}`, JSON.stringify({ errorCode })]);
   }
-  await client.query(`UPDATE vehicle_queries SET status='REFUNDED',error_code=$2,error_message=$3,completed_at=now() WHERE id=$1`, [queryId, errorCode, 'Consulta não concluída; cobrança estornada.']);
+  await client.query(`UPDATE vehicle_queries SET status='REFUNDED',error_code=$2,error_message=$3,completed_at=now(),idempotency_key=NULL WHERE id=$1`, [queryId, errorCode, (detail && detail.trim() ? detail.trim() : 'Consulta não concluída; cobrança estornada.').slice(0, 500)]);
   return true;
 }
 

@@ -144,7 +144,10 @@ async function reversePaidOrder(client: PoolClient, current: Record<string, unkn
 
   if (purchaseType === 'QUERY') {
     const revoked = await client.query(`UPDATE query_payment_entitlements SET status='REVOKED' WHERE order_id=$1 AND status='READY' RETURNING id`, [orderId]);
-    if (!revoked.rowCount) notes.push('REVERSED_AFTER_CONSUMPTION');
+    if (!revoked.rowCount) {
+      const already = await client.query(`SELECT 1 FROM query_payment_entitlements WHERE order_id=$1 AND status='REVOKED'`, [orderId]);
+      if (!already.rowCount) notes.push('REVERSED_AFTER_CONSUMPTION');
+    }
   } else {
     const credits = Number(current.credits ?? 0);
     const wallet = await client.query('SELECT balance,balance_cents FROM wallets WHERE user_id=$1 FOR UPDATE', [current.user_id]);

@@ -113,6 +113,8 @@ export class MercadoPagoProvider implements PaymentCheckoutProvider {
 
   async createCheckout(input: CheckoutInput): Promise<CheckoutResult> {
     const origin = publicAppUrl();
+    // Consulta avulsa: o retorno leva o pedido junto, para a tela da consulta continuar sozinha depois do pagamento.
+    const back = (state: string) => `${origin}/?checkout=${state}&provider=mercadopago${input.returnQueryOrderId ? `&tipo=consulta&pedido=${encodeURIComponent(input.returnQueryOrderId)}` : ''}`;
     const response = await requestJson<MercadoPagoPreferenceResponse>(`${api()}/checkout/preferences`, {
       method: 'POST',
       headers: {
@@ -131,9 +133,9 @@ export class MercadoPagoProvider implements PaymentCheckoutProvider {
         }],
         external_reference: input.orderId,
         back_urls: {
-          success: `${origin}/?checkout=success&provider=mercadopago`,
-          failure: `${origin}/?checkout=failure&provider=mercadopago`,
-          pending: `${origin}/?checkout=pending&provider=mercadopago`
+          success: back('success'),
+          failure: back('failure'),
+          pending: back('pending')
         },
         auto_return: 'approved',
         ...(env.MP_BINARY_MODE ? { binary_mode: true } : {}),

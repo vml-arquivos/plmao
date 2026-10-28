@@ -12,8 +12,16 @@ import { parseSearchTypes, type SearchType } from '../searchKey.js';
  * Caminho, método e corpo podem ser trocados por configuração (CREDIFY_QUERY_*), com {{plate}} e {{queryId}} no modelo.
  * Nada aqui é cobrado ou chamado com DATA_PROVIDER≠real.
  */
-type Failure = Error & { code: string };
-const fail = (code: string): Failure => Object.assign(new Error(code), { code });
+type Failure = Error & { code: string; detail?: string };
+/** `detail` guarda o motivo técnico (status HTTP e mensagem da Credify) para o painel; nunca contém chaves nem tokens. */
+const fail = (code: string, detail?: string): Failure => Object.assign(new Error(code), { code, ...(detail ? { detail: detail.slice(0, 300) } : {}) });
+/** Lê a mensagem curta que a Credify devolve em erro ({ Message } ou { MSG }), sem repassar o corpo inteiro. */
+async function reason(response: Response): Promise<string> {
+  const text = await response.text().catch(() => '');
+  let msg = '';
+  try { const j = JSON.parse(text) as Record<string, any>; msg = String(j?.Message ?? j?.message ?? j?.DADOS?.MSG ?? j?.Mensagem ?? ''); } catch { msg = text.replace(/<[^>]*>/g, ' '); }
+  return `HTTP ${response.status}${msg.trim() ? `: ${msg.trim().replace(/\s+/g, ' ')}` : ''}`;
+}
 
 export interface CredifyOptions {
   fetchImpl?: typeof fetch;
@@ -56,7 +64,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
   private async http(url: string, init: RequestInit): Promise<Response> {
     try {
       return await (this.o.fetchImpl ?? fetch)(url, { ...init, signal: AbortSignal.timeout(this.o.timeoutMs) });
-    } catch { throw fail('PROVIDER_TIMEOUT'); }
+    } catch (e) { throw fail('PROVIDER_TIMEOUT', `Sem resposta da Credify (${e instanceof Error ? e.name : 'erro de rede'}).`); }
   }
 
   private async token(force = false): Promise<string> {
@@ -67,12 +75,19 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     let response = await login(c.clientSecret);
     // A documentação do /auth descreve ClientSecret como inteiro; se a chave for só números e o texto for recusado, tenta como número.
     if ((response.status === 401 || response.status === 403) && /^[1-9]\d{0,14}$/.test(c.clientSecret)) response = await login(Number(c.clientSecret));
-    if (response.status === 401 || response.status === 403) throw fail('DATA_PROVIDER_AUTH_FAILED');
-    if (!response.ok) throw fail('DATA_PROVIDER_UNAVAILABLE');
-    const json = await response.json().catch(() => null) as { Success?: boolean; Dados?: unknown } | null;
-    if (!json || json.Success === false || typeof json.Dados !== 'string' || !json.Dados) throw fail('DATA_PROVIDER_AUTH_FAILED');
+    if (response.status === 401 || response.status === 403) throw fail('DATA_PROVIDER_AUTH_FAILED', `Login recusado (${await reason(response)}). Confira ClientID/ClientSecret e se o IP do servidor está em "IPs Autorizados" na Credify.`);
+    if (!response.ok) throw fail('DATA_PROVIDER_UNAVAILABLE', `Login: ${await reason(response)}`);
+    const json = await response.json().catch(() => null) as { Success?: boolean; Message?: string; Dados?: unknown } | null;
+    if (!json || json.Success === false || typeof json.Dados !== 'string' || !json.Dados) throw fail('DATA_PROVIDER_AUTH_FAILED', `Login sem token${json?.Message ? `: ${String(json.Message)}` : ''}. Confira ClientID/ClientSecret e o IP autorizado.`);
     shared = { token: json.Dados, expiresAt: tokenExpiry(json.Dados, now) };
     return json.Dados;
+  }
+
+  /** Só o login (não consome consulta): confirma ClientID, ClientSecret e IP autorizado. */
+  async testConnection(): Promise<{ ok: true; expiresInMinutes: number }> {
+    const now = (this.o.now ?? Date.now)();
+    await this.token(true);
+    return { ok: true, expiresInMinutes: Math.max(0, Math.round(((shared?.expiresAt ?? now) - now) / 60000)) };
   }
 
   /** Placa sempre; os demais tipos só se o contrato os atende (VEHICLE_SEARCH_TYPES). */
@@ -116,16 +131,18 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     };
     let response = await call(await this.token());
     if (response.status === 401) response = await call(await this.token(true));
-    if (response.status === 404 || response.status === 410) throw fail('NOT_FOUND');
-    if (response.status === 401 || response.status === 403) throw fail('DATA_PROVIDER_AUTH_FAILED');
-    if (response.status === 408 || response.status === 429) throw fail('DATA_PROVIDER_RATE_LIMITED');
-    if (response.status === 402) throw fail('DATA_PROVIDER_QUOTA_EXHAUSTED');
-    if (!response.ok) throw fail('DATA_PROVIDER_UNAVAILABLE');
-    const raw = await response.json().catch(() => { throw fail('DATA_PROVIDER_INVALID_RESPONSE'); }) as Record<string, any>;
-    if (!raw || typeof raw !== 'object' || !raw.RESPOSTA) throw fail('DATA_PROVIDER_INVALID_RESPONSE');
+    if (response.status === 404 || response.status === 410) throw fail('NOT_FOUND', await reason(response));
+    if (response.status === 401 || response.status === 403) throw fail('DATA_PROVIDER_AUTH_FAILED', `Consulta recusada (${await reason(response)}). Confira as Finalidades de Consumo, o plano e o IP autorizado na Credify.`);
+    if (response.status === 408 || response.status === 429) throw fail('DATA_PROVIDER_RATE_LIMITED', await reason(response));
+    if (response.status === 402) throw fail('DATA_PROVIDER_QUOTA_EXHAUSTED', await reason(response));
+    if (!response.ok) throw fail('DATA_PROVIDER_UNAVAILABLE', await reason(response));
+    const text = await response.text().catch(() => '');
+    let raw: Record<string, any>;
+    try { raw = JSON.parse(text) as Record<string, any>; } catch { throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Resposta que não é JSON: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)}`); }
+    if (!raw || typeof raw !== 'object' || !raw.RESPOSTA) throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Resposta sem o bloco RESPOSTA (campos: ${Object.keys(raw ?? {}).slice(0, 8).join(', ') || 'nenhum'}${raw?.Message ? `; Message: ${String(raw.Message)}` : ''}).`);
     const outcome = providerOutcome(raw);
-    if (outcome.notFound) throw fail('NOT_FOUND');
-    if (!outcome.ok) throw fail('DATA_PROVIDER_INVALID_RESPONSE');
+    if (outcome.notFound) throw fail('NOT_FOUND', 'Placa não encontrada na Credify.');
+    if (!outcome.ok) throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Credify respondeu com erro (${outcome.reason ?? 'sem motivo'}): CODIGO ${JSON.stringify(raw?.RESPOSTA?.CODIGO ?? null)}${raw?.RESPOSTA?.DADOS?.MSG ? `; ${String(raw.RESPOSTA.DADOS.MSG)}` : ''}.`);
     const id = raw?.CONSULTA?.CODIGORESPOSTA ?? raw?.CONSULTA?.IDCONSULTA;
     return { providerQueryId: id == null ? undefined : String(id), raw: { ...(type === 'PLATE' ? { placa: value } : {}), idConsulta: queryId, data: raw } };
   }

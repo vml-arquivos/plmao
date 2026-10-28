@@ -22,6 +22,7 @@ const GuideModelPage = lazy(() => import('./pages/Guide').then((m) => ({ default
 const Compare = lazy(() => import('./pages/Compare'));
 const Simulator = lazy(() => import('./pages/Simulator'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const PaidQueryReturn = lazy(() => import('./pages/PaidQueryReturn'));
 const NewQuery = lazy(() => import('./pages/NewQuery'));
 const History = lazy(() => import('./pages/History'));
 const QueryDetail = lazy(() => import('./pages/QueryDetail'));
@@ -62,6 +63,9 @@ function Home() {
   if (p.get('oauth_error')) return <Navigate to={`/entrar?oauth_error=${encodeURIComponent(p.get('oauth_error')!)}`} replace />;
   if (p.get('reset_token')) return <Navigate to={`/entrar?reset_token=${encodeURIComponent(p.get('reset_token')!)}`} replace />;
   const checkout = p.get('checkout');
+  const pedido = p.get('pedido');
+  // Consulta avulsa paga: volta direto para a tela da consulta, que se executa sozinha.
+  if (checkout && p.get('tipo') === 'consulta' && pedido && /^[0-9a-f-]{36}$/i.test(pedido)) return <Navigate to={`/app/consultar/pedido/${pedido}?checkout=${encodeURIComponent(checkout)}`} replace />;
   if (checkout) return <Navigate to={`/app/carteira?checkout=${encodeURIComponent(checkout)}`} replace />;
   return <Landing />;
 }
@@ -112,6 +116,7 @@ export default function App() {
           <Route path="/app" element={<RequireAuth><AppLayout /></RequireAuth>}>
             <Route index element={<Dashboard />} />
             <Route path="consultar" element={<NewQuery />} />
+            <Route path="consultar/pedido/:orderId" element={<PaidQueryReturn />} />
             <Route path="historico" element={<History />} />
             <Route path="simulacoes" element={<Simulations />} />
             <Route path="consulta/:id" element={<QueryDetail />} />

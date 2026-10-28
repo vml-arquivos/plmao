@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.12.13 — Volta automática do Pix, cancelar consulta e falhas da Credify visíveis
+
+- Pagamento aprovado (Pix ou cartão): o Mercado Pago volta direto para `/app/consultar/pedido/<pedido>`, que confirma o pagamento, executa a consulta sozinha e abre o relatório. Nada de voltar para a carteira com a linha "Concluir consulta". Funciona também se o Pix demorar (a tela espera e segue sozinha, por até 15 min), se a pessoa precisar entrar de novo na conta (volta para o mesmo pedido) e se a página for atualizada (a consulta não é cobrada duas vezes). Asaas ganhou o mesmo retorno.
+- Se algo falhar nessa tela: botão "Tentar de novo" (o pagamento continua válido) e "Cancelar e pedir estorno".
+- Cancelar consulta: (1) em andamento, botão "Cancelar consulta" na tela "Consultando…", na tela de retorno do pagamento e no detalhe da consulta; o valor volta na hora (saldo) ou a consulta paga volta a ficar disponível; se a fonte responder depois do cancelamento, o resultado é descartado. (2) Consulta já paga e não usada, botão "Cancelar consulta" em Nova consulta com confirmação; o direito é revogado e o estorno total é pedido ao Mercado Pago (se o provedor recusar, a consulta paga continua disponível). Consulta grátis (cupom de 100%) só é encerrada. Rotas: `POST /queries/:id/cancel`, `POST /queries/cancel-processing`, `POST /payments/query/:id/cancel`.
+- Falhas da consulta: a resposta passa de 502 para 424 (`QUERY_RETRY_AVAILABLE`) com mensagem clara ("Nada foi perdido..."), para o aviso sempre chegar ao cliente em vez do genérico "Não foi possível concluir a operação".
+- Motivo técnico guardado: cada consulta estornada grava o detalhe da Credify (status HTTP, mensagem, bloco com erro) em `error_message`; aparece em Admin > Consultas (lista com o mouse sobre o código, e no detalhe em "Motivo"). Nada de chaves ou tokens.
+- Admin > Integrações: botão "Testar login na Credify (sem consulta)": confirma ClientID/ClientSecret e mostra o IP de saída do servidor (o que precisa estar em "IPs Autorizados" na Credify).
+- Tempo limite: `VEHICLE_API_TIMEOUT_MS` 15000 para 50000 e `QUERY_REQUEST_TIMEOUT_MS` 20000 para 60000 (padrões). O Veículo Total junta 8 fontes e passa de 20 s com frequência. Quem definiu esses valores no Coolify precisa trocá-los.
+- A chave de idempotência é liberada quando a consulta é estornada: tentar de novo com a mesma chave (tela de pagamento, API pública) executa de novo em vez de ficar em "consulta em andamento".
+- Estorno de pedido já revogado pelo cliente não gera mais a anotação `REVERSED_AFTER_CONSUMPTION`.
+- Testes: `query-cancel.test.mjs` (9), novos casos em `credify-provider` e `veiculototal`.
+
 ## 1.12.12 — Credify Veículo Total: consultas reais
 
 - Conexão com a Credify (`POST /veiculototal`): corpo `{"Consulta":{"IdConsulta","Placa"}}` gerado sozinho (IdConsulta único por chamada, só dígitos), `Authorization: Bearer` com o token de 24 h do `/auth`. Caminho e corpo padrão passam a ser os do Veículo Total: não é mais preciso configurar `CREDIFY_QUERY_BODY_TEMPLATE` (o modelo aceita `{{queryId}}` e `{{plate}}`)

@@ -6,6 +6,7 @@ import { isEmailConfigured, verifyEmailTransport } from '../email.js';
 import { appError, asyncRoute, audit, log, requestId } from '../lib/http.js';
 import { enqueueEmail } from '../lib/emailOutbox.js';
 import { requirePermission } from '../permissions.js';
+import { CredifyVehicleProvider } from '../providers/credifyProvider.js';
 
 /**
  * Painel de integrações: mostra SE cada chave está configurada (nunca o valor), a URL de webhook a cadastrar
@@ -40,7 +41,7 @@ export function integrationStatus() {
     item('mercadopago', 'Mercado Pago (pagamentos)', mpVars, mpOn, { webhookUrl: `${base}/api/payments/mercadopago/webhook`, webhookNote: 'No painel do Mercado Pago, em Webhooks, cadastre esta URL e marque o evento "Pagamentos". Copie a assinatura secreta para MP_WEBHOOK_SECRET. Pagamentos de teste não geram aviso: o sistema também confere sozinho os pedidos em aberto.', mode: env.MP_ACCESS_TOKEN ? (env.MP_ACCESS_TOKEN.startsWith('TEST-') ? 'teste' : 'a confirmar (use Testar conexão)') : null, canTest: true }),
     item('email', apiMode ? 'E-mail (API do Brevo)' : 'E-mail (SMTP / Brevo)', mailVars, smtpOn, { canTest: true, workerOn: env.EMAIL_OUTBOX_WORKER }),
     item('email-webhook', 'Retorno de entrega de e-mail (Brevo)', hookVars, Boolean(env.EMAIL_WEBHOOK_SECRET), { webhookUrl: `${base}/api/webhooks/email/brevo`, webhookNote: 'No Brevo, em Webhooks transacionais, use esta URL, escolha autenticação por token do portador (Bearer) com o mesmo valor de EMAIL_WEBHOOK_SECRET (ou o cabeçalho x-webhook-token) e marque só entregue, bounce (hard/soft), bloqueado, reclamação e inválido.' }),
-    item('vehicle', 'Consulta veicular (Credify)', credVars, env.VEHICLE_API_PROVIDER === 'credify', { webhookNote: 'Consulta Veículo Total (POST /veiculototal). Sem teste automático para não gastar consulta: faça uma consulta real de baixo valor para validar.' }),
+    item('vehicle', 'Consulta veicular (Credify)', credVars, env.VEHICLE_API_PROVIDER === 'credify', { canTest: true, webhookNote: 'Consulta Veículo Total (POST /veiculototal). O teste só faz o login na Credify (não gasta consulta) e mostra o IP de saída deste servidor, que precisa estar em "IPs Autorizados" na Credify. Depois, faça uma consulta real de baixo valor para validar.' }),
     item('site-access', 'Site fechado ao público (pré-lançamento)', [v('SITE_MODE', env.SITE_MODE === 'prelaunch', true, 'prelaunch = fechado ao público e sem indexação; public = aberto'), v('PRELAUNCH_ALLOWED_EMAILS', env.PRELAUNCH_ALLOWED_EMAILS, true, 'e-mails ou @domínios que podem criar conta, pagar e consultar')], env.SITE_MODE === 'prelaunch'),
     item('vehicle-test', 'Consulta veicular (ConsultarPlaca, teste)', cpVars, env.VEHICLE_API_PROVIDER === 'consultarplaca', { webhookNote: 'Use a placa AAA0000 (dados fictícios, não gasta crédito). Traz só dados do veículo; débitos e restrições aparecem como não fornecidos.' }),
     item('cnpj', 'Consulta de CNPJ', cnpjVars, env.CNPJ_PROVIDER !== 'disabled'),
@@ -81,4 +82,30 @@ adminIntegrationsRouter.post('/integrations/email/test', adminAuth, guard, async
   const q = await enqueueEmail({ idempotencyKey: `integration-test:${randomUUID()}`, template: 'GENERIC_NOTICE', toEmail: req.user!.email, toName: req.user!.name, data: { name: req.user!.name, documentTitle: 'Teste de e-mail', message: 'Se você recebeu esta mensagem, o envio de e-mail está funcionando.' }, createdBy: req.user!.id });
   await audit(req.user!.id, 'INTEGRATION_TESTED', 'INTEGRATION', null, { integration: 'email', requestId: requestId(req) });
   res.json({ ok: true, connection: 'ok', queued: true, outboxId: q.id, workerOn: env.EMAIL_OUTBOX_WORKER });
+}));
+
+/** IP público de saída do servidor (o que a Credify enxerga). Melhor esforço: null se o serviço não responder. */
+async function outboundIp(): Promise<string | null> {
+  try {
+    const r = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(4000) });
+    const j = (await r.json()) as { ip?: unknown };
+    return typeof j.ip === 'string' && /^[0-9a-fA-F:.]{3,45}$/.test(j.ip) ? j.ip : null;
+  } catch { return null; }
+}
+
+/** Só o login na Credify: não consome consulta. Devolve o motivo técnico quando falha, sem expor chaves. */
+adminIntegrationsRouter.post('/integrations/vehicle/test', adminAuth, guard, asyncRoute(async (req, res) => {
+  if (env.VEHICLE_API_PROVIDER !== 'credify') throw fail('INTEGRATION_NOT_CONFIGURED');
+  if (!env.CREDIFY_CLIENT_ID || !env.CREDIFY_CLIENT_SECRET) throw fail('INTEGRATION_NOT_CONFIGURED');
+  const serverIp = await outboundIp();
+  let result: Record<string, unknown>;
+  try {
+    const r = await new CredifyVehicleProvider().testConnection();
+    result = { ok: true, expiresInMinutes: r.expiresInMinutes, serverIp, queryEnabled: env.DATA_PROVIDER === 'real' };
+  } catch (error) {
+    const e = error as Error & { code?: string; detail?: string };
+    result = { ok: false, code: e.code ?? 'PROVIDER_ERROR', detail: e.detail ?? e.message, serverIp };
+  }
+  await audit(req.user!.id, 'INTEGRATION_TESTED', 'INTEGRATION', null, { integration: 'credify', ok: result.ok, code: result.code ?? null, requestId: requestId(req) });
+  res.json(result);
 }));

@@ -15,6 +15,7 @@ export default function PaidQueries() {
   const toast = useToast();
   const { refresh } = useSession();
   const [busy, setBusy] = useState('');
+  const [confirm, setConfirm] = useState('');
   const { data, reload } = useAsync(async () => {
     const orders = await api.get<Order[]>('/payments/orders');
     const recent = orders.filter((o) => o.purchaseType === 'QUERY' && o.status === 'PAID' && Date.now() - new Date(o.createdAt).getTime() < 14 * 864e5).slice(0, 6);
@@ -30,11 +31,21 @@ export default function PaidQueries() {
       nav(`/app/consulta/${r.id}`);
     } catch (e) { toast.error(errorMessage(e)); reload(); } finally { setBusy(''); }
   }
+  async function cancel(o: OrderState) {
+    setBusy(o.orderId);
+    try {
+      await api.post(`/payments/query/${o.orderId}/cancel`, {});
+      toast.ok(o.amountCents === 0 ? 'Consulta cancelada.' : 'Cancelado. O estorno foi pedido e volta pela mesma forma de pagamento.');
+      setConfirm(''); reload();
+    } catch (e) { toast.error(errorMessage(e)); reload(); } finally { setBusy(''); }
+  }
   return (
     <div className="stack-sm">
       {data.map((o) => (
         <Alert key={o.orderId} tone="ok" title="Pagamento confirmado.">
-          <span className="row" style={{ marginTop: 6 }}>{(o.searchType ?? 'PLATE') === 'PLATE' ? <PlateBadge plate={o.plate} size="sm" /> : <b className="mono">{o.plate}</b>} <span>{o.amountCents === 0 ? 'Consulta grátis pronta para ser executada.' : `Consulta de ${money(o.amountCents)} pronta para ser executada.`}</span><Button variant="primary" size="sm" loading={busy === o.orderId} onClick={() => run(o)}>Concluir consulta</Button></span>
+          <span className="row" style={{ marginTop: 6 }}>{(o.searchType ?? 'PLATE') === 'PLATE' ? <PlateBadge plate={o.plate} size="sm" /> : <b className="mono">{o.plate}</b>} <span>{o.amountCents === 0 ? 'Consulta grátis pronta para ser executada.' : `Consulta de ${money(o.amountCents)} pronta para ser executada.`}</span><Button variant="primary" size="sm" loading={busy === o.orderId} onClick={() => run(o)}>Concluir consulta</Button>{confirm === o.orderId
+            ? <><Button variant="danger" size="sm" disabled={busy === o.orderId} onClick={() => void cancel(o)}>{o.amountCents === 0 ? 'Confirmar cancelamento' : 'Confirmar cancelamento e estorno'}</Button><Button variant="ghost" size="sm" disabled={busy === o.orderId} onClick={() => setConfirm('')}>Voltar</Button></>
+            : <Button variant="ghost" size="sm" disabled={busy === o.orderId} onClick={() => setConfirm(o.orderId)}>Cancelar consulta</Button>}</span>
         </Alert>
       ))}
     </div>
