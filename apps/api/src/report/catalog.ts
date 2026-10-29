@@ -24,7 +24,7 @@ export interface FieldDef {
   optional?: boolean;
 }
 
-export type SectionKey = 'IDENTIFICACAO' | 'CARACTERISTICAS' | 'REGISTRO' | 'DEBITOS' | 'RESTRICOES' | 'HISTORICO' | 'GRAVAME' | 'INSPECAO_RECALL' | 'FIPE' | 'PROPRIETARIO' | 'INTERNO';
+export type SectionKey = 'IDENTIFICACAO' | 'CARACTERISTICAS' | 'REGISTRO' | 'DEBITOS' | 'RESTRICOES' | 'HISTORICO' | 'GRAVAME' | 'INSPECAO_RECALL' | 'FIPE' | 'ANALISES' | 'PROPRIETARIO' | 'INTERNO';
 
 export const SECTIONS: Array<{ key: SectionKey; label: string; description: string; order: number }> = [
   { key: 'IDENTIFICACAO', label: 'Identificação do veículo', description: 'Marca, modelo e identificadores', order: 10 },
@@ -36,6 +36,7 @@ export const SECTIONS: Array<{ key: SectionKey; label: string; description: stri
   { key: 'GRAVAME', label: 'Financiamento e gravame', description: 'Restrição financeira, intenção de gravame e contratos', order: 60 },
   { key: 'INSPECAO_RECALL', label: 'Inspeção e recall', description: 'Inspeção veicular e campanhas de recall', order: 70 },
   { key: 'FIPE', label: 'Valor de referência (FIPE)', description: 'Preço FIPE e preço médio de mercado', order: 72 },
+  { key: 'ANALISES', label: 'Análises da Placa na Mão', description: 'Cálculos e estimativas feitos pelo sistema a partir dos dados da consulta; não vêm de órgão oficial', order: 76 },
   { key: 'PROPRIETARIO', label: 'Proprietário (dados protegidos)', description: 'Tipo de documento; dados pessoais protegidos pela LGPD', order: 80 },
   { key: 'INTERNO', label: 'Controle interno', description: 'Metadados técnicos do provedor', order: 99 }
 ];
@@ -71,11 +72,11 @@ export const FIELD_CATALOG: FieldDef[] = [
   f('VEICATEGORIA', 'Categoria', 'CARACTERISTICAS', 'text', 1),
   f('CARROCERIA', 'Carroceria', 'CARACTERISTICAS', 'text', 2),
   f('VEIPROCEDENCIA', 'Procedência', 'CARACTERISTICAS', 'text', 1),
-  f('EIXOS', 'Eixos', 'CARACTERISTICAS', 'number', 2),
+  f('EIXOS', 'Eixos', 'CARACTERISTICAS', 'number', 2, { optional: true }),
   f('CAPACIDADEPASSAG', 'Capacidade de passageiros', 'CARACTERISTICAS', 'text', 2),
-  f('CAPACIDADECARGA', 'Capacidade de carga', 'CARACTERISTICAS', 'text', 2),
-  f('CMT', 'CMT (capacidade máxima de tração)', 'CARACTERISTICAS', 'text', 3),
-  f('PBT', 'PBT (peso bruto total)', 'CARACTERISTICAS', 'text', 3),
+  f('CAPACIDADECARGA', 'Capacidade de carga', 'CARACTERISTICAS', 'text', 2, { optional: true }),
+  f('CMT', 'CMT (capacidade máxima de tração)', 'CARACTERISTICAS', 'text', 3, { optional: true }),
+  f('PBT', 'PBT (peso bruto total)', 'CARACTERISTICAS', 'text', 3, { optional: true }),
   internal('CODIGOCOR', 'Código da cor'),
   internal('CODIGOTIPO', 'Código do tipo'),
   internal('CODIGOCATEGORIA', 'Código da categoria'),
@@ -188,4 +189,19 @@ export const VT_CATALOG: FieldDef[] = [
   f('VT_PROPRIETARIOS_LISTA', 'Histórico de proprietários (mascarado)', 'PROPRIETARIO', 'text', 3, { sensitivity: 'OWNER' })
 ];
 
-export const CATALOG_BY_KEY: ReadonlyMap<string, FieldDef> = new Map([...FIELD_CATALOG, ...VT_CATALOG].map((def) => [def.key, def]));
+/**
+ * Campos calculados ou completados pelo próprio sistema (decodificador de chassi, quilometragem de referência, histórico e projeção da FIPE).
+ * Todos opcionais: só aparecem quando há como calcular.
+ */
+export const ENRICH_CATALOG: FieldDef[] = [
+  f('EN_FIPE_VAR_12M', 'Variação da FIPE em 12 meses', 'FIPE', 'text', 2, { optional: true }),
+  f('EN_FIPE_VAR_24M', 'Variação da FIPE em 24 meses', 'FIPE', 'text', 2, { optional: true }),
+  f('EN_FIPE_SERIE', 'Histórico mensal da FIPE (24 meses)', 'FIPE', 'text', 2, { optional: true }),
+  f('EN_FIPE_PROJECAO', 'Projeção de preço (estimativa)', 'ANALISES', 'text', 2, { optional: true }),
+  f('EN_KM_REFERENCIA', 'Quilometragem de referência (estimativa)', 'ANALISES', 'text', 2, { optional: true }),
+  f('EN_CHASSI_FABRICANTE', 'Fabricante pelo chassi', 'ANALISES', 'text', 2, { optional: true }),
+  f('EN_CHASSI_ORIGEM', 'Origem pelo chassi', 'ANALISES', 'text', 2, { optional: true }),
+  f('EN_CHASSI_ANO', 'Ano do modelo pelo chassi', 'ANALISES', 'text', 2, { optional: true })
+];
+
+export const CATALOG_BY_KEY: ReadonlyMap<string, FieldDef> = new Map([...FIELD_CATALOG, ...VT_CATALOG, ...ENRICH_CATALOG].map((def) => [def.key, def]));

@@ -6,7 +6,7 @@ import test from 'node:test';
 function issues(extra) {
   const base = { PATH: process.env.PATH, NODE_ENV: 'production', DATA_PROVIDER: 'real', DATABASE_URL: 'postgresql://u:p@127.0.0.1:1/x', JWT_SECRET: 'x'.repeat(40) };
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', "await import('./apps/api/dist/config.js')"], { env: { ...base, ...extra }, encoding: 'utf8', cwd: new URL('../../..', import.meta.url) });
-  const m = /PRODUCTION_CONFIGURATION_INVALID:([A-Z0-9_,]+)/.exec(`${r.stderr}${r.stdout}`);
+  const m = /Error: PRODUCTION_CONFIGURATION_INVALID:([^\r\n]+)/.exec(`${r.stderr}${r.stdout}`);
   return m ? m[1].split(',') : [];
 }
 
@@ -38,4 +38,12 @@ test('Credify: o corpo do Veículo Total é padrão (não exige CREDIFY_QUERY_BO
   assert.ok(!padrao.includes('CREDIFY_QUERY_BODY_TEMPLATE_INVALID') && !padrao.includes('CREDIFY_CREDENTIALS_REQUIRED'), padrao.join(','));
   const outro = issues({ VEHICLE_API_PROVIDER: 'credify', CREDIFY_CLIENT_ID: 'a', CREDIFY_CLIENT_SECRET: 'b', CREDIFY_QUERY_PATH: '/outra' });
   assert.ok(outro.includes('CREDIFY_QUERY_BODY_TEMPLATE_INVALID'), outro.join(','));
+});
+
+test('Credify sem credencial: o erro diz qual variável falta e lista só os nomes recebidos, nunca os valores', () => {
+  const list = issues({ VEHICLE_API_PROVIDER: 'credify', CREDIFY_CLIENT_ID: 'valor-secreto-123' });
+  assert.ok(list.includes('FALTA_CREDIFY_CLIENT_SECRET') && !list.includes('FALTA_CREDIFY_CLIENT_ID'), list.join(','));
+  const seen = list.find((i) => i.startsWith('VARIAVEIS_PARECIDAS_RECEBIDAS'));
+  assert.ok(seen, list.join(','));
+  assert.ok(!list.join(',').includes('valor-secreto-123'));
 });

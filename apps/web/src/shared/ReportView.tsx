@@ -11,7 +11,7 @@ const VERDICT: Record<Verdict, { tone: string; icon: IconName; label: string }> 
   HIGH_RISK: { tone: 'danger', icon: 'shield-alert', label: 'Risco alto' },
   INCONCLUSIVE: { tone: 'info', icon: 'info', label: 'Análise parcial' }
 };
-const SECTION_ICON: Record<string, IconName> = { IDENTIFICACAO: 'car', CARACTERISTICAS: 'wrench', REGISTRO: 'file-text', DEBITOS: 'dollar', RESTRICOES: 'shield-alert', GRAVAME: 'credit-card', INSPECAO_RECALL: 'check-circle', HISTORICO: 'clock', FIPE: 'dollar', PROPRIETARIO: 'lock', INTERNO: 'settings' };
+const SECTION_ICON: Record<string, IconName> = { IDENTIFICACAO: 'car', CARACTERISTICAS: 'wrench', REGISTRO: 'file-text', DEBITOS: 'dollar', RESTRICOES: 'shield-alert', GRAVAME: 'credit-card', INSPECAO_RECALL: 'check-circle', HISTORICO: 'clock', FIPE: 'dollar', ANALISES: 'wrench', PROPRIETARIO: 'lock', INTERNO: 'settings' };
 
 function StateMark({ state }: { state: ItemState }) {
   if (state === 'CLEAR') return <span className="rv-mark ok" title="Regular"><Icon name="check" size={14} strokeWidth={3} /></span>;

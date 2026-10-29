@@ -40,13 +40,13 @@ export default function Dashboard() {
       </div>
       <section>
         <div className="card-head"><h2 style={{ fontSize: 20 }}>Consultas recentes</h2><LinkButton to="/app/historico" variant="ghost" size="sm" iconRight="chevron-right">Ver tudo</LinkButton></div>
-        {loading && <div className="q-list"><Skeleton h={74} r={16} /><Skeleton h={74} r={16} /><Skeleton h={74} r={16} /></div>}
+        {loading && <div className="q-list"><Skeleton h={44} r={10} /><Skeleton h={44} r={10} /><Skeleton h={44} r={10} /></div>}
         {error != null && <ErrorState error={error} onRetry={reload} />}
         {data && !data.length && <div className="card"><EmptyState icon="car" title="Nenhuma consulta ainda" action={<LinkButton to="/app/consultar" variant="primary" icon="search">Fazer minha primeira consulta</LinkButton>}>Informe uma placa para ver o relatório completo do veículo.</EmptyState></div>}
-        {data && data.length > 0 && <div className="q-list">{data.slice(0, 5).map((q) => <QueryRow key={q.id} q={q} />)}</div>}
+        {data && data.length > 0 && <div className="q-list">{data.filter((q) => q.status !== 'REFUNDED' && q.status !== 'FAILED').slice(0, 5).map((q) => <QueryRow key={q.id} q={q} />)}</div>}
       </section>
       <section className="grid-2">
-        <div className="card card-pad"><div className="row"><Icon name="users" size={22} /><h3>Indique e ganhe</h3></div><p className="muted" style={{ margin: '10px 0 14px' }}>Vire parceiro, compartilhe seu link e receba comissão sobre as consultas dos seus indicados.</p><LinkButton to="/app/parceiro">Conhecer o programa</LinkButton></div>
+        <div className="card card-pad"><div className="row"><Icon name="users" size={22} /><h3>Indique e ganhe</h3></div><p className="muted" style={{ margin: '10px 0 14px' }}>Compartilhe seu link e receba comissão sobre as consultas dos seus indicados.</p><LinkButton to="/app/parceiro">Conhecer o programa</LinkButton></div>
         <div className="card card-pad"><div className="row"><Icon name="file-text" size={22} /><h3>Guias do blog</h3></div><p className="muted" style={{ margin: '10px 0 14px' }}>Aprenda a ler débitos, gravame e restrições antes de fechar negócio.</p><LinkButton to="/blog">Ler artigos</LinkButton></div>
       </section>
     </div>

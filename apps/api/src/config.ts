@@ -107,6 +107,13 @@ function validateProductionConfig(value: ParsedEnv): void {
 
   if (value.DATA_PROVIDER === 'real' && value.VEHICLE_API_PROVIDER === 'credify') {
     requireProduction(Boolean(value.CREDIFY_CLIENT_ID && value.CREDIFY_CLIENT_SECRET), 'CREDIFY_CREDENTIALS_REQUIRED', issues);
+    // Diz qual das duas falta (só o nome da variável, nunca o valor) e o que o servidor recebeu do ambiente com nome parecido.
+    if (!value.CREDIFY_CLIENT_ID) issues.push('FALTA_CREDIFY_CLIENT_ID');
+    if (!value.CREDIFY_CLIENT_SECRET) issues.push('FALTA_CREDIFY_CLIENT_SECRET');
+    if (!value.CREDIFY_CLIENT_ID || !value.CREDIFY_CLIENT_SECRET) {
+      const seen = Object.keys(process.env).filter((k) => /CREDIFY|CLIENT/i.test(k)).sort().map((k) => `${JSON.stringify(k)}=${process.env[k]?.trim() ? 'preenchida' : 'vazia'}`);
+      issues.push(`VARIAVEIS_PARECIDAS_RECEBIDAS[${seen.join(' ') || 'nenhuma'}]`);
+    }
     const credifyPath = (value.CREDIFY_QUERY_PATH ?? CREDIFY_DEFAULT_PATH).replace(/^\/?/, '/');
     requireProduction(credifyBodyTemplateValid(value.CREDIFY_QUERY_BODY_TEMPLATE ?? (CREDIFY_PLATE_PATHS.includes(credifyPath.toLowerCase()) ? CREDIFY_DEFAULT_BODY : undefined)), 'CREDIFY_QUERY_BODY_TEMPLATE_INVALID', issues);
     requireProduction(!value.CREDIFY_BASE_URL || isHttpsUrl(value.CREDIFY_BASE_URL), 'CREDIFY_BASE_URL_HTTPS_REQUIRED', issues);
@@ -242,6 +249,8 @@ const envSchema = z.object({
   FIPE_PRIMARY_TOKEN: optionalString,
   FIPE_SECONDARY_BASE_URL: optionalUrl.default('https://brasilapi.com.br/api'),
   FIPE_SECONDARY_TOKEN: optionalString,
+  /** Completa a Consulta Completa com o histórico mensal da FIPE (busca extra, falha sem derrubar a consulta). */
+  ENRICH_FIPE_HISTORY: booleanFromEnv.default(true),
   FIPE_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(10000),
   FIPE_GUEST_DAILY_LIMIT: z.coerce.number().int().positive().max(100).default(3),
   FIPE_AUTH_DAILY_LIMIT: z.coerce.number().int().positive().max(500).default(10),

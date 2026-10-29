@@ -35,6 +35,7 @@ const BlogPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.
 const BlogPostPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.BlogPostPage })));
 const StoreShell = lazy(() => import('./pages/Store').then((m) => ({ default: m.StoreShell })));
 const StoreHome = lazy(() => import('./pages/Store').then((m) => ({ default: m.StoreHome })));
+const StoreCampaigns = lazy(() => import('./pages/Store').then((m) => ({ default: m.StoreCampaigns })));
 const StoreTeam = lazy(() => import('./pages/Store').then((m) => ({ default: m.StoreTeam })));
 const StoreStock = lazy(() => import('./pages/StoreStock'));
 const StoreLeads = lazy(() => import('./pages/StoreLeads').then((m) => ({ default: m.StoreLeads })));
@@ -129,6 +130,7 @@ export default function App() {
               <Route path="leads" element={<StoreLeads />} />
               <Route path="propostas" element={<StoreProposals />} />
               <Route path="equipe" element={<StoreTeam />} />
+              <Route path="campanhas" element={<StoreCampaigns />} />
             </Route>
             <Route path="parceiro" element={<Partner />} />
             <Route path="api" element={<Navigate to="/app" replace />} />

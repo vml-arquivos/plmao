@@ -14,11 +14,13 @@ type LookupInput = {
   plate: string;
   searchType?: SearchType;
   productId?: string;
+  /** Completa a resposta do provedor (ex.: histórico da FIPE). Nunca deve lançar; se lançar, a consulta segue sem o complemento. */
+  enrich?: (raw: unknown) => Promise<unknown>;
   timeoutMs: number;
   normalize: (raw: unknown) => NormalizedVehicle;
 };
 
-export async function executeVehicleLookup({ provider, plate, searchType = 'PLATE', productId, timeoutMs, normalize }: LookupInput): Promise<{ providerQueryId?: string; raw: unknown; normalized: NormalizedVehicle }> {
+export async function executeVehicleLookup({ provider, plate, searchType = 'PLATE', productId, enrich, timeoutMs, normalize }: LookupInput): Promise<{ providerQueryId?: string; raw: unknown; normalized: NormalizedVehicle }> {
   let timeout: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
@@ -30,7 +32,12 @@ export async function executeVehicleLookup({ provider, plate, searchType = 'PLAT
   try {
     const call = searchType === 'PLATE' ? provider.queryByPlate(plate, { productId }) : provider.queryBy!(searchType, plate);
     const output = await Promise.race([call as Promise<LookupOutput>, timeoutPromise]);
-    return { providerQueryId: output.providerQueryId, raw: output.raw, normalized: normalize(output.raw) };
+    let raw = output.raw;
+    if (enrich && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const extra = await Promise.race([enrich(raw).catch(() => undefined), new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 8000).unref())]);
+      if (extra) raw = { ...(raw as Record<string, unknown>), enrichment: extra };
+    }
+    return { providerQueryId: output.providerQueryId, raw, normalized: normalize(raw) };
   } finally {
     if (timeout) clearTimeout(timeout);
   }

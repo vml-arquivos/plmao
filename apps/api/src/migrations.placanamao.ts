@@ -1678,5 +1678,56 @@ export const placaMigrations: Migration[] = [
     down: async (client) => {
       await client.query(`UPDATE query_products SET report_sections=ARRAY['IDENTIFICACAO','GRAVAME'], updated_at=now() WHERE id='LIEN' AND report_sections IS NOT NULL`);
     }
+  },
+  {
+    id: '047_complete_product_analyses',
+    name: 'Consulta Completa passa a exibir as análises do sistema (chassi, quilometragem de referência, histórico e projeção da FIPE)',
+    up: async (client) => {
+      await client.query(`UPDATE query_products SET report_sections = report_sections || ARRAY['ANALISES']
+        WHERE id='COMPLETE' AND report_sections IS NOT NULL AND NOT ('ANALISES' = ANY(report_sections))`);
+      await client.query(`UPDATE query_products SET features=$1::jsonb, updated_at=now() WHERE id='COMPLETE'`,
+        [JSON.stringify(['Tudo da Consulta Básica', 'Indício de sinistro, roubo/furto e leilão', 'Financiamento e gravame', 'Recall e inspeção veicular', 'Valor FIPE, histórico de preço e tendência', 'Decodificador de chassi e quilometragem de referência (estimativa)', 'Quantidade de proprietários anteriores', 'Relatório em PDF com código de validação'])]);
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET report_sections = array_remove(report_sections,'ANALISES') WHERE id='COMPLETE' AND report_sections IS NOT NULL`);
+    }
+  },
+  {
+    id: '048_package_descriptions_by_model',
+    name: 'Descrição e itens de cada pacote de consulta alinhados ao que o relatório entrega',
+    up: async (client) => {
+      const rows: Array<{ id: string; tagline: string; description: string; long: string; coverage: string; features: string[] }> = [
+        { id: 'COMPLETE', tagline: 'Histórico completo do veículo em um só relatório.',
+          description: 'Cadastro, débitos, restrições, gravame, sinistro, roubo/furto, leilão, recall, FIPE com histórico e análises do sistema.',
+          long: 'A checagem mais completa antes de comprar, vender ou financiar. Reúne tudo da Consulta Básica e acrescenta histórico de ocorrências (indício de sinistro, roubo/furto e leilão), gravame, recall, valor FIPE com evolução de preço e análises da Placa na Mão (decodificador de chassi e quilometragem de referência estimada).',
+          coverage: 'Cadastro, débitos, restrições, gravame, histórico, recall, FIPE e análises',
+          features: ['Dados do veículo, chassi, motor e características', 'Débitos: IPVA, licenciamento, multas e DPVAT', 'Restrições: furto/roubo, judicial, administrativa, tributária e RENAJUD', 'Indício de sinistro, roubo/furto e passagem por leilão', 'Financiamento: gravame e intenção de gravame', 'Recall e inspeção veicular', 'Valor FIPE, preço médio, variação em 12 e 24 meses e projeção', 'Decodificador de chassi e quilometragem de referência (estimativa)', 'Quantidade de proprietários anteriores', 'Relatório em PDF com código de validação'] },
+        { id: 'BASIC', tagline: 'Cadastro, débitos e restrições.',
+          description: 'Dados do veículo, débitos, multas e restrições para comprar com mais segurança.',
+          long: 'O essencial para fechar uma compra com tranquilidade: confere se o veículo é o do anúncio e se há débitos, multas ou restrições registradas.',
+          coverage: 'Cadastro, débitos e restrições',
+          features: ['Dados do veículo, chassi e características', 'Município, UF e situação do veículo', 'Débitos: IPVA, licenciamento, multas e DPVAT', 'Restrições: furto/roubo, judicial, administrativa e tributária', 'Relatório em PDF com código de validação'] },
+        { id: 'LIEN', tagline: 'Financiamento e restrição financeira.',
+          description: 'Veja se o veículo tem gravame ou restrição financeira antes da transferência.',
+          long: 'Verifica financiamento ativo: gravame, agente financeiro e intenção de gravame informados pela fonte. Ideal para quem já conferiu o resto e quer fechar essa dúvida.',
+          coverage: 'Dados do veículo, gravame e restrição financeira',
+          features: ['Dados do veículo', 'Gravame e restrição financeira', 'Agente financeiro, contrato e data de inclusão', 'Intenção de gravame', 'Relatório em PDF com código de validação'] },
+        { id: 'CADASTRAL', tagline: 'Confirme se o veículo é o do anúncio.',
+          description: 'Marca, modelo, ano, cor, combustível, município e situação do veículo pela placa.',
+          long: 'A forma mais rápida e barata de conferir se o veículo corresponde ao anúncio e ao documento: identificação, características e situação cadastral.',
+          coverage: 'Identificação, características e situação cadastral',
+          features: ['Marca, modelo, ano e cor', 'Combustível, categoria e espécie', 'Município, UF e situação', 'Relatório em PDF com código de validação'] },
+        { id: 'AUCTION', tagline: 'Passagem do veículo por leilão.',
+          description: 'Histórico de passagem por leilão. Disponível quando a fonte de dados for ativada.',
+          long: 'Saiba se o veículo já passou por leilão, informação importante para avaliação, seguro e revenda. Ainda não está disponível: só vendemos o que conseguimos entregar.',
+          coverage: 'Histórico de leilão (em breve)',
+          features: ['Passagem por leilão', 'Dados do veículo', 'Relatório em PDF com código de validação'] }
+      ];
+      for (const r of rows) {
+        await client.query(`UPDATE query_products SET tagline=$2, description=$3, long_description=$4, coverage=$5, features=$6::jsonb, updated_at=now() WHERE id=$1`,
+          [r.id, r.tagline, r.description, r.long, r.coverage, JSON.stringify(r.features)]);
+      }
+    },
+    down: async () => { /* textos comerciais: sem reversão */ }
   }
 ];

@@ -111,15 +111,16 @@ export function PublicLayout() {
 }
 
 /* ---------- Área logada ---------- */
-const ITEMS: Array<{ to: string; label: string; icon: IconName; end?: boolean }> = [
+type NavItem = { to: string; label: string; icon: IconName; end?: boolean; store?: boolean };
+/** Cliente particular vê o essencial. "Minha loja" só aparece para quem tem pacote lojista (loja ativada pelo suporte). */
+const ITEMS: NavItem[] = [
   { to: '/app', label: 'Painel', icon: 'home', end: true },
   { to: '/app/historico', label: 'Consultas', icon: 'clock' },
   { to: '/app/simulacoes', label: 'Simulações', icon: 'calculator' },
   { to: '/app/garagem', label: 'Minha garagem', icon: 'car' },
-  { to: '/app/loja', label: 'Minha loja', icon: 'building' },
-  { to: '/veiculos', label: 'Guia de veículos', icon: 'car' },
+  { to: '/app/loja', label: 'Minha loja', icon: 'building', store: true },
   { to: '/app/carteira', label: 'Carteira', icon: 'wallet' },
-  { to: '/app/parceiro', label: 'Parceiro', icon: 'users' },
+  { to: '/app/parceiro', label: 'Indique e ganhe', icon: 'users' },
   { to: '/app/suporte', label: 'Suporte', icon: 'mail' },
   { to: '/app/conta', label: 'Minha conta', icon: 'user' }
 ];
@@ -136,6 +137,7 @@ export function AppLayout() {
   const { me, logout } = useSession();
   const nav = useNavigate();
   if (!me) return null;
+  const items = ITEMS.filter((i) => !i.store || Boolean(me.storeAccess));
   const out = async () => { await logout(); nav('/', { replace: true }); };
   return (
     <div className="app-shell">
@@ -143,7 +145,7 @@ export function AppLayout() {
         <Link to="/app" className="logo"><Logo /></Link>
         <nav className="app-nav">
           <NavLink to="/app/consultar" className="cta"><Icon name="search" /> Nova consulta</NavLink>
-          {ITEMS.map((i) => <NavLink key={i.to} to={i.to} end={i.end} className={({ isActive }) => (isActive ? 'active' : '')}><Icon name={i.icon} /> {i.label}</NavLink>)}
+          {items.map((i) => <NavLink key={i.to} to={i.to} end={i.end} className={({ isActive }) => (isActive ? 'active' : '')}><Icon name={i.icon} /> {i.label}</NavLink>)}
         </nav>
         <div className="app-side-foot">
           <div className="user-chip"><span className="avatar">{initials(me.user.name)}</span><span style={{ minWidth: 0 }}><b>{me.user.name.split(' ')[0]}</b><small className="truncate">{me.user.email}</small></span></div>

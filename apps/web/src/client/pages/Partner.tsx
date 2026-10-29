@@ -21,7 +21,7 @@ function LinkQr({ url, name }: { url: string; name: string }) {
 }
 
 export default function Partner() {
-  usePageTitle('Parceiro');
+  usePageTitle('Indique e ganhe');
   const toast = useToast();
   const me = useAsync(() => api.get<{ affiliate: Affiliate | null }>('/affiliate/me'), []);
   const stats = useAsync(() => api.get<Stats>('/affiliate/stats'), []);
@@ -35,21 +35,21 @@ export default function Partner() {
 
   async function activate() {
     setBusy(true); setError('');
-    try { await api.post('/affiliate/activate', code.trim() ? { code: code.trim() } : {}); toast.ok('Programa de parceiros ativado!'); me.reload(); stats.reload(); }
+    try { await api.post('/affiliate/activate', code.trim() ? { code: code.trim() } : {}); toast.ok('Indique e ganhe ativado!'); me.reload(); stats.reload(); }
     catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   }
 
   if (!aff) {
     return (
       <div className="stack-lg">
-        <div className="page-head"><div><h1>Parceiros</h1></div></div>
+        <div className="page-head"><div><h1>Indique e ganhe</h1></div></div>
         <section className="card card-pad stack" style={{ maxWidth: 640 }}>
           <div className="grid-3" style={{ gridTemplateColumns: 'repeat(3, minmax(0,1fr))' }}>
             {[['link', 'Compartilhe seu link', 'Cada pessoa que se cadastrar pelo seu link fica vinculada a você.'], ['dollar', 'Ganhe comissão', 'Receba um percentual sobre cada pagamento confirmado dos indicados.'], ['wallet', 'Receba o repasse', 'As comissões são liberadas após o prazo de segurança e repassadas pela equipe.']].map(([i, t, s]) => <div key={t} className="stack-sm"><span className="wi" style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--primary-soft)', color: 'var(--primary-ink)', display: 'grid', placeItems: 'center' }}><Icon name={i as 'link'} /></span><b>{t}</b><span className="muted" style={{ fontSize: 14 }}>{s}</span></div>)}
           </div>
           <Field label="Código personalizado (opcional)" hint="Letras, números, hífen ou sublinhado. Se deixar em branco, geramos um para você."><Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))} maxLength={40} placeholder="MEUCODIGO" /></Field>
           {error && <Alert tone="danger">{error}</Alert>}
-          <div><Button variant="primary" size="lg" loading={busy} onClick={activate} icon="sparkles">Quero ser parceiro</Button></div>
+          <div><Button variant="primary" size="lg" loading={busy} onClick={activate} icon="sparkles">Quero indicar e ganhar</Button></div>
         </section>
       </div>
     );
@@ -58,8 +58,8 @@ export default function Partner() {
   const t = stats.data?.totals;
   return (
     <div className="stack-lg">
-      <div className="page-head"><div><h1>Parceiros</h1><p>Comissão de <b>{bpsToPercent(aff.commissionBps)}</b> por pagamento confirmado.</p></div></div>
-      {!aff.active && <Alert tone="warn" title="Seu cadastro de parceiro está inativo.">Fale com o suporte para reativar.</Alert>}
+      <div className="page-head"><div><h1>Indique e ganhe</h1><p>Comissão de <b>{bpsToPercent(aff.commissionBps)}</b> por pagamento confirmado.</p></div></div>
+      {!aff.active && <Alert tone="warn" title="Seu cadastro no Indique e ganhe está inativo.">Fale com o suporte para reativar.</Alert>}
       <div className="stat-grid">
         <Stat label="Visitas (30 dias)" value={stats.data?.performance?.clicks30d ?? 0} sub="pessoas que chegaram pelo seu link" />
         <Stat label="Indicados" value={t?.referredUsers ?? 0} sub="cadastros pelo seu link" />

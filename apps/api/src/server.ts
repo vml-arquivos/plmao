@@ -34,6 +34,7 @@ import { getPaymentProvider, getPaymentProviderFor, type PaymentProviderName } f
 import { ensureSchema } from './schema.js';
 import { performAdminLookup } from './adminLookup.js';
 import { executeVehicleLookup, providerSupports } from './vehicleLookup.js';
+import { enrichVehicle } from './enrichment/index.js';
 import { isPrelaunch, siteOpenFor } from './siteAccess.js';
 import { legalAcceptanceStatus, requireLegalAcceptanceForQuery } from './legalAcceptance.js';
 import { acceptContractAtCheckout, claimContractForOrder, previewPurchaseContract, sendPurchaseReceipt, confirmPurchaseContract, draftPurchaseContract, getUserContract, linkContractToOrder, listUserContracts, reopenContractForOrder, resendPurchaseOtp } from './purchaseContract.js';
@@ -55,6 +56,7 @@ import { fipeBrands, fipeModels, fipeYears, fipeSearch, getFipePrice } from './l
 import { adminSimulatorRouter } from './routes/adminSimulator.js';
 import { garageRouter } from './routes/garage.js';
 import { dealerRouter } from './routes/dealer.js';
+import { loadMembership } from './dealer/context.js';
 import { dealerLeadsRouter } from './routes/dealerLeads.js';
 import { dealerOpsRouter } from './routes/dealerOps.js';
 import { dealerPublicRouter } from './routes/dealerPublic.js';
@@ -752,7 +754,9 @@ api.get('/me', auth, asyncRoute(async (req, res) => {
   if (!account.rowCount) throw appError('ACCOUNT_NOT_FOUND', { code: 'ACCOUNT_NOT_FOUND', http: 404, expose: true });
   const row = account.rows[0];
   const user = publicUser({ id: String(row.id), email: String(row.email), name: String(row.name), role: String(row.role) });
-  res.json({ user, balanceCents: Number(wallet.rows[0]?.balance_cents ?? 0), permissions: permissionsFor(user.role), sandbox: env.DATA_PROVIDER === 'mock', identities: identities.rows.map((identity) => identity.provider), profile: { id: user.id, email: user.email, name: user.name, role: user.role, passwordEnabled: Boolean(row.password_enabled), cpfCnpj: row.cpf_cnpj ?? '', phone: row.phone ?? '', companyName: row.company_name ?? '', city: row.city ?? '', state: row.state ?? '', marketingOptIn: Boolean(row.marketing_opt_in) } });
+  const membership = await loadMembership(user.id).catch(() => null);
+  const storeAccess = membership ? { name: membership.store.name, role: membership.role, active: membership.store.active && !membership.store.archivedAt } : null;
+  res.json({ user, storeAccess, balanceCents: Number(wallet.rows[0]?.balance_cents ?? 0), permissions: permissionsFor(user.role), sandbox: env.DATA_PROVIDER === 'mock', identities: identities.rows.map((identity) => identity.provider), profile: { id: user.id, email: user.email, name: user.name, role: user.role, passwordEnabled: Boolean(row.password_enabled), cpfCnpj: row.cpf_cnpj ?? '', phone: row.phone ?? '', companyName: row.company_name ?? '', city: row.city ?? '', state: row.state ?? '', marketingOptIn: Boolean(row.marketing_opt_in) } });
 }));
 
 function fipeUnavailable(): AppError {
@@ -1335,6 +1339,9 @@ api.get('/fipe/offers', asyncRoute(async (_req, res) => {
 type RunQueryInput = { userId: string; plate: string; searchType: SearchType; productId: string; paymentOrderId?: string; idempotencyKey: string | null; reqId: string; source: 'WEB' | 'API' };
 
 /** Executa uma consulta de ponta a ponta (cobrança, provedor, armazenamento, estorno em falha). Usada pelo web e pela API pública. */
+/** Pacotes cujo relatório mostra histórico da FIPE (busca extra além da Credify). */
+const ENRICHED_PRODUCTS = new Set(['COMPLETE', 'PREMIUM']);
+
 async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; body: Record<string, unknown> }> {
   const { userId, idempotencyKey } = input;
   const provider = getProvider();
@@ -1395,7 +1402,7 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
       }
     });
 
-    const output = await executeVehicleLookup({ provider, plate: input.plate, searchType: input.searchType, productId: input.productId, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
+    const output = await executeVehicleLookup({ provider, plate: input.plate, searchType: input.searchType, productId: input.productId, enrich: ENRICHED_PRODUCTS.has(String(input.productId).toUpperCase()) && env.ENRICH_FIPE_HISTORY && input.searchType === 'PLATE' ? (raw) => enrichVehicle(raw) : undefined, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
     const normalized = output.normalized;
     const resultHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
     await tx(async (client) => {
@@ -2435,7 +2442,7 @@ api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), 
 }));
 
 const ADMIN_PRODUCT_COLS = 'p.archived_at,p.id,p.name,p.description,p.price_cents,p.reference_price_cents,p.active,p.slug,p.features,p.is_free,p.commercial_status,p.featured,p.display_order,p.source,p.coverage,p.tagline,p.long_description,p.badge,p.list_price_cents,p.show_on_home,p.report_sections,EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) AS has_source';
-const SELLABLE_REPORT_SECTIONS = new Set(['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO', 'DEBITOS', 'RESTRICOES', 'HISTORICO', 'GRAVAME', 'INSPECAO_RECALL', 'FIPE']);
+const SELLABLE_REPORT_SECTIONS = new Set(['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO', 'DEBITOS', 'RESTRICOES', 'HISTORICO', 'GRAVAME', 'INSPECAO_RECALL', 'FIPE', 'ANALISES']);
 /** O que o público realmente vê: "à venda" só vale com fonte de dados ativa e provedor/gateway configurados. */
 function productAvailability(row: Record<string, unknown>) {
   const blockers: string[] = [];

@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.13.0 — Menu por tipo de cliente, painel enxuto e PDF mais limpo
+
+- Menu da área do cliente: "Minha loja" só aparece para quem tem loja liberada (pacote lojista). O cliente particular vê Painel, Consultas, Simulações, Minha garagem, Carteira, Indique e ganhe, Suporte e Minha conta. `/me` passa a devolver `storeAccess`.
+- "Parceiro" virou "Indique e ganhe" (link para compartilhar e comissão).
+- Minha loja sem pacote mostra a explicação do pacote lojista e leva ao suporte; novo item "Campanhas" na loja (acesso criado, módulo em breve).
+- Painel e histórico mais enxutos: uma linha por consulta; estornadas e falhas saem da lista principal e ficam só nos filtros.
+- Letras mais leves (Inter 300/400, títulos em peso normal).
+- Migração 048: nome, descrição e itens de cada pacote (Completa, Básica, Gravame, Cadastral, Leilão) alinhados ao que o relatório entrega.
+- PDF: seções sem dados saem do relatório (uma linha no fim avisa), histórico da FIPE vira gráfico e tabela, data de emplacamento em dd/mm/aaaa, medidas zeradas (eixos, carga, CMT, PBT) não aparecem mais.
+- Novo `docs/CONSULTAS-CONTEUDO.md`: o que traz cada consulta.
+
+## 1.12.17 — Teste de login da Credify mostra o que o servidor está usando
+
+- Quando a Credify recusa o login (401), o teste em Admin > Integrações passa a mostrar o ClientID que o servidor está usando e só o tamanho do ClientSecret (e se é só número). A chave nunca aparece. Serve para achar erro de digitação ou ID trocado (ID da conta em vez do ID de logon).
+- Lista de variáveis: `CREDIFY_QUERY_PATH`, `CREDIFY_QUERY_BODY_TEMPLATE` e `CREDIFY_QUERY_ID` não aparecem mais como "preenchida" quando estão vazias.
+
+## 1.12.16 — Erro de credencial da Credify diz exatamente o que falta
+
+- Quando o servidor não inicia por falta de `CREDIFY_CLIENT_ID` ou `CREDIFY_CLIENT_SECRET`, o log agora diz qual das duas falta (`FALTA_CREDIFY_CLIENT_ID` / `FALTA_CREDIFY_CLIENT_SECRET`) e lista os nomes das variáveis parecidas que chegaram ao servidor, com "preenchida" ou "vazia". Os valores nunca aparecem.
+- Teste novo em `config-vehicle-provider`.
+
+## 1.12.15 — FIPE histórica, decodificador de chassi e estimativas na Consulta Completa
+
+- Novo bloco "Análises da Placa na Mão" na Consulta Completa: fabricante e país pelo chassi, ano do modelo pelo chassi (comparado ao registro), quilometragem de referência pela idade (faixa de 8 a 16 mil km por ano) e projeção simples do preço em 6 meses. Tudo rotulado como estimativa/cálculo, nunca como dado de órgão oficial. A quilometragem real não vem de nenhuma fonte ainda.
+- FIPE: histórico mensal (até 24 meses), variação em 12 e 24 meses e série mensal, buscados na API da FIPE (`/{tipo}/{códigoFipe}/years/{ano}/history`) com o código FIPE que o Veículo Total devolve. Cache de 24 h por código/ano. Se a FIPE não responder, o relatório sai sem esses itens e a consulta segue (limite de 8 s).
+- Novo `ENRICH_FIPE_HISTORY` (padrão ligado). `false` desliga a busca extra na FIPE.
+- Migração 047: Consulta Completa passa a exibir a seção de análises e o texto do pacote cita histórico da FIPE e chassi. Limite de reversão de migrações subiu de 20 para 50.
+- Testes: `enrichment.test.mjs` (7), `migration-rollback` (027–047).
+
 ## 1.12.14 — Cada pacote usa a consulta certa da Credify e o relatório traz mais detalhes
 
 - Roteamento por pacote: Consulta Completa (e Leilão, quando ativar) consulta o Veículo Total (`/veiculototal`, código 467: sinistro, roubo/furto, leilão, recall, proprietários, FIPE, cadastro, débitos, restrições e gravame numa só chamada). Básica, Gravame e Cadastral consultam Débitos, Restrições e Proprietários (`/debitosrestricoesproprietarios`, código 487). O código (IdConsulta) e o corpo de cada consulta saem sozinhos.

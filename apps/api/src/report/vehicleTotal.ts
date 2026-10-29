@@ -107,6 +107,15 @@ export function adaptVehicleTotal(raw: unknown): { flat: Rec } {
 }
 
 const NOT_PROVIDED: VtValue = { state: 'NOT_PROVIDED', value: null };
+const MONTHS: Record<string, number> = { JAN: 1, FEV: 2, FEB: 2, MAR: 3, ABR: 4, APR: 4, MAI: 5, MAY: 5, JUN: 6, JUL: 7, AGO: 8, AUG: 8, SET: 9, SEP: 9, OUT: 10, OCT: 10, NOV: 11, DEZ: 12, DEC: 12 };
+/** "15-MAR-15", "2015-03-15" ou "15/03/2015" → "15/03/2015". Formato desconhecido volta como veio. */
+export function brDate(v: unknown): string {
+  const s = String(v ?? '').trim();
+  let m = /^(\d{1,2})[-\/ ]([A-Za-z]{3})[A-Za-z]*[-\/ ](\d{2,4})$/.exec(s);
+  if (m && MONTHS[m[2].toUpperCase()]) { const y = m[3].length === 2 ? (Number(m[3]) >= 50 ? 1900 : 2000) + Number(m[3]) : Number(m[3]); return `${m[1].padStart(2, '0')}/${String(MONTHS[m[2].toUpperCase()]).padStart(2, '0')}/${y}`; }
+  m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+}
 const textItem = (v: unknown, masked = false): VtValue => { const s = str(v); return s ? { state: 'INFO', value: s, display: s, ...(masked ? { masked } : {}) } : NOT_PROVIDED; };
 const money = (v: unknown): number => {
   const s = str(v); if (!s) return 0;
@@ -157,7 +166,7 @@ export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
   const r = findResposta(raw) ?? {};
   const nat = records(block(r, 'VEICULARBNACIONAL'))[0];
   out.set('VT_PLACA_MERCOSUL', textItem(nat?.PLACA_MODELO_NOVO));
-  out.set('VT_EMPLACAMENTO', textItem(nat?.DATA_EMPLACAMENTO));
+  out.set('VT_EMPLACAMENTO', textItem(brDate(nat?.DATA_EMPLACAMENTO)));
 
   const sin = block(r, 'INDICIOSINISTROVEICULAR');
   const ind = str(sin?.INDICIODESINISTRO);

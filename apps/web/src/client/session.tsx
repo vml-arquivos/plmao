@@ -2,7 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api } from './api';
 
 export interface Profile { id: string; email: string; name: string; role: string; passwordEnabled: boolean; cpfCnpj: string; phone: string; companyName: string; city: string; state: string; marketingOptIn: boolean }
-export interface Me { user: { id: string; email: string; name: string; role: string }; balanceCents: number; permissions: string[]; sandbox: boolean; identities: string[]; profile: Profile }
+export interface StoreAccess { name: string; role: 'OWNER' | 'MANAGER' | 'SELLER'; active: boolean }
+export interface Me { storeAccess?: StoreAccess | null; user: { id: string; email: string; name: string; role: string }; balanceCents: number; permissions: string[]; sandbox: boolean; identities: string[]; profile: Profile }
 
 interface SessionState { status: 'loading' | 'anon' | 'authed'; me: Me | null; login: (token: string) => Promise<void>; logout: () => Promise<void>; refresh: () => Promise<void>; setBalance: (cents: number) => void }
 const Ctx = createContext<SessionState | null>(null);

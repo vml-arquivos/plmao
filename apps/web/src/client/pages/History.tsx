@@ -70,7 +70,7 @@ export default function History() {
       {loading && !rows.length && <div className="q-list"><Skeleton h={64} r={12} /><Skeleton h={64} r={12} /><Skeleton h={64} r={12} /></div>}
       {error != null && <ErrorState error={error} onRetry={() => void load(0)} />}
       {!loading && error == null && !rows.length && <div className="card"><EmptyState icon="clock" title={status === 'ARCHIVED' ? 'Nenhuma consulta arquivada' : filtered ? 'Nada encontrado' : 'Nenhuma consulta'} action={!filtered ? <LinkButton to="/app/consultar" variant="primary" icon="search">Nova consulta</LinkButton> : undefined}>{filtered ? 'Mude os filtros.' : 'Suas consultas ficam aqui.'}</EmptyState></div>}
-      {rows.length > 0 && <div className="q-list">{rows.map((q) => <div key={q.id} className="q-wrap"><QueryRow q={q} />{q.status !== 'PROCESSING' && <Button size="sm" variant="ghost" loading={archiving === q.id} onClick={() => void archive(q.id, status === 'ARCHIVED')}>{status === 'ARCHIVED' ? 'Restaurar' : 'Arquivar'}</Button>}</div>)}</div>}
+      {rows.length > 0 && <div className="q-list">{rows.filter((r) => status !== '' || (r.status !== 'REFUNDED' && r.status !== 'FAILED')).map((q) => <div key={q.id} className="q-wrap"><QueryRow q={q} />{q.status !== 'PROCESSING' && <Button size="sm" variant="ghost" loading={archiving === q.id} onClick={() => void archive(q.id, status === 'ARCHIVED')}>{status === 'ARCHIVED' ? 'Restaurar' : 'Arquivar'}</Button>}</div>)}</div>}
       {more && <div style={{ textAlign: 'center' }}><Button loading={loading} onClick={() => void load(rows.length)}>Ver mais</Button></div>}
     </div>
   );

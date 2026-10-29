@@ -21,7 +21,7 @@
 
 /* ---------- Campos ---------- */
 .field { display: grid; gap: 6px; font-size: 14px; }
-.field > span.lbl { font-weight: 500; color: var(--text-2); font-family: var(--font-display); font-size: 13.5px; }
+.field > span.lbl { font-weight: 400; color: var(--text-2); font-family: var(--font-display); font-size: 13.5px; }
 .field .hint { color: var(--muted); font-size: 13px; }
 .field .err { color: var(--danger); font-size: 13px; }
 .input, .select, .textarea { width: 100%; min-height: 46px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-size: 16px; transition: border-color .15s, box-shadow .15s; }
@@ -67,7 +67,7 @@
 .alert.warn { background: var(--warn-soft); border-color: transparent; color: var(--warn-ink); }
 .alert.danger { background: var(--danger-soft); border-color: transparent; color: var(--danger-ink); }
 .alert.info { background: var(--info-soft); border-color: transparent; color: var(--info-ink); }
-.alert b { font-weight: 500; }
+.alert b { font-weight: 400; }
 .muted { color: var(--muted); }
 .stack { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 .stack-sm { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
@@ -138,8 +138,8 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; min-width
 
 /* ---------- Estatísticas ---------- */
 .stat { padding: 18px 20px; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border); display: grid; gap: 4px; }
-.stat .k { font-size: 13px; color: var(--muted); font-weight: 500; }
-.stat .v { font-family: var(--font-display); font-weight: 500; font-size: 26px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stat .k { font-size: 13px; color: var(--muted); font-weight: 400; }
+.stat .v { font-family: var(--font-display); font-weight: 400; font-size: 26px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .stat .s { font-size: 13px; color: var(--muted); }
 .stat.hl { background: linear-gradient(135deg, #2F6FE4, #1646B0); color: #fff; border-color: transparent; }
 .stat.hl .k, .stat.hl .s { color: rgba(255, 255, 255, .78); }
@@ -164,7 +164,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; min-width
 @media (max-width: 900px) { .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); } }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; font-weight: 500; color: var(--text-2); }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; font-weight: 400; color: var(--text-2); }
 .chip button { border: 0; background: none; padding: 0; display: grid; color: var(--muted); }
 .code-box { font-family: var(--font-mono); font-size: 13px; background: var(--night); color: #E5E7EB; border-radius: 12px; padding: 14px 16px; overflow-x: auto; line-height: 1.6; }
 .copy-field { display: flex; gap: 8px; }
@@ -189,7 +189,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; min-width
 .chat-msg.internal{background:#fff6d6;border:1px dashed #c9a400;color:#3b3200}
 .chat-msg p{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
 .chat-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted,#5b6661)}
-.chat-tag{font-size:11px;font-weight: 500;padding:1px 6px;border-radius:99px;background:#c9a400;color:#fff}
+.chat-tag{font-size:11px;font-weight: 400;padding:1px 6px;border-radius:99px;background:#c9a400;color:#fff}
 .chat-file{display:block;margin-top:6px;font:inherit;font-size:13px;background:none;border:0;padding:0;color:var(--link,#166534);text-decoration:underline;cursor:pointer;text-align:left}
 .chat-err{color:var(--danger,#b42318);font-size:13px;margin:4px 0}
 .chat-composer{display:grid;gap:8px;margin-top:12px}
@@ -237,7 +237,7 @@ h2 { font-size: 18px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip-btn { border: 1px solid var(--border); background: var(--surface); color: var(--text-2); border-radius: 999px; min-height: 34px; padding: 0 14px; font-size: 13px; font-weight: 400; }
 .chip-btn:hover { border-color: var(--border-strong); }
-.chip-btn[aria-pressed='true'] { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-ink); font-weight: 500; }
+.chip-btn[aria-pressed='true'] { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-ink); font-weight: 400; }
 @media (max-width: 760px) { .filters { grid-template-columns: 1fr; } }
 .btn-primary { --b-bg: var(--primary); background: var(--primary); box-shadow: none; }
 .btn-primary:hover { background: var(--primary-hover); box-shadow: none; filter: none; }

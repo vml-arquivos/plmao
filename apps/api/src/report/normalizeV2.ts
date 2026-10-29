@@ -7,7 +7,8 @@
  *  - multas por órgão são COMPONENTES do total de multas (nunca somadas em dobro);
  *  - o veredito só é "sem alertas" se as restrições foram de fato retornadas.
  */
-import { CATALOG_BY_KEY, FIELD_CATALOG, SECTIONS, VT_CATALOG, type FieldDef, type SectionKey, type Tier } from './catalog.js';
+import { CATALOG_BY_KEY, ENRICH_CATALOG, FIELD_CATALOG, SECTIONS, VT_CATALOG, type FieldDef, type SectionKey, type Tier } from './catalog.js';
+import { enrichmentExtras } from './enrichmentExtras.js';
 import { adaptVehicleTotal, isVehicleTotal, vehicleTotalExtras, vehicleTotalOutcome } from './vehicleTotal.js';
 import { maskDocument, maskName, maskVehicleId } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
@@ -203,7 +204,7 @@ export function buildReportV2(raw: unknown): ReportV2 {
   const items = new Map<string, ReportItem>();
   for (const def of FIELD_CATALOG) items.set(def.key, buildItem(def, upper[def.key]));
   // Veículo Total: campos extras (sinistro, roubo/furto, leilão, recall, proprietários, FIPE).
-  let defs: FieldDef[] = vt ? [...FIELD_CATALOG, ...VT_CATALOG] : FIELD_CATALOG;
+  let defs: FieldDef[] = vt ? [...FIELD_CATALOG, ...VT_CATALOG, ...ENRICH_CATALOG] : [...FIELD_CATALOG, ...ENRICH_CATALOG];
   if (vt) {
     const extras = vehicleTotalExtras(raw);
     for (const def of VT_CATALOG) {
@@ -211,8 +212,16 @@ export function buildReportV2(raw: unknown): ReportV2 {
       items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, ...(x.masked ? { masked: true } : {}), sensitivity: def.sensitivity, tier: def.tier, high: def.high && x.state === 'ALERT' ? true : undefined });
     }
   }
-  // Detalhes opcionais (leilão, roubo/furto, recall) só existem quando a fonte trouxe o registro.
-  if (vt) { const gone = defs.filter((d) => d.optional && items.get(d.key)?.state === 'NOT_PROVIDED'); for (const d of gone) items.delete(d.key); defs = defs.filter((d) => !gone.includes(d)); }
+  // Análises do sistema (chassi, quilometragem de referência, histórico e projeção da FIPE).
+  const enr = enrichmentExtras(upper, raw);
+  for (const def of ENRICH_CATALOG) {
+    const x = enr.get(def.key) ?? { state: 'NOT_PROVIDED' as const, value: null };
+    items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, sensitivity: def.sensitivity, tier: def.tier });
+  }
+  // Medidas zeradas (eixos, carga, CMT, PBT em carro de passeio) não informam nada: tratadas como ausentes.
+  for (const k of ['EIXOS', 'CAPACIDADECARGA', 'CMT', 'PBT']) { const it = items.get(k); if (it && it.state !== 'NOT_PROVIDED' && /^0+([.,]0+)?$/.test(String(it.value ?? '').trim())) items.set(k, { ...it, state: 'NOT_PROVIDED', value: null, display: null }); }
+  // Detalhes opcionais (leilão, roubo/furto, recall, análises) só existem quando há dado ou como calcular.
+  { const gone = defs.filter((d) => d.optional && items.get(d.key)?.state === 'NOT_PROVIDED'); for (const d of gone) items.delete(d.key); defs = defs.filter((d) => !gone.includes(d)); }
   const unknownFieldCount = Object.keys(upper).filter((k) => !CATALOG_BY_KEY.has(k)).length;
 
   // Débitos: multas pelo total (fallback soma dos componentes); nunca soma componente + total.

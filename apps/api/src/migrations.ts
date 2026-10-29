@@ -767,7 +767,7 @@ export async function runMigrations(): Promise<void> {
  * Recusa (sem alterar nada) se alguma delas não tiver `down`. Tudo roda em uma única transação.
  */
 export async function rollbackMigrations(steps = 1): Promise<string[]> {
-  if (!Number.isInteger(steps) || steps < 1 || steps > 20) throw new Error('ROLLBACK_STEPS_INVALID');
+  if (!Number.isInteger(steps) || steps < 1 || steps > 50) throw new Error('ROLLBACK_STEPS_INVALID');
   const reverted: string[] = [];
   await tx(async (client) => {
     await client.query('SELECT pg_advisory_xact_lock(8432026)');

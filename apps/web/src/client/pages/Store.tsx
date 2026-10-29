@@ -18,27 +18,22 @@ export const toCents = (v: string): number | null => { const s = v.replace(/[^\d
 export const centsField = (c: number | null | undefined) => (c == null ? '' : (c / 100).toFixed(2).replace('.', ','));
 
 function Activate({ onDone }: { onDone: () => void }) {
-  const toast = useToast();
-  const [name, setName] = useState(''); const [whatsapp, setWhatsapp] = useState(''); const [city, setCity] = useState(''); const [state, setState] = useState('');
-  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
-  async function submit(e: FormEvent) {
-    e.preventDefault(); setBusy(true); setError('');
-    try { await api.post('/dealer', { name, whatsapp: whatsapp || null, city: city || null, state: state || null }); toast.ok('Loja ativada.'); onDone(); }
-    catch (err) { setError(errorMessage(err)); } finally { setBusy(false); }
-  }
+  void onDone;
   return (
-    <div className="stack-lg" style={{ maxWidth: 560 }}>
-      <div className="page-head"><div><h1>Minha loja</h1><p>Estoque, clientes, propostas e vitrine para quem vende veículos.</p></div></div>
-      <form className="card card-pad stack" onSubmit={(e) => void submit(e)}>
-        <Field label="Nome da loja"><Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required /></Field>
-        <Field label="WhatsApp"><Input inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(11) 99999-9999" /></Field>
-        <div className="grid-2">
-          <Field label="Cidade"><Input value={city} onChange={(e) => setCity(e.target.value)} maxLength={80} /></Field>
-          <Field label="UF"><Input value={state} onChange={(e) => setState(e.target.value.toUpperCase().slice(0, 2))} maxLength={2} /></Field>
-        </div>
-        {error && <Alert tone="warn" icon="alert-triangle">{error}</Alert>}
-        <Button variant="primary" type="submit" loading={busy} disabled={name.trim().length < 2}>Ativar minha loja</Button>
-      </form>
+    <div className="stack-lg" style={{ maxWidth: 620 }}>
+      <div className="page-head"><div><h1>Pacote para lojistas</h1><p>Estoque, clientes, propostas, vitrine e equipe para quem vende veículos.</p></div></div>
+      <section className="card card-pad stack">
+        <ul className="stack" style={{ margin: 0, paddingLeft: 18 }}>
+          <li>Estoque com fotos, custos e tempo de loja</li>
+          <li>Leads e funil de atendimento, com acompanhamento de cada cliente</li>
+          <li>Propostas e avaliação de troca</li>
+          <li>Vitrine pública com o link da sua loja</li>
+          <li>Equipe com perfis de dono, gerente e vendedor</li>
+          <li>Campanhas e relacionamento com clientes (em breve)</li>
+        </ul>
+        <p className="muted">O acesso da loja é liberado pelo nosso time quando o pacote é contratado.</p>
+        <div><Link className="btn primary" to="/app/suporte">Falar com o suporte</Link></div>
+      </section>
     </div>
   );
 }
@@ -74,7 +69,8 @@ const TABS = [
   { to: '/app/loja/estoque', label: 'Estoque' },
   { to: '/app/loja/leads', label: 'Leads' },
   { to: '/app/loja/propostas', label: 'Propostas' },
-  { to: '/app/loja/equipe', label: 'Equipe' }
+  { to: '/app/loja/equipe', label: 'Equipe' },
+  { to: '/app/loja/campanhas', label: 'Campanhas' }
 ];
 
 export function StoreShell() {
@@ -279,6 +275,28 @@ export function StoreTeam() {
       {archive && <ConfirmDialog title="Arquivar loja" message="A vitrine sai do ar e a equipe perde o acesso até você restaurar." confirmLabel="Arquivar" danger onConfirm={async () => { try { await api.post('/dealer/archive'); reload(); } catch (e) { toast.error(errorMessage(e)); } }} onClose={() => setArchive(false)} />}
       {adding && <AddMember owner={role === 'OWNER'} onClose={() => setAdding(false)} onDone={() => { setAdding(false); list.reload(); }} />}
       {remove && <ConfirmDialog title="Remover da equipe" message={<>{remove.name} perde o acesso à loja agora. Os leads dela ficam sem responsável.</>} confirmLabel="Remover" danger onConfirm={async () => { await act(remove, { active: false }); setRemove(null); }} onClose={() => setRemove(null)} />}
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------- campanhas
+
+export function StoreCampaigns() {
+  const { canManage } = useStore();
+  return (
+    <div className="stack" style={{ maxWidth: 640 }}>
+      <section className="card card-pad stack">
+        <h2>Campanhas e relacionamento</h2>
+        <p className="muted">Envio de campanhas para sua base de clientes, lembretes de retorno e acompanhamento de cada cliente num só lugar. Estamos finalizando este módulo.</p>
+        <ul className="stack" style={{ margin: 0, paddingLeft: 18 }}>
+          <li>Lista de clientes com histórico de contatos</li>
+          <li>Mensagens por WhatsApp e e-mail para grupos de clientes</li>
+          <li>Aviso de veículos parados e ofertas para quem pediu um modelo</li>
+        </ul>
+        {!canManage && <p className="muted">Disponível para dono e gerente.</p>}
+        <div><Link className="btn" to="/app/loja/leads">Ver leads agora</Link></div>
+      </section>
     </div>
   );
 }

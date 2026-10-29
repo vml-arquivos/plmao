@@ -210,6 +210,33 @@ function itemsGrid(d: Doc, items: ReportItem[]) {
   d.y -= 6;
 }
 
+/** Histórico mensal da FIPE: mini gráfico de linha + tabela compacta (4 colunas). */
+function priceSeries(d: Doc, item: ReportItem) {
+  const pts = String(item.display ?? item.value ?? '').split(' · ').map((p) => { const m = /^(\S+) R\$\s*([\d.]+),(\d{2})$/.exec(p.trim()); return m ? { label: m[1], cents: Number(m[2].replace(/\./g, '')) * 100 + Number(m[3]) } : null; }).filter((p): p is { label: string; cents: number } => p !== null);
+  if (pts.length < 2) return;
+  const asc = [...pts].reverse(); // do mais antigo ao mais recente
+  const chartH = 54; const rows = Math.ceil(pts.length / 4); const tableH = rows * 13;
+  d.ensure(chartH + tableH + 34);
+  d.text('HISTÓRICO MENSAL DA FIPE (ÚLTIMOS ' + pts.length + ' MESES)', M, d.y - 8, 6.5, d.dm700, C.muted);
+  const top = d.y - 18; const x0 = M + 4; const w = CW - 8;
+  const min = Math.min(...asc.map((p) => p.cents)); const max = Math.max(...asc.map((p) => p.cents)); const span = Math.max(1, max - min);
+  rect(d.page, { x: M, y: top - chartH, width: CW, height: chartH, color: C.soft, borderRadius: 6 });
+  const xy = (p: { cents: number }, i: number) => ({ x: x0 + 6 + (i / (asc.length - 1)) * (w - 12), y: top - chartH + 8 + ((p.cents - min) / span) * (chartH - 16) });
+  for (let i = 1; i < asc.length; i++) { const a = xy(asc[i - 1], i - 1); const b = xy(asc[i], i); d.page.drawLine({ start: a, end: b, thickness: 1.4, color: C.violet }); }
+  const last = xy(asc[asc.length - 1], asc.length - 1); d.page.drawCircle({ x: last.x, y: last.y, size: 2.6, color: C.violet });
+  d.y = top - chartH - 8;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < 4; c++) {
+      const p = pts[r * 4 + c]; if (!p) continue;
+      const x = M + c * (CW / 4);
+      d.text(p.label, x + 3, d.y - 8, 7.5, d.dm400, C.muted);
+      d.text(brlFromCents(p.cents), x + 46, d.y - 8, 8, d.jx600, C.ink);
+    }
+    d.y -= 13;
+  }
+  d.y -= 8;
+}
+
 function debtsBlock(d: Doc, report: ReportV2) {
   if (report.debtsHidden) return;
   const hasItems = report.debts.items.length > 0;
@@ -258,19 +285,24 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
   stats(d, report);
   debtsBlock(d, report);
 
+  const empty: string[] = [];
+  let omitted = false;
   for (const s of report.sections) {
     const shown = s.items.filter((i) => i.state !== 'NOT_PROVIDED' && !(s.key === 'DEBITOS' && i.kind === 'money' && i.state === 'CLEAR'));
-    const missing = s.items.filter((i) => i.state === 'NOT_PROVIDED');
-    if (!shown.length && !missing.length) continue;
-    sectionTitle(d, s.label, s.status, shown.length ? `${shown.length} informações` : 'sem dados fornecidos');
-    if (shown.length) itemsGrid(d, shown);
-    if (missing.length && shown.length) {
-      const note = `Não fornecido pelo provedor nesta consulta: ${missing.map((m) => m.label).join(', ')}.`;
-      for (const l of d.wrap(note, d.dm400, 7.5, CW - 6)) { d.ensure(11); d.text(l, M + 3, d.y - 8, 7.5, d.dm400, C.muted); d.y -= 10; }
-      d.y -= 6;
-    } else if (!shown.length) {
-      d.ensure(16); d.text('O provedor não retornou informações desta categoria para esta consulta.', M + 3, d.y - 8, 8.5, d.dm400, C.muted); d.y -= 20;
-    }
+    if (s.items.some((i) => i.state === 'NOT_PROVIDED')) omitted = true;
+    if (!shown.length) { if (s.items.length) empty.push(s.label); continue; }
+    const series = shown.find((i) => i.key === 'EN_FIPE_SERIE');
+    const grid = shown.filter((i) => i !== series);
+    sectionTitle(d, s.label, s.status, `${shown.length} informações`);
+    if (grid.length) itemsGrid(d, grid);
+    if (series) priceSeries(d, series);
+  }
+  if (empty.length || omitted) {
+    const parts = [empty.length ? `Sem dados retornados pela fonte nesta consulta: ${empty.join(', ')}.` : '', omitted ? 'Itens que a fonte não retornou foram omitidos.' : ''].filter(Boolean).join(' ');
+    const lines = d.wrap(parts, d.dm400, 7.5, CW - 6);
+    d.ensure(lines.length * 10 + 10);
+    for (const l of lines) { d.text(l, M + 3, d.y - 8, 7.5, d.dm400, C.muted); d.y -= 10; }
+    d.y -= 6;
   }
 
   if (report.scope?.notIncluded.length) {
