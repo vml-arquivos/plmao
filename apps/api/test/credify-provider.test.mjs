@@ -198,16 +198,35 @@ test('credenciais com espaço, quebra de linha ou aspas coladas são limpas ante
   resetCredifyTokenCache();
 });
 
-test('erro 400 da consulta mostra o corpo da Credify e o pedido enviado; IdConsulta é curto, numérico e não repete', async () => {
+test('erro 400 da consulta mostra o corpo da Credify e o pedido enviado', async () => {
   resetCredifyTokenCache();
   const now = Date.parse('2026-10-21T12:00:00Z');
   const tok = jwt(Math.floor(now / 1000) + 24 * 3600);
-  const f = fakeFetch([{ body: { Success: true, Dados: tok } }, { status: 400, body: { erro: 'IdConsulta invalido' } }, { status: 400, body: {} }]);
+  const f = fakeFetch([{ body: { Success: true, Dados: tok } }, { status: 400, body: { queryId: 'x', errorMessage: 'O IdConsulta não é válido para este EndPoint' } }]);
   const p = new CredifyVehicleProvider({ ...base, path: '/veiculototal', bodyTemplate: undefined, fetchImpl: f, now: () => now });
-  await assert.rejects(p.queryByPlate('AAA0000'), (e) => e.code === 'DATA_PROVIDER_UNAVAILABLE' && /HTTP 400/.test(e.detail) && /IdConsulta invalido/.test(e.detail) && /pedido enviado a \/veiculototal/.test(e.detail) && /"Placa":"AAA0000"/.test(e.detail));
-  await assert.rejects(p.queryByPlate('BBB1111'), (e) => /HTTP 400/.test(e.detail));
-  const ids = f.calls.filter((c) => c.url.endsWith('/veiculototal')).map((c) => JSON.parse(c.init.body).Consulta.IdConsulta);
-  assert.equal(ids.length, 2); assert.notEqual(ids[0], ids[1]);
-  for (const id of ids) assert.match(id, /^\d{7,10}$/);
+  await assert.rejects(p.queryByPlate('AAA0000'), (e) => e.code === 'DATA_PROVIDER_UNAVAILABLE' && /HTTP 400/.test(e.detail) && /não é válido para este EndPoint/.test(e.detail) && /pedido enviado a \/veiculototal/.test(e.detail) && /"Placa":"AAA0000"/.test(e.detail));
   resetCredifyTokenCache();
+});
+
+test('IdConsulta é o código fixo de cada consulta da Credify; CREDIFY_QUERY_ID/consultaId troca o código; sem código conhecido não chama', async () => {
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const tok = jwt(Math.floor(now / 1000) + 24 * 3600);
+  const tpl = '{"Consulta":{"IdConsulta":"{{queryId}}","Placa":"{{plate}}"}}';
+  const run = async (opts) => {
+    resetCredifyTokenCache();
+    const f = fakeFetch([{ body: { Success: true, Dados: tok } }, { body: sample }, { body: sample }]);
+    const p = new CredifyVehicleProvider({ ...base, bodyTemplate: tpl, fetchImpl: f, now: () => now, ...opts });
+    await p.queryByPlate('AAA0000'); await p.queryByPlate('BBB1111');
+    return f.calls.filter((c) => !c.url.endsWith('/auth')).map((c) => JSON.parse(c.init.body).Consulta.IdConsulta);
+  };
+  assert.deepEqual(await run({ path: '/debitosrestricoesproprietarios' }), ['487', '487']); // não muda a cada consulta
+  assert.deepEqual(await run({ path: '/veiculototal' }), ['467', '467']);
+  assert.deepEqual(await run({ path: '/veicularbnacionalonline' }), ['369', '369']);
+  assert.deepEqual(await run({ path: '/leilaoconjugado' }), ['448', '448']);
+  assert.deepEqual(await run({ path: '/gravame' }), ['533', '533']);
+  assert.deepEqual(await run({ path: '/debitosrestricoesproprietarios', consultaId: '999' }), ['999', '999']);
+  resetCredifyTokenCache();
+  const f = fakeFetch([]);
+  await assert.rejects(new CredifyVehicleProvider({ ...base, path: '/outraconsulta', bodyTemplate: tpl, fetchImpl: f }).queryByPlate('AAA0000'), (e) => e.code === 'DATA_PROVIDER_NOT_CONFIGURED' && /CREDIFY_QUERY_ID/.test(e.detail));
+  assert.equal(f.calls.length, 0);
 });

@@ -1,4 +1,4 @@
-import { env, CREDIFY_DEFAULT_BODY, CREDIFY_DEFAULT_PATH } from '../config.js';
+import { env, CREDIFY_CONSULTA_CODES, CREDIFY_DEFAULT_BODY, CREDIFY_DEFAULT_PATH } from '../config.js';
 import type { VehicleDataProvider } from '../types.js';
 import { providerOutcome } from '../report/normalizeV2.js';
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
@@ -10,6 +10,7 @@ import { parseSearchTypes, type SearchType } from '../searchKey.js';
  *  - a consulta padrão é o "Veículo Total": POST /veiculototal com { Consulta: { IdConsulta, Placa } }; a resposta traz
  *    os blocos CONSULTA/RESPOSTA (ver report/vehicleTotal.ts). "Placa não encontrada" vem com RESPOSTA.CODIGO = ["2"].
  * Caminho, método e corpo podem ser trocados por configuração (CREDIFY_QUERY_*), com {{plate}} e {{queryId}} no modelo.
+ * {{queryId}} é o CÓDIGO FIXO da consulta (IdConsulta, um por endpoint; ver CREDIFY_CONSULTA_CODES), não um número livre.
  * Nada aqui é cobrado ou chamado com DATA_PROVIDER≠real.
  */
 type Failure = Error & { code: string; detail?: string };
@@ -31,7 +32,7 @@ async function reason(response: Response): Promise<string> {
 export interface CredifyOptions {
   fetchImpl?: typeof fetch;
   now?: () => number;
-  baseUrl?: string; clientId?: string; clientSecret?: string; path?: string; method?: 'get' | 'post'; bodyTemplate?: string; timeoutMs?: number; searchTypes?: string;
+  baseUrl?: string; clientId?: string; clientSecret?: string; path?: string; consultaId?: string; method?: 'get' | 'post'; bodyTemplate?: string; timeoutMs?: number; searchTypes?: string;
 }
 
 /** Renova antes de vencer; o JWT dura 24 h, então usamos o `exp` quando legível e 23 h como teto. */
@@ -47,13 +48,6 @@ let shared: { token: string; expiresAt: number } | null = null;
 /** A documentação diz "Bearer {token}", mas o esquema OpenAPI descreve o cabeçalho como chave direta. Guarda o formato que a Credify aceitou. */
 let authStyle: 'bearer' | 'raw' = 'bearer';
 let inflight: Promise<string> | null = null;
-let lastConsultaId = 0;
-/** Décimos de segundo desde 2026-01-01 (9 dígitos, cabe em int32 por ~6 anos); nunca repete dentro do processo. */
-function nextConsultaId(nowMs: number): string {
-  const id = Math.max(Math.floor((nowMs - Date.UTC(2026, 0, 1)) / 100), lastConsultaId + 1);
-  lastConsultaId = id;
-  return String(id);
-}
 export function resetCredifyTokenCache(): void { shared = null; inflight = null; authStyle = 'bearer'; }
 
 /** Mantém o token sempre novo: ao subir e a cada 30 min renova se faltar menos de 2 h para vencer. Falha aqui só é registrada; a consulta tenta o login de novo. */
@@ -87,9 +81,11 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     const method = this.o.method ?? env.CREDIFY_QUERY_METHOD;
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
     const bodyTemplate = this.o.bodyTemplate ?? env.CREDIFY_QUERY_BODY_TEMPLATE ?? (normalizedPath === CREDIFY_DEFAULT_PATH ? CREDIFY_DEFAULT_BODY : undefined);
+    const consultaId = (this.o.consultaId ?? env.CREDIFY_QUERY_ID ?? CREDIFY_CONSULTA_CODES[normalizedPath.toLowerCase()] ?? '').trim();
     if (!clientId || !clientSecret) throw fail('DATA_PROVIDER_NOT_CONFIGURED');
+    if (bodyTemplate?.includes('{{queryId}}') && !/^\d{1,12}$/.test(consultaId)) throw fail('DATA_PROVIDER_NOT_CONFIGURED', `Falta o código da consulta (IdConsulta) para ${normalizedPath}. Defina CREDIFY_QUERY_ID com o código que a Credify informa para essa consulta.`);
     if (method === 'post' && !bodyTemplate) throw fail('DATA_PROVIDER_NOT_CONFIGURED');
-    return { baseUrl, clientId, clientSecret, path: normalizedPath, method, bodyTemplate };
+    return { baseUrl, clientId, clientSecret, path: normalizedPath, method, bodyTemplate, consultaId };
   }
 
   private async http(url: string, init: RequestInit): Promise<Response> {
@@ -157,8 +153,9 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     const c = this.cfg();
     const name = { PLATE: 'plate', CHASSIS: 'chassis', RENAVAM: 'renavam', OWNER_DOC: 'document' }[type];
     const queryParam = { PLATE: 'placa', CHASSIS: 'chassi', RENAVAM: 'renavam', OWNER_DOC: 'documento' }[type];
-    // IdConsulta: número curto e único por chamada (cabe em inteiro de 32 bits; os exemplos da Credify têm 3 a 9 dígitos).
-    const queryId = nextConsultaId((this.o.now ?? Date.now)());
+    // IdConsulta é o código fixo da consulta (um por endpoint), não um número livre: a Credify responde 400
+    // "O IdConsulta não é válido para este EndPoint" para qualquer outro valor.
+    const queryId = c.consultaId;
     const values: Record<string, string> = { plate: '', chassis: '', renavam: '', document: '', queryId, [name]: value };
     // Para tipos além da placa, o caminho ou o corpo precisa dizer onde a chave entra; senão não há como chamar.
     if (type !== 'PLATE' && !c.path.includes(`{${name}}`) && !(c.method === 'post' && c.bodyTemplate?.includes(`{{${name}}}`))) throw fail('SEARCH_TYPE_NOT_SUPPORTED');

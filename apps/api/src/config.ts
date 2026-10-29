@@ -33,6 +33,26 @@ function isHttpsUrl(value: string | undefined): boolean {
 /** O corpo precisa ser JSON válido e conter {{plate}} em algum valor; sem isso a consulta nunca identificaria a placa. */
 /** Consulta padrão: Veículo Total. Com o caminho padrão não é preciso configurar o corpo. */
 export const CREDIFY_DEFAULT_PATH = '/veiculototal';
+/**
+ * Código fixo de cada consulta da Credify (campo IdConsulta). A Credify recusa com
+ * "O IdConsulta não é válido para este EndPoint" qualquer outro número. Valores dos exemplos da documentação
+ * (credifyapis.readme.io); CREDIFY_QUERY_ID troca o código quando o contrato for diferente.
+ */
+export const CREDIFY_CONSULTA_CODES: Record<string, string> = {
+  '/veiculototal': '467',
+  '/debitosrestricoesproprietarios': '487',
+  '/veicularbnacionalonline': '369',
+  '/renavam': '370',
+  '/veiculosagregados': '486',
+  '/flagcnh': '587',
+  '/renainf': '536',
+  '/veiculodocumento': '475',
+  '/indiciosinistro': '450',
+  '/leilaoconjugado': '448',
+  '/gravame': '533',
+  '/veiculoproprietarioplaca': '514',
+  '/veiculodocumentofrota': '510',
+};
 export const CREDIFY_DEFAULT_BODY = '{"Consulta":{"IdConsulta":"{{queryId}}","Placa":"{{plate}}"}}';
 
 export function credifyBodyTemplateValid(template: string | undefined): boolean {
@@ -239,6 +259,7 @@ const envSchema = z.object({
   CREDIFY_CLIENT_ID: optionalString,
   CREDIFY_CLIENT_SECRET: optionalString,
   CREDIFY_QUERY_PATH: optionalString,
+  CREDIFY_QUERY_ID: optionalString,
   CREDIFY_QUERY_METHOD: z.enum(['get', 'post']).default('post'),
   // Corpo da consulta (JSON com {{plate}}). Sem padrão: preencha conforme a documentação/homologação do fornecedor.
   CREDIFY_QUERY_BODY_TEMPLATE: optionalString,

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { adminAuth } from '../auth.js';
-import { env, publicAppUrl } from '../config.js';
+import { env, publicAppUrl, CREDIFY_CONSULTA_CODES, CREDIFY_DEFAULT_PATH } from '../config.js';
 import { isEmailConfigured, verifyEmailTransport } from '../email.js';
 import { appError, asyncRoute, audit, log, requestId } from '../lib/http.js';
 import { enqueueEmail } from '../lib/emailOutbox.js';
@@ -31,7 +31,8 @@ export function integrationStatus() {
     ? [v('EMAIL_PROVIDER', true, true, 'brevo_api (envio pela API do Brevo)'), v('BREVO_API_KEY', env.BREVO_API_KEY, true, 'chave de API do Brevo (SMTP e API > Chaves de API), não a chave SMTP'), smtpVars[smtpVars.length - 1]!]
     : smtpVars;
   const hookVars = [v('EMAIL_WEBHOOK_SECRET', env.EMAIL_WEBHOOK_SECRET, true, 'mesmo valor do token do portador (Bearer) ou do cabeçalho x-webhook-token no Brevo')];
-  const credVars = [v('DATA_PROVIDER', env.DATA_PROVIDER === 'real', true, 'precisa ser real'), v('VEHICLE_API_PROVIDER', env.VEHICLE_API_PROVIDER === 'credify', true, 'precisa ser credify'), v('CREDIFY_CLIENT_ID', env.CREDIFY_CLIENT_ID), v('CREDIFY_CLIENT_SECRET', env.CREDIFY_CLIENT_SECRET), v('CREDIFY_QUERY_BODY_TEMPLATE', true, true, env.CREDIFY_QUERY_BODY_TEMPLATE ? 'corpo personalizado em uso' : 'não precisa configurar: o padrão é a consulta Veículo Total (/veiculototal)')];
+  const credPath = `/${(env.CREDIFY_QUERY_PATH ?? CREDIFY_DEFAULT_PATH).replace(/^\/+/, '')}`.toLowerCase();
+  const credVars = [v('DATA_PROVIDER', env.DATA_PROVIDER === 'real', true, 'precisa ser real'), v('VEHICLE_API_PROVIDER', env.VEHICLE_API_PROVIDER === 'credify', true, 'precisa ser credify'), v('CREDIFY_CLIENT_ID', env.CREDIFY_CLIENT_ID), v('CREDIFY_CLIENT_SECRET', env.CREDIFY_CLIENT_SECRET), v('CREDIFY_QUERY_BODY_TEMPLATE', true, true, env.CREDIFY_QUERY_BODY_TEMPLATE ? 'corpo personalizado em uso' : 'não precisa configurar: o padrão é a consulta Veículo Total (/veiculototal)'), v('CREDIFY_QUERY_ID', Boolean(env.CREDIFY_QUERY_ID || CREDIFY_CONSULTA_CODES[credPath]), false, env.CREDIFY_QUERY_ID ? 'código da consulta personalizado' : CREDIFY_CONSULTA_CODES[credPath] ? `não precisa configurar: código ${CREDIFY_CONSULTA_CODES[credPath]} para ${credPath}` : `defina o código da consulta ${credPath} informado pela Credify`)];
   const cpVars = [v('DATA_PROVIDER', env.DATA_PROVIDER === 'real', true, 'precisa ser real'), v('VEHICLE_API_PROVIDER', env.VEHICLE_API_PROVIDER === 'consultarplaca', true, 'precisa ser consultarplaca'), v('CONSULTARPLACA_EMAIL', env.CONSULTARPLACA_EMAIL, true, 'e-mail da conta'), v('CONSULTARPLACA_API_KEY', env.CONSULTARPLACA_API_KEY, true, 'Minha Conta > API > Gerar API KEY')];
   const cnpjVars = [v('CNPJ_PROVIDER', env.CNPJ_PROVIDER !== 'disabled', true, 'brasilapi')];
   const esignVars = [v('ESIGN_PROVIDER', env.ESIGN_PROVIDER !== 'disabled', true, 'internal = aceite eletrônico simples')];
