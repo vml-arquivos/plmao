@@ -1003,7 +1003,7 @@ async function resolveFipeSelectionFromPlate(plate: string): Promise<{ provider:
   let normalized: NormalizedVehicle;
   try {
     const vehicleProvider = getProvider();
-    const output = await withTimeout(vehicleProvider.queryByPlate(plate), env.QUERY_REQUEST_TIMEOUT_MS);
+    const output = await withTimeout(vehicleProvider.queryByPlate(plate, { productId: 'BASIC' }), env.QUERY_REQUEST_TIMEOUT_MS);
     normalized = normalizeBdrp(output.raw);
   } catch (error) {
     const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : '';
@@ -1291,7 +1291,7 @@ api.post('/vehicles/by-plate', auth, asyncRoute(async (req, res) => {
   await reserveFipeQuota(scopeKey, VEHICLE_PLATE_DAILY_LIMIT);
   let normalized: NormalizedVehicle;
   try {
-    const output = await withTimeout(getProvider().queryByPlate(plate.data), env.QUERY_REQUEST_TIMEOUT_MS);
+    const output = await withTimeout(getProvider().queryByPlate(plate.data, { productId: 'BASIC' }), env.QUERY_REQUEST_TIMEOUT_MS);
     normalized = normalizeBdrp(output.raw);
   } catch (error) {
     await releaseFipeQuota(scopeKey);
@@ -1395,7 +1395,7 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
       }
     });
 
-    const output = await executeVehicleLookup({ provider, plate: input.plate, searchType: input.searchType, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
+    const output = await executeVehicleLookup({ provider, plate: input.plate, searchType: input.searchType, productId: input.productId, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
     const normalized = output.normalized;
     const resultHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
     await tx(async (client) => {

@@ -1,4 +1,4 @@
-import { env, CREDIFY_CONSULTA_CODES, CREDIFY_DEFAULT_BODY, CREDIFY_DEFAULT_PATH } from '../config.js';
+import { env, CREDIFY_CONSULTA_CODES, CREDIFY_DEFAULT_BODY, CREDIFY_DEFAULT_PATH, CREDIFY_PLATE_PATHS, CREDIFY_PRODUCT_PATHS } from '../config.js';
 import type { VehicleDataProvider } from '../types.js';
 import { providerOutcome } from '../report/normalizeV2.js';
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
@@ -71,17 +71,27 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     this.o = { timeoutMs: env.VEHICLE_API_TIMEOUT_MS, ...options };
   }
 
-  private cfg() {
+  /** Caminho da consulta para um pacote: o definido em CREDIFY_QUERY_PATH (modo global) ou o do pacote. */
+  routeFor(productId?: string): { path: string; routed: boolean } {
+    const global = this.o.path ?? env.CREDIFY_QUERY_PATH;
+    if (global) return { path: global.startsWith('/') ? global : `/${global}`, routed: false };
+    const byProduct = productId ? CREDIFY_PRODUCT_PATHS[productId.toUpperCase()] : undefined;
+    return byProduct ? { path: byProduct, routed: true } : { path: CREDIFY_DEFAULT_PATH, routed: false };
+  }
+
+  private cfg(productId?: string) {
     const baseUrl = (this.o.baseUrl ?? env.CREDIFY_BASE_URL ?? 'https://api.credify.com.br').replace(/\/$/, '');
     // Espaço, quebra de linha ou aspas coladas junto com o valor no painel de variáveis fazem a Credify responder "LOGON OU SENHA INVALIDOS".
     const clean = (v?: string) => v?.trim().replace(/^(["'])(.*)\1$/, '$2').trim();
     const clientId = clean(this.o.clientId ?? env.CREDIFY_CLIENT_ID);
     const clientSecret = clean(this.o.clientSecret ?? env.CREDIFY_CLIENT_SECRET);
-    const path = this.o.path ?? env.CREDIFY_QUERY_PATH ?? CREDIFY_DEFAULT_PATH;
+    const route = this.routeFor(productId);
     const method = this.o.method ?? env.CREDIFY_QUERY_METHOD;
-    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    const bodyTemplate = this.o.bodyTemplate ?? env.CREDIFY_QUERY_BODY_TEMPLATE ?? (normalizedPath === CREDIFY_DEFAULT_PATH ? CREDIFY_DEFAULT_BODY : undefined);
-    const consultaId = (this.o.consultaId ?? env.CREDIFY_QUERY_ID ?? CREDIFY_CONSULTA_CODES[normalizedPath.toLowerCase()] ?? '').trim();
+    const normalizedPath = route.path;
+    const lower = normalizedPath.toLowerCase();
+    // Roteado por pacote: o código e o corpo são os da própria consulta (variáveis globais de corpo/código só valem no modo global).
+    const bodyTemplate = this.o.bodyTemplate ?? (route.routed ? undefined : env.CREDIFY_QUERY_BODY_TEMPLATE) ?? (CREDIFY_PLATE_PATHS.includes(lower) ? CREDIFY_DEFAULT_BODY : undefined);
+    const consultaId = (this.o.consultaId ?? (route.routed ? undefined : env.CREDIFY_QUERY_ID) ?? CREDIFY_CONSULTA_CODES[lower] ?? '').trim();
     if (!clientId || !clientSecret) throw fail('DATA_PROVIDER_NOT_CONFIGURED');
     if (bodyTemplate?.includes('{{queryId}}') && !/^\d{1,12}$/.test(consultaId)) throw fail('DATA_PROVIDER_NOT_CONFIGURED', `Falta o código da consulta (IdConsulta) para ${normalizedPath}. Defina CREDIFY_QUERY_ID com o código que a Credify informa para essa consulta.`);
     if (method === 'post' && !bodyTemplate) throw fail('DATA_PROVIDER_NOT_CONFIGURED');
@@ -142,15 +152,15 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     return JSON.stringify(fill(parsed));
   }
 
-  queryByPlate(plate: string): Promise<{ providerQueryId?: string; raw: unknown }> { return this.run('PLATE', plate); }
+  queryByPlate(plate: string, ctx?: { productId?: string }): Promise<{ providerQueryId?: string; raw: unknown }> { return this.run('PLATE', plate, ctx?.productId); }
 
   queryBy(type: SearchType, value: string): Promise<{ providerQueryId?: string; raw: unknown }> {
     if (type !== 'PLATE' && !this.supportedSearchTypes.includes(type)) throw fail('SEARCH_TYPE_NOT_SUPPORTED');
     return this.run(type, value);
   }
 
-  private async run(type: SearchType, value: string): Promise<{ providerQueryId?: string; raw: unknown }> {
-    const c = this.cfg();
+  private async run(type: SearchType, value: string, productId?: string): Promise<{ providerQueryId?: string; raw: unknown }> {
+    const c = this.cfg(productId);
     const name = { PLATE: 'plate', CHASSIS: 'chassis', RENAVAM: 'renavam', OWNER_DOC: 'document' }[type];
     const queryParam = { PLATE: 'placa', CHASSIS: 'chassi', RENAVAM: 'renavam', OWNER_DOC: 'documento' }[type];
     // IdConsulta é o código fixo da consulta (um por endpoint), não um número livre: a Credify responde 400

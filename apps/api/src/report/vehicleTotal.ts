@@ -133,6 +133,24 @@ function occurrence(r: Rec, name: BlockName, clearText: string, noneMeansClear: 
   return { state: 'ALERT', value: desc || 'CONSTA', display: desc ? sentenceCase(desc) : 'Consta registro' };
 }
 
+const LABELS: Record<string, string> = { DATA: 'Data', DT: 'Data', LEILOEIRO: 'Leiloeiro', LOTE: 'Lote', COMITENTE: 'Comitente', STATUS: 'Situação', SITUACAO: 'Situação', UF: 'UF', MUNICIPIO: 'Município', CIDADE: 'Cidade', DESCRICAO: 'Descrição', CAMPANHA: 'Campanha', FABRICANTE: 'Fabricante', RISCO: 'Risco', REMEDIO: 'Solução', TIPO: 'Tipo', OBSERVACAO: 'Observação', BO: 'Boletim de ocorrência', BOLETIM: 'Boletim de ocorrência', DELEGACIA: 'Delegacia' };
+const SKIP_DETAIL = /^(CODIGO|DESCRICAORETORNO|EXISTE_ERRO|MSG_ERRO|CHAVERETORNO|TEMPOEXECUCAO|REDUNDANCIA|STATUS_CONSULTA)$|CPF|CNPJ|CGC|DOCUMENTO|PROPRIETARIO|NOME_PROP|CHASSI|RENAVAM|MOTOR/;
+const humanize = (key: string): string => { const base = key.split('_').filter(Boolean).map((w) => LABELS[w] ?? w.toLowerCase()).join(' '); return base.charAt(0).toUpperCase() + base.slice(1); };
+/**
+ * Texto com o que a fonte informou em cada registro de uma ocorrência (leilão, roubo/furto, recall). Os nomes dos campos
+ * variam por fornecedor, então lista os campos simples de cada registro com o rótulo legível. Dados de pessoas ficam de fora.
+ */
+function occurrenceDetails(r: Rec, name: BlockName, main: VtValue): VtValue {
+  if (main.state !== 'ALERT') return NOT_PROVIDED;
+  const b = block(r, name);
+  if (!b) return NOT_PROVIDED;
+  const recs = records(b);
+  const pool: Rec[] = recs.length ? recs : [b];
+  const lines = pool.slice(0, 8).map((rec) => Object.entries(rec).filter(([k, v]) => !SKIP_DETAIL.test(k) && !isRec(v) && !Array.isArray(v) && str(v) !== '' && str(v) !== '0').slice(0, 14).map(([k, v]) => `${humanize(k)}: ${str(v).slice(0, 160)}`).join(' · ')).filter(Boolean);
+  const text = lines.join(' | ').slice(0, 1200);
+  return text ? { state: 'INFO', value: text, display: text } : NOT_PROVIDED;
+}
+
 /** Campos extras do relatório a partir dos blocos do Veículo Total. */
 export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
   const out = new Map<string, VtValue>();
@@ -146,9 +164,12 @@ export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
   out.set('VT_SINISTRO', !sin || blockCode(r, 'INDICIOSINISTROVEICULAR') === '3' || !ind
     ? NOT_PROVIDED
     : ind === '0' ? { state: 'CLEAR', value: 'SEM INDICIO', display: 'Sem indício de sinistro' } : { state: 'ALERT', value: str(sin.DESCRICAORETORNO) || 'INDICIO DE SINISTRO', display: 'Há indício de sinistro' });
-  out.set('VT_ROUBOFURTO', occurrence(r, 'HISTORICOROUBOFURTO', 'Não consta no histórico de roubo ou furto', true));
-  out.set('VT_LEILAO', occurrence(r, 'LEILAOCONJUGADO', 'Não consta em base de leilão', true));
-  out.set('VT_RECALL', occurrence(r, 'RECALL', 'Sem recall pendente', false));
+  const theft = occurrence(r, 'HISTORICOROUBOFURTO', 'Não consta no histórico de roubo ou furto', true);
+  const auction = occurrence(r, 'LEILAOCONJUGADO', 'Não consta em base de leilão', true);
+  const recall = occurrence(r, 'RECALL', 'Sem recall pendente', false);
+  out.set('VT_ROUBOFURTO', theft); out.set('VT_ROUBOFURTO_DETALHES', occurrenceDetails(r, 'HISTORICOROUBOFURTO', theft));
+  out.set('VT_LEILAO', auction); out.set('VT_LEILAO_DETALHES', occurrenceDetails(r, 'LEILAOCONJUGADO', auction));
+  out.set('VT_RECALL', recall); out.set('VT_RECALL_DETALHES', occurrenceDetails(r, 'RECALL', recall));
 
   const owners = blockCode(r, 'HISTORICOPROPRIETARIO') === '3' ? [] : records(block(r, 'HISTORICOPROPRIETARIO'));
   out.set('VT_PROPRIETARIOS_QTD', owners.length ? { state: 'INFO', value: String(owners.length), display: String(owners.length) } : NOT_PROVIDED);

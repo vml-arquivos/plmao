@@ -1657,5 +1657,26 @@ export const placaMigrations: Migration[] = [
       await client.query(`DROP INDEX IF EXISTS idx_vehicle_queries_user_archived`);
       await client.query(`ALTER TABLE vehicle_queries DROP COLUMN IF EXISTS archived_at`);
     }
+  },
+  {
+    id: '046_packages_match_credify_services',
+    name: 'Textos e seções dos pacotes passam a refletir a consulta da Credify de cada um (Completa = Veículo Total; Gravame com dados do veículo)',
+    up: async (client) => {
+      await client.query(`UPDATE query_products SET
+          description='Cadastro, débitos, multas, restrições, gravame, indício de sinistro, roubo/furto, leilão, recall, valor FIPE e proprietários em um único relatório.',
+          features=$1::jsonb,
+          coverage='Cadastro, débitos, restrições, gravame, histórico (sinistro, roubo/furto, leilão), recall, FIPE e proprietários',
+          updated_at=now()
+        WHERE id='COMPLETE'`, [JSON.stringify(['Tudo da Consulta Básica', 'Indício de sinistro, roubo/furto e leilão', 'Financiamento e gravame', 'Recall e inspeção veicular', 'Valor FIPE e preço médio de mercado', 'Quantidade de proprietários anteriores', 'Relatório em PDF com código de validação'])]);
+      await client.query(`UPDATE query_products SET
+          report_sections=ARRAY['IDENTIFICACAO','CARACTERISTICAS','GRAVAME'],
+          features=$1::jsonb,
+          coverage='Dados do veículo, gravame e restrição financeira',
+          updated_at=now()
+        WHERE id='LIEN' AND report_sections IS NOT NULL`, [JSON.stringify(['Dados do veículo', 'Gravame e restrição financeira', 'Agente financeiro, contrato e data de inclusão', 'Intenção de gravame', 'Relatório em PDF'])]);
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET report_sections=ARRAY['IDENTIFICACAO','GRAVAME'], updated_at=now() WHERE id='LIEN' AND report_sections IS NOT NULL`);
+    }
   }
 ];

@@ -144,3 +144,18 @@ test('BDRP ausente ou com erro continua sendo resposta inválida (estorno), mesm
   y.RESPOSTA.CODIGO = y.RESPOSTA.CODIGO.map((c, i) => (i === 7 ? '3' : c));
   assert.equal(providerOutcome(y).ok, false);
 });
+
+test('leilão, roubo/furto e recall com registro trazem os detalhes da fonte; sem registro o detalhe nem aparece', () => {
+  const clean = buildReportV2(ok);
+  for (const k of ['VT_LEILAO_DETALHES', 'VT_ROUBOFURTO_DETALHES', 'VT_RECALL_DETALHES']) assert.equal(item(clean, k), undefined, `${k} não deveria aparecer sem registro`);
+  const x = structuredClone(ok);
+  x.RESPOSTA.LEILAOCONJUGADO = { DESCRICAORETORNO: 'EXISTE HISTORICO DE LEILAO', REGISTRO_1: { DATA_LEILAO: '30/10/2013', LEILOEIRO: 'LEILOES BRASIL', LOTE: '12', CPF_COMITENTE: '12345678900', CONDICAO_VEICULO: 'SUCATA' } };
+  x.RESPOSTA.RECALL = { DESCRICAORETORNO: 'POSSUI RECALL', REGISTRO_1: { DATA_CAMPANHA: '03/08/2020', DESCRICAO: 'SUBSTITUICAO DO AIRBAG DO PASSAGEIRO' } };
+  x.RESPOSTA.CODIGO = ['1', '1', '2', '1', '1', '1', '1', '1'];
+  const r = buildReportV2(x);
+  const leilao = item(r, 'VT_LEILAO_DETALHES');
+  assert.ok(leilao && /Leiloeiro: LEILOES BRASIL/.test(leilao.display) && /Lote: 12/.test(leilao.display) && /30\/10\/2013/.test(leilao.display));
+  assert.ok(!/12345678900/.test(leilao.display), 'documento de pessoa não entra no relatório');
+  assert.match(item(r, 'VT_RECALL_DETALHES').display, /AIRBAG/);
+  assert.equal(item(r, 'VT_LEILAO').state, 'ALERT');
+});

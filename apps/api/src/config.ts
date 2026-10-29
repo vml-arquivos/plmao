@@ -54,6 +54,24 @@ export const CREDIFY_CONSULTA_CODES: Record<string, string> = {
   '/veiculodocumentofrota': '510',
 };
 export const CREDIFY_DEFAULT_BODY = '{"Consulta":{"IdConsulta":"{{queryId}}","Placa":"{{plate}}"}}';
+/** Consultas da Credify que recebem só a placa (corpo padrão). As demais pedem CPF/CNPJ, Renavam etc. e precisam de modelo próprio. */
+export const CREDIFY_PLATE_PATHS: readonly string[] = ['/veiculototal', '/debitosrestricoesproprietarios', '/veicularbnacionalonline', '/indiciosinistro', '/leilaoconjugado', '/gravame', '/veiculoproprietarioplaca'];
+/**
+ * Qual consulta da Credify atende cada pacote. Completa e Leilão usam o Veículo Total (467: sinistro, recall, roubo/furto, leilão,
+ * proprietários, FIPE e o cadastro com débitos e restrições numa chamada só). Básica, Gravame e Cadastral usam Débitos,
+ * Restrições e Proprietários (487), que já traz cadastro, débitos, restrições e os campos de financiamento.
+ * Com CREDIFY_QUERY_PATH definido, todos os pacotes usam esse caminho (modo antigo).
+ */
+export const CREDIFY_PRODUCT_PATHS: Record<string, string> = {
+  COMPLETE: '/veiculototal',
+  PREMIUM: '/veiculototal',
+  AUCTION: '/veiculototal',
+  BASIC: '/debitosrestricoesproprietarios',
+  LIEN: '/debitosrestricoesproprietarios',
+  CADASTRAL: '/debitosrestricoesproprietarios',
+  DEBTS: '/debitosrestricoesproprietarios',
+  RESTRICTIONS: '/debitosrestricoesproprietarios',
+};
 
 export function credifyBodyTemplateValid(template: string | undefined): boolean {
   if (!template) return false;
@@ -90,7 +108,7 @@ function validateProductionConfig(value: ParsedEnv): void {
   if (value.DATA_PROVIDER === 'real' && value.VEHICLE_API_PROVIDER === 'credify') {
     requireProduction(Boolean(value.CREDIFY_CLIENT_ID && value.CREDIFY_CLIENT_SECRET), 'CREDIFY_CREDENTIALS_REQUIRED', issues);
     const credifyPath = (value.CREDIFY_QUERY_PATH ?? CREDIFY_DEFAULT_PATH).replace(/^\/?/, '/');
-    requireProduction(credifyBodyTemplateValid(value.CREDIFY_QUERY_BODY_TEMPLATE ?? (credifyPath === CREDIFY_DEFAULT_PATH ? CREDIFY_DEFAULT_BODY : undefined)), 'CREDIFY_QUERY_BODY_TEMPLATE_INVALID', issues);
+    requireProduction(credifyBodyTemplateValid(value.CREDIFY_QUERY_BODY_TEMPLATE ?? (CREDIFY_PLATE_PATHS.includes(credifyPath.toLowerCase()) ? CREDIFY_DEFAULT_BODY : undefined)), 'CREDIFY_QUERY_BODY_TEMPLATE_INVALID', issues);
     requireProduction(!value.CREDIFY_BASE_URL || isHttpsUrl(value.CREDIFY_BASE_URL), 'CREDIFY_BASE_URL_HTTPS_REQUIRED', issues);
   }
   if (value.DATA_PROVIDER === 'real' && value.VEHICLE_API_PROVIDER === 'consultarplaca') {

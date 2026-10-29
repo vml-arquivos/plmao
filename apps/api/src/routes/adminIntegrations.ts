@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { adminAuth } from '../auth.js';
-import { env, publicAppUrl, CREDIFY_CONSULTA_CODES, CREDIFY_DEFAULT_PATH } from '../config.js';
+import { env, publicAppUrl, CREDIFY_CONSULTA_CODES } from '../config.js';
 import { isEmailConfigured, verifyEmailTransport } from '../email.js';
 import { appError, asyncRoute, audit, log, requestId } from '../lib/http.js';
 import { enqueueEmail } from '../lib/emailOutbox.js';
@@ -31,8 +31,7 @@ export function integrationStatus() {
     ? [v('EMAIL_PROVIDER', true, true, 'brevo_api (envio pela API do Brevo)'), v('BREVO_API_KEY', env.BREVO_API_KEY, true, 'chave de API do Brevo (SMTP e API > Chaves de API), não a chave SMTP'), smtpVars[smtpVars.length - 1]!]
     : smtpVars;
   const hookVars = [v('EMAIL_WEBHOOK_SECRET', env.EMAIL_WEBHOOK_SECRET, true, 'mesmo valor do token do portador (Bearer) ou do cabeçalho x-webhook-token no Brevo')];
-  const credPath = `/${(env.CREDIFY_QUERY_PATH ?? CREDIFY_DEFAULT_PATH).replace(/^\/+/, '')}`.toLowerCase();
-  const credVars = [v('DATA_PROVIDER', env.DATA_PROVIDER === 'real', true, 'precisa ser real'), v('VEHICLE_API_PROVIDER', env.VEHICLE_API_PROVIDER === 'credify', true, 'precisa ser credify'), v('CREDIFY_CLIENT_ID', env.CREDIFY_CLIENT_ID), v('CREDIFY_CLIENT_SECRET', env.CREDIFY_CLIENT_SECRET), v('CREDIFY_QUERY_BODY_TEMPLATE', true, true, env.CREDIFY_QUERY_BODY_TEMPLATE ? 'corpo personalizado em uso' : 'não precisa configurar: o padrão é a consulta Veículo Total (/veiculototal)'), v('CREDIFY_QUERY_ID', Boolean(env.CREDIFY_QUERY_ID || CREDIFY_CONSULTA_CODES[credPath]), false, env.CREDIFY_QUERY_ID ? 'código da consulta personalizado' : CREDIFY_CONSULTA_CODES[credPath] ? `não precisa configurar: código ${CREDIFY_CONSULTA_CODES[credPath]} para ${credPath}` : `defina o código da consulta ${credPath} informado pela Credify`)];
+  const credVars = [v('DATA_PROVIDER', env.DATA_PROVIDER === 'real', true, 'precisa ser real'), v('VEHICLE_API_PROVIDER', env.VEHICLE_API_PROVIDER === 'credify', true, 'precisa ser credify'), v('CREDIFY_CLIENT_ID', env.CREDIFY_CLIENT_ID), v('CREDIFY_CLIENT_SECRET', env.CREDIFY_CLIENT_SECRET), v('CREDIFY_QUERY_PATH', true, false, env.CREDIFY_QUERY_PATH ? `ATENÇÃO: definido (${env.CREDIFY_QUERY_PATH}); todos os pacotes usam essa mesma consulta. Apague para cada pacote usar a sua.` : 'não definido: cada pacote usa a consulta certa (Completa = Veículo Total 467; Básica, Gravame e Cadastral = Débitos e Restrições 487)'), v('CREDIFY_QUERY_BODY_TEMPLATE', true, false, env.CREDIFY_QUERY_BODY_TEMPLATE ? (env.CREDIFY_QUERY_PATH ? 'corpo personalizado em uso' : 'definido, mas ignorado enquanto CREDIFY_QUERY_PATH não existir (pode apagar)') : 'não precisa configurar: o corpo é montado com o código de cada consulta'), v('CREDIFY_QUERY_ID', true, false, env.CREDIFY_QUERY_ID ? (env.CREDIFY_QUERY_PATH ? 'código personalizado em uso' : 'definido, mas ignorado enquanto CREDIFY_QUERY_PATH não existir (pode apagar)') : 'não precisa configurar: os códigos de cada consulta já estão no sistema')];
   const cpVars = [v('DATA_PROVIDER', env.DATA_PROVIDER === 'real', true, 'precisa ser real'), v('VEHICLE_API_PROVIDER', env.VEHICLE_API_PROVIDER === 'consultarplaca', true, 'precisa ser consultarplaca'), v('CONSULTARPLACA_EMAIL', env.CONSULTARPLACA_EMAIL, true, 'e-mail da conta'), v('CONSULTARPLACA_API_KEY', env.CONSULTARPLACA_API_KEY, true, 'Minha Conta > API > Gerar API KEY')];
   const cnpjVars = [v('CNPJ_PROVIDER', env.CNPJ_PROVIDER !== 'disabled', true, 'brasilapi')];
   const esignVars = [v('ESIGN_PROVIDER', env.ESIGN_PROVIDER !== 'disabled', true, 'internal = aceite eletrônico simples')];
@@ -101,15 +100,18 @@ adminIntegrationsRouter.post('/integrations/vehicle/test', adminAuth, guard, asy
   const serverIp = await outboundIp();
   const plate = typeof req.body?.plate === 'string' ? req.body.plate.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
   if (plate && !/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(plate)) throw fail('INVALID_PLATE');
+  // Pacote cuja consulta será testada (a rota da Credify depende dele); sem pacote, usa o caminho padrão.
+  const productId = typeof req.body?.productId === 'string' ? req.body.productId.toUpperCase().replace(/[^A-Z0-9_]/g, '').slice(0, 40) : '';
   let result: Record<string, unknown>;
   try {
     const provider = new CredifyVehicleProvider();
     const r = await provider.testConnection();
     result = { ok: true, expiresInMinutes: r.expiresInMinutes, serverIp, queryEnabled: env.DATA_PROVIDER === 'real' };
     if (plate) {
-      const out = await provider.queryByPlate(plate);
+      const out = await provider.queryByPlate(plate, { productId: productId || undefined });
       const raw = (out.raw ?? {}) as Record<string, unknown>;
-      result = { ...result, plate, queryOk: true, providerQueryId: out.providerQueryId ?? null, blocks: Object.keys(raw).slice(0, 20) };
+      const route = provider.routeFor(productId || undefined);
+      result = { ...result, plate, productId: productId || null, servicePath: route.path, serviceCode: CREDIFY_CONSULTA_CODES[route.path.toLowerCase()] ?? null, queryOk: true, providerQueryId: out.providerQueryId ?? null, blocks: Object.keys(raw).slice(0, 20) };
     }
   } catch (error) {
     const e = error as Error & { code?: string; detail?: string };

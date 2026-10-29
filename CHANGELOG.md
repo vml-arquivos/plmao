@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.12.14 — Cada pacote usa a consulta certa da Credify e o relatório traz mais detalhes
+
+- Roteamento por pacote: Consulta Completa (e Leilão, quando ativar) consulta o Veículo Total (`/veiculototal`, código 467: sinistro, roubo/furto, leilão, recall, proprietários, FIPE, cadastro, débitos, restrições e gravame numa só chamada). Básica, Gravame e Cadastral consultam Débitos, Restrições e Proprietários (`/debitosrestricoesproprietarios`, código 487). O código (IdConsulta) e o corpo de cada consulta saem sozinhos.
+- Para o roteamento valer, apague `CREDIFY_QUERY_PATH` no Coolify (com ela definida, todos os pacotes usam a mesma consulta, como antes). `CREDIFY_QUERY_BODY_TEMPLATE` e `CREDIFY_QUERY_ID` passam a ser ignoradas enquanto `CREDIFY_QUERY_PATH` não existir e podem ser apagadas.
+- Corpo padrão (`Consulta.IdConsulta` + `Placa`) agora vale para todas as consultas por placa mapeadas, não só o Veículo Total.
+- Relatório: detalhes do registro de leilão (data, leiloeiro, lote, condição), roubo/furto e recall (campanha, descrição) quando a fonte trouxer. Sem registro, o detalhe não aparece. Documentos de pessoas ficam de fora.
+- Consulta Gravame passa a mostrar também os dados do veículo (características), como nos concorrentes. Textos da Consulta Completa e Gravame atualizados (migração 046).
+- Consultas internas de apoio (guia do veículo, FIPE por placa) usam a consulta mais barata (Débitos e Restrições).
+- Admin > Integrações: seletor de pacote no teste de consulta real; a resposta mostra qual consulta e código foram usados. A lista de variáveis mostra se `CREDIFY_QUERY_PATH` está atrapalhando o roteamento.
+- Testes: roteamento por pacote, detalhes de ocorrência, `migration-rollback` (027–046).
+
 ## 1.12.13 — Volta automática do Pix, cancelar consulta e falhas da Credify visíveis
 
 - Pagamento aprovado (Pix ou cartão): o Mercado Pago volta direto para `/app/consultar/pedido/<pedido>`, que confirma o pagamento, executa a consulta sozinha e abre o relatório. Nada de voltar para a carteira com a linha "Concluir consulta". Funciona também se o Pix demorar (a tela espera e segue sozinha, por até 15 min), se a pessoa precisar entrar de novo na conta (volta para o mesmo pedido) e se a página for atualizada (a consulta não é cobrada duas vezes). Asaas ganhou o mesmo retorno.

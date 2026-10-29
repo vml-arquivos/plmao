@@ -99,7 +99,7 @@ test('sem credenciais ou sem corpo configurado não chama o fornecedor (consulta
   resetCredifyTokenCache();
   const f = fakeFetch([]);
   await assert.rejects(new CredifyVehicleProvider({ ...base, clientId: '', fetchImpl: f }).queryByPlate('AAA0000'), { code: 'DATA_PROVIDER_NOT_CONFIGURED' });
-  await assert.rejects(new CredifyVehicleProvider({ ...base, bodyTemplate: undefined, fetchImpl: f }).queryByPlate('AAA0000'), { code: 'DATA_PROVIDER_NOT_CONFIGURED' });
+  await assert.rejects(new CredifyVehicleProvider({ ...base, path: '/outraconsulta', bodyTemplate: undefined, fetchImpl: f }).queryByPlate('AAA0000'), { code: 'DATA_PROVIDER_NOT_CONFIGURED' });
   assert.equal(f.calls.length, 0);
 });
 
@@ -229,4 +229,22 @@ test('IdConsulta é o código fixo de cada consulta da Credify; CREDIFY_QUERY_ID
   const f = fakeFetch([]);
   await assert.rejects(new CredifyVehicleProvider({ ...base, path: '/outraconsulta', bodyTemplate: tpl, fetchImpl: f }).queryByPlate('AAA0000'), (e) => e.code === 'DATA_PROVIDER_NOT_CONFIGURED' && /CREDIFY_QUERY_ID/.test(e.detail));
   assert.equal(f.calls.length, 0);
+});
+
+test('cada pacote usa a consulta certa da Credify: Completa = Veículo Total (467); Básica/Gravame/Cadastral = Débitos e Restrições (487); CREDIFY_QUERY_PATH global vale para todos', async () => {
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const tok = jwt(Math.floor(now / 1000) + 24 * 3600);
+  const run = async (productId, opts = {}) => {
+    resetCredifyTokenCache();
+    const f = fakeFetch([{ body: { Success: true, Dados: tok } }, { body: sample }]);
+    const p = new CredifyVehicleProvider({ ...base, path: undefined, bodyTemplate: undefined, fetchImpl: f, now: () => now, ...opts });
+    await p.queryByPlate('AAA0000', { productId });
+    const c = f.calls.find((x) => !x.url.endsWith('/auth'));
+    return { url: c.url.replace('https://api.credify.test', ''), body: JSON.parse(c.init.body) };
+  };
+  assert.deepEqual(await run('COMPLETE'), { url: '/veiculototal', body: { Consulta: { IdConsulta: '467', Placa: 'AAA0000' } } });
+  for (const id of ['BASIC', 'LIEN', 'CADASTRAL']) assert.deepEqual(await run(id), { url: '/debitosrestricoesproprietarios', body: { Consulta: { IdConsulta: '487', Placa: 'AAA0000' } } });
+  assert.equal((await run(undefined)).url, '/veiculototal'); // sem pacote: consulta padrão
+  assert.equal((await run('COMPLETE', { path: '/debitosrestricoesproprietarios' })).body.Consulta.IdConsulta, '487'); // caminho global ganha
+  resetCredifyTokenCache();
 });

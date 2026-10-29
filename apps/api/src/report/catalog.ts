@@ -20,6 +20,8 @@ export interface FieldDef {
   /** campo cuja presença com valor indica restrição grave (veredito de alto risco). */
   high?: boolean;
   doc?: 'CPF_CNPJ' | 'NAME' | 'VEHICLE_ID';
+  /** detalhe que só aparece quando a fonte entregou; sem dado, some do relatório (não vira "não fornecido"). */
+  optional?: boolean;
 }
 
 export type SectionKey = 'IDENTIFICACAO' | 'CARACTERISTICAS' | 'REGISTRO' | 'DEBITOS' | 'RESTRICOES' | 'HISTORICO' | 'GRAVAME' | 'INSPECAO_RECALL' | 'FIPE' | 'PROPRIETARIO' | 'INTERNO';
@@ -173,8 +175,11 @@ export const VT_CATALOG: FieldDef[] = [
   f('VT_SINISTRO', 'Indício de sinistro', 'HISTORICO', 'flag', 2),
   f('VT_ROUBOFURTO', 'Histórico de roubo ou furto', 'HISTORICO', 'flag', 2, { high: true }),
   f('VT_LEILAO', 'Participação em leilão', 'HISTORICO', 'flag', 2),
+  f('VT_ROUBOFURTO_DETALHES', 'Roubo ou furto — detalhes do registro', 'HISTORICO', 'text', 2, { optional: true }),
+  f('VT_LEILAO_DETALHES', 'Leilão — detalhes do registro', 'HISTORICO', 'text', 2, { optional: true }),
   f('VT_PROPRIETARIOS_QTD', 'Proprietários no histórico', 'HISTORICO', 'number', 2),
   f('VT_RECALL', 'Recall (fabricante)', 'INSPECAO_RECALL', 'flag', 2),
+  f('VT_RECALL_DETALHES', 'Recall — campanhas registradas', 'INSPECAO_RECALL', 'text', 2, { optional: true }),
   f('VT_FIPE_PRECO', 'Preço FIPE', 'FIPE', 'text', 2),
   f('VT_FIPE_PRECO_MEDIO', 'Preço médio de mercado', 'FIPE', 'text', 2),
   f('VT_FIPE_CODIGO', 'Código FIPE', 'FIPE', 'text', 2),

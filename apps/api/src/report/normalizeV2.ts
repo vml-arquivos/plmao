@@ -203,7 +203,7 @@ export function buildReportV2(raw: unknown): ReportV2 {
   const items = new Map<string, ReportItem>();
   for (const def of FIELD_CATALOG) items.set(def.key, buildItem(def, upper[def.key]));
   // Veículo Total: campos extras (sinistro, roubo/furto, leilão, recall, proprietários, FIPE).
-  const defs: FieldDef[] = vt ? [...FIELD_CATALOG, ...VT_CATALOG] : FIELD_CATALOG;
+  let defs: FieldDef[] = vt ? [...FIELD_CATALOG, ...VT_CATALOG] : FIELD_CATALOG;
   if (vt) {
     const extras = vehicleTotalExtras(raw);
     for (const def of VT_CATALOG) {
@@ -211,6 +211,8 @@ export function buildReportV2(raw: unknown): ReportV2 {
       items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, ...(x.masked ? { masked: true } : {}), sensitivity: def.sensitivity, tier: def.tier, high: def.high && x.state === 'ALERT' ? true : undefined });
     }
   }
+  // Detalhes opcionais (leilão, roubo/furto, recall) só existem quando a fonte trouxe o registro.
+  if (vt) { const gone = defs.filter((d) => d.optional && items.get(d.key)?.state === 'NOT_PROVIDED'); for (const d of gone) items.delete(d.key); defs = defs.filter((d) => !gone.includes(d)); }
   const unknownFieldCount = Object.keys(upper).filter((k) => !CATALOG_BY_KEY.has(k)).length;
 
   // Débitos: multas pelo total (fallback soma dos componentes); nunca soma componente + total.

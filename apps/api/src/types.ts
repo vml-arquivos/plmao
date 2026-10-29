@@ -72,7 +72,8 @@ export interface VehicleDataProvider {
   name: string;
   /** Tipos de busca que a fonte atende. Ausente = só placa. */
   supportedSearchTypes?: readonly SearchType[];
-  queryByPlate(plate: string): Promise<{ providerQueryId?: string; raw: unknown }>;
+  /** `ctx.productId` deixa a fonte escolher a consulta certa para o pacote vendido (Credify); as demais ignoram. */
+  queryByPlate(plate: string, ctx?: { productId?: string }): Promise<{ providerQueryId?: string; raw: unknown }>;
   /** Busca por chassi, Renavam ou documento do proprietário. Só existe se a fonte atende o tipo. */
   queryBy?(type: SearchType, value: string): Promise<{ providerQueryId?: string; raw: unknown }>;
 }

@@ -21,7 +21,7 @@ export type AdminLookupResult = {
 };
 
 export async function performAdminLookup({ provider, plate, productId, productName, timeoutMs, normalize }: AdminLookupInput): Promise<AdminLookupResult> {
-  const output = await executeVehicleLookup({ provider, plate, timeoutMs, normalize });
+  const output = await executeVehicleLookup({ provider, plate, productId, timeoutMs, normalize });
   return {
     plate,
     productId,
