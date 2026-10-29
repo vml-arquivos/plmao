@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.18.2 — Login da Credify sempre fresco e com recuperação automática
+
+- Cada consulta usa um token com no máximo 3 minutos de vida (login novo se for mais velho), igual ao que o teste do painel faz. Antes o cliente usava o token guardado no servidor, que podia estar recusado pela Credify.
+- Login com falha de rede ou erro 5xx é repetido até 3 vezes. Se o login estiver fora do ar e ainda houver um token dentro da validade, a consulta segue com ele.
+- Token recusado dentro de uma resposta 200 ("token expirado") faz novo login e repete a consulta uma vez. Consulta sem resposta descarta o token, e a próxima começa com login novo.
+- O ciclo de renovação (a cada 30 min) agora faz login sempre e registra no log o sucesso ou o erro (`credify_login_failed`).
+- Painel > Integrações: o teste mostra o estado do token. Seis testes novos em `credify-provider.test.mjs`.
+
 ## 1.18.1 — Consulta lenta da fonte de dados passa a rodar em segundo plano
 
 - A consulta espera a Credify até 20 s (`QUERY_SYNC_WAIT_MS`). Se a fonte demorar mais, a tela vai para o relatório, que mostra "em processamento" e se atualiza sozinho a cada 3 s. O servidor continua a consulta e, no fim, grava o resultado ou estorna. Antes, o limite de 50 s encerrava a consulta com "a fonte de dados demorou para responder".

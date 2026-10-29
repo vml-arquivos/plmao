@@ -248,3 +248,63 @@ test('cada pacote usa a consulta certa da Credify: Completa = Veículo Total (46
   assert.equal((await run('COMPLETE', { path: '/debitosrestricoesproprietarios' })).body.Consulta.IdConsulta, '487'); // caminho global ganha
   resetCredifyTokenCache();
 });
+
+test('token com mais de 3 minutos é trocado por um login novo antes de consultar', async () => {
+  resetCredifyTokenCache();
+  let now = Date.parse('2026-10-21T12:00:00Z');
+  const t1 = jwt(Math.floor(now / 1000) + 24 * 3600); const t2 = jwt(Math.floor(now / 1000) + 25 * 3600);
+  const f = fakeFetch([{ body: { Success: true, Dados: t1 } }, { body: sample }, { body: { Success: true, Dados: t2 } }, { body: sample }]);
+  const p = new CredifyVehicleProvider({ ...base, fetchImpl: f, now: () => now });
+  await p.queryByPlate('AAA0000');
+  now += 4 * 60_000;
+  await p.queryByPlate('AAA0000');
+  assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 2);
+  assert.equal(f.calls[3].init.headers.authorization, `Bearer ${t2}`);
+  resetCredifyTokenCache();
+});
+
+test('login com falha de servidor é repetido e a consulta segue', async () => {
+  resetCredifyTokenCache();
+  const t = jwt(Math.floor(Date.now() / 1000) + 86400);
+  const f = fakeFetch([{ status: 503, body: { Message: 'indisponível' } }, { body: { Success: true, Dados: t } }, { body: sample }]);
+  const out = await new CredifyVehicleProvider({ ...base, fetchImpl: f }).queryByPlate('AAA0000');
+  assert.equal(out.raw.placa, 'AAA0000');
+  assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 2);
+  resetCredifyTokenCache();
+});
+
+test('login fora do ar com token anterior ainda válido: a consulta usa o token anterior', async () => {
+  resetCredifyTokenCache();
+  let now = Date.parse('2026-10-21T12:00:00Z');
+  const t = jwt(Math.floor(now / 1000) + 24 * 3600);
+  const down = { status: 503, body: {} };
+  const f = fakeFetch([{ body: { Success: true, Dados: t } }, { body: sample }, down, down, down, { body: sample }]);
+  const p = new CredifyVehicleProvider({ ...base, fetchImpl: f, now: () => now });
+  await p.queryByPlate('AAA0000');
+  now += 10 * 60_000;
+  const out = await p.queryByPlate('AAA0000');
+  assert.equal(out.raw.placa, 'AAA0000');
+  assert.equal(f.calls[f.calls.length - 1].init.headers.authorization, `Bearer ${t}`);
+  resetCredifyTokenCache();
+});
+
+test('200 com mensagem de token vencido: entra de novo e repete a consulta uma vez', async () => {
+  resetCredifyTokenCache();
+  const t1 = jwt(Math.floor(Date.now() / 1000) + 86400); const t2 = jwt(Math.floor(Date.now() / 1000) + 90000);
+  const f = fakeFetch([{ body: { Success: true, Dados: t1 } }, { body: { Success: false, Message: 'Token expirado' } }, { body: { Success: true, Dados: t2 } }, { body: sample }]);
+  const out = await new CredifyVehicleProvider({ ...base, fetchImpl: f }).queryByPlate('AAA0000');
+  assert.equal(out.raw.placa, 'AAA0000');
+  assert.equal(f.calls[3].init.headers.authorization, `Bearer ${t2}`);
+  resetCredifyTokenCache();
+});
+
+test('consulta sem resposta descarta o token: a próxima começa com login novo', async () => {
+  resetCredifyTokenCache();
+  const t1 = jwt(Math.floor(Date.now() / 1000) + 86400); const t2 = jwt(Math.floor(Date.now() / 1000) + 90000);
+  const f = fakeFetch([{ body: { Success: true, Dados: t1 } }, new Error('timeout'), { body: { Success: true, Dados: t2 } }, { body: sample }]);
+  const p = new CredifyVehicleProvider({ ...base, fetchImpl: f });
+  await assert.rejects(p.queryByPlate('AAA0000'), (e) => e.code === 'PROVIDER_TIMEOUT');
+  await p.queryByPlate('AAA0000');
+  assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 2);
+  resetCredifyTokenCache();
+});

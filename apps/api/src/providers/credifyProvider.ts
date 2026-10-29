@@ -45,18 +45,26 @@ function tokenExpiry(token: string, now: number): number {
   return now + 23 * 3600_000;
 }
 
-let shared: { token: string; expiresAt: number } | null = null;
+let shared: { token: string; expiresAt: number; issuedAt: number } | null = null;
+/** Token usado em consulta tem no máximo 3 min de vida: cada consulta roda com um login recente, como no teste do painel. */
+const FRESH_MS = 3 * 60_000;
+let lastLogin: { at: number; ok: boolean; error?: string } | null = null;
+/** Estado do login para o painel: idade do token, último login e último erro (sem expor o token). */
+export function credifyTokenStatus(now = Date.now()): { hasToken: boolean; ageSeconds: number | null; expiresInMinutes: number | null; lastLoginOk: boolean | null; lastLoginAt: string | null; lastError: string | null } {
+  return { hasToken: Boolean(shared), ageSeconds: shared ? Math.round((now - shared.issuedAt) / 1000) : null, expiresInMinutes: shared ? Math.max(0, Math.round((shared.expiresAt - now) / 60000)) : null, lastLoginOk: lastLogin?.ok ?? null, lastLoginAt: lastLogin ? new Date(lastLogin.at).toISOString() : null, lastError: lastLogin?.ok === false ? lastLogin.error ?? null : null };
+}
+const AUTH_TEXT = /token|autoriz|expir|n[ãa]o autenticad|unauthori[sz]ed|sess[ãa]o/i;
 /** A documentação diz "Bearer {token}", mas o esquema OpenAPI descreve o cabeçalho como chave direta. Guarda o formato que a Credify aceitou. */
 let authStyle: 'bearer' | 'raw' = 'bearer';
 let inflight: Promise<string> | null = null;
-export function resetCredifyTokenCache(): void { shared = null; inflight = null; authStyle = 'bearer'; }
+export function resetCredifyTokenCache(): void { shared = null; inflight = null; authStyle = 'bearer'; lastLogin = null; }
 
 /** Mantém o token sempre novo: ao subir e a cada 30 min renova se faltar menos de 2 h para vencer. Falha aqui só é registrada; a consulta tenta o login de novo. */
 export function startCredifyTokenKeeper(onError: (message: string) => void = () => undefined, provider = new CredifyVehicleProvider()): NodeJS.Timeout {
   const tick = async () => {
     try {
-      const left = shared ? shared.expiresAt - Date.now() : 0;
-      if (left < 2 * 3600_000) await provider.testConnection();
+      // Renova a cada ciclo (30 min): o token em uso nunca passa de poucos minutos e qualquer problema de login aparece no log na hora.
+      await provider.testConnection();
     } catch (e) { onError(e instanceof Error ? e.message : 'erro desconhecido'); }
   };
   void tick();
@@ -99,11 +107,11 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     return { baseUrl, clientId, clientSecret, path: normalizedPath, method, bodyTemplate, consultaId };
   }
 
-  private async http(url: string, init: RequestInit): Promise<Response> {
+  private async http(url: string, init: RequestInit, timeoutMs = this.o.timeoutMs): Promise<Response> {
     const startedAt = Date.now();
     const where = new URL(url).pathname;
     try {
-      const response = await (this.o.fetchImpl ?? fetch)(url, { ...init, signal: AbortSignal.timeout(this.o.timeoutMs) });
+      const response = await (this.o.fetchImpl ?? fetch)(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
       // Tempo de cada chamada à Credify no log, para saber se a lentidão é da fonte (e em qual consulta).
       log('info', 'credify_call', { path: where, status: response.status, ms: Date.now() - startedAt });
       return response;
@@ -119,15 +127,41 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
   /** Várias consultas ao mesmo tempo com o token vencido fazem um único login (os demais esperam o mesmo resultado). */
   private async token(force = false): Promise<string> {
     const now = (this.o.now ?? Date.now)();
-    if (!force && shared && shared.expiresAt > now) return shared.token;
+    if (!force && shared && shared.expiresAt > now && now - shared.issuedAt < FRESH_MS) return shared.token;
     if (inflight) return inflight;
-    inflight = this.login(now).finally(() => { inflight = null; });
+    const previous = shared;
+    inflight = this.loginWithRetry(now).catch((e) => {
+      // Login indisponível agora, mas ainda há um token dentro da validade: segue com ele em vez de derrubar a consulta.
+      if (!force && previous && previous.expiresAt > now && (e as { code?: string }).code !== 'DATA_PROVIDER_AUTH_FAILED') { log('warn', 'credify_login_failed_using_previous_token', { message: e instanceof Error ? e.message : 'erro' }); return previous.token; }
+      throw e;
+    }).finally(() => { inflight = null; });
     return inflight;
+  }
+
+  /** Até 3 tentativas para falha de rede ou 5xx; credencial recusada não é repetida. */
+  private async loginWithRetry(now: number): Promise<string> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const token = await this.login(now);
+        lastLogin = { at: Date.now(), ok: true };
+        if (attempt > 0) log('info', 'credify_login_recovered', { attempt: attempt + 1 });
+        return token;
+      } catch (e) {
+        lastError = e;
+        const code = (e as { code?: string }).code;
+        if (code !== 'PROVIDER_TIMEOUT' && code !== 'DATA_PROVIDER_UNAVAILABLE') break;
+        await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 400 : 1200));
+      }
+    }
+    lastLogin = { at: Date.now(), ok: false, error: lastError instanceof Error ? ((lastError as { detail?: string }).detail ?? lastError.message) : 'erro' };
+    log('warn', 'credify_login_failed', { code: (lastError as { code?: string }).code ?? null, detail: String((lastError as { detail?: string }).detail ?? '').slice(0, 200) });
+    throw lastError;
   }
 
   private async login(now: number): Promise<string> {
     const c = this.cfg();
-    const login = (secret: string | number) => this.http(`${c.baseUrl}/auth`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ ClientID: c.clientId, ClientSecret: secret }) });
+    const login = (secret: string | number) => this.http(`${c.baseUrl}/auth`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ ClientID: c.clientId, ClientSecret: secret }) }, Math.min(this.o.timeoutMs, 20_000));
     const numeric = /^[1-9]\d{0,14}$/.test(c.clientSecret);
     const valid = (r: Response, body: { Success?: boolean; Dados?: unknown } | null) => r.ok && Boolean(body) && body!.Success !== false && typeof body!.Dados === 'string' && Boolean(body!.Dados);
     const read = async (r: Response) => (r.ok ? await r.clone().json().catch(() => null) as { Success?: boolean; Message?: string; Dados?: unknown } | null : null);
@@ -138,7 +172,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     if (response.status === 401 || response.status === 403) throw fail('DATA_PROVIDER_AUTH_FAILED', `Login recusado (${await reason(response)}). Confira ClientID/ClientSecret e se o IP do servidor está em "IPs Autorizados" na Credify.`);
     if (!response.ok) throw fail('DATA_PROVIDER_UNAVAILABLE', `Login: ${await reason(response)}`);
     if (!json || json.Success === false || typeof json.Dados !== 'string' || !json.Dados) throw fail('DATA_PROVIDER_AUTH_FAILED', `Login sem token${json?.Message ? `: ${String(json.Message)}` : ''}. Confira ClientID/ClientSecret e o IP autorizado.`);
-    shared = { token: json.Dados, expiresAt: tokenExpiry(json.Dados, now) };
+    shared = { token: json.Dados, expiresAt: tokenExpiry(json.Dados, now), issuedAt: now };
     return json.Dados;
   }
 
@@ -191,7 +225,16 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       return this.http(url, init);
     };
     const other = (s: 'bearer' | 'raw') => (s === 'bearer' ? 'raw' : 'bearer');
-    let response = await call(await this.token(), authStyle);
+    const send = async (force = false): Promise<Response> => {
+      try {
+        return await call(await this.token(force), authStyle);
+      } catch (e) {
+        // Sem resposta da fonte: descarta o token para a próxima consulta começar com um login novo.
+        if ((e as { code?: string }).code === 'PROVIDER_TIMEOUT') shared = null;
+        throw e;
+      }
+    };
+    let response = await send();
     if (response.status === 401) {
       // 1) o outro formato de cabeçalho com o mesmo token; 2) token novo com os dois formatos.
       const alt = await call(await this.token(), other(authStyle));
@@ -207,9 +250,18 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     if (response.status === 408 || response.status === 429) throw fail('DATA_PROVIDER_RATE_LIMITED', await reason(response));
     if (response.status === 402) throw fail('DATA_PROVIDER_QUOTA_EXHAUSTED', await reason(response));
     if (!response.ok) throw fail('DATA_PROVIDER_UNAVAILABLE', `${await reason(response)}${response.status === 400 ? ` | pedido enviado a ${c.path}: ${sentBody}` : ''}`);
-    const text = await response.text().catch(() => '');
-    let raw: Record<string, any>;
-    try { raw = JSON.parse(text) as Record<string, any>; } catch { throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Resposta que não é JSON: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)}`); }
+    const read = async (r: Response): Promise<Record<string, any>> => {
+      const text = await r.text().catch(() => '');
+      try { return JSON.parse(text) as Record<string, any>; } catch { throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Resposta que não é JSON: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)}`); }
+    };
+    let raw = await read(response);
+    // A Credify às vezes devolve 200 com a mensagem de token inválido ou vencido: entra de novo e repete uma única vez.
+    if (raw && typeof raw === 'object' && !raw.RESPOSTA && AUTH_TEXT.test(String(raw.Message ?? raw.message ?? raw.MSG ?? ''))) {
+      log('warn', 'credify_token_rejected_in_body', { path: c.path });
+      shared = null;
+      const retry = await call(await this.token(true), authStyle);
+      if (retry.ok) raw = await read(retry);
+    }
     if (!raw || typeof raw !== 'object' || !raw.RESPOSTA) throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Resposta sem o bloco RESPOSTA (campos: ${Object.keys(raw ?? {}).slice(0, 8).join(', ') || 'nenhum'}${raw?.Message ? `; Message: ${String(raw.Message)}` : ''}).`);
     const outcome = providerOutcome(raw);
     if (outcome.notFound) throw fail('NOT_FOUND', 'Placa não encontrada na Credify.');

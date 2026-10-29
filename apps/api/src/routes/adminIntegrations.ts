@@ -6,7 +6,7 @@ import { isEmailConfigured, verifyEmailTransport } from '../email.js';
 import { appError, asyncRoute, audit, log, requestId } from '../lib/http.js';
 import { enqueueEmail } from '../lib/emailOutbox.js';
 import { requirePermission } from '../permissions.js';
-import { CredifyVehicleProvider } from '../providers/credifyProvider.js';
+import { CredifyVehicleProvider, credifyTokenStatus } from '../providers/credifyProvider.js';
 
 /**
  * Painel de integrações: mostra SE cada chave está configurada (nunca o valor), a URL de webhook a cadastrar
@@ -106,7 +106,7 @@ adminIntegrationsRouter.post('/integrations/vehicle/test', adminAuth, guard, asy
   try {
     const provider = new CredifyVehicleProvider();
     const r = await provider.testConnection();
-    result = { ok: true, expiresInMinutes: r.expiresInMinutes, serverIp, queryEnabled: env.DATA_PROVIDER === 'real' };
+    result = { ok: true, expiresInMinutes: r.expiresInMinutes, tokenStatus: credifyTokenStatus(), serverIp, queryEnabled: env.DATA_PROVIDER === 'real' };
     if (plate) {
       const t0 = Date.now();
       const out = await provider.queryByPlate(plate, { productId: productId || undefined });
