@@ -7,6 +7,8 @@ import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import { requirePermission } from '../permissions.js';
 import { SECTIONS } from '../report/catalog.js';
 import { sampleSections, samplePdf } from '../report/sample.js';
+import { SITEMAP_PATHS, pageMeta } from '../seo.js';
+import { invalidateSeo, seoChecks, seedFor, seoRows } from '../seoStore.js';
 
 /** Conteúdo público do site: catálogo (produtos, matriz e pacotes), FAQ e artigos. Só leitura, sem dados internos. */
 export const publicContentRouter = Router();
@@ -410,5 +412,67 @@ adminContentRouter.delete('/products/:id', asyncRoute(async (req, res) => {
     throw error;
   }
   await audit(req.user!.id, 'DELETE_QUERY_PRODUCT', 'QUERY_PRODUCT', String(req.params.id), { requestId: requestId(req) });
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- SEO por página (público: textos e perguntas que o app exibe)
+
+publicContentRouter.get('/seo/page', asyncRoute(async (req, res) => {
+  const path = String(req.query.path ?? '').slice(0, 120);
+  const row = (await seoRows()).get(path.length > 1 ? path.replace(/\/$/, '') : path);
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.json({ sections: row?.sections ?? [], faq: row?.faq ?? [] });
+}));
+
+// ---------------------------------------------------------------- SEO por página (painel)
+
+const seoBody = z.object({
+  path: z.string().max(120),
+  title: z.string().trim().max(120).nullable().default(null),
+  description: z.string().trim().max(300).nullable().default(null),
+  keyword: z.string().trim().max(80).nullable().default(null),
+  sections: z.array(z.object({ h: z.string().trim().min(1).max(140), p: z.string().trim().min(1).max(2500) }).strict()).max(12).default([]),
+  faq: z.array(z.object({ q: z.string().trim().min(1).max(220), a: z.string().trim().min(1).max(1500) }).strict()).max(25).default([]),
+  noindex: z.boolean().default(false)
+}).strict();
+const seoPath = (p: string) => { if (!SITEMAP_PATHS.includes(p)) throw appError('SEO_PATH_INVALID', { code: 'SEO_PATH_INVALID', http: 422, expose: true }); return p; };
+
+adminContentRouter.get('/seo/pages', asyncRoute(async (_req, res) => {
+  const rows = await seoRows();
+  res.json({ items: SITEMAP_PATHS.map((path) => {
+    const def = pageMeta[path]; const r = rows.get(path);
+    const title = r?.title || def.title; const description = r?.description || def.description;
+    const sections = r?.sections ?? []; const faq = r?.faq ?? [];
+    const checks = seoChecks({ title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasContent: sections.length > 0 || faq.length > 0 });
+    return { path, default: def, override: r ? { title: r.title, description: r.description, keyword: r.keyword, sections: r.sections, faq: r.faq, noindex: r.noindex } : null, title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasSeed: !!seedFor(path), checks, score: checks.filter((c) => c.ok).length, total: checks.length, updatedAt: r?.updatedAt ?? null };
+  }) });
+}));
+
+adminContentRouter.put('/seo/pages', asyncRoute(async (req, res) => {
+  const b = seoBody.safeParse(req.body);
+  if (!b.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const v = b.data; seoPath(v.path);
+  await pool.query(
+    `INSERT INTO seo_pages(path,title,description,keyword,sections,faq,noindex,updated_by,updated_at) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,now())
+     ON CONFLICT (path) DO UPDATE SET title=$2,description=$3,keyword=$4,sections=$5::jsonb,faq=$6::jsonb,noindex=$7,updated_by=$8,updated_at=now()`,
+    [v.path, v.title || null, v.description || null, v.keyword || null, JSON.stringify(v.sections), JSON.stringify(v.faq), v.noindex, req.user!.id]);
+  invalidateSeo();
+  await audit(req.user!.id, 'UPDATE_SEO_PAGE', 'SEO_PAGE', v.path, { noindex: v.noindex, requestId: requestId(req) });
+  res.json({ ok: true });
+}));
+
+/** Restaurar padrão: devolve o texto de fábrica da página (ou limpa a edição, se não houver texto de fábrica). */
+adminContentRouter.post('/seo/pages/reset', asyncRoute(async (req, res) => {
+  const b = z.object({ path: z.string().max(120) }).strict().safeParse(req.body);
+  if (!b.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const path = seoPath(b.data.path); const seed = seedFor(path);
+  if (seed) {
+    await pool.query(
+      `INSERT INTO seo_pages(path,title,description,keyword,sections,faq,noindex,updated_by,updated_at) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,false,$7,now())
+       ON CONFLICT (path) DO UPDATE SET title=$2,description=$3,keyword=$4,sections=$5::jsonb,faq=$6::jsonb,noindex=false,updated_by=$7,updated_at=now()`,
+      [path, seed.title ?? null, seed.description ?? null, seed.keyword, JSON.stringify(seed.sections ?? []), JSON.stringify(seed.faq), req.user!.id]);
+  } else await pool.query('DELETE FROM seo_pages WHERE path=$1', [path]);
+  invalidateSeo();
+  await audit(req.user!.id, 'RESET_SEO_PAGE', 'SEO_PAGE', path, { requestId: requestId(req) });
   res.json({ ok: true });
 }));

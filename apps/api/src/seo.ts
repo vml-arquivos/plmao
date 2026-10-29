@@ -1,6 +1,6 @@
 type SeoMeta = { title: string; description: string };
 
-const pageMeta: Record<string, SeoMeta> = {
+export const pageMeta: Record<string, SeoMeta> = {
   '/': { title: 'Consulta de placa: débitos, multas, gravame e histórico | Placa na Mão', description: 'Consulte a placa e receba o relatório do veículo em segundos: débitos, multas, restrições, gravame, histórico e FIPE. Sem mensalidade, com PDF.' },
   '/fipe': { title: 'Consulta FIPE grátis e em tempo real | Placa na Mão', description: 'Consulte gratuitamente o valor médio FIPE vigente por tipo, marca, modelo e ano.' },
   '/consulta-placa': { title: 'Consulta de placa veicular online | Placa na Mão', description: 'Consulte a placa, compare a cobertura disponível e receba um relatório veicular organizado para apoiar sua decisão.' },
@@ -44,7 +44,7 @@ let tags: GoogleTags = {};
 /** Códigos do Google/Bing (variáveis de ambiente). Viram meta tags no HTML; o app só carrega o gtag depois do aceite de cookies. */
 export function setGoogleTags(next: GoogleTags): void { tags = { ...next }; }
 
-export interface SeoOverride { title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string }
+export interface SeoOverride { title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string; noindex?: boolean }
 
 /** Rotas que o app conhece, inclusive as dinâmicas. Qualquer outra recebe 404 e noindex. */
 const DYNAMIC = /^\/(blog|veiculos|simulador|validar|validar-relatorio|contrato|documento-fiscal|app|painel|recuperar-senha|consultar|desenvolvedores|loja)(\/|$)/;
@@ -61,10 +61,10 @@ export function renderRobotsTxt(appUrl: string, adminHost: boolean): string {
   return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\nDisallow: /contrato/\nDisallow: /documento-fiscal/\nDisallow: /comparar?\n\nSitemap: ${base}/sitemap.xml\n`;
 }
 
-export function renderSitemapXml(appUrl: string, extra: Array<{ path: string; lastmod?: Date }> = []): string {
+export function renderSitemapXml(appUrl: string, extra: Array<{ path: string; lastmod?: Date }> = [], pages: Map<string, { noindex: boolean; updatedAt: Date }> = new Map()): string {
   const base = appUrl.replace(/\/$/, '');
   const articleUrls = extra.map((e) => `  <url><loc>${base}${e.path}</loc>${e.lastmod ? `<lastmod>${e.lastmod.toISOString().slice(0, 10)}</lastmod>` : ''}<changefreq>monthly</changefreq><priority>0.6</priority></url>`);
-  const urls = [...SITEMAP_PATHS.map((p) => `  <url><loc>${base}${p === '/' ? '/' : p}</loc><changefreq>${p === '/' || p === '/planos' ? 'weekly' : 'monthly'}</changefreq><priority>${p === '/' ? '1.0' : p === '/planos' || p === '/fipe' ? '0.9' : '0.7'}</priority></url>`), ...articleUrls].join('\n');
+  const urls = [...SITEMAP_PATHS.filter((p) => !pages.get(p)?.noindex).map((p) => `  <url><loc>${base}${p === '/' ? '/' : p}</loc>${pages.get(p) ? `<lastmod>${pages.get(p)!.updatedAt.toISOString().slice(0, 10)}</lastmod>` : ''}<changefreq>${p === '/' || p === '/planos' ? 'weekly' : 'monthly'}</changefreq><priority>${p === '/' ? '1.0' : p === '/planos' || p === '/fipe' ? '0.9' : '0.7'}</priority></url>`), ...articleUrls].join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 }
 
@@ -104,7 +104,7 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
     tags.adsId && tags.adsPurchaseLabel ? `<meta name="pnm-ads-purchase" content="${escapeHtml(tags.adsPurchaseLabel)}" />` : ''
   ].filter(Boolean).join('\n  ');
   const unknown = override.notFound || !isKnownPath(normalized);
-  const noindex = unknown || NOINDEX.test(normalized);
+  const noindex = unknown || NOINDEX.test(normalized) || !!override.noindex;
   const h1 = escapeHtml(unknown ? 'Página não encontrada' : meta.title.split(' | ')[0]);
   const intro = unknown ? 'O endereço que você abriu não existe ou foi removido.' : meta.description;
   const links = NAV.map(([href, label]) => `<li><a href="${href}">${escapeHtml(label)}</a></li>`).join('');

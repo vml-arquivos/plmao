@@ -1,7 +1,8 @@
 import { lazy, Suspense } from 'react';
 import ConsentBanner from './components/ConsentBanner';
 import SupportWidget from './components/SupportWidget';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import SeoContent from './components/SeoContent';
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { PageLoading } from '../shared/ui';
 import { AppLayout, PublicLayout, RequireAuth, ScrollManager } from './layouts';
 import { SEO_PAGES } from './content/seoPages';
@@ -73,6 +74,11 @@ function Home() {
   return <Landing />;
 }
 
+function SimulatorKind() {
+  const { tipo } = useParams();
+  return <><Simulator /><SeoContent path={`/simulador/${tipo ?? ''}`} faqTitle="Perguntas sobre financiamento" /></>;
+}
+
 export default function App() {
   useEffect(() => { captureReferral(); }, []);
   return (
@@ -88,15 +94,15 @@ export default function App() {
           <Route path="/recuperar-senha" element={<Auth initial="forgot" />} />
           <Route element={<PublicLayout />}>
             <Route path="/consultar" element={<GuestQuery />} />
-            <Route path="/fipe" element={<Fipe />} />
+            <Route path="/fipe" element={<><Fipe /><SeoContent path="/fipe" faqTitle="Perguntas sobre a Tabela FIPE" /></>} />
             <Route path="/veiculos" element={<GuideHome />} />
             <Route path="/veiculos/mais-economicos" element={<EconomyPage />} />
-            <Route path="/combustivel" element={<FuelPage />} />
+            <Route path="/combustivel" element={<><FuelPage /><SeoContent path="/combustivel" /></>} />
             <Route path="/veiculos/frota/:id" element={<CatalogVehiclePage />} />
             <Route path="/veiculos/:slug" element={<GuideModelPage />} />
-            <Route path="/comparar" element={<Compare />} />
-            <Route path="/simulador" element={<Simulator />} />
-            <Route path="/simulador/:tipo" element={<Simulator />} />
+            <Route path="/comparar" element={<><Compare /><SeoContent path="/comparar" /></>} />
+            <Route path="/simulador" element={<><Simulator /><SeoContent path="/simulador" faqTitle="Perguntas sobre financiamento" /></>} />
+            <Route path="/simulador/:tipo" element={<SimulatorKind />} />
             <Route path="/planos" element={<PlansPage />} />
             <Route path="/desenvolvedores" element={<Navigate to="/" replace />} />
             <Route path="/perguntas-frequentes" element={<FaqPage />} />

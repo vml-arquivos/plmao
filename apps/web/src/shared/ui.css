@@ -242,3 +242,10 @@ h2 { font-size: 18px; }
 .btn-primary { --b-bg: var(--primary); background: var(--primary); box-shadow: none; }
 .btn-primary:hover { background: var(--primary-hover); box-shadow: none; filter: none; }
 .chat-quick{justify-self:start;max-width:100%;padding:6px 10px;border-radius:10px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font:inherit;font-size:13px}
+.seo-preview{display:grid;gap:2px;max-width:600px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+.seo-url{font-size:13px;color:#188038}
+.seo-title{font-size:19px;line-height:1.3;color:#1a0dab;font-weight:400;overflow-wrap:anywhere}
+.seo-desc{font-size:14px;line-height:1.5;color:var(--text-2);font-weight:300}
+:root[data-theme="dark"] .seo-title{color:#8ab4f8}
+:root[data-theme="dark"] .seo-url{color:#81c995}
+ul.plain{list-style:none;padding:0;margin:0;display:grid;gap:6px}

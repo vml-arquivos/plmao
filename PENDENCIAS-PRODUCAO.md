@@ -1,4 +1,4 @@
-# Pendências para produção (1.16.0)
+# Pendências para produção (1.17.0)
 
 ## Roteiro de configuração (teste e produção)
 
@@ -27,6 +27,7 @@ Tudo é opcional e só liga quando a variável existe. O script do Google só ca
 6. Bing Webmaster (opcional): importe o site do Search Console, ou use `BING_SITE_VERIFICATION`.
 7. No GA4, marque como eventos principais: `purchase`, `sign_up`, `begin_checkout`. Eventos enviados: `page_view`, `plate_search`, `fipe_search`, `fipe_result`, `sign_up`, `view_item`, `begin_checkout`, `cta_click`, `purchase`. Caminhos são enviados sem placa, e-mail ou parâmetros.
 8. Depois do deploy, use Ctrl+Shift+R (o app é PWA e guarda a versão antiga).
+9. SEO das páginas: tudo vem preenchido. Para ajustar título, descrição, textos e perguntas, use Painel > SEO e Google. Guia em `docs/SEO-GUIA.md`.
 
 ## Antes de qualquer cobrança ou consulta real
 

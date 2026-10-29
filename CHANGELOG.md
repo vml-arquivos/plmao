@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.17.0 — SEO por página pronto e editável no painel
+
+- Nova tela "SEO e Google" no painel: título, descrição, palavra-chave, textos e perguntas frequentes de cada página, com prévia de como aparece no Google e lista de verificação (como num plugin de SEO). Dá para tirar uma página do Google e restaurar o texto padrão.
+- Conteúdo de fábrica para as buscas principais: Tabela FIPE, simulador de financiamento (geral, carro, moto, caminhão e utilitário), etanol ou gasolina, comparador, consulta de placa e veicular, gravame, débitos, multas, sinistro, leilão, recall, histórico e preços. Cada página traz textos e de 3 a 7 perguntas frequentes, também exibidos na tela.
+- O HTML inicial de cada página já leva título, descrição, textos, perguntas frequentes e dados estruturados (FAQ, aplicativo, trilha de navegação). Sitemap com data de atualização e sem as páginas marcadas como fora do Google.
+- Migração `050_seo_pages`. Testes novos: `seo-pages.test.mjs`. Guia em `docs/SEO-GUIA.md`.
+
 ## 1.16.0 — Chat de suporte com assistente "Renata", painel de atendimento e relato de problemas
 
 - Botão de chat no canto da tela, no site e no app instalado (PWA). Visitante conversa com a assistente sem criar conta; quem está logado tem a conversa salva e pode chamar uma pessoa a qualquer momento.

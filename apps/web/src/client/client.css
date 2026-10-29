@@ -1157,3 +1157,8 @@
 @media (max-width: 560px) { .sw-panel { width: calc(100vw - 32px); } }
 @media print { .sw { display: none; } }
 @media (prefers-reduced-motion: reduce) { .sw-panel, .sw-typing i { animation: none; } }
+
+/* ---- conteúdo de SEO das páginas ---- */
+.seo-block { margin-bottom: 26px; }
+.seo-block h2 { font-size: 22px; font-weight: 400; margin: 0 0 8px; }
+.seo-block p { margin: 0; font-weight: 300; line-height: 1.65; color: var(--text-2); }

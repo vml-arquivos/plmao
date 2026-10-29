@@ -1783,5 +1783,31 @@ export const placaMigrations: Migration[] = [
       for (const [title, body, category] of canned) await client.query(`INSERT INTO support_canned_replies(title,body,category) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, [title, body, category]);
     },
     down: async (client) => { await client.query('DROP TABLE IF EXISTS support_problem_reports; DROP TABLE IF EXISTS support_canned_replies;'); }
+  },
+  {
+    id: '050_seo_pages',
+    name: 'SEO por página: título, descrição, palavra-chave, textos e perguntas frequentes editáveis no painel',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS seo_pages (
+          path text PRIMARY KEY,
+          title text,
+          description text,
+          keyword text,
+          sections jsonb NOT NULL DEFAULT '[]'::jsonb,
+          faq jsonb NOT NULL DEFAULT '[]'::jsonb,
+          noindex boolean NOT NULL DEFAULT false,
+          updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+      `);
+      const { SEO_SEED } = await import('./seoSeed.js');
+      for (const r of SEO_SEED) {
+        await client.query(
+          `INSERT INTO seo_pages(path,title,description,keyword,sections,faq) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb) ON CONFLICT (path) DO NOTHING`,
+          [r.path, r.title ?? null, r.description ?? null, r.keyword, JSON.stringify(r.sections ?? []), JSON.stringify(r.faq)]);
+      }
+    },
+    down: async (client) => { await client.query('DROP TABLE IF EXISTS seo_pages;'); }
   }
 ];

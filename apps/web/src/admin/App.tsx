@@ -25,6 +25,7 @@ import Testimonials from './pages/Testimonials';
 import Integrations from './pages/Integrations';
 import VehicleGuide, { VehicleEdit } from './pages/Vehicles';
 import Articles from './pages/Articles';
+import Seo from './pages/Seo';
 import Partners from './pages/Partners';
 import System from './pages/System';
 import Account from './pages/Account';
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="depoimentos" element={<Testimonials />} />
         <Route path="integracoes" element={<Integrations />} />
         <Route path="artigos" element={<Articles />} />
+        <Route path="seo" element={<Seo />} />
         <Route path="pagamentos" element={<Payments />} />
         <Route path="cupons" element={<Coupons />} />
         <Route path="parceiros" element={<Partners />} />

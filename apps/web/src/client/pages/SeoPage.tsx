@@ -7,6 +7,7 @@ import { SEO_BY_PATH } from '../content/seoPages';
 import { useSession } from '../session';
 import PlateSearch from '../components/PlateSearch';
 import { useFaqs } from '../components/Faq';
+import { useSeoContent } from '../components/SeoContent';
 
 const TOOLS = [
   { to: '/fipe', icon: 'tag', title: 'Valor FIPE', text: 'Preço médio do veículo, grátis.' },
@@ -21,7 +22,8 @@ export default function SeoPage({ path }: { path: string }) {
   usePageTitle(page.title);
   const { data: faqs } = useFaqs();
   useEffect(() => { trackFunnel('SEO_PAGE_VIEW', { landing: path, intent: page.intent }); }, [path, page.intent]);
-  const faq = [...(page.faq ?? []), ...(faqs ?? []).slice(0, 3).map((f) => ({ q: f.question, a: f.answer }))];
+  const seo = useSeoContent(path);
+  const faq = seo && seo.faq.length ? seo.faq : [...(page.faq ?? []), ...(faqs ?? []).slice(0, 3).map((f) => ({ q: f.question, a: f.answer }))];
   return (
     <>
       <section className="page-hero">

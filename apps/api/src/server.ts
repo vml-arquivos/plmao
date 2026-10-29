@@ -80,6 +80,7 @@ import { scoreModelMatch } from './lib/vehicleSpecs.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
 import { scopeForProduct } from './lib/reportScope.js';
+import { seoBodyHtml, seoFaqLd, seoRows } from './seoStore.js';
 import { isKnownPath, renderRobotsTxt, renderSeoHtml, renderSitemapXml, setGoogleTags, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import { cancelAllProcessing, cancelPaidQuery, cancelProcessingQuery } from './lib/queryCancel.js';
@@ -2970,7 +2971,8 @@ app.get('/sitemap.xml', asyncRoute(async (req, res) => {
   const vehicles = await pool.query(`SELECT slug,updated_at FROM vehicle_models WHERE status='PUBLISHED' AND archived_at IS NULL ORDER BY brand,name LIMIT 5000`);
   const stores = await pool.query(`SELECT slug,updated_at FROM dealerships WHERE public_enabled AND active AND archived_at IS NULL ORDER BY created_at LIMIT 2000`);
   res.type('application/xml').setHeader('Cache-Control', 'public, max-age=3600');
-  return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN, [...articles.map((a) => ({ path: `/blog/${a.slug}`, lastmod: a.updatedAt })), ...vehicles.rows.map((v) => ({ path: `/veiculos/${v.slug}`, lastmod: v.updated_at as Date })), ...stores.rows.map((s) => ({ path: `/loja/${s.slug}`, lastmod: s.updated_at as Date }))]));
+  const seoPagesMap = await seoRows();
+  return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN, [...articles.map((a) => ({ path: `/blog/${a.slug}`, lastmod: a.updatedAt })), ...vehicles.rows.map((v) => ({ path: `/veiculos/${v.slug}`, lastmod: v.updated_at as Date })), ...stores.rows.map((s) => ({ path: `/loja/${s.slug}`, lastmod: s.updated_at as Date }))], seoPagesMap));
 }));
 const hasAdminHosts = adminHosts().length > 0;
 // Duas frentes: bundle admin (admin.html + assets/admin-*) só é entregue no host do painel (ou em /painel quando não há host dedicado, apenas dev).
@@ -3042,6 +3044,17 @@ app.get('*', asyncRoute(async (req, res, next) => {
   } else if (req.path.replace(/\/$/, '') === '/perguntas-frequentes') {
     const faqs = await pool.query('SELECT question,answer FROM faqs WHERE active=true ORDER BY display_order,created_at LIMIT 60');
     if (faqs.rowCount) override = { bodyHtml: `<section>${faqs.rows.slice(0, 30).map((f) => `<h2>${escapeHtmlText(f.question)}</h2><p>${escapeHtmlText(f.answer)}</p>`).join('')}</section>`, jsonLd: [{ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.rows.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })) }] };
+  }
+  if (!override.notFound) {
+    const seoRow = (await seoRows()).get(req.path.length > 1 ? req.path.replace(/\/$/, '') : req.path);
+    if (seoRow) {
+      if (seoRow.title && !override.title) override.title = seoRow.title;
+      if (seoRow.description && !override.description) override.description = seoRow.description;
+      if (!override.bodyHtml) override.bodyHtml = seoBodyHtml(seoRow);
+      const faqLd = seoFaqLd(seoRow);
+      if (faqLd && !(override.jsonLd ?? []).some((o) => (o as { '@type'?: string })['@type'] === 'FAQPage')) override.jsonLd = [...(override.jsonLd ?? []), faqLd];
+      if (seoRow.noindex) override.noindex = true;
+    }
   }
   if (!isKnownPath(req.path)) { res.status(404); override = { notFound: true }; }
   const page = renderSeoHtml(indexHtmlTemplate, req.path, env.APP_URL ?? env.WEB_ORIGIN, override);
