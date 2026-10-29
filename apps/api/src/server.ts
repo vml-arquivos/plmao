@@ -80,7 +80,7 @@ import { scoreModelMatch } from './lib/vehicleSpecs.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
 import { scopeForProduct } from './lib/reportScope.js';
-import { isKnownPath, renderRobotsTxt, renderSeoHtml, renderSitemapXml, type SeoOverride } from './seo.js';
+import { isKnownPath, renderRobotsTxt, renderSeoHtml, renderSitemapXml, setGoogleTags, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import { cancelAllProcessing, cancelPaidQuery, cancelProcessingQuery } from './lib/queryCancel.js';
 import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle, VehicleDataProvider } from './types.js';
@@ -457,6 +457,10 @@ app.use((req, res, next) => {
   res.on('finish', () => log('info', 'request_complete', { requestId: id, method: req.method, path: req.path, status: res.statusCode, durationMs: Math.round(performance.now() - started) }));
   next();
 });
+setGoogleTags({ gaId: env.GA_MEASUREMENT_ID, adsId: env.GOOGLE_ADS_ID, adsPurchaseLabel: env.GOOGLE_ADS_PURCHASE_LABEL, googleVerification: env.GOOGLE_SITE_VERIFICATION, bingVerification: env.BING_SITE_VERIFICATION });
+const googleTagsOn = Boolean(env.GA_MEASUREMENT_ID || env.GOOGLE_ADS_ID);
+const GOOGLE_SCRIPT = ['https://www.googletagmanager.com'];
+const GOOGLE_CONNECT = ['https://www.google-analytics.com', 'https://*.google-analytics.com', 'https://*.analytics.google.com', 'https://*.googletagmanager.com', 'https://www.google.com', 'https://googleads.g.doubleclick.net', 'https://*.g.doubleclick.net'];
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -465,11 +469,11 @@ app.use(helmet({
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
       formAction: ["'self'"],
-      scriptSrc: ["'self'"],
+      scriptSrc: ["'self'", ...(googleTagsOn ? GOOGLE_SCRIPT : [])],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
       fontSrc: ["'self'", 'data:', 'https:'],
-      connectSrc: ["'self'", env.WEB_ORIGIN],
+      connectSrc: ["'self'", env.WEB_ORIGIN, ...(googleTagsOn ? GOOGLE_CONNECT : [])],
       ...(env.NODE_ENV === 'production' ? { upgradeInsecureRequests: [] } : {})
     }
   },
@@ -2997,6 +3001,21 @@ app.get('*', asyncRoute(async (req, res, next) => {
     const meta = await articleSeo(article[1]);
     if (!meta) { res.status(404); override = { notFound: true }; }
     else override = { title: `${meta.title} | Placa na Mão`, description: meta.description, jsonLd: [{ '@context': 'https://schema.org', '@type': 'Article', headline: meta.title, description: meta.description, datePublished: meta.publishedAt, dateModified: meta.updatedAt, inLanguage: 'pt-BR', author: { '@type': 'Organization', name: meta.author }, publisher: { '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/` }, mainEntityOfPage: `${baseUrl}/blog/${article[1]}` }] };
+  } else if (req.path === '/') {
+    const [prods, faqs] = await Promise.all([
+      pool.query(`SELECT id,name,description,price_cents FROM query_products WHERE active=true AND commercial_status='ACTIVE' AND NOT is_free ORDER BY display_order,price_cents`),
+      pool.query('SELECT question,answer FROM faqs WHERE active=true ORDER BY display_order,created_at LIMIT 6')
+    ]);
+    const money = (c: number) => (c / 100).toFixed(2);
+    const brl = (c: number) => `R$ ${money(c).replace('.', ',')}`;
+    const jsonLd: unknown[] = [
+      { '@context': 'https://schema.org', '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/`, logo: `${baseUrl}/brand/og-image.png` },
+      { '@context': 'https://schema.org', '@type': 'WebSite', name: 'Placa na Mão', url: `${baseUrl}/`, inLanguage: 'pt-BR', potentialAction: { '@type': 'SearchAction', target: { '@type': 'EntryPoint', urlTemplate: `${baseUrl}/consultar?placa={placa}` }, 'query-input': 'required name=placa' } }
+    ];
+    if (prods.rowCount) jsonLd.push({ '@context': 'https://schema.org', '@type': 'ItemList', name: 'Consultas veiculares', itemListElement: prods.rows.map((p, i) => ({ '@type': 'ListItem', position: i + 1, item: { '@type': 'Product', name: p.name, description: p.description, brand: { '@type': 'Brand', name: 'Placa na Mão' }, offers: { '@type': 'Offer', priceCurrency: 'BRL', price: money(Number(p.price_cents)), availability: 'https://schema.org/InStock', url: `${baseUrl}/planos` } } })) });
+    if (faqs.rowCount) jsonLd.push({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.rows.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })) });
+    const list = prods.rows.map((p) => `<li><h3>${escapeHtmlText(p.name)} · ${brl(Number(p.price_cents))}</h3><p>${escapeHtmlText(p.description)}</p></li>`).join('');
+    override = { jsonLd, bodyHtml: `<section><h2>Consultas veiculares por placa</h2><ul>${list}</ul><p>Sem mensalidade: você paga só pela consulta que fizer, com preço visível antes do pagamento e relatório em PDF com código de validação.</p><p><a href="/planos">Compare as consultas e os preços</a> · <a href="/simulador">Simulador de financiamento</a> · <a href="/veiculos">Guia de veículos</a></p></section>` };
   } else if (/^\/veiculos\/[a-z0-9-]+\/?$/.test(req.path)) {
     const v = await pool.query(`SELECT brand,name,summary,year_from,year_to,body_type FROM vehicle_models WHERE slug=$1 AND status='PUBLISHED' AND archived_at IS NULL`, [req.path.split('/')[2]]);
     if (!v.rowCount) { res.status(404); override = { notFound: true }; }

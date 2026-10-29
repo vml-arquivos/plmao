@@ -1,4 +1,4 @@
-# Pendências para produção (1.14.0)
+# Pendências para produção (1.15.0)
 
 ## Roteiro de configuração (teste e produção)
 
@@ -14,6 +14,19 @@ Fazer nesta ordem. Teste e produção usam as mesmas variáveis; só mudam os va
 
 
 O que o código já faz está no CHANGELOG. Aqui está só o que falta, quem precisa decidir e o que fica desligado até lá. Nada foi ligado, testado contra serviço real nem publicado.
+
+## Google: Analytics, Ads e Search Console
+
+Tudo é opcional e só liga quando a variável existe. O script do Google só carrega depois que o visitante aceita os cookies.
+
+1. **Site aberto**: confira `SITE_MODE=public`. Em `prelaunch` o site sai com noindex e o Google não indexa.
+2. **Analytics (GA4)**: crie a propriedade em analytics.google.com, fluxo de dados Web com o endereço do site. O ID `G-K2JKXQZDQN` já vem no código; só defina `GA_MEASUREMENT_ID` para trocar.
+3. **Google Ads**: em Metas > Conversões, crie a conversão "Compra" (site). Copie o ID `AW-...` para `GOOGLE_ADS_ID` e o rótulo para `GOOGLE_ADS_PURCHASE_LABEL`. A conversão dispara quando o pagamento é confirmado (valor e id da transação vão junto, sem repetir).
+4. **Search Console**: adicione a propriedade "Prefixo do URL" com `https://placanamao.com.br/`, escolha "Tag HTML" e copie só o valor de `content` para `GOOGLE_SITE_VERIFICATION`. Faça o deploy e clique em Verificar.
+5. Em Search Console > Sitemaps, envie `https://placanamao.com.br/sitemap.xml`. Depois, em Inspeção de URL, peça indexação da home, /fipe, /simulador, /simulador/carro, /consulta-placa e /planos.
+6. Bing Webmaster (opcional): importe o site do Search Console, ou use `BING_SITE_VERIFICATION`.
+7. No GA4, marque como eventos principais: `purchase`, `sign_up`, `begin_checkout`. Eventos enviados: `page_view`, `plate_search`, `fipe_search`, `fipe_result`, `sign_up`, `view_item`, `begin_checkout`, `cta_click`, `purchase`. Caminhos são enviados sem placa, e-mail ou parâmetros.
+8. Depois do deploy, use Ctrl+Shift+R (o app é PWA e guarda a versão antiga).
 
 ## Antes de qualquer cobrança ou consulta real
 

@@ -5,6 +5,7 @@ import { LinkButton, Skeleton } from '../../shared/ui';
 import { api } from '../api';
 import { ModelCard, type GuideCard } from '../guide';
 import { SimulatorWidget } from '../pages/Simulator';
+import { KINDS } from '../simulator';
 
 const SIM_POINTS: Array<{ icon: IconName; t: string }> = [
   { icon: 'percent', t: 'Taxa média de mercado do Banco Central, ou a taxa da sua proposta' },
@@ -23,9 +24,11 @@ export function HomeSimulator() {
           <h2>Quanto custa financiar o seu veículo? Veja antes de ir ao banco.</h2>
           <p className="muted">Simule CDC ou leasing com a taxa média de mercado, IOF e tarifas, e descubra a parcela, o CET e o custo total. Funciona para carro, moto, caminhão e qualquer outro veículo.</p>
           <ul className="checklist">{SIM_POINTS.map((p) => <li key={p.t}><Icon name="check-circle" size={20} />{p.t}</li>)}</ul>
-          <div className="row" style={{ marginTop: 22 }}>
+          <div className="sim-kinds" aria-label="Simular por tipo de veículo">
+            {KINDS.map((k) => <Link key={k.key} to={`/simulador/${k.slug}`} className="sim-kind"><Icon name={k.icon} size={20} /><span>{k.short}</span></Link>)}
+          </div>
+          <div className="row" style={{ marginTop: 18 }}>
             <LinkButton to="/simulador" variant="primary" iconRight="arrow-right">Abrir o simulador completo</LinkButton>
-            <LinkButton to="/simulador/caminhao" icon="truck">Financiar caminhão</LinkButton>
           </div>
         </div>
         <SimulatorWidget />

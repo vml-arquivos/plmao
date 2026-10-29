@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { trackPurchase } from '../analytics';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
 import { Alert, Button, PlateBadge, usePageTitle, useToast } from '../../shared/ui';
@@ -41,6 +42,7 @@ export default function PaidQueryReturn() {
     setPhase('running'); setStep(0); setError('');
     try {
       const r = await api.post<{ id: string }>('/queries', { searchType: o.searchType ?? 'PLATE', searchValue: o.plate, productId: o.productId, paymentOrderId: o.orderId }, { headers: { 'Idempotency-Key': `pnm-pay-${o.orderId}` } });
+      trackPurchase({ id: o.orderId, valueCents: o.amountCents, item: o.productId });
       open(r.id);
     } catch (e) {
       // Já executada (outra aba, atualização da página): abre a consulta que existe.

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.15.0 — Home de alta conversão: cards, pop-up, pacotes, simulador e SEO
+
+- Cards de consulta maiores e alinhados, só com os 4 itens principais; botões "Consultar agora", "Ver detalhes" e "Ver modelo do PDF".
+- "Ver detalhes" abre pop-up organizado (por seção, com preço e descrição); aba "Comparar" mostra o que cada consulta cobre por seção.
+- Home na ordem: topo, consultas, pacotes de saldo, "Conheça os nossos pacotes personalizados" (lojistas e empresas), simulador, como funciona, guia de veículos.
+- Simulador da home: atalhos por tipo de veículo, valores rápidos, escolha do modelo pela FIPE e comparação com leasing.
+- SEO da home: novo título e descrição, dados estruturados (Organization, WebSite com busca por placa, lista de consultas com preço, FAQ) e texto com as consultas e preços para o Google.
+- Google: Analytics (GA4), tag do Google Ads com conversão de compra e verificação do Search Console/Bing, tudo por variável de ambiente (`GA_MEASUREMENT_ID`, `GOOGLE_ADS_ID`, `GOOGLE_ADS_PURCHASE_LABEL`, `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION`). O script só carrega depois do aceite de cookies (aviso novo + "Preferências de cookies" no rodapé); a política de privacidade ganhou a seção de cookies.
+- Eventos do funil espelhados no GA4 (busca de placa, FIPE, cadastro, checkout, compra), sempre sem placa, e-mail ou parâmetros na URL.
+- SEO das ferramentas: dados estruturados de aplicativo (FIPE, simuladores, combustível, comparador) e trilha de navegação (BreadcrumbList) nas páginas internas.
+- Teste novo: `seo-google.test.mjs`.
+
 ## 1.14.0 — Modelo do PDF e detalhamento de cada consulta, home nova
 
 - Modelo do PDF de cada consulta, com dados fictícios e marca d'água (`/api/catalog/:id/modelo.pdf`, público). Mostra exatamente as seções que o cliente recebe naquele produto.

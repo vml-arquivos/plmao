@@ -1,7 +1,7 @@
 type SeoMeta = { title: string; description: string };
 
 const pageMeta: Record<string, SeoMeta> = {
-  '/': { title: 'Placa na Mão | Consulta e inteligência veicular', description: 'Comece pela FIPE grátis e avance para consultas veiculares com cobertura clara, histórico e PDF.' },
+  '/': { title: 'Consulta de placa: débitos, multas, gravame e histórico | Placa na Mão', description: 'Consulte a placa e receba o relatório do veículo em segundos: débitos, multas, restrições, gravame, histórico e FIPE. Sem mensalidade, com PDF.' },
   '/fipe': { title: 'Consulta FIPE grátis e em tempo real | Placa na Mão', description: 'Consulte gratuitamente o valor médio FIPE vigente por tipo, marca, modelo e ano.' },
   '/consulta-placa': { title: 'Consulta de placa veicular online | Placa na Mão', description: 'Consulte a placa, compare a cobertura disponível e receba um relatório veicular organizado para apoiar sua decisão.' },
   '/consulta-veicular': { title: 'Consulta veicular completa online | Placa na Mão', description: 'Entenda o que uma consulta veicular pode verificar e escolha a cobertura adequada para sua negociação.' },
@@ -38,6 +38,11 @@ const pageMeta: Record<string, SeoMeta> = {
 /** Páginas públicas indexáveis (entram no sitemap). Telas de conta e do app ficam de fora. */
 export const SITEMAP_PATHS: string[] = Object.keys(pageMeta).filter((p) => !['/entrar', '/criar-conta'].includes(p));
 const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|contrato|documento-fiscal|validar|validar-relatorio|consultar|veiculos\/frota|desenvolvedores)(\/|$)/;
+
+export interface GoogleTags { gaId?: string; adsId?: string; adsPurchaseLabel?: string; googleVerification?: string; bingVerification?: string }
+let tags: GoogleTags = {};
+/** Códigos do Google/Bing (variáveis de ambiente). Viram meta tags no HTML; o app só carrega o gtag depois do aceite de cookies. */
+export function setGoogleTags(next: GoogleTags): void { tags = { ...next }; }
 
 export interface SeoOverride { title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string }
 
@@ -85,7 +90,19 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
     isPartOf: { '@type': 'WebSite', name: 'Placa na Mão', url: `${baseUrl}/` },
     publisher: { '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/` }
   }).replace(/</g, '\\u003c');
-  const extraLd = (override.jsonLd ?? []).map((o) => `<script type="application/ld+json">${JSON.stringify(o).replace(/</g, '\\u003c')}</script>`).join('\n  ');
+  const labelOf = (path: string) => (pageMeta[path]?.title ?? '').split(' | ')[0];
+  const crumbs = normalized === '/' ? [] : normalized.split('/').filter(Boolean).map((_, i, arr) => '/' + arr.slice(0, i + 1).join('/')).map((path) => ({ path, name: labelOf(path) })).filter((c) => c.name);
+  const breadcrumb = crumbs.length ? [{ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Início', item: `${baseUrl}/` }, ...crumbs.map((c, i) => ({ '@type': 'ListItem', position: i + 2, name: c.name, item: `${baseUrl}${c.path}` }))] }] : [];
+  const TOOLS: Record<string, string> = { '/fipe': 'UtilitiesApplication', '/simulador': 'FinanceApplication', '/simulador/carro': 'FinanceApplication', '/simulador/moto': 'FinanceApplication', '/simulador/caminhao': 'FinanceApplication', '/simulador/utilitario': 'FinanceApplication', '/combustivel': 'UtilitiesApplication', '/comparar': 'UtilitiesApplication' };
+  const toolLd = TOOLS[normalized] ? [{ '@context': 'https://schema.org', '@type': 'WebApplication', name: meta.title.split(' | ')[0], url: canonical, description: meta.description, applicationCategory: TOOLS[normalized], operatingSystem: 'Web', inLanguage: 'pt-BR', offers: { '@type': 'Offer', price: '0', priceCurrency: 'BRL' }, publisher: { '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/` } }] : [];
+  const extraLd = [...(override.jsonLd ?? []), ...breadcrumb, ...toolLd].map((o) => `<script type="application/ld+json">${JSON.stringify(o).replace(/</g, '\\u003c')}</script>`).join('\n  ');
+  const metaTags = [
+    tags.googleVerification ? `<meta name="google-site-verification" content="${escapeHtml(tags.googleVerification)}" />` : '',
+    tags.bingVerification ? `<meta name="msvalidate.01" content="${escapeHtml(tags.bingVerification)}" />` : '',
+    tags.gaId ? `<meta name="pnm-ga" content="${escapeHtml(tags.gaId)}" />` : '',
+    tags.adsId ? `<meta name="pnm-ads" content="${escapeHtml(tags.adsId)}" />` : '',
+    tags.adsId && tags.adsPurchaseLabel ? `<meta name="pnm-ads-purchase" content="${escapeHtml(tags.adsPurchaseLabel)}" />` : ''
+  ].filter(Boolean).join('\n  ');
   const unknown = override.notFound || !isKnownPath(normalized);
   const noindex = unknown || NOINDEX.test(normalized);
   const h1 = escapeHtml(unknown ? 'Página não encontrada' : meta.title.split(' | ')[0]);
@@ -104,5 +121,5 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
     .replace(/<meta property="og:url" content="[^"]*"\s*\/>/, `<meta property="og:url" content="${escapeHtml(canonical)}" />`)
     .replace(/<meta name="twitter:title" content="[^"]*"\s*\/>/, `<meta name="twitter:title" content="${title}" />`)
     .replace(/<meta name="twitter:description" content="[^"]*"\s*\/>/, `<meta name="twitter:description" content="${description}" />`)
-    .replace('</head>', `<script id="pnm-route-schema" type="application/ld+json">${routeSchema}</script>${extraLd ? `\n  ${extraLd}` : ''}\n  </head>`);
+    .replace('</head>', `<script id="pnm-route-schema" type="application/ld+json">${routeSchema}</script>${extraLd ? `\n  ${extraLd}` : ''}${metaTags ? `\n  ${metaTags}` : ''}\n  </head>`);
 }

@@ -98,6 +98,31 @@ export default function Landing() {
         </div>
       </section>
 
+      <section className="section" id="pacotes">
+        <div className="container stack-lg">
+          <div className="section-head" style={{ marginBottom: 0 }}><span className="eyebrow">Pacotes de saldo</span><h2>Consulte mais e pague menos por consulta.</h2><p>Recarregue o saldo uma vez e use em qualquer consulta. Sem mensalidade e sem validade curta.</p></div>
+          <PackageCards />
+        </div>
+      </section>
+
+      <section className="section custom-pack" aria-labelledby="custom-title">
+        <div className="container">
+          <div className="custom-card">
+            <div>
+              <span className="eyebrow">Para lojistas e empresas</span>
+              <h2 id="custom-title">Conheça os nossos pacotes personalizados.</h2>
+              <p>Consultas em volume com preço por consulta menor, acesso da equipe, histórico centralizado e a sua loja com vitrine, estoque e clientes. Montamos o pacote de acordo com o seu movimento.</p>
+            </div>
+            <div className="custom-cta">
+              <LinkButton to="/para-lojistas" variant="primary" size="lg" iconRight="arrow-right">Ver pacotes para lojistas</LinkButton>
+              <Link to="/contato" className="linkbtn">Falar com a equipe</Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <HomeSimulator />
+
       <section className="section" id="como-funciona">
         <div className="container">
           <div className="section-head"><span className="eyebrow">Como funciona</span><h2>Três passos, menos de um minuto.</h2></div>
@@ -106,7 +131,6 @@ export default function Landing() {
       </section>
 
       <HomeGuide />
-      <HomeSimulator />
 
       <section className="section">
         <div className="container showcase">
@@ -128,13 +152,6 @@ export default function Landing() {
         <div className="container">
           <div className="section-head center"><span className="eyebrow">Por que a Placa na Mão</span><h2>Clareza para decidir com tranquilidade.</h2></div>
           <div className="why-grid">{WHY.map((w) => <div className="why-card" key={w.t}><span className="wi"><Icon name={w.icon} size={24} /></span><h3>{w.t}</h3><p>{w.s}</p></div>)}</div>
-        </div>
-      </section>
-
-      <section className="section" id="pacotes">
-        <div className="container stack-lg">
-          <div className="section-head" style={{ marginBottom: 0 }}><span className="eyebrow">Pacotes de saldo</span><h2>Consulte mais e pague menos por consulta.</h2><p>Recarregue o saldo uma vez e use em qualquer consulta. Sem mensalidade e sem validade curta.</p></div>
-          <PackageCards />
         </div>
       </section>
 

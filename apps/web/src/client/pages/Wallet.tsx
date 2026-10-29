@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
+import { trackPurchase } from '../analytics';
 import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, Modal, Skeleton, Tabs, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { dateTime, money } from '../../shared/format';
@@ -78,6 +79,7 @@ export default function Wallet() {
   const contracts = useAsync(() => api.get<{ items: Parameters<typeof MyContracts>[0]['rows'] }>('/purchase-contracts').then((r) => r.items), []);
   const docs = useAsync(() => api.get<Doc[]>(`/account/fiscal-documents${pq}`), [pq]);
   const checkout = params.get('checkout');
+  useEffect(() => { if (checkout === 'success') trackPurchase({ id: `wallet-${params.get('payment_id') ?? params.get('external_reference') ?? new Date().toISOString().slice(0, 13)}`, item: 'saldo' }); }, [checkout, params]);
   const wanted = params.get('pacote');
 
   useEffect(() => { if (wanted && packs.data) { const p = packs.data.find((x) => x.slug === wanted); if (p) setPack(p); } }, [wanted, packs.data]);

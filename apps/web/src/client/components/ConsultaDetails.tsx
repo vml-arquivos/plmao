@@ -1,6 +1,8 @@
-import { Fragment, useState, type ReactNode } from 'react';
-import { Icon } from '../../shared/icons';
+import { useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { Icon, type IconName } from '../../shared/icons';
 import { Modal, Skeleton, Tabs, useAsync } from '../../shared/ui';
+import { money } from '../../shared/format';
 import { api } from '../api';
 import { useSession } from '../session';
 import { productTarget, useCatalog } from './Catalog';
@@ -16,36 +18,26 @@ export function PdfModelLink({ id, children = 'Ver modelo do PDF', className = '
   return <a className={className} href={pdfModelUrl(id)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}><Icon name="file-text" size={15} /> {children}</a>;
 }
 
-function Compare({ products }: { products: DetailProduct[] }) {
-  // união de seções e itens, na ordem em que aparecem
-  const sections: Array<{ key: string; label: string; items: string[] }> = [];
-  for (const p of products) for (const s of p.sections) {
-    let hit = sections.find((x) => x.key === s.key);
-    if (!hit) { hit = { key: s.key, label: s.label, items: [] }; sections.push(hit); }
-    for (const it of s.items) if (!hit.items.includes(it)) hit.items.push(it);
-  }
-  const has = (p: DetailProduct, key: string, item: string) => p.sections.find((s) => s.key === key)?.items.includes(item) ?? false;
+const SECTION_ICON: Record<string, IconName> = { IDENTIFICACAO: 'car', CARACTERISTICAS: 'list', REGISTRO: 'file-text', DEBITOS: 'dollar', RESTRICOES: 'shield-alert', HISTORICO: 'clock', GRAVAME: 'credit-card', INSPECAO_RECALL: 'wrench', FIPE: 'bar-chart', ANALISES: 'sparkles' };
+
+/** Comparativo por seção: o que cada consulta cobre, sem uma tabela de 100 linhas. */
+function Compare({ products, onPick }: { products: DetailProduct[]; onPick: (id: string) => void }) {
+  const sections: Array<{ key: string; label: string }> = [];
+  for (const p of products) for (const s of p.sections) if (!sections.some((x) => x.key === s.key)) sections.push({ key: s.key, label: s.label });
   return (
-    <div className="matrix-wrap" role="region" aria-label="Comparativo item a item" tabIndex={0} style={{ maxHeight: '58vh' }}>
+    <div className="matrix-wrap" role="region" aria-label="Comparativo por seção" tabIndex={0}>
       <table className="matrix cmp">
-        <thead><tr><th scope="col">Informação</th>{products.map((p) => <th scope="col" key={p.id}>{p.name.replace('Consulta ', '')}</th>)}</tr></thead>
+        <thead><tr><th scope="col">O que você recebe</th>{products.map((p) => <th scope="col" key={p.id}><button type="button" className="linkbtn" onClick={() => onPick(p.id)}>{p.name.replace('Consulta ', '')}</button></th>)}</tr></thead>
         <tbody>
-          {sections.map((s) => {
-            const common = s.items.filter((it) => products.every((p) => has(p, s.key, it)));
-            const diff = s.items.filter((it) => !common.includes(it));
-            return (
-              <Fragment key={s.key}>
-                <tr className="grp"><th colSpan={products.length + 1} scope="colgroup">{s.label}</th></tr>
-                {common.length > 0 && <tr className="common"><td colSpan={products.length + 1}><b>Em todas:</b> {common.join(', ')}</td></tr>}
-                {diff.map((it) => (
-                  <tr key={s.key + it}>
-                    <th scope="row">{it}</th>
-                    {products.map((p) => <td key={p.id}>{has(p, s.key, it) ? <span className="cell yes" role="img" aria-label="Incluso"><Icon name="check" size={15} /></span> : <span className="cell no" role="img" aria-label="Não incluso">—</span>}</td>)}
-                  </tr>
-                ))}
-              </Fragment>
-            );
-          })}
+          {sections.map((s) => (
+            <tr key={s.key}>
+              <th scope="row"><span className="cmp-ico"><Icon name={SECTION_ICON[s.key] ?? 'check'} size={16} /></span>{s.label}</th>
+              {products.map((p) => {
+                const n = p.sections.find((x) => x.key === s.key)?.items.length ?? 0;
+                return <td key={p.id}>{n > 0 ? <span className="cell yes" title={`${n} informações`} role="img" aria-label={`Incluso, ${n} informações`}><Icon name="check" size={15} /></span> : <span className="cell no" role="img" aria-label="Não incluso">—</span>}{n > 0 && <small className="cmp-n">{n} itens</small>}</td>;
+              })}
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -54,13 +46,25 @@ function Compare({ products }: { products: DetailProduct[] }) {
 
 function One({ p }: { p: DetailProduct }) {
   return (
-    <div className="stack">
+    <div className="det-grid">
       {p.sections.map((s) => (
-        <section key={s.key} className="det-sec">
-          <h3>{s.label}</h3>
-          <ul className="det-items">{s.items.map((i) => <li key={i}><Icon name="check" size={14} />{i}</li>)}</ul>
+        <section key={s.key} className="det-card">
+          <header><span className="det-ico"><Icon name={SECTION_ICON[s.key] ?? 'check'} size={18} /></span><h3>{s.label}</h3><span className="det-n">{s.items.length}</span></header>
+          <ul className="det-chips">{s.items.map((i) => <li key={i}>{i}</li>)}</ul>
         </section>
       ))}
+    </div>
+  );
+}
+
+function ProductHead({ id }: { id: string }) {
+  const { data } = useCatalog();
+  const c = data?.products.find((x) => x.id === id);
+  if (!c) return null;
+  return (
+    <div className="det-head">
+      <div><h3>{c.name}</h3><p>{c.longDescription || c.description}</p></div>
+      <div className="det-price"><b className="num">{money(c.priceCents)}</b><small>por consulta</small></div>
     </div>
   );
 }
@@ -86,7 +90,7 @@ export function DetailsModal({ initial, onClose }: { initial?: string; onClose: 
       {products.length > 0 && (
         <div className="stack">
           <Tabs label="Consulta" value={tab} onChange={setTab} items={[{ id: 'ALL', label: 'Comparar' }, ...products.map((p) => ({ id: p.id, label: p.name.replace('Consulta ', '') }))]} />
-          {tab === 'ALL' ? <Compare products={products} /> : current ? <One p={current} /> : null}
+          {tab === 'ALL' ? <Compare products={products} onPick={setTab} /> : current ? <><ProductHead id={current.id} /><One p={current} /></> : null}
           <p className="muted" style={{ fontSize: 13 }}>O modelo do PDF usa dados fictícios, só para mostrar o formato e as informações de cada consulta. O que a fonte não retornar para uma placa é omitido do relatório.</p>
         </div>
       )}
@@ -100,7 +104,7 @@ export function DetailsButton({ initial, children = 'Detalhar consultas', classN
   return (
     <>
       <button type="button" className={className} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}>{icon && <Icon name="list" size={15} />} {children}</button>
-      {open && <DetailsModal initial={initial} onClose={() => setOpen(false)} />}
+      {open && createPortal(<DetailsModal initial={initial} onClose={() => setOpen(false)} />, document.body)}
     </>
   );
 }

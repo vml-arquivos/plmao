@@ -7,6 +7,8 @@ const booleanFromEnv = z.preprocess((value) => {
 }, z.boolean());
 
 const optionalUrl = z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional());
+/** Identificador opcional do Google/Bing: vazio ou fora do formato é ignorado (nunca derruba o servidor). */
+const tagId = (re: RegExp) => z.preprocess((v) => (typeof v === 'string' && re.test(v.trim()) ? v.trim() : undefined), z.string().optional());
 const optionalString = z.preprocess((value) => value === '' ? undefined : value, z.string().optional());
 
 type ParsedEnv = z.infer<typeof envSchema>;
@@ -185,6 +187,12 @@ const envSchema = z.object({
   EMAIL_PROVIDER: z.enum(['disabled', 'smtp', 'brevo_api']).default('disabled'),
   BREVO_API_KEY: optionalString,
   BREVO_API_BASE_URL: z.string().trim().url().default('https://api.brevo.com/v3'),
+  // ID público do GA4 do site; a variável só serve para trocar. Carrega apenas depois do aceite de cookies.
+  GA_MEASUREMENT_ID: z.preprocess((v) => (typeof v === 'string' && /^G-[A-Z0-9]{6,14}$/.test(v.trim()) ? v.trim() : 'G-K2JKXQZDQN'), z.string()),
+  GOOGLE_ADS_ID: tagId(/^AW-\d{6,14}$/),
+  GOOGLE_ADS_PURCHASE_LABEL: tagId(/^[A-Za-z0-9_-]{6,40}$/),
+  GOOGLE_SITE_VERIFICATION: tagId(/^[A-Za-z0-9_-]{20,100}$/),
+  BING_SITE_VERIFICATION: tagId(/^[A-Fa-f0-9]{20,64}$/),
   SMTP_HOST: optionalString,
   SMTP_PORT: z.coerce.number().int().positive().max(65535).default(587),
   SMTP_USER: optionalString,

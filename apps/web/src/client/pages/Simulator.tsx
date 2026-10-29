@@ -246,6 +246,15 @@ export function SimulatorWidget() {
   return (
     <div className="card sim-widget" aria-label="Simulador de financiamento">
       <KindTabs value={state.kind} compact onChange={(k) => setState(defaultState(k))} />
+      <details className="sim-pick">
+        <summary>Escolher o modelo pela tabela FIPE <small>(preenche o valor)</small></summary>
+        <FipePicker vehicleType={state.kind === 'MOTORCYCLE' ? 'motorcycles' : state.kind === 'TRUCK' ? 'trucks' : 'cars'} label={state.label} onLabel={(l) => setState((s) => ({ ...s, label: l }))} onUseValue={(cents) => setState((s) => { const v = Math.round(cents / 100); return { ...s, value: v, down: Math.round(v * (downPct || 25) / 100) }; })} />
+      </details>
+      <div className="chips-sel" role="group" aria-label="Valor do veículo">
+        {(state.kind === 'MOTORCYCLE' ? [12000, 18000, 25000, 40000] : state.kind === 'TRUCK' ? [250000, 350000, 500000, 700000] : state.kind === 'UTILITY' ? [90000, 120000, 180000, 250000] : [50000, 80000, 120000, 180000]).map((v) => (
+          <button key={v} type="button" aria-pressed={state.value === v} onClick={() => setState((x) => ({ ...x, value: v, down: Math.round(v * (downPct || 25) / 100) }))}>{brl(v * 100).replace(',00', '')}</button>
+        ))}
+      </div>
       <div className="grid-2">
         <Field label="Valor do veículo"><MoneyInput value={state.value} onChange={(v) => setState((s) => ({ ...s, value: v ?? 0, down: Math.round((v ?? 0) * downPct / 100) }))} ariaLabel="Valor do veículo em reais" /></Field>
         <Field label={`Entrada (${downPct}%)`}><MoneyInput value={state.down} onChange={(v) => setState((s) => ({ ...s, down: v ?? 0 }))} ariaLabel="Entrada em reais" /></Field>
@@ -258,6 +267,7 @@ export function SimulatorWidget() {
           <>
             <div><span className="lbl">Parcela estimada</span><strong className={loading ? 'sim-busy' : ''}>{brl(r.installmentCents)}</strong><small>{r.months}x · taxa {pct(r.monthlyRatePct)} a.m.</small></div>
             <div><span className="lbl">CET</span><b>{pct(r.cetAnnualPct, 1)} a.a.</b><small>total pago {brl(r.totalPaidCents)}</small></div>
+            {data?.results.leasing && <div className="sim-alt"><span className="lbl">Leasing (comparação)</span><b>{brl(data.results.leasing.installmentCents)}</b><small>{data.results.leasing.months}x · CET {pct(data.results.leasing.cetAnnualPct, 1)} a.a.</small></div>}
           </>
         ) : <Skeleton h={64} r={12} />}
       </div>

@@ -29,11 +29,11 @@ function CatalogState({ loading, error, reload }: { loading: boolean; error: unk
 }
 
 /* ---------- Cards de produto ---------- */
-function ProductCard({ p, features, authed }: { p: CatalogProduct; features: CatalogFeature[]; authed: boolean }) {
+function ProductCard({ p, authed }: { p: CatalogProduct; features: CatalogFeature[]; authed: boolean }) {
   const soon = !isActive(p);
-  const rows = features.length && Object.keys(p.matrix ?? {}).length
-    ? features.map((f) => ({ label: f.label, st: p.matrix[f.id] ?? 'NOT_INCLUDED' })).filter((r) => r.st !== 'NOT_INCLUDED')
-    : (p.features ?? []).map((label) => ({ label, st: 'INCLUDED' as const }));
+  const all = (p.features ?? []).filter(Boolean);
+  const top = all.slice(0, 4);
+  const more = Math.max(0, all.length - top.length);
   return (
     <article className={`pcard ${p.featured ? 'featured' : ''} ${soon ? 'soon' : ''}`}>
       {p.badge && <span className="pbadge">{p.badge}</span>}
@@ -45,13 +45,14 @@ function ProductCard({ p, features, authed }: { p: CatalogProduct; features: Cat
       </div>
       {p.discountPercent ? <span className="off">{p.discountPercent}% de desconto</span> : null}
       <ul>
-        {rows.slice(0, 8).map((r) => (
-          <li key={r.label} className={r.st === 'SOON' ? 'na' : ''}><Icon name={r.st === 'SOON' ? 'clock' : 'check'} size={16} />{r.label}{r.st === 'SOON' ? ' (em breve)' : ''}</li>
-        ))}
+        {top.map((label) => <li key={label}><Icon name="check" size={16} />{label}</li>)}
       </ul>
-      {p.coverage ? <span className="cov">{p.coverage}</span> : null}
-      <div className="pcard-links"><DetailsButton initial={p.id} className="linkbtn" icon={false}>Detalhar</DetailsButton><span aria-hidden="true">·</span><PdfModelLink id={p.id} className="linkbtn">Modelo do PDF</PdfModelLink></div>
-      {soon ? <span className="btn btn-block" aria-disabled="true">Em breve</span> : <LinkButton to={productTarget(authed, p.id)} variant={p.featured ? 'primary' : 'default'} block>Contratar</LinkButton>}
+      {more > 0 && <span className="pmore">+ {more} {more === 1 ? 'item' : 'itens'} no relatório</span>}
+      <div className="pactions">
+        {soon ? <span className="btn btn-block" aria-disabled="true">Em breve</span> : <LinkButton to={productTarget(authed, p.id)} variant={p.featured ? 'primary' : 'default'} block>Consultar agora</LinkButton>}
+        <DetailsButton initial={p.id} className="btn btn-block btn-ghost" icon={false}>Ver detalhes</DetailsButton>
+        {!soon && <PdfModelLink id={p.id} className="linkbtn center">Ver modelo do PDF</PdfModelLink>}
+      </div>
     </article>
   );
 }

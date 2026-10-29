@@ -212,7 +212,8 @@ const LEGAL = {
     ['4. Compartilhamento', 'Compartilhamos somente o necessário com provedores de consulta, pagamento, infraestrutura, autenticação e e-mail contratados para operar o serviço.'],
     ['5. Segurança e retenção', 'Adotamos controles de acesso, sessões revogáveis, criptografia de dados sensíveis, trilha de auditoria e autenticação em dois fatores para a equipe. Os dados são retidos pelo tempo necessário à finalidade, ao contrato e às obrigações legais.'],
     ['6. Papéis na LGPD e registro das consultas', 'Sobre os dados do seu cadastro, a plataforma é a controladora. Sobre os dados consultados, que dizem respeito a veículos e a seus proprietários, a plataforma apenas os intermedeia a partir das fontes, e quem consulta é o controlador do tratamento que fizer deles, com a responsabilidade descrita nos Termos de Uso. Cada consulta é registrada (quem, quando, o dado consultado e o IP) para segurança e auditoria, e o registro pode ser fornecido a autoridades mediante ordem legal ou para defesa da plataforma. O aceite destes documentos também é registrado, com data, IP, navegador e versão.'],
-    ['7. Seus direitos', `Você pode solicitar confirmação, acesso, correção, anonimização, portabilidade, informação sobre compartilhamento e exclusão, quando aplicável, pela página de contato ou por ${BRAND.supportEmail}.`]
+    ['7. Seus direitos', `Você pode solicitar confirmação, acesso, correção, anonimização, portabilidade, informação sobre compartilhamento e exclusão, quando aplicável, pela página de contato ou por ${BRAND.supportEmail}.`],
+    ['8. Cookies e medição de uso', 'Quando ativados, usamos Google Analytics e Google Ads para entender como o site é usado e medir a eficácia dos anúncios. Esses cookies só são carregados depois do seu aceite, que pode ser revisto a qualquer momento em “Preferências de cookies”, no rodapé. Não enviamos placa, documento nem dados do proprietário a essas ferramentas.']
   ] }
 } as const;
 

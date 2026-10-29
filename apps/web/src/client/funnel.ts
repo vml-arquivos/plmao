@@ -1,3 +1,4 @@
+import { mirrorFunnel } from './analytics';
 type Meta = Record<string, string | number | boolean | null | undefined>;
 const SESSION_KEY = 'pnm_funnel_session';
 const ATTR_KEY = 'pnm_funnel_attribution';
@@ -38,6 +39,7 @@ export function storedReferral(): string | undefined {
 
 export type FunnelEvent = 'HOME_PAGE_VIEW' | 'SEO_PAGE_VIEW' | 'FIPE_PAGE_VIEW' | 'CTA_CLICKED' | 'PLATE_CAPTURED' | 'FIPE_FORM_SUBMITTED' | 'FIPE_RESULT_VIEWED' | 'FIPE_REPORT_ACTION' | 'AUTH_VIEWED' | 'AUTH_SUBMITTED' | 'ACCOUNT_CREATED' | 'AUTH_SUCCEEDED' | 'CHECKOUT_QUOTE_VIEWED' | 'CHECKOUT_STARTED';
 export function trackFunnel(event: FunnelEvent, metadata: Meta = {}): void {
+  mirrorFunnel(event, metadata);
   const clean = Object.fromEntries(
     Object.entries({ ...attribution(), ...metadata })
       .filter(([, v]) => ['string', 'number', 'boolean'].includes(typeof v) || v === null)
