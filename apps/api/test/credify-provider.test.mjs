@@ -197,3 +197,17 @@ test('credenciais com espaço, quebra de linha ou aspas coladas são limpas ante
   assert.deepEqual(JSON.parse(f.calls[0].init.body), { ClientID: '46905', ClientSecret: 'abc123' });
   resetCredifyTokenCache();
 });
+
+test('erro 400 da consulta mostra o corpo da Credify e o pedido enviado; IdConsulta é curto, numérico e não repete', async () => {
+  resetCredifyTokenCache();
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const tok = jwt(Math.floor(now / 1000) + 24 * 3600);
+  const f = fakeFetch([{ body: { Success: true, Dados: tok } }, { status: 400, body: { erro: 'IdConsulta invalido' } }, { status: 400, body: {} }]);
+  const p = new CredifyVehicleProvider({ ...base, path: '/veiculototal', bodyTemplate: undefined, fetchImpl: f, now: () => now });
+  await assert.rejects(p.queryByPlate('AAA0000'), (e) => e.code === 'DATA_PROVIDER_UNAVAILABLE' && /HTTP 400/.test(e.detail) && /IdConsulta invalido/.test(e.detail) && /pedido enviado a \/veiculototal/.test(e.detail) && /"Placa":"AAA0000"/.test(e.detail));
+  await assert.rejects(p.queryByPlate('BBB1111'), (e) => /HTTP 400/.test(e.detail));
+  const ids = f.calls.filter((c) => c.url.endsWith('/veiculototal')).map((c) => JSON.parse(c.init.body).Consulta.IdConsulta);
+  assert.equal(ids.length, 2); assert.notEqual(ids[0], ids[1]);
+  for (const id of ids) assert.match(id, /^\d{7,10}$/);
+  resetCredifyTokenCache();
+});

@@ -114,7 +114,7 @@ test('provider: chama /veiculototal com IdConsulta e Placa, Bearer, e devolve o 
   assert.equal(f.calls[1].init.headers.authorization, `Bearer ${jwt}`);
   const body = JSON.parse(f.calls[1].init.body);
   assert.equal(body.Consulta.Placa, 'ABC1D23');
-  assert.match(body.Consulta.IdConsulta, /^\d{10,}$/);
+  assert.match(body.Consulta.IdConsulta, /^\d{7,10}$/);
   assert.equal(out.raw.idConsulta, body.Consulta.IdConsulta);
   assert.equal(out.providerQueryId, '100000001');
   assert.equal(buildReportV2(out.raw).plate, 'ABC1234');

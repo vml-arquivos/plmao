@@ -19,8 +19,13 @@ const fail = (code: string, detail?: string): Failure => Object.assign(new Error
 async function reason(response: Response): Promise<string> {
   const text = await response.text().catch(() => '');
   let msg = '';
-  try { const j = JSON.parse(text) as Record<string, any>; msg = String(j?.Message ?? j?.message ?? j?.DADOS?.MSG ?? j?.Mensagem ?? ''); } catch { msg = text.replace(/<[^>]*>/g, ' '); }
-  return `HTTP ${response.status}${msg.trim() ? `: ${msg.trim().replace(/\s+/g, ' ')}` : ''}`;
+  try {
+    const j = JSON.parse(text) as Record<string, any>;
+    msg = String(j?.Message ?? j?.message ?? j?.DADOS?.MSG ?? j?.Mensagem ?? j?.title ?? j?.detail ?? j?.error ?? '');
+    // Sem campo de mensagem conhecido: mostra o corpo (resposta do fornecedor, sem segredos) para dar para diagnosticar.
+    if (!msg.trim() && text.trim()) msg = `corpo ${text.trim().replace(/\s+/g, ' ').slice(0, 300)}`;
+  } catch { msg = text.replace(/<[^>]*>/g, ' '); }
+  return `HTTP ${response.status}${msg.trim() ? `: ${msg.trim().replace(/\s+/g, ' ').slice(0, 400)}` : ' (sem mensagem no corpo)'}`;
 }
 
 export interface CredifyOptions {
@@ -42,6 +47,13 @@ let shared: { token: string; expiresAt: number } | null = null;
 /** A documentação diz "Bearer {token}", mas o esquema OpenAPI descreve o cabeçalho como chave direta. Guarda o formato que a Credify aceitou. */
 let authStyle: 'bearer' | 'raw' = 'bearer';
 let inflight: Promise<string> | null = null;
+let lastConsultaId = 0;
+/** Décimos de segundo desde 2026-01-01 (9 dígitos, cabe em int32 por ~6 anos); nunca repete dentro do processo. */
+function nextConsultaId(nowMs: number): string {
+  const id = Math.max(Math.floor((nowMs - Date.UTC(2026, 0, 1)) / 100), lastConsultaId + 1);
+  lastConsultaId = id;
+  return String(id);
+}
 export function resetCredifyTokenCache(): void { shared = null; inflight = null; authStyle = 'bearer'; }
 
 /** Mantém o token sempre novo: ao subir e a cada 30 min renova se faltar menos de 2 h para vencer. Falha aqui só é registrada; a consulta tenta o login de novo. */
@@ -145,16 +157,17 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     const c = this.cfg();
     const name = { PLATE: 'plate', CHASSIS: 'chassis', RENAVAM: 'renavam', OWNER_DOC: 'document' }[type];
     const queryParam = { PLATE: 'placa', CHASSIS: 'chassi', RENAVAM: 'renavam', OWNER_DOC: 'documento' }[type];
-    // IdConsulta: texto único por chamada (só dígitos, para caber em qualquer regra do fornecedor).
-    const queryId = `${Date.now()}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+    // IdConsulta: número curto e único por chamada (cabe em inteiro de 32 bits; os exemplos da Credify têm 3 a 9 dígitos).
+    const queryId = nextConsultaId((this.o.now ?? Date.now)());
     const values: Record<string, string> = { plate: '', chassis: '', renavam: '', document: '', queryId, [name]: value };
     // Para tipos além da placa, o caminho ou o corpo precisa dizer onde a chave entra; senão não há como chamar.
     if (type !== 'PLATE' && !c.path.includes(`{${name}}`) && !(c.method === 'post' && c.bodyTemplate?.includes(`{{${name}}}`))) throw fail('SEARCH_TYPE_NOT_SUPPORTED');
+    let sentBody = '';
     const call = async (token: string, style: 'bearer' | 'raw') => {
       const headers: Record<string, string> = { accept: 'application/json', authorization: style === 'bearer' ? `Bearer ${token}` : token };
       const init: RequestInit = { method: c.method.toUpperCase(), headers };
       let url = `${c.baseUrl}${Object.entries(values).reduce((acc, [k, x]) => acc.replaceAll(`{${k}}`, encodeURIComponent(x)), c.path)}`;
-      if (c.method === 'post') { headers['content-type'] = 'application/json'; try { init.body = this.body(c.bodyTemplate!, values); } catch { throw fail('DATA_PROVIDER_NOT_CONFIGURED'); } }
+      if (c.method === 'post') { headers['content-type'] = 'application/json'; try { init.body = this.body(c.bodyTemplate!, values); sentBody = String(init.body); } catch { throw fail('DATA_PROVIDER_NOT_CONFIGURED'); } }
       else if (!c.path.includes(`{${name}}`)) url += `${url.includes('?') ? '&' : '?'}${queryParam}=${encodeURIComponent(value)}`;
       return this.http(url, init);
     };
@@ -174,7 +187,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     if (response.status === 401 || response.status === 403) throw fail('DATA_PROVIDER_AUTH_FAILED', `Consulta recusada (${await reason(response)}). Confira as Finalidades de Consumo, o plano e o IP autorizado na Credify.`);
     if (response.status === 408 || response.status === 429) throw fail('DATA_PROVIDER_RATE_LIMITED', await reason(response));
     if (response.status === 402) throw fail('DATA_PROVIDER_QUOTA_EXHAUSTED', await reason(response));
-    if (!response.ok) throw fail('DATA_PROVIDER_UNAVAILABLE', await reason(response));
+    if (!response.ok) throw fail('DATA_PROVIDER_UNAVAILABLE', `${await reason(response)}${response.status === 400 ? ` | pedido enviado a ${c.path}: ${sentBody}` : ''}`);
     const text = await response.text().catch(() => '');
     let raw: Record<string, any>;
     try { raw = JSON.parse(text) as Record<string, any>; } catch { throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Resposta que não é JSON: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)}`); }
