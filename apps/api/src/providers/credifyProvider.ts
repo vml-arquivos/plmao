@@ -64,7 +64,8 @@ export function startCredifyTokenKeeper(onError: (message: string) => void = () 
   const tick = async () => {
     try {
       // Renova a cada ciclo (30 min): o token em uso nunca passa de poucos minutos e qualquer problema de login aparece no log na hora.
-      await provider.testConnection();
+      const r = await provider.testConnection();
+      log('info', 'credify_token_ready', { expiresInMinutes: r.expiresInMinutes });
     } catch (e) { onError(e instanceof Error ? e.message : 'erro desconhecido'); }
   };
   void tick();

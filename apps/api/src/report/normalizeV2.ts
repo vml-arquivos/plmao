@@ -280,7 +280,7 @@ export function buildReportV2(raw: unknown): ReportV2 {
   const visibleKeys = defs.filter((d) => d.sensitivity !== 'INTERNAL');
   const notProvidedKeys = visibleKeys.filter((d) => items.get(d.key)!.state === 'NOT_PROVIDED').map((d) => d.key);
 
-  return {
+  return dedupeMunicipalDebt({
     schema: REPORT_SCHEMA,
     normalizerVersion: NORMALIZER_VERSION,
     plate,
@@ -300,7 +300,28 @@ export function buildReportV2(raw: unknown): ReportV2 {
     sections,
     coverage: { provided: visibleKeys.length - notProvidedKeys.length, total: visibleKeys.length, notProvidedKeys, restrictionsProvided, debtsProvided },
     unknownFieldCount
-  };
+  });
+}
+
+
+/**
+ * Débito municipal que repete o valor das multas (a fonte devolve o mesmo montante nos dois campos): conta uma vez só.
+ * Idempotente; roda ao montar o relatório e também ao exibir relatórios já salvos.
+ */
+export function dedupeMunicipalDebt(report: ReportV2): ReportV2 {
+  const muni = report.debts.items.find((i) => i.key === 'DEBMUNICIPAIS');
+  if (!muni || muni.amountCents <= 0) return report;
+  const fines = report.debts.items.find((i) => i.key === FINE_TOTAL);
+  const componentSum = report.debts.fineBreakdown.reduce((acc, i) => acc + i.amountCents, 0);
+  if (!((fines && fines.amountCents === muni.amountCents) || (componentSum > 0 && componentSum === muni.amountCents))) return report;
+  const sections = report.sections.map((sec) => {
+    const items = sec.items.filter((i) => i.key !== 'DEBMUNICIPAIS');
+    if (items.length === sec.items.length) return sec;
+    const providedCount = items.filter((i) => i.state !== 'NOT_PROVIDED').length;
+    return { ...sec, items, providedCount, notProvidedCount: items.length - providedCount, status: sectionStatus(items) };
+  }).filter((sec) => sec.items.length > 0);
+  const items = report.debts.items.filter((i) => i.key !== 'DEBMUNICIPAIS');
+  return { ...report, sections, debts: { ...report.debts, items, totalCents: Math.max(0, report.debts.totalCents - muni.amountCents), note: `${report.debts.note} O débito municipal com o mesmo valor das multas foi contado uma única vez.` } };
 }
 
 export type Audience = 'client' | 'team';
@@ -336,6 +357,7 @@ function applyTemplate(sections: ReportSection[], template: ViewTemplate): Repor
  * Precedência: modelo de campos publicado > lista de seções do produto > nível (tier).
  */
 export function viewReport(report: ReportV2, opts: { audience: Audience; tier: Tier; /** lista de seções liberadas pelo produto (configurada no painel); vazia/ausente = regra por nível */ sections?: string[] | null; /** modelo de campos publicado do produto (só para o cliente) */ template?: ViewTemplate | null }): ReportV2 {
+  report = dedupeMunicipalDebt(report);
   const template = opts.audience === 'client' ? opts.template ?? null : null;
   const templated = template ? applyTemplate(report.sections, template) : null;
   const allow = templated ? new Set<string>(templated.map((s) => s.key)) : opts.sections && opts.sections.length ? new Set(opts.sections) : null;

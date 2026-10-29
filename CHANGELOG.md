@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.19.1 — Débito duplicado no relatório
+
+- Quando a fonte devolve o mesmo valor em "Débitos municipais" e em "Total de multas", o valor passa a contar uma vez só: o resumo de débitos, o total em aberto, o PDF, a impressão e a tela mostram o montante correto (ex.: licenciamento R$ 126,24 + multas R$ 3.729,93 = R$ 3.856,17, e não R$ 7.586,10).
+- O log agora mostra `credify_token_ready` a cada login com sucesso (na subida e a cada 30 min), para conferir o token logo depois do deploy.
+- A correção vale também para relatórios já salvos, na hora de exibir. Valores diferentes continuam somando normalmente.
+
 ## 1.19.0 — Pronto para teste de produção
 
 - Consulta sem dados (`CODIGO=2`) em qualquer pacote da Credify passa a ser "placa sem dados" (estorna e avisa o cliente), não falha técnica.

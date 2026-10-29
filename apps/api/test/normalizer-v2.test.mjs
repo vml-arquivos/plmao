@@ -115,3 +115,22 @@ test('máscaras', () => {
   assert.equal(maskVehicleId('9BWZZZ377VT004251'), '9BW**********4251');
   assert.equal(maskDocument(null), null);
 });
+
+test('débito municipal com o mesmo valor das multas conta uma vez só (caso real do DF: 126,24 + 3.729,93 = 3.856,17)', () => {
+  const dup = structuredClone(sample); const r = dup.RESPOSTA.VEICULOSBDRP.RETORNO;
+  r.EXISTEDEBITODELICENCIAMENTO = 'EXISTE DEBITO DE LICENCIAMENTO'; r.EXISTEDEBITODELICENCIAMENTOVL = '126,24';
+  r.EXISTEDEBITOMULTA = 'EXISTE DEBITO DE MULTA'; r.VALORTOTALDEBITOMULTA = '3.729,93'; r.DEBMUNICIPAIS = '3.729,93';
+  for (const k of ['DEBDETRAN', 'DEBDER', 'DEBDERSA', 'DEBPOLRODFED', 'DEBRENAINF']) r[k] = '0,00';
+  const report = buildReportV2(dup);
+  assert.equal(report.debts.totalCents, 12624 + 372993);
+  assert.deepEqual(report.debts.items.map((i) => i.key).sort(), ['EXISTEDEBITODELICENCIAMENTOVL', 'VALORTOTALDEBITOMULTA']);
+  assert.ok(!report.sections.some((s) => s.items.some((i) => i.key === 'DEBMUNICIPAIS')));
+  // relatório já salvo (com a duplicidade) também é corrigido na exibição
+  const stored = structuredClone(report);
+  stored.debts.items.push({ key: 'DEBMUNICIPAIS', label: 'Débitos municipais', amountCents: 372993 }); stored.debts.totalCents += 372993;
+  const shown = viewReport(stored, { audience: 'client', tier: 3 });
+  assert.equal(shown.debts.totalCents, 12624 + 372993);
+  // valores diferentes continuam somando
+  const diff = structuredClone(dup); diff.RESPOSTA.VEICULOSBDRP.RETORNO.DEBMUNICIPAIS = '100,00';
+  assert.equal(buildReportV2(diff).debts.totalCents, 12624 + 372993 + 10000);
+});
