@@ -62,6 +62,15 @@ test('documentos FIPE exigem proprietário e consultas pagas bloqueiam estorno a
   assert.match(server, /payment_refunds pr WHERE pr\.order_id=o\.id AND pr\.status IN \('REQUESTED','CONFIRMED'\)/);
 });
 
+test('consulta valida a autenticação do provedor antes de debitar', () => {
+  const preflight = server.indexOf('if (provider.validateForQuery)');
+  const charge = server.indexOf("INSERT INTO vehicle_queries(user_id,plate,product_id,status", preflight);
+  assert.ok(preflight >= 0, 'preflight de autenticação ausente');
+  assert.ok(charge > preflight, 'a cobrança precisa ocorrer depois da autenticação');
+  assert.match(server, /query_provider_auth_validated/);
+  assert.match(server, /QUERY_AUTHENTICATION_FAILED/);
+});
+
 test('painel administrativo expõe alteração segura da senha da sessão atual', () => {
   assert.match(adminAccount, /Atualizar senha/);
   assert.match(adminAccount, /admin\/auth\/change-password/);

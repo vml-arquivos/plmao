@@ -4,7 +4,7 @@ import { dateTime, money } from '../../shared/format';
 
 export interface QuerySummary {
   id: string; plate: string; searchType?: string; searchValue?: string; productId: string; productName: string; status: 'PROCESSING' | 'SUCCESS' | 'FAILED' | 'REFUNDED' | string;
-  priceCents: number; createdAt: string; completedAt?: string | null; verificationCode?: string;
+  priceCents: number; createdAt: string; completedAt?: string | null; verificationCode?: string; failureCode?: string; failureMessage?: string;
   result?: { v2?: { verdict?: { level?: string; title?: string }; headline?: { brand?: string; model?: string; manufactureYear?: string; modelYear?: string } }; fipe?: { brand?: { name: string }; model?: { name: string } } } | null;
 }
 

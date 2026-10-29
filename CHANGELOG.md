@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.19.4 — Validação de autenticação antes da consulta
+
+- Toda consulta Credify faz um preflight de autenticação imediatamente antes da cobrança: o sistema solicita e valida um JWT novo, confirma a validade e somente então debita e envia o `IdConsulta`/placa.
+- Falha de `ClientID`, `ClientSecret`, IP autorizado ou login retorna erro específico sem débito; a consulta não fica em `PROCESSING` por falha de autenticação.
+- O fluxo mantém `Authorization: Bearer`, o `IdConsulta` por endpoint e o retry já existente para resposta 401 durante a chamada.
+
 ## 1.19.3 — Consulta Credify: reuso do token e recuperação após reinício
 
 - O JWT da Credify passa a ser reutilizado conforme a validade real documentada; a renovação ocorre quando falta menos de uma hora, reduzindo logins desnecessários e a janela de falha da consulta.

@@ -283,7 +283,7 @@ const adminUserUpdateSchema = z.object({
 
 type RawBodyRequest = Request & { rawBody?: Buffer };
 type FipeStoredResult = { __type: 'FIPE_QUOTE'; quote: FipeQuote };
-type QueryRow = { id: string; status: string; credits_cost: number; price_cents?: number; charge_source?: string; product_id?: string; normalized: NormalizedVehicle | FipeStoredResult | null };
+type QueryRow = { id: string; status: string; credits_cost: number; price_cents?: number; charge_source?: string; product_id?: string; error_code?: string | null; normalized: NormalizedVehicle | FipeStoredResult | null };
 
 function publicUser(row: { id: string; email: string; name: string; role: string }): AuthUser {
   return { id: row.id, email: row.email, name: row.name, role: row.role };
@@ -297,6 +297,17 @@ async function authResultForUser(user: AuthUser, flow: string, req: Request): Pr
 }
 
 const RETRY_MESSAGE = 'Não foi possível concluir a consulta agora. Nada foi perdido: se o valor saiu do saldo, ele foi estornado; se você pagou direto, a consulta paga continua disponível para tentar de novo ou cancelar.';
+function safeQueryFailureMessage(code?: string | null): string | undefined {
+  if (!code) return undefined;
+  if (code === 'DATA_PROVIDER_AUTH_FAILED') return 'A autenticação da fonte de dados falhou antes da consulta. Nenhum valor foi cobrado; tente novamente em instantes.';
+  if (code === 'DATA_PROVIDER_INVALID_RESPONSE') return 'A Credify respondeu, mas uma ou mais bases retornaram erro. O valor foi estornado; tente novamente ou informe o código desta consulta ao suporte.';
+  if (code === 'DATA_PROVIDER_UNAVAILABLE') return 'A Credify ficou indisponível. O valor foi estornado; tente novamente em instantes.';
+  if (code === 'DATA_PROVIDER_RATE_LIMITED') return 'A Credify informou limite temporário de consultas. O valor foi estornado; tente novamente mais tarde.';
+  if (code === 'DATA_PROVIDER_QUOTA_EXHAUSTED') return 'A Credify informou limite ou saldo de consultas indisponível. O valor foi estornado; contate o suporte.';
+  if (code === 'PROVIDER_TIMEOUT' || code === 'QUERY_STUCK_TIMEOUT') return 'A Credify não respondeu dentro do prazo. O valor foi estornado; tente novamente.';
+  if (code === 'NOT_FOUND') return 'Não encontramos dados para esta placa nas bases consultadas.';
+  return 'A consulta não pôde ser concluída. Se houve débito, o valor foi estornado.';
+}
 /** Falhas da consulta usam 424 (e não 5xx) para a resposta e a mensagem sempre chegarem ao app, sem serem trocadas por páginas de erro do proxy. */
 function toSafeQueryError(error: unknown): { status: number; code: string; message: string } {
   const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
@@ -312,8 +323,11 @@ function toSafeQueryError(error: unknown): { status: number; code: string; messa
   if (code === 'QUERY_CANCELLED') return { status: 409, code, message: 'Esta consulta foi cancelada.' };
   if (code === 'PROVIDER_TIMEOUT') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A fonte de dados demorou para responder. ${RETRY_MESSAGE}` };
   if (code === 'DATA_PROVIDER_NOT_CONFIGURED') return { status: 503, code, message: 'A consulta está em ativação. Tente novamente quando a fonte de dados estiver disponível.' };
+  if (code === 'DATA_PROVIDER_AUTH_FAILED') return { status: 424, code: 'QUERY_AUTHENTICATION_FAILED', message: 'A autenticação da fonte de dados falhou antes da consulta. Nenhum valor foi cobrado; tente novamente em instantes.' };
   if (code === 'DATA_PROVIDER_RATE_LIMITED') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A fonte de dados está com muitas consultas no momento. ${RETRY_MESSAGE}` };
-  if (code === 'DATA_PROVIDER_AUTH_FAILED' || code === 'DATA_PROVIDER_UNAVAILABLE' || code === 'DATA_PROVIDER_INVALID_RESPONSE' || code === 'DATA_PROVIDER_QUOTA_EXHAUSTED') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A fonte de dados não respondeu de forma válida. ${RETRY_MESSAGE}` };
+  if (code === 'DATA_PROVIDER_INVALID_RESPONSE') return { status: 424, code: 'QUERY_PROVIDER_DATA_ERROR', message: 'A Credify respondeu, mas uma ou mais bases retornaram erro. O valor foi estornado; tente novamente ou informe o código desta consulta ao suporte.' };
+  if (code === 'DATA_PROVIDER_UNAVAILABLE') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A Credify ficou indisponível. ${RETRY_MESSAGE}` };
+  if (code === 'DATA_PROVIDER_QUOTA_EXHAUSTED') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A Credify informou limite ou saldo de consultas indisponível. ${RETRY_MESSAGE}` };
   if (code === 'PRODUCT_NOT_FOUND') return { status: 404, code, message: 'Este produto de consulta não está disponível.' };
   if (code === 'PRODUCT_NOT_AVAILABLE') return { status: 409, code, message: 'Esta consulta ainda não está à venda. Nada foi cobrado.' };
   return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: RETRY_MESSAGE };
@@ -365,6 +379,8 @@ function serializeQuery(row: QueryRow & Record<string, unknown>): Record<string,
     createdAt: row.created_at,
     completedAt: row.completed_at,
     verificationCode: !isFipe ? String(row.id).slice(0, 8).toUpperCase() : undefined,
+    failureCode: row.status === 'PROCESSING' || row.status === 'SUCCESS' ? undefined : row.error_code ?? undefined,
+    failureMessage: row.status === 'PROCESSING' || row.status === 'SUCCESS' ? undefined : safeQueryFailureMessage(row.error_code),
     result
   };
 }
@@ -1375,6 +1391,12 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
   }
 
   try {
+    // A autenticação deve ser validada antes de qualquer débito. No Credify, o método força o login,
+    // confirma ClientID/ClientSecret/IP autorizado e deixa o mesmo JWT disponível para a chamada paga.
+    if (provider.validateForQuery) {
+      const auth = await provider.validateForQuery();
+      log('info', 'query_provider_auth_validated', { provider: provider.name, expiresInMinutes: auth.expiresInMinutes ?? null, requestId: input.reqId });
+    }
     await tx(async (client) => {
       const product = await client.query(`SELECT p.price_cents,p.is_free,p.commercial_status,EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) AS has_source
         FROM query_products p WHERE p.id=$1 AND p.active=true`, [input.productId]);
@@ -1632,7 +1654,7 @@ api.get('/queries.csv', auth, requirePermission('VIEW_HISTORY'), asyncRoute(asyn
 }));
 
 api.get('/queries/:id', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
-  const query = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
+  const query = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.error_code,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
     FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id LEFT JOIN vehicle_query_results r ON r.query_id=q.id
     WHERE q.id=$1 AND q.user_id=$2`, [req.params.id, req.user!.id]);
   if (!query.rowCount) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });

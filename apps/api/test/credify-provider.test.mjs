@@ -152,6 +152,22 @@ test('testConnection só faz o login e informa a validade do token', async () =>
   await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: fakeFetch([{ status: 403, body: {} }]) }).testConnection(), (e) => e.code === 'DATA_PROVIDER_AUTH_FAILED');
 });
 
+test('validateForQuery autentica antes de uma consulta sem chamar o endpoint pago', async () => {
+  resetCredifyTokenCache();
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  let authCalls = 0; let queryCalls = 0;
+  const token = jwt(Math.floor(now / 1000) + 24 * 3600);
+  const f = async (url) => {
+    if (String(url).endsWith('/auth')) { authCalls += 1; return new Response(JSON.stringify({ Success: true, Dados: token }), { status: 200 }); }
+    queryCalls += 1; return new Response('{}', { status: 200 });
+  };
+  const result = await new CredifyVehicleProvider({ ...base, fetchImpl: f, now: () => now }).validateForQuery();
+  assert.equal(result.expiresInMinutes, 1380);
+  assert.equal(authCalls, 1);
+  assert.equal(queryCalls, 0);
+  resetCredifyTokenCache();
+});
+
 test('keeper confere o token sem forçar novo login enquanto ele ainda é válido', async () => {
   resetCredifyTokenCache();
   const now = Date.parse('2026-10-21T12:00:00Z');

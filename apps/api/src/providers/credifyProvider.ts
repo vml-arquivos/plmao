@@ -187,6 +187,13 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     return { ok: true, expiresInMinutes: Math.max(0, Math.round(((shared?.expiresAt ?? now) - now) / 60000)) };
   }
 
+  /** Preflight de toda consulta: autentica novamente, valida o JWT retornado e não consome crédito. */
+  async validateForQuery(): Promise<{ expiresInMinutes: number }> {
+    const result = await this.testConnection();
+    log('info', 'credify_query_auth_validated', { expiresInMinutes: result.expiresInMinutes });
+    return result;
+  }
+
   /** Placa sempre; os demais tipos só se o contrato os atende (VEHICLE_SEARCH_TYPES). */
   get supportedSearchTypes(): readonly SearchType[] { return parseSearchTypes(this.o.searchTypes ?? env.VEHICLE_SEARCH_TYPES); }
 
