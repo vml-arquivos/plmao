@@ -42,4 +42,10 @@ describe('consulta lenta segue em segundo plano', integration, () => {
     }
     assert.equal(await balance(), before, 'valor estornado');
   });
+
+  it('aquecer o login: exige entrar na conta e responde 204 sem custo', async () => {
+    assert.equal((await hostRequest(server.base, '/api/queries/warm', { method: 'POST', body: {} })).status, 401);
+    const ok = await hostRequest(server.base, '/api/queries/warm', { method: 'POST', token, body: {} });
+    assert.equal(ok.status, 204);
+  });
 });

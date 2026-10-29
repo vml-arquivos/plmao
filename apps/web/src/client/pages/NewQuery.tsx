@@ -61,6 +61,8 @@ export default function NewQuery() {
   const showAccept = payingDirect || needAcceptBalance;
   const acceptOk = !showAccept || bothAccepted(accept);
   useEffect(() => { setQuote(null); }, [productId, plate, kind]);
+  // Deixa o login da fonte de dados pronto enquanto a pessoa preenche a placa.
+  useEffect(() => { void api.post('/queries/warm', {}).catch(() => undefined); }, []);
   useEffect(() => { if (busy !== 'wallet') return; const t = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 1600); return () => clearInterval(t); }, [busy]);
 
   const can = useMemo(() => valid && available(kind) && Boolean(product) && product?.commercialStatus === 'ACTIVE', [valid, product, kind, types.data]);
@@ -90,8 +92,8 @@ export default function NewQuery() {
       const r = await api.post<{ id: string }>('/queries', { ...searchBody, productId: product.id, ...(needAcceptBalance ? { acceptContract: true, acceptPrivacy: true } : {}) }, { headers: { 'Idempotency-Key': idem.current } });
       idem.current = '';
       if (needAcceptBalance) void legal.reload();
-      const balanceNow = await api.get<{ balanceCents: number }>('/me').then((m) => m.balanceCents).catch(() => undefined);
-      if (balanceNow !== undefined) setBalance(balanceNow); else void refresh();
+      // Vai para o relatório na hora; o saldo atualiza em segundo plano.
+      void api.get<{ balanceCents: number }>('/me').then((m) => setBalance(m.balanceCents)).catch(() => refresh());
       nav(`/app/consulta/${r.id}`);
     } catch (e) {
       idem.current = '';

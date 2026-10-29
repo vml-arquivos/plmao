@@ -12,7 +12,7 @@ import helmet from 'helmet';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { settlePaymentEvent } from './payments/settle.js';
-import { adminAuth, adminEdgeGuard, TEAM_ROLES, auth, clientApiGuard, isAdminHost, isTeamRole, issueSession, revokeSession, type AuthUser } from './auth.js';
+import { adminAuth, adminEdgeGuard, TEAM_ROLES, auth, clientApiGuard, isAdminHost, isTeamRole, issueSession, optionalAuth, revokeSession, type AuthUser } from './auth.js';
 import { hashIp } from './lib/totpFlow.js';
 import { adminAuthRouter } from './routes/adminAuth.js';
 import { financeRouter } from './routes/finance.js';
@@ -307,6 +307,7 @@ function toSafeQueryError(error: unknown): { status: number; code: string; messa
   if (code === 'INVALID_PLATE') return { status: 400, code, message: 'Informe uma placa válida no padrão brasileiro.' };
   if (code === 'INSUFFICIENT_BALANCE' || code === 'INSUFFICIENT_CREDITS') return { status: 402, code: 'INSUFFICIENT_BALANCE', message: 'Seu saldo pré-pago não é suficiente para esta consulta.' };
   if (code === 'QUERY_PAYMENT_NOT_READY') return { status: 409, code, message: 'A confirmação do pagamento ainda não está disponível. Aguarde a atualização do provedor.' };
+  if (code === 'QUERY_PAYMENT_REFUND_PENDING') return { status: 409, code, message: 'Esta consulta está em processo de estorno e não pode ser usada agora.' };
   if (code === 'QUERY_PAYMENT_ALREADY_USED') return { status: 409, code, message: 'Este pagamento já foi utilizado ou não pode ser reutilizado.' };
   if (code === 'QUERY_CANCELLED') return { status: 409, code, message: 'Esta consulta foi cancelada.' };
   if (code === 'PROVIDER_TIMEOUT') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A fonte de dados demorou para responder. ${RETRY_MESSAGE}` };
@@ -885,9 +886,9 @@ async function effectiveQueryPrice(client: PoolClient, userId: string, productId
   return Number.isInteger(negotiated) && negotiated >= 0 ? { priceCents: negotiated, negotiated: true } : { priceCents: base, negotiated: false };
 }
 
-async function saveFipeDocument(quote: FipeQuote): Promise<void> {
-  await pool.query(`INSERT INTO report_documents(document_code,report_kind,provider,report_hash,snapshot)
-    VALUES($1,'FIPE_FREE',$2,$3,$4::jsonb) ON CONFLICT(document_code) DO NOTHING`, [quote.documentCode, quote.provider, quote.reportHash, JSON.stringify(reportSnapshot(quote))]);
+async function saveFipeDocument(quote: FipeQuote, userId: string | null = null): Promise<void> {
+  await pool.query(`INSERT INTO report_documents(document_code,report_kind,provider,report_hash,snapshot,user_id)
+    VALUES($1,'FIPE_FREE',$2,$3,$4::jsonb,$5) ON CONFLICT(document_code) DO NOTHING`, [quote.documentCode, quote.provider, quote.reportHash, JSON.stringify(reportSnapshot(quote)), userId]);
 }
 
 function snapshotQuote(document: Record<string, unknown>): FipeQuote {
@@ -1131,7 +1132,7 @@ api.get('/fipe/price', fipeLookupLimiter, asyncRoute(async (req, res) => {
   } catch (error) { throw fipeProviderError(error); }
 }));
 
-api.post('/fipe/quote', asyncRoute(async (req, res) => {
+api.post('/fipe/quote', optionalAuth, asyncRoute(async (req, res) => {
   if (!env.FEATURE_FREE_FIPE) throw fipeUnavailable();
   const parsed = fipeSelectionSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
@@ -1167,7 +1168,7 @@ api.post('/fipe/quote', asyncRoute(async (req, res) => {
     if (!cached) await cacheFipeResult(result);
     const quote = makeFipeQuote(result, plate, vehicleDetails);
     await recordProviderHealth(quote.provider, 'SUCCESS', Date.now() - providerStartedAt);
-    await saveFipeDocument(quote);
+    await saveFipeDocument(quote, req.user?.id ?? null);
     await recordFunnelEvent(null, req, 'FREE_QUERY_COMPLETED', { provider: quote.provider, documentCode: quote.documentCode, cached: Boolean(cached), plateLookup: Boolean(plate) });
     res.status(201).json(publicFipeQuote(quote));
   } catch (error) {
@@ -1181,7 +1182,7 @@ api.post('/fipe/quote', asyncRoute(async (req, res) => {
 }));
 
 api.post('/fipe/quotes/:code/save', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
-  const document = await pool.query('SELECT * FROM report_documents WHERE document_code=$1 AND report_kind=\'FIPE_FREE\'', [req.params.code]);
+  const document = await pool.query('SELECT * FROM report_documents WHERE document_code=$1 AND report_kind=\'FIPE_FREE\' AND (user_id IS NULL OR user_id=$2)', [req.params.code, req.user!.id]);
   if (!document.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
   const row = document.rows[0] as Record<string, unknown>;
   if (row.user_id && row.user_id !== req.user!.id) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
@@ -1202,10 +1203,11 @@ api.post('/fipe/quotes/:code/save', auth, requirePermission('VIEW_HISTORY'), asy
 
 api.get('/fipe/reports/:code/pdf', auth, asyncRoute(async (req, res) => {
   if (!env.FEATURE_FREE_FIPE || !env.FEATURE_REPORT_PDF) throw fipeUnavailable();
-  const document = await pool.query('SELECT snapshot FROM report_documents WHERE document_code=$1 AND report_kind=\'FIPE_FREE\'', [req.params.code]);
+  const document = await pool.query('SELECT snapshot FROM report_documents WHERE document_code=$1 AND report_kind=\'FIPE_FREE\' AND user_id=$2', [req.params.code, req.user!.id]);
   if (!document.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
   const quote = snapshotQuote(document.rows[0] as Record<string, unknown>);
   await recordFunnelEvent(null, req, 'FREE_REPORT_DOWNLOADED', { documentCode: quote.documentCode });
+  res.setHeader('Cache-Control', 'no-store, private');
   res.setHeader('Content-Disposition', `attachment; filename="placa-na-mao-${quote.documentCode}.pdf"`);
   const branding = await organizationBrandingForUser(req.user!.id);
   res.type('application/pdf').send(fipePdf(quote, branding));
@@ -1213,10 +1215,11 @@ api.get('/fipe/reports/:code/pdf', auth, asyncRoute(async (req, res) => {
 
 api.get('/fipe/reports/:code/print', auth, asyncRoute(async (req, res) => {
   if (!env.FEATURE_FREE_FIPE) throw fipeUnavailable();
-  const document = await pool.query('SELECT snapshot FROM report_documents WHERE document_code=$1 AND report_kind=\'FIPE_FREE\'', [req.params.code]);
+  const document = await pool.query('SELECT snapshot FROM report_documents WHERE document_code=$1 AND report_kind=\'FIPE_FREE\' AND user_id=$2', [req.params.code, req.user!.id]);
   if (!document.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
   const quote = snapshotQuote(document.rows[0] as Record<string, unknown>);
   await recordFunnelEvent(null, req, 'REPORT_PRINTED', { documentCode: quote.documentCode });
+  res.setHeader('Cache-Control', 'no-store, private');
   const branding = await organizationBrandingForUser(req.user!.id);
   res.type('html').send(fipePrintHtml(quote, branding));
 }));
@@ -1382,10 +1385,12 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
       let before = 0;
       let after = 0;
       if (input.paymentOrderId) {
-        const entitlement = await client.query(`SELECT e.id,e.status,e.user_id,e.product_id,e.plate,o.status AS order_status,o.amount_cents
+        const entitlement = await client.query(`SELECT e.id,e.status,e.user_id,e.product_id,e.plate,o.status AS order_status,o.amount_cents,
+            EXISTS (SELECT 1 FROM payment_refunds pr WHERE pr.order_id=o.id AND pr.status IN ('REQUESTED','CONFIRMED')) AS refund_pending
           FROM query_payment_entitlements e JOIN payment_orders o ON o.id=e.order_id
           WHERE e.order_id=$1 AND e.user_id=$2 AND e.product_id=$3 AND e.plate=$4 AND e.search_type=$5 FOR UPDATE`, [input.paymentOrderId, userId, input.productId, input.plate, input.searchType]);
         if (!entitlement.rowCount) throw appError('QUERY_PAYMENT_NOT_READY', { code: 'QUERY_PAYMENT_NOT_READY', http: 409, expose: true });
+        if (entitlement.rows[0].refund_pending === true) throw appError('QUERY_PAYMENT_REFUND_PENDING', { code: 'QUERY_PAYMENT_REFUND_PENDING', http: 409, expose: true });
         if (String(entitlement.rows[0].status) !== 'READY' || String(entitlement.rows[0].order_status) !== 'PAID') throw appError('QUERY_PAYMENT_ALREADY_USED', { code: 'QUERY_PAYMENT_ALREADY_USED', http: 409, expose: true });
         cost = Number(entitlement.rows[0].amount_cents);
         chargeSource = 'DIRECT_PAYMENT';
@@ -1426,11 +1431,13 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
       await client.query('INSERT INTO vehicle_query_results(query_id,normalized,raw_response,raw_enc,normalizer_version) VALUES($1,$2::jsonb,$3::jsonb,$4,$5)', [queryId, JSON.stringify(normalized), JSON.stringify({ stored: env.STORE_RAW_PROVIDER_RESPONSE, encrypted: env.STORE_RAW_PROVIDER_RESPONSE }), env.STORE_RAW_PROVIDER_RESPONSE ? encryptRaw(output.raw) : null, NORMALIZER_VERSION]);
       await client.query(`UPDATE vehicle_queries SET status='SUCCESS',provider_query_id=$2,result_hash=$3,completed_at=now() WHERE id=$1`, [queryId, output.providerQueryId ?? null, resultHash]);
     });
-    await audit(userId, 'VEHICLE_QUERY', 'VEHICLE_QUERY', queryId, { plate: input.plate, productId: input.productId, provider: provider.name, requestId: input.reqId });
+    const savedAt = Date.now();
+    const auditing = audit(userId, 'VEHICLE_QUERY', 'VEHICLE_QUERY', queryId, { plate: input.plate, productId: input.productId, provider: provider.name, requestId: input.reqId });
     const completed = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
       FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.id=$1`, [queryId]);
     const completedRow = completed.rows[0] as QueryRow & Record<string, unknown>;
-    log('info', 'query_completed', { queryId, productId: input.productId, provider: provider.name, ms: Date.now() - startedAt });
+    await auditing;
+    log('info', 'query_completed', { queryId, productId: input.productId, provider: provider.name, ms: Date.now() - startedAt, ...output.timing, saveMs: Date.now() - savedAt });
     return { status: 201, body: serializeQuery(completedRow) };
   } catch (error: unknown) {
     if (queryId) {
@@ -1454,6 +1461,12 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
   log('info', 'query_running_in_background', { queryId, productId: input.productId });
   return { status: 202, body: { id: queryId, status: 'PROCESSING', plate: input.plate, productId: input.productId } };
 }
+
+/** A tela de Nova consulta chama ao abrir: deixa o login da fonte pronto para a consulta não gastar tempo entrando. */
+api.post('/queries/warm', auth, requirePermission('QUERY_VEHICLE'), (_req, res) => {
+  try { const p = getProvider() as { warm?: () => Promise<void> }; void p.warm?.().catch(() => undefined); } catch { /* fonte não configurada */ }
+  res.status(204).end();
+});
 
 api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async (req, res) => {
   assertSiteOpenFor(req.user!.email);

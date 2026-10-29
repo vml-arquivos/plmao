@@ -20,7 +20,8 @@ type LookupInput = {
   normalize: (raw: unknown) => NormalizedVehicle;
 };
 
-export async function executeVehicleLookup({ provider, plate, searchType = 'PLATE', productId, enrich, timeoutMs, normalize }: LookupInput): Promise<{ providerQueryId?: string; raw: unknown; normalized: NormalizedVehicle }> {
+export async function executeVehicleLookup({ provider, plate, searchType = 'PLATE', productId, enrich, timeoutMs, normalize }: LookupInput): Promise<{ providerQueryId?: string; raw: unknown; normalized: NormalizedVehicle; timing: { providerMs: number; enrichMs: number; normalizeMs: number } }> {
+  const t0 = Date.now();
   let timeout: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
@@ -32,12 +33,15 @@ export async function executeVehicleLookup({ provider, plate, searchType = 'PLAT
   try {
     const call = searchType === 'PLATE' ? provider.queryByPlate(plate, { productId }) : provider.queryBy!(searchType, plate);
     const output = await Promise.race([call as Promise<LookupOutput>, timeoutPromise]);
+    const t1 = Date.now();
     let raw = output.raw;
     if (enrich && raw && typeof raw === 'object' && !Array.isArray(raw)) {
       const extra = await Promise.race([enrich(raw).catch(() => undefined), new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 4000).unref())]);
       if (extra) raw = { ...(raw as Record<string, unknown>), enrichment: extra };
     }
-    return { providerQueryId: output.providerQueryId, raw, normalized: normalize(raw) };
+    const t2 = Date.now();
+    const normalized = normalize(raw);
+    return { providerQueryId: output.providerQueryId, raw, normalized, timing: { providerMs: t1 - t0, enrichMs: t2 - t1, normalizeMs: Date.now() - t2 } };
   } finally {
     if (timeout) clearTimeout(timeout);
   }

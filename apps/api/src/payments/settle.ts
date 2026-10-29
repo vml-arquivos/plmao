@@ -15,7 +15,7 @@ export type PaymentEventFacts = {
   netCents?: number | null;
 };
 
-export type SettleOutcome = 'DUPLICATE' | 'ORDER_NOT_FOUND' | 'PAID' | 'ALREADY_PAID' | 'REVERSED' | 'STATUS_UPDATED';
+export type SettleOutcome = 'DUPLICATE' | 'ORDER_NOT_FOUND' | 'PAID' | 'ALREADY_PAID' | 'REVERSED' | 'LATE_PAID_IGNORED' | 'STATUS_UPDATED';
 
 export function classifyPaymentStatus(provider: string, rawStatus: string | null): 'PAID' | 'REFUND' | 'PARTIAL_REFUND' | 'CHARGEBACK' | 'OTHER' {
   const status = String(rawStatus ?? '').toUpperCase();
@@ -50,11 +50,16 @@ export async function settlePaymentEvent(client: PoolClient, facts: PaymentEvent
 
   const kind = classifyPaymentStatus(facts.provider, facts.rawStatus);
   const normalizedStatus = String(facts.rawStatus ?? '').toUpperCase();
+  // Só pedido estornado/chargeback é barreira: PAID depois de EXPIRED/FAILED continua creditando (o cliente pagou de fato).
+  const terminalOrder = String(current.status) === 'REFUNDED';
   let outcome: SettleOutcome = 'STATUS_UPDATED';
 
   if (kind === 'PARTIAL_REFUND' || normalizedStatus === 'IN_MEDIATION') {
     // Estorno parcial ou disputa aberta: não reverte consulta/saldo/comissão automaticamente. Fica marcado para revisão manual.
     await client.query('UPDATE payment_webhook_events SET processing_error=$2 WHERE id=$1', [eventRowId, kind === 'PARTIAL_REFUND' ? 'PARTIAL_REFUND_MANUAL_REVIEW' : 'DISPUTE_OPEN_MANUAL_REVIEW']);
+  } else if (kind === 'PAID' && terminalOrder) {
+    await client.query('UPDATE payment_webhook_events SET processing_error=$2 WHERE id=$1', [eventRowId, 'LATE_PAID_AFTER_TERMINAL_ORDER']);
+    outcome = 'LATE_PAID_IGNORED';
   } else if (kind === 'PAID' && current.status !== 'PAID') {
     await creditPaidOrder(client, current, facts, eventRowId);
     outcome = 'PAID';
@@ -123,7 +128,7 @@ async function creditPaidOrder(client: PoolClient, current: Record<string, unkno
         providerCostCents = Number(product.rows[0]?.provider_cost_cents ?? 0) + Number(product.rows[0]?.supplier_cost_cents ?? 0);
       }
       const base = (row.commission_base as 'GROSS' | 'NET' | 'MARGIN' | null) ?? settings.commissionBase;
-      const rateBps = Number(current.affiliate_commission_bps ?? 0) || settings.commissionDefaultBps;
+      const rateBps = current.affiliate_commission_bps == null ? settings.commissionDefaultBps : Number(current.affiliate_commission_bps);
       const commission = computeCommission({ base, rateBps, grossCents, gatewayFeeCents: feeCents, taxCents: estimated.taxCents, providerCostCents });
       await client.query(`INSERT INTO affiliate_commissions(affiliate_id,payment_id,order_id,amount_cents,status,base_type,base_cents,rate_bps,available_at)
         VALUES($1,$2,$3,$4,'PENDING',$5,$6,$7,now() + make_interval(days => $8)) ON CONFLICT DO NOTHING`, [row.id, paymentId, orderId, commission.amountCents, commission.baseType, commission.baseCents, commission.rateBps, settings.commissionHoldDays]);

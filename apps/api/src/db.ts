@@ -17,7 +17,7 @@ export async function tx<T>(fn: (client: pg.PoolClient) => Promise<T>): Promise<
     await client.query('COMMIT');
     return result;
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => undefined); // se o rollback falhar, o erro original é que importa
     throw error;
   } finally {
     client.release();

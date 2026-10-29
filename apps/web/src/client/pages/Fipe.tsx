@@ -75,7 +75,10 @@ export default function Fipe() {
   async function pdf() {
     if (!quote) return;
     trackFunnel('FIPE_REPORT_ACTION', { action: 'pdf' });
-    try { await api.download(`/fipe/reports/${quote.documentCode}/pdf`, `placa-na-mao-fipe-${quote.documentCode}.pdf`); } catch (e) { toast.error(errorMessage(e)); }
+    try {
+      await api.post(`/fipe/quotes/${quote.documentCode}/save`, {});
+      await api.download(`/fipe/reports/${quote.documentCode}/pdf`, `placa-na-mao-fipe-${quote.documentCode}.pdf`);
+    } catch (e) { toast.error(errorMessage(e)); }
   }
   const ready = mode === 'plate' ? isValidPlate(plate) : Boolean(brand && model && year);
   return (

@@ -6,6 +6,7 @@ import { adminSession, hostRequest, startServer } from './helpers/server.mjs';
 
 // IA simulada: servidor local no formato OpenAI. O texto "ZZHUMANO" faz a IA pedir uma pessoa.
 let llmMode = 'ok';
+const hasTestDatabase = Boolean(process.env.TEST_DATABASE_URL);
 const llm = http.createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; });
   req.on('end', () => {
@@ -15,12 +16,13 @@ const llm = http.createServer((req, res) => {
     res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ choices: [{ message: { content } }] }));
   });
 });
-await new Promise((r) => llm.listen(0, '127.0.0.1', r));
-useTestEnv({ SUPPORT_LLM_PROVIDER: 'openai', SUPPORT_LLM_API_KEY: 'chave-de-teste', SUPPORT_LLM_BASE_URL: `http://127.0.0.1:${llm.address().port}/v1`, SUPPORT_ASSISTANT_NAME: 'Renata' });
+if (hasTestDatabase) await new Promise((r) => llm.listen(0, '127.0.0.1', r));
+const llmBaseUrl = hasTestDatabase ? `http://127.0.0.1:${(llm.address()).port}/v1` : 'http://127.0.0.1:0/v1';
+useTestEnv({ SUPPORT_LLM_PROVIDER: 'openai', SUPPORT_LLM_API_KEY: 'chave-de-teste', SUPPORT_LLM_BASE_URL: llmBaseUrl, SUPPORT_ASSISTANT_NAME: 'Renata' });
 const A = await import('../dist/lib/supportAssistant.js');
 const X = await import('../dist/lib/supportExtras.js');
 
-describe('assistente Renata', integration, () => {
+describe('assistente Renata', hasTestDatabase ? integration : { skip: 'TEST_DATABASE_URL não definido' }, () => {
   let pool; let userId; let server;
   before(async () => {
     ({ pool } = await loadCore());

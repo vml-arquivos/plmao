@@ -176,6 +176,9 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     return json.Dados;
   }
 
+  /** Deixa o login pronto (reusa o token recente). Não consome consulta. */
+  async warm(): Promise<void> { await this.token(); }
+
   /** Só o login (não consome consulta): confirma ClientID, ClientSecret e IP autorizado. */
   async testConnection(): Promise<{ ok: true; expiresInMinutes: number }> {
     const now = (this.o.now ?? Date.now)();

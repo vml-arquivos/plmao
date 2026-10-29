@@ -1,6 +1,6 @@
 import { env } from '../config.js';
 import { pool, tx } from '../db.js';
-import { appError } from './http.js';
+import { appError, log } from './http.js';
 import { enqueueEmail } from './emailOutbox.js';
 import { backoffSeconds } from './emailOutbox.js';
 import { createSecureLink } from './secureLinks.js';
@@ -105,7 +105,7 @@ export async function processFiscalJobs(opts: { provider?: FiscalProvider | null
         });
         await event(job.id, 'EMITIDO', { number: result.number });
         out.issued += 1;
-        await deliverFiscalDocument(job.document_id, null).catch(() => undefined); // falha de e-mail não desfaz a nota
+        await deliverFiscalDocument(job.document_id, null).catch((e) => log('warn', 'fiscal_delivery_failed', { documentId: job.document_id, reason: e instanceof Error ? e.message.slice(0, 200) : 'unknown' })); // falha de e-mail não desfaz a nota
       } else if (result.status === 'PENDING') {
         await pool.query(`UPDATE fiscal_jobs SET status='AGUARDANDO_PROVEDOR',locked_at=NULL,provider_ref=$2,next_attempt_at=now() + interval '2 minutes',updated_at=now() WHERE id=$1`, [job.id, result.providerRef]);
         await event(job.id, 'AGUARDANDO_PROVEDOR', {}); out.pending += 1;
@@ -131,7 +131,7 @@ export async function processFiscalJobs(opts: { provider?: FiscalProvider | null
 let timer: NodeJS.Timeout | undefined;
 export function startFiscalWorker(): void {
   if (timer || !configuredFiscalProvider()) return;
-  timer = setInterval(() => { processFiscalJobs().catch(() => undefined); }, 30_000);
+  timer = setInterval(() => { processFiscalJobs().catch((e) => log('warn', 'fiscal_worker_failed', { reason: e instanceof Error ? e.message.slice(0, 200) : 'unknown' })); }, 30_000);
   timer.unref();
 }
 

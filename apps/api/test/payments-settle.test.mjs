@@ -108,6 +108,27 @@ describe('liquidação de pagamentos: comissões, idempotência, estornos e char
     assert.equal(com.status, 'CLAWBACK_DUE'); assert.equal(com.reversal_reason, 'CHARGEBACK');
   });
 
+  it('ignora PAID tardio depois de estorno sem recriar pagamento ou entitlement', async () => {
+    const buyer = await mkUser(); const product = await mkProduct();
+    const order = await mkOrder({ userId: buyer, productId: product });
+    await run(facts(order.ref, 'PAYMENT_RECEIVED'));
+    await run(facts(order.ref, 'PAYMENT_REFUNDED'));
+    const late = await run(facts(order.ref, 'PAYMENT_RECEIVED'));
+    assert.equal(late.outcome, 'LATE_PAID_IGNORED');
+    assert.equal((await pool.query('SELECT count(*)::int n FROM payments WHERE order_id=$1', [order.id])).rows[0].n, 1);
+    assert.equal((await pool.query('SELECT status FROM query_payment_entitlements WHERE order_id=$1', [order.id])).rows[0].status, 'REVOKED');
+    assert.equal((await pool.query('SELECT processing_error FROM payment_webhook_events WHERE order_id=$1 AND processing_error=$2', [order.id, 'LATE_PAID_AFTER_TERMINAL_ORDER'])).rowCount, 1);
+  });
+
+  it('preserva comissão explicitamente configurada em zero bps', async () => {
+    const buyer = await mkUser(); const partner = await mkPartner({ bps: 0 }); const product = await mkProduct();
+    const order = await mkOrder({ userId: buyer, partnerId: partner, productId: product, bps: 0 });
+    await run(facts(order.ref, 'PAYMENT_RECEIVED'));
+    const com = (await pool.query('SELECT amount_cents,rate_bps FROM affiliate_commissions WHERE order_id=$1', [order.id])).rows[0];
+    assert.equal(Number(com.amount_cents), 0);
+    assert.equal(Number(com.rate_bps), 0);
+  });
+
   it('estorno de pacote de saldo debita o saldo disponível e registra a transação', async () => {
     const buyer = await mkUser();
     const order = await mkOrder({ userId: buyer, type: 'CREDIT_PACKAGE', credits: 50, amount: 5000 });

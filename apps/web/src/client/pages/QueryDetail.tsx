@@ -40,11 +40,23 @@ export default function QueryDetail() {
   const [dispute, setDispute] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   usePageTitle('Relatório');
+  const runningRef = useRef(false);
   const { data, error, loading, reload } = useAsync(async () => {
-    const summary = await api.get<Detail>(`/queries/${id}`);
-    if (summary.status !== 'SUCCESS' || summary.productId === 'FIPE_FREE') return { summary, envelope: null as ReportEnvelope | null };
-    try { return { summary, envelope: await api.get<ReportEnvelope>(`/queries/${id}/report`) }; }
-    catch (e) { if (e instanceof ApiError && (e.status === 404 || e.status === 409)) return { summary, envelope: null }; throw e; }
+    // Resumo e relatório juntos (uma ida ao servidor só); se a consulta ainda não concluiu, o relatório responde 404/409 e é ignorado.
+    const wasRunning = runningRef.current;
+    const [summary, report] = await Promise.allSettled([api.get<Detail>(`/queries/${id}`), wasRunning ? Promise.reject(new ApiError(409, 'QUERY_IN_PROGRESS', 'Consulta em andamento.', {})) : api.get<ReportEnvelope>(`/queries/${id}/report`)]);
+    runningRef.current = summary.status === 'fulfilled' && summary.value.status === 'PROCESSING';
+    // Se estava em andamento e concluiu, busca o relatório agora.
+    if (wasRunning && summary.status === 'fulfilled' && summary.value.status === 'SUCCESS' && summary.value.productId !== 'FIPE_FREE') {
+      try { return { summary: summary.value, envelope: await api.get<ReportEnvelope>(`/queries/${id}/report`) }; }
+      catch (e) { if (e instanceof ApiError && (e.status === 404 || e.status === 409)) return { summary: summary.value, envelope: null }; throw e; }
+    }
+    if (summary.status === 'rejected') throw summary.reason;
+    if (summary.value.status !== 'SUCCESS' || summary.value.productId === 'FIPE_FREE') return { summary: summary.value, envelope: null as ReportEnvelope | null };
+    if (report.status === 'fulfilled') return { summary: summary.value, envelope: report.value };
+    const e = report.reason;
+    if (e instanceof ApiError && (e.status === 404 || e.status === 409)) return { summary: summary.value, envelope: null };
+    throw e;
   }, [id]);
 
   async function cancelQuery() {
@@ -58,7 +70,7 @@ export default function QueryDetail() {
   const reloadRef = useRef(reload); reloadRef.current = reload;
   useEffect(() => {
     if (!processing) return;
-    const t = setInterval(() => reloadRef.current(), 3000);
+    const t = setInterval(() => reloadRef.current(), 2000);
     return () => clearInterval(t);
   }, [processing]);
 

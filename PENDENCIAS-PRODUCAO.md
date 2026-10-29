@@ -1,4 +1,4 @@
-# Pendências para produção (1.18.2)
+# Pendências para produção (1.18.4)
 
 ## Roteiro de configuração (teste e produção)
 

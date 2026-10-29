@@ -56,6 +56,12 @@ test('API impede cache condicional e o dashboard não transforma falha parcial e
   assert.match(adminApi, /store: 'session'/);
 });
 
+test('documentos FIPE exigem proprietário e consultas pagas bloqueiam estorno ativo', () => {
+  assert.match(server, /report_kind=\\'FIPE_FREE\\' AND user_id=\$2/);
+  assert.match(server, /QUERY_PAYMENT_REFUND_PENDING/);
+  assert.match(server, /payment_refunds pr WHERE pr\.order_id=o\.id AND pr\.status IN \('REQUESTED','CONFIRMED'\)/);
+});
+
 test('painel administrativo expõe alteração segura da senha da sessão atual', () => {
   assert.match(adminAccount, /Atualizar senha/);
   assert.match(adminAccount, /admin\/auth\/change-password/);

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.18.4 — Correções da auditoria externa que cabem sem risco
+
+- Pagamento que chega **depois** de um estorno/chargeback não reabre o pedido nem devolve saldo ou direito de consulta: o evento fica marcado `LATE_PAID_AFTER_TERMINAL_ORDER` para revisão. (Pedido vencido ou com falha continua creditando se o cliente pagou.)
+- Consulta paga com estorno **solicitado ou confirmado** não pode mais ser usada (`QUERY_PAYMENT_REFUND_PENDING`).
+- PDF e impressão da cotação FIPE só abrem para a conta dona do documento; resposta sem cache. Quem está logado salva a cotação antes de baixar o PDF.
+- Comissão de afiliado configurada em 0 passa a valer 0 (antes caía no padrão).
+- Falhas silenciosas do módulo fiscal agora vão para o log (`fiscal_delivery_failed`, `fiscal_worker_failed`); falha no rollback do banco não esconde o erro original.
+- Teste do assistente de suporte não deixa mais um servidor aberto quando não há banco de teste.
+- Não adotado de propósito: login da Credify continua renovado a cada 3 min; 2FA da equipe continua opcional (ligar com `TEAM_TOTP_REQUIRED=true`).
+
+## 1.18.3 — Consulta mais rápida do nosso lado e tempo de cada etapa no log
+
+- Ao abrir "Nova consulta" o sistema deixa o login da Credify pronto (`POST /api/queries/warm`), então a consulta não perde tempo entrando.
+- Depois de pedir a consulta, a tela vai direto ao relatório; o saldo atualiza em segundo plano. O relatório e o resumo carregam juntos, e a tela de "em processamento" confere a cada 2 s.
+- O log `query_completed` passa a trazer o tempo de cada etapa: `providerMs` (Credify), `enrichMs` (histórico da FIPE), `normalizeMs` e `saveMs`.
+- A gravação do registro de auditoria roda junto com a leitura do resultado.
+- O tempo da própria Credify (Veículo Total) continua sendo o maior trecho e depende dela.
+
 ## 1.18.2 — Login da Credify sempre fresco e com recuperação automática
 
 - Cada consulta usa um token com no máximo 3 minutos de vida (login novo se for mais velho), igual ao que o teste do painel faz. Antes o cliente usava o token guardado no servidor, que podia estar recusado pela Credify.
