@@ -3,7 +3,7 @@ import { pool, tx } from '../db.js';
 import { MercadoPagoProvider } from '../payments/mercadopago.js';
 import { settlePaymentEvent } from '../payments/settle.js';
 import { log } from './http.js';
-import { sendPurchaseReceipt } from '../purchaseContract.js';
+import { reopenContractForOrder, sendPurchaseReceipt } from '../purchaseContract.js';
 
 export type SyncedPayment = { paymentId: string; status: string; outcome: string };
 const OPEN = ['CREATED', 'CHECKOUT_ACTIVE'];
@@ -59,9 +59,24 @@ export async function sweepOpenOrders(): Promise<number> {
   return paid;
 }
 
+/** Pedido que ficou aberto por mais de 3 dias (fora da janela da varredura) vira EXPIRED e libera a reserva do cupom. Pagamento que chegar depois ainda é creditado. */
+export async function expireStaleOrders(): Promise<number> {
+  const ids = await tx(async (client) => {
+    const r = await client.query(`UPDATE payment_orders SET status='EXPIRED',updated_at=now() WHERE status = ANY($1) AND created_at < now() - interval '3 days' RETURNING id`, [OPEN]);
+    const found = r.rows.map((x) => String(x.id));
+    if (found.length) await client.query(`UPDATE coupon_redemptions SET status='RELEASED',updated_at=now() WHERE payment_order_id = ANY($1::uuid[]) AND status='RESERVED'`, [found]);
+    return found;
+  });
+  for (const id of ids) await reopenContractForOrder(id).catch((error) => log('warn', 'order_expire_contract_failed', { message: error instanceof Error ? error.message : 'unknown' }));
+  return ids.length;
+}
+
 let timer: NodeJS.Timeout | null = null;
 export function startPaymentSyncWorker(): void {
   if (timer || !env.PAYMENT_SYNC_WORKER) return;
-  timer = setInterval(() => { sweepOpenOrders().catch((error) => log('error', 'payment_sweep_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 3 * 60_000);
+  timer = setInterval(() => {
+    sweepOpenOrders().catch((error) => log('error', 'payment_sweep_failed', { message: error instanceof Error ? error.message : 'unknown' }));
+    expireStaleOrders().then((n) => { if (n > 0) log('info', 'orders_expired', { count: n }); }).catch((error) => log('error', 'order_expire_failed', { message: error instanceof Error ? error.message : 'unknown' }));
+  }, 3 * 60_000);
   timer.unref();
 }

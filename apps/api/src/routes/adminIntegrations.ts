@@ -100,6 +100,8 @@ adminIntegrationsRouter.post('/integrations/vehicle/test', adminAuth, guard, asy
   const serverIp = await outboundIp();
   const plate = typeof req.body?.plate === 'string' ? req.body.plate.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
   if (plate && !/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(plate)) throw fail('INVALID_PLATE');
+  // Consulta real gasta crédito da Credify: só roda com confirmação explícita de quem pediu.
+  if (plate && req.body?.confirmSpend !== true) throw fail('CONFIRM_SPEND_REQUIRED');
   // Pacote cuja consulta será testada (a rota da Credify depende dele); sem pacote, usa o caminho padrão.
   const productId = typeof req.body?.productId === 'string' ? req.body.productId.toUpperCase().replace(/[^A-Z0-9_]/g, '').slice(0, 40) : '';
   let result: Record<string, unknown>;

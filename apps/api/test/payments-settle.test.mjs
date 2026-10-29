@@ -120,6 +120,25 @@ describe('liquidação de pagamentos: comissões, idempotência, estornos e char
     assert.equal((await pool.query('SELECT processing_error FROM payment_webhook_events WHERE order_id=$1 AND processing_error=$2', [order.id, 'LATE_PAID_AFTER_TERMINAL_ORDER'])).rowCount, 1);
   });
 
+  it('pagamento que chega depois de o pedido vencer ainda é creditado (o cliente pagou)', async () => {
+    const buyer = await mkUser(); const product = await mkProduct();
+    const order = await mkOrder({ userId: buyer, productId: product });
+    await pool.query(`UPDATE payment_orders SET status='EXPIRED' WHERE id=$1`, [order.id]);
+    const late = await run(facts(order.ref, 'PAYMENT_RECEIVED'));
+    assert.equal(late.outcome, 'PAID');
+  });
+
+  it('varredura marca como EXPIRED o pedido aberto há mais de 3 dias e libera a reserva do cupom', async () => {
+    const sync = await import('../dist/lib/paymentSync.js');
+    const buyer = await mkUser(); const product = await mkProduct();
+    const old = await mkOrder({ userId: buyer, productId: product }); const fresh = await mkOrder({ userId: buyer, productId: product });
+    await pool.query(`UPDATE payment_orders SET created_at=now() - interval '4 days' WHERE id=$1`, [old.id]);
+    const n = await sync.expireStaleOrders();
+    assert.ok(n >= 1);
+    assert.equal((await pool.query('SELECT status FROM payment_orders WHERE id=$1', [old.id])).rows[0].status, 'EXPIRED');
+    assert.equal((await pool.query('SELECT status FROM payment_orders WHERE id=$1', [fresh.id])).rows[0].status, 'CHECKOUT_ACTIVE');
+  });
+
   it('preserva comissão explicitamente configurada em zero bps', async () => {
     const buyer = await mkUser(); const partner = await mkPartner({ bps: 0 }); const product = await mkProduct();
     const order = await mkOrder({ userId: buyer, partnerId: partner, productId: product, bps: 0 });

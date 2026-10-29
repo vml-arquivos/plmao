@@ -26,6 +26,19 @@ describe('prontidão e checklist de implantação', integration, () => {
     assert.equal((await hostRequest(server.base, '/ready')).status, 200);
   });
 
+  it('/ready compara os identificadores: uma migração extra não compensa a que falta', async () => {
+    const row = (await pool.query(`SELECT id,name FROM schema_migrations WHERE id='034_testimonials'`)).rows[0];
+    await pool.query(`DELETE FROM schema_migrations WHERE id='034_testimonials'`);
+    await pool.query(`INSERT INTO schema_migrations(id,name) VALUES('999_extra','extra') ON CONFLICT DO NOTHING`);
+    try {
+      const r = await hostRequest(server.base, '/ready');
+      assert.equal(r.status, 503); assert.deepEqual(r.json.migrationsMissing, ['034_testimonials']);
+    } finally {
+      await pool.query(`DELETE FROM schema_migrations WHERE id='999_extra'`);
+      await pool.query('INSERT INTO schema_migrations(id,name) VALUES($1,$2) ON CONFLICT DO NOTHING', [row.id, row.name]);
+    }
+  });
+
   it('checklist inclui contratos, e-mail, fiscal, Mercado Pago, e-assinatura, MFA e taxas, sem segredos', async () => {
     const r = await adm.call('/api/admin/finance/setup-checklist');
     assert.equal(r.status, 200);

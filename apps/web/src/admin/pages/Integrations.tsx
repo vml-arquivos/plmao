@@ -17,9 +17,10 @@ export default function Integrations() {
   const [plate, setPlate] = useState('');
   const [testProduct, setTestProduct] = useState('COMPLETE');
   async function test(key: string, withQuery = false) {
+    if (withQuery && !window.confirm(`Isto faz uma consulta real na Credify e gasta 1 consulta do plano (placa ${plate}). Continuar?`)) return;
     setBusy(key); setResult((r) => ({ ...r, [key]: '' }));
     try {
-      const r = await api.post<Record<string, unknown>>(`/admin/integrations/${key}/test`, withQuery ? { plate, productId: testProduct } : undefined);
+      const r = await api.post<Record<string, unknown>>(`/admin/integrations/${key}/test`, withQuery ? { plate, productId: testProduct, confirmSpend: true } : undefined);
       if (key === 'vehicle') {
         const ip = r.serverIp ? ` IP de saída deste servidor: ${String(r.serverIp)} (cadastre em "IPs Autorizados" na Credify).` : '';
         if (r.ok === false) { const h = r.credentialHint as { clientId: string | null; secretLength: number; secretNumeric: boolean } | undefined; const hint = h ? ` Em uso no servidor: ClientID ${h.clientId ? `"${h.clientId}"` : 'VAZIO'}; ClientSecret com ${h.secretLength} caracteres${h.secretNumeric ? ' (só números)' : ''}.` : ''; const m = `Falhou: ${String(r.detail ?? r.code)} (${String(r.code)}).${hint}${ip}`; setResult((x) => ({ ...x, [key]: m })); toast.error(r.queryTested ? 'A consulta de teste falhou.' : 'Credify recusou o login.'); return; }

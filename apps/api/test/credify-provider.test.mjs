@@ -308,3 +308,13 @@ test('consulta sem resposta descarta o token: a próxima começa com login novo'
   assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 2);
   resetCredifyTokenCache();
 });
+
+test('CODIGO=2 em consulta que não é Veículo Total é "nada encontrado" (estorna sem acusar falha técnica)', async () => {
+  resetCredifyTokenCache();
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const token = jwt(Math.floor(now / 1000) + 24 * 3600);
+  const none = { CONSULTA: { CODIGORESPOSTA: '1' }, RESPOSTA: { CODIGO: '2', DESCRICAORETORNO: 'NAO ENCONTRADO' } };
+  const f = fakeFetch([{ body: { Success: true, Dados: token } }, { body: none }]);
+  await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: f, now: () => now }).queryByPlate('AAA0000'), { code: 'NOT_FOUND' });
+  resetCredifyTokenCache();
+});

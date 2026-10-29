@@ -506,10 +506,12 @@ app.get('/health', asyncRoute(async (_req, res) => {
 /** Prontidão: banco acessível e todas as migrações aplicadas. Não expõe configuração nem segredos. */
 app.get('/ready', asyncRoute(async (_req, res) => {
   try {
-    const applied = await pool.query('SELECT count(*)::int AS n FROM schema_migrations');
+    const applied = await pool.query('SELECT id FROM schema_migrations');
     const { migrations: all } = await import('./migrations.js');
-    const ok = Number(applied.rows[0].n) >= all.length;
-    res.status(ok ? 200 : 503).json({ ok, database: 'ok', migrationsApplied: Number(applied.rows[0].n), migrationsExpected: all.length });
+    const have = new Set(applied.rows.map((r) => String(r.id)));
+    const missing = all.filter((m) => !have.has(m.id)).map((m) => m.id);
+    const ok = missing.length === 0;
+    res.status(ok ? 200 : 503).json({ ok, database: 'ok', migrationsApplied: have.size, migrationsExpected: all.length, ...(ok ? {} : { migrationsMissing: missing.slice(0, 10) }) });
   } catch {
     res.status(503).json({ ok: false, database: 'error' });
   }
@@ -1850,6 +1852,13 @@ api.post('/payments/quote', auth, requirePermission('BUY_CREDITS'), asyncRoute(a
   res.json({ ...quote, paymentProviderConfigured: getPaymentProvider().isConfigured(), usageCountChangesOnlyAfterPaid: true });
 }));
 
+/** Clique duplo / duas abas: enquanto o checkout anterior da mesma pessoa ainda está sendo criado (até 45 s), não abre outro. */
+async function guardCheckoutInFlight(client: PoolClient, userId: string): Promise<void> {
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`checkout:${userId}`]);
+  const open = await client.query(`SELECT 1 FROM payment_orders WHERE user_id=$1 AND status='CREATED' AND created_at > now() - interval '45 seconds' LIMIT 1`, [userId]);
+  if (open.rowCount) throw appError('CHECKOUT_IN_PROGRESS', { code: 'CHECKOUT_IN_PROGRESS', http: 409, expose: true });
+}
+
 api.post('/payments/checkout', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
   assertSiteOpenFor(req.user!.email);
   const parsed = checkoutSchema.safeParse(req.body);
@@ -1857,6 +1866,7 @@ api.post('/payments/checkout', auth, requirePermission('BUY_CREDITS'), asyncRout
   const paymentProvider = getPaymentProvider();
   if (!paymentProvider.isConfigured()) throw appError('PAYMENT_PROVIDER_NOT_CONFIGURED', { code: 'PAYMENT_PROVIDER_NOT_CONFIGURED', http: 503, expose: true });
   const draft = await tx(async (client) => {
+    await guardCheckoutInFlight(client, req.user!.id);
     const pack = await client.query('SELECT id,slug,name,description,credits,price_cents FROM credit_packages WHERE slug=$1 AND active=true', [parsed.data.packageSlug]);
     if (!pack.rowCount) throw appError('CREDIT_PACKAGE_NOT_FOUND', { code: 'CREDIT_PACKAGE_NOT_FOUND', http: 404, expose: true });
     const profile = await client.query(`SELECT u.name,u.email,p.cpf_cnpj,p.phone FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=$1 AND u.active=true`, [req.user!.id]);
@@ -1949,6 +1959,7 @@ api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asy
   if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
   const paymentProvider = getPaymentProvider();
   const draft = await tx(async (client) => {
+    await guardCheckoutInFlight(client, req.user!.id);
     const product = await client.query('SELECT id,name,description,price_cents,is_free FROM query_products WHERE id=$1 AND active=true', [parsed.data.productId]);
     if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
     const productRow = product.rows[0] as Record<string, unknown>;
@@ -2941,6 +2952,7 @@ function humanMessage(code: string): string {
     COUPON_ZERO_TOTAL_UNSUPPORTED: 'Cupom de 100% vale apenas para consulta avulsa, não para pacote de saldo.',
     COUPON_INVALID: 'Cupom não encontrado. Confira o código.',
     COUPON_UNAVAILABLE: 'Este cupom não está disponível (expirado, desativado ou esgotado).',
+    CHECKOUT_IN_PROGRESS: 'Seu pagamento já está sendo preparado. Aguarde alguns segundos antes de tentar de novo.',
     COUPON_ALREADY_USED: 'Você já usou este cupom grátis. Cada conta resgata uma vez.',
     AFFILIATE_INVALID: 'Código de indicação inválido.',
     QUERY_NOT_CHARGEABLE: 'Esta consulta não tem valor a cobrar.',

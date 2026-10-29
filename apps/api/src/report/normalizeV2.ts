@@ -140,6 +140,8 @@ function findScalar(raw: unknown, wanted: string, depth = 0, seen = new Set<unkn
 export function providerOutcome(raw: unknown): { ok: boolean; reason?: string; notFound?: boolean } {
   if (isVehicleTotal(raw)) return vehicleTotalOutcome(raw);
   const code = findScalar(raw, 'CODIGO');
+  // Credify: 1 = dados, 2 = nada encontrado (não é falha técnica), 3 = erro.
+  if (code !== undefined && code.trim() === '2') return { ok: false, notFound: true, reason: 'CODIGO=2' };
   if (code !== undefined && code.trim() !== '1') return { ok: false, reason: `CODIGO=${code}` };
   const desc = findScalar(raw, 'DESCRICAORETORNO');
   if (desc !== undefined && fold(desc) !== 'SUCESSO') return { ok: false, reason: `DESCRICAORETORNO=${desc}` };

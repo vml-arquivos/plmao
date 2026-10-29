@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.19.0 — Pronto para teste de produção
+
+- Consulta sem dados (`CODIGO=2`) em qualquer pacote da Credify passa a ser "placa sem dados" (estorna e avisa o cliente), não falha técnica.
+- `/ready` compara a lista exata de migrações e mostra quais faltam; uma migração extra não compensa a que falta.
+- Pedidos abertos há mais de 3 dias viram `EXPIRED` automaticamente e a reserva do cupom é liberada (pagamento que chegar depois ainda é creditado).
+- Clique duplo / duas abas no checkout não criam dois pagamentos: enquanto o anterior está sendo preparado (até 45 s) responde `CHECKOUT_IN_PROGRESS`.
+- No painel, "Testar consulta real" pede confirmação antes de gastar uma consulta da Credify.
+- Backup e restauração: `scripts/backup-db.sh`, `scripts/restore-db.sh` e `docs/BACKUP.md`.
+- Dependência `qs` 6.17.1 (corrige aviso de segurança). Nodemailer 10.3.1 foi testado e quebrou o envio por SMTP nos testes, por isso ficou em 10.0.9; Zod fica para outra etapa (troca de versão maior).
+- Novo `docs/TESTE-PRODUCAO.md`: roteiro de 30 minutos para validar o deploy.
+
 ## 1.18.4 — Correções da auditoria externa que cabem sem risco
 
 - Pagamento que chega **depois** de um estorno/chargeback não reabre o pedido nem devolve saldo ou direito de consulta: o evento fica marcado `LATE_PAID_AFTER_TERMINAL_ORDER` para revisão. (Pedido vencido ou com falha continua creditando se o cliente pagou.)
