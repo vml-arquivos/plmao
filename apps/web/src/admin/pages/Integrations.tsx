@@ -4,6 +4,7 @@ import { Alert, Badge, Button, CopyField, Input, EmptyState, ErrorState, PageLoa
 import { errorMessage } from '../../shared/api';
 import { Card, PageHead } from '../parts';
 
+interface RecentQuery { id: string; plate: string; status: string; product: string; createdAt: string; seconds: number; errorCode: string | null; errorMessage: string | null; providerMs: number | null; credifyExecSeconds: unknown; failedAfterMs: number | null }
 interface Var { name: string; set: boolean; required: boolean; hint?: string }
 interface Item { key: string; name: string; state: 'OFF' | 'PARTIAL' | 'READY'; vars: Var[]; webhookUrl?: string; webhookNote?: string; mode?: string | null; canTest?: boolean; workerOn?: boolean }
 const STATE = { OFF: { l: 'Desligada', t: 'neutral' }, PARTIAL: { l: 'Faltam chaves', t: 'warn' }, READY: { l: 'Pronta', t: 'ok' } } as const;
@@ -12,6 +13,7 @@ export default function Integrations() {
   usePageTitle('Integrações');
   const toast = useToast();
   const list = useAsync(() => api.get<{ items: Item[] }>('/admin/integrations'));
+  const recent = useAsync(() => api.get<{ items: RecentQuery[] }>('/admin/integrations/vehicle/recent-queries'));
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState<Record<string, string>>({});
   const [plate, setPlate] = useState('');
@@ -48,7 +50,24 @@ export default function Integrations() {
             {i.canTest && <div className="row" style={{ gap: 8, marginTop: 8 }}><Button size="sm" loading={busy === i.key} disabled={i.state === 'OFF' && i.key !== 'mercadopago' && i.key !== 'email' && i.key !== 'vehicle'} onClick={() => void test(i.key)}>{i.key === 'email' ? 'Testar conexão e enviar e-mail de teste' : i.key === 'vehicle' ? 'Testar login na Credify (sem consulta)' : 'Testar conexão (sem cobrança)'}</Button>{i.key === 'vehicle' && <><Input style={{ maxWidth: 140 }} placeholder="Placa (ex: ABC1D23)" value={plate} maxLength={8} onChange={(e) => setPlate(e.target.value.toUpperCase())} aria-label="Placa para consulta de teste" /><select className="input" style={{ maxWidth: 190 }} value={testProduct} onChange={(e) => setTestProduct(e.target.value)} aria-label="Pacote a testar"><option value="COMPLETE">Pacote Completa (Veículo Total)</option><option value="BASIC">Pacote Básica/Gravame/Cadastral</option></select><Button size="sm" loading={busy === i.key} disabled={plate.replace(/[^A-Z0-9]/gi, '').length < 7} onClick={() => void test(i.key, true)}>Testar consulta real (gasta 1 consulta)</Button></>}</div>}
             {result[i.key] && <Alert tone={result[i.key]!.startsWith('Falhou') ? 'danger' : 'ok'}>{result[i.key]}</Alert>}
           </Card>
-        ))}</div>
+        ))}
+          <Card title={<span>Últimas consultas de clientes</span>} actions={<Button size="sm" variant="ghost" onClick={recent.reload}>Atualizar</Button>}>
+            {recent.loading && !recent.data ? <PageLoading /> : !(recent.data?.items.length) ? <p className="muted">Nenhuma consulta ainda.</p> : (
+              <div style={{ overflowX: 'auto' }}><table className="table" style={{ width: '100%', fontSize: 13 }}>
+                <thead><tr><th>Placa</th><th>Pacote</th><th>Situação</th><th>Tempo</th><th>Motivo da falha</th></tr></thead>
+                <tbody>{recent.data.items.map((q) => (
+                  <tr key={q.id}>
+                    <td><code>{q.plate}</code></td><td>{q.product}</td>
+                    <td><Badge tone={q.status === 'SUCCESS' ? 'ok' : q.status === 'PROCESSING' ? 'warn' : 'neutral'}>{q.status}</Badge></td>
+                    <td>{q.status === 'PROCESSING' ? `${q.seconds} s e contando` : `${q.providerMs != null ? Math.round(q.providerMs / 1000) : q.failedAfterMs != null ? Math.round(q.failedAfterMs / 1000) : q.seconds} s`}{q.credifyExecSeconds != null ? ` (Credify: ${String(q.credifyExecSeconds)} s)` : ''}</td>
+                    <td>{q.errorCode ? <><code>{q.errorCode}</code>{q.errorMessage ? ` — ${q.errorMessage}` : ''}</> : '—'}</td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            )}
+            <p className="muted" style={{ fontSize: 12 }}>Mostra as 20 consultas mais recentes e o motivo exato quando a Credify não responde. Sem dados pessoais.</p>
+          </Card>
+        </div>
       )}
     </>
   );

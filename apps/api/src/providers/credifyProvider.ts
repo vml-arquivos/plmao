@@ -267,6 +267,14 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       if (retry.ok) raw = await read(retry);
     }
     if (!raw || typeof raw !== 'object' || !raw.RESPOSTA) throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Resposta sem o bloco RESPOSTA (campos: ${Object.keys(raw ?? {}).slice(0, 8).join(', ') || 'nenhum'}${raw?.Message ? `; Message: ${String(raw.Message)}` : ''}).`);
+    // Códigos de limite/saldo do logon (valem para qualquer consulta): a Credify recusou ANTES de consultar.
+    const logonCode = Array.isArray(raw?.RESPOSTA?.CODIGO) ? undefined : String(raw?.RESPOSTA?.CODIGO ?? '').trim();
+    if (logonCode && /^1[4-9]$/.test(logonCode)) {
+      const msg = String(raw?.RESPOSTA?.MSG ?? raw?.CONSULTA?.CODIGORESPOSTA ?? '').slice(0, 160);
+      log('warn', 'credify_logon_limit', { code: logonCode, msg });
+      const detail = `Credify recusou a consulta (código ${logonCode}): ${msg || 'limite ou saldo do logon'}.`;
+      throw fail(logonCode === '14' ? 'DATA_PROVIDER_RATE_LIMITED' : logonCode === '19' ? 'DATA_PROVIDER_INVALID_RESPONSE' : 'DATA_PROVIDER_QUOTA_EXHAUSTED', detail);
+    }
     const outcome = providerOutcome(raw);
     if (outcome.notFound) throw fail('NOT_FOUND', 'Placa não encontrada na Credify.');
     if (!outcome.ok) throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Credify respondeu com erro (${outcome.reason ?? 'sem motivo'}): CODIGO ${JSON.stringify(raw?.RESPOSTA?.CODIGO ?? null)}${raw?.RESPOSTA?.DADOS?.MSG ? `; ${String(raw.RESPOSTA.DADOS.MSG)}` : ''}.`);

@@ -1431,7 +1431,8 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
       const still = await client.query(`SELECT status FROM vehicle_queries WHERE id=$1 FOR UPDATE`, [queryId]);
       if (still.rows[0]?.status !== 'PROCESSING') throw Object.assign(new Error('QUERY_CANCELLED'), { code: 'QUERY_CANCELLED' });
       await client.query('INSERT INTO vehicle_query_results(query_id,normalized,raw_response,raw_enc,normalizer_version) VALUES($1,$2::jsonb,$3::jsonb,$4,$5)', [queryId, JSON.stringify(normalized), JSON.stringify({ stored: env.STORE_RAW_PROVIDER_RESPONSE, encrypted: env.STORE_RAW_PROVIDER_RESPONSE }), env.STORE_RAW_PROVIDER_RESPONSE ? encryptRaw(output.raw) : null, NORMALIZER_VERSION]);
-      await client.query(`UPDATE vehicle_queries SET status='SUCCESS',provider_query_id=$2,result_hash=$3,completed_at=now() WHERE id=$1`, [queryId, output.providerQueryId ?? null, resultHash]);
+      const execSeconds = ((output.raw as { data?: { RESPOSTA?: { VEICULOSBDRP?: { RETORNO?: { TEMPOEXECUCAO?: unknown } } } } } | undefined)?.data?.RESPOSTA?.VEICULOSBDRP?.RETORNO?.TEMPOEXECUCAO) ?? null;
+      await client.query(`UPDATE vehicle_queries SET status='SUCCESS',provider_query_id=$2,result_hash=$3,completed_at=now(),request_metadata=coalesce(request_metadata,'{}'::jsonb) || $4::jsonb WHERE id=$1`, [queryId, output.providerQueryId ?? null, resultHash, JSON.stringify({ timing: output.timing, credifyExecSeconds: execSeconds })]);
     });
     const savedAt = Date.now();
     const auditing = audit(userId, 'VEHICLE_QUERY', 'VEHICLE_QUERY', queryId, { plate: input.plate, productId: input.productId, provider: provider.name, requestId: input.reqId });
@@ -1445,6 +1446,7 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
     if (queryId) {
       const errorCode = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'PROVIDER_ERROR';
       const detail = error instanceof Error ? ((error as Error & { detail?: string }).detail ?? (error.message && error.message !== errorCode ? error.message : undefined)) : undefined;
+      await pool.query(`UPDATE vehicle_queries SET request_metadata=coalesce(request_metadata,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [queryId, JSON.stringify({ failedAfterMs: Date.now() - startedAt })]).catch(() => undefined);
       const refundedNow = await tx((client) => refundProcessingQuery(client, queryId!, errorCode, detail));
       if (refundedNow) {
         log('warn', 'query_failed_refunded', { queryId, errorCode, detail: detail?.slice(0, 200) });

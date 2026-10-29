@@ -1,3 +1,4 @@
+import { pool } from '../db.js';
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { adminAuth } from '../auth.js';
@@ -92,6 +93,17 @@ async function outboundIp(): Promise<string | null> {
     return typeof j.ip === 'string' && /^[0-9a-fA-F:.]{3,45}$/.test(j.ip) ? j.ip : null;
   } catch { return null; }
 }
+
+/** Últimas consultas reais de clientes: status, tempo e o motivo exato quando falham (sem dados pessoais). */
+adminIntegrationsRouter.get('/integrations/vehicle/recent-queries', adminAuth, guard, asyncRoute(async (_req, res) => {
+  const r = await pool.query(`SELECT q.id,q.plate,q.status,q.created_at,q.completed_at,q.error_code,q.error_message,q.request_metadata,p.name AS product_name,
+      EXTRACT(EPOCH FROM (coalesce(q.completed_at, now()) - q.created_at))::int AS seconds
+    FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id ORDER BY q.created_at DESC LIMIT 20`);
+  res.json({ items: r.rows.map((q: Record<string, unknown>) => {
+    const meta = (q.request_metadata ?? {}) as { timing?: { providerMs?: number; enrichMs?: number; normalizeMs?: number }; credifyExecSeconds?: unknown; failedAfterMs?: number };
+    return { id: q.id, plate: q.plate, status: q.status, product: q.product_name, createdAt: q.created_at, seconds: Number(q.seconds ?? 0), errorCode: q.error_code ?? null, errorMessage: q.error_message ?? null, providerMs: meta.timing?.providerMs ?? null, credifyExecSeconds: meta.credifyExecSeconds ?? null, failedAfterMs: meta.failedAfterMs ?? null };
+  }) });
+}));
 
 /** Login na Credify (não consome consulta) e, se vier `plate`, uma consulta real (gasta 1 consulta do plano). Devolve o motivo técnico quando falha, sem expor chaves. */
 adminIntegrationsRouter.post('/integrations/vehicle/test', adminAuth, guard, asyncRoute(async (req, res) => {

@@ -273,7 +273,7 @@ const envSchema = z.object({
   VEHICLE_API_DEVICE_TOKEN: optionalString,
   APIBRASIL_BEARER_TOKEN: optionalString,
   APIBRASIL_DEVICE_TOKEN: optionalString,
-  VEHICLE_API_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(100000),
+  VEHICLE_API_TIMEOUT_MS: z.coerce.number().int().positive().max(300000).default(170000),
   // Adaptador do provedor quando DATA_PROVIDER=real: generic = VEHICLE_API_*; credify = API Credify (auth por ClientID/ClientSecret → JWT 24h); consultarplaca = ConsultarPlaca v2 (Basic: e-mail + chave), para testes.
   VEHICLE_API_PROVIDER: z.enum(['generic', 'credify', 'consultarplaca']).default('generic'),
   /** Tipos de busca que o contrato do provedor (Credify ou genérico) atende, além da placa: CHASSIS, RENAVAM, OWNER_DOC. */
@@ -330,7 +330,7 @@ const envSchema = z.object({
 
   QUERY_CACHE_ENABLED: booleanFromEnv.default(true),
   QUERY_CACHE_TTL_SECONDS: z.coerce.number().int().positive().max(604800).default(3600),
-  QUERY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(105000),
+  QUERY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().max(300000).default(175000),
   /** Quanto a tela espera a fonte antes de passar a acompanhar a consulta em segundo plano. */
   QUERY_SYNC_WAIT_MS: z.coerce.number().int().min(0).max(60000).default(20000),
   RATE_LIMIT_ENABLED: booleanFromEnv.default(true),

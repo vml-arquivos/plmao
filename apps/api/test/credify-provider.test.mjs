@@ -318,3 +318,18 @@ test('CODIGO=2 em consulta que não é Veículo Total é "nada encontrado" (esto
   await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: f, now: () => now }).queryByPlate('AAA0000'), { code: 'NOT_FOUND' });
   resetCredifyTokenCache();
 });
+
+test('códigos 14 a 19 da Credify viram erro claro, sem tratar como resposta inválida genérica', async () => {
+  const cases = [['14', 'DATA_PROVIDER_RATE_LIMITED'], ['15', 'DATA_PROVIDER_QUOTA_EXHAUSTED'], ['18', 'DATA_PROVIDER_QUOTA_EXHAUSTED'], ['19', 'DATA_PROVIDER_INVALID_RESPONSE']];
+  for (const [codigo, esperado] of cases) {
+    resetCredifyTokenCache();
+    const t = jwt(Math.floor(Date.now() / 1000) + 86400);
+    const f = fakeFetch([{ body: { Success: true, Dados: t } }, { body: { RESPOSTA: { CODIGO: codigo, MSG: 'limite do logon' } } }]);
+    await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: f }).queryByPlate('AAA0000'), (e) => {
+      assert.equal(e.code, esperado);
+      assert.match(String(e.detail ?? e.message), new RegExp(`código ${codigo}`));
+      return true;
+    });
+  }
+  resetCredifyTokenCache();
+});

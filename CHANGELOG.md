@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.19.2 — Consulta que não volta: tempo, erro real e visibilidade
+
+- A Credify tem códigos de recusa que valem para qualquer consulta (14 limite de consultas simultâneas/diárias, 15 limite mensal, 16/17 limite de valor, 18 sem saldo, 19 CPF excluído pela LGPD). Antes caíam em "resposta inválida"; agora viram erro próprio, com o código e a mensagem da Credify, e a consulta é estornada.
+- Tempo máximo da chamada à Credify subiu para 170 s (`VEHICLE_API_TIMEOUT_MS`) e o da consulta inteira para 175 s (`QUERY_REQUEST_TIMEOUT_MS`); o teto configurável passou a 300 s. A consulta Veículo Total junta várias bases e pode demorar mais que os 100 s antigos.
+- Cada consulta guarda quanto tempo levou (fonte, FIPE, tratamento e os segundos informados pela própria Credify) e, se falhar, depois de quanto tempo falhou.
+- Nova tabela "Últimas consultas de clientes" em Admin → Integrações: placa, pacote, situação, tempo e o motivo exato da falha. Sem dados pessoais.
+
 ## 1.19.1 — Débito duplicado no relatório
 
 - Quando a fonte devolve o mesmo valor em "Débitos municipais" e em "Total de multas", o valor passa a contar uma vez só: o resumo de débitos, o total em aberto, o PDF, a impressão e a tela mostram o montante correto (ex.: licenciamento R$ 126,24 + multas R$ 3.729,93 = R$ 3.856,17, e não R$ 7.586,10).
