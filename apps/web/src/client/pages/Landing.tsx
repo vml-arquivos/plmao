@@ -12,13 +12,8 @@ import Faq from '../components/Faq';
 import Testimonials from '../components/Testimonials';
 import { LatestPosts } from './Content';
 import { HomeGuide, HomeSimulator } from '../components/HomeTools';
+import { DetailsButton, PdfModelLink } from '../components/ConsultaDetails';
 
-const STRIP: Array<{ icon: IconName; t: string; s: string }> = [
-  { icon: 'car', t: 'Dados do veículo', s: 'marca, modelo, ano, cor e município' },
-  { icon: 'dollar', t: 'Débitos e multas', s: 'IPVA, licenciamento e mais' },
-  { icon: 'shield-alert', t: 'Restrições e gravame', s: 'roubo, furto e financiamento' },
-  { icon: 'file-text', t: 'Relatório em PDF', s: 'para guardar e compartilhar' }
-];
 const STEPS = [
   { t: 'Digite a placa', s: 'Aceita placa antiga e Mercosul. Sem cadastro de documentos.' },
   { t: 'Escolha a consulta', s: 'Do essencial à checagem completa. O preço aparece antes de pagar.' },
@@ -60,29 +55,37 @@ export default function Landing() {
   return (
     <>
       <PublicHeader overHero />
-      <section className="hero" aria-labelledby="hero-title">
-        <div className="hero-art" aria-hidden="true"><HeroArt /></div>
-        <div className="container">
-          <div className="hero-copy">
-            <span className="kicker">Consulta veicular completa</span>
-            <h1 id="hero-title">Conheça a história do carro <span className="grad-text">antes de decidir.</span></h1>
-            <p className="hero-lead">Dados do veículo, débitos, multas, restrições e gravame em um relatório fácil de ler. Sem mensalidade: você paga só pela consulta que fizer.</p>
+      <section className="hero2" aria-labelledby="hero-title">
+        <div className="hero2-bg" aria-hidden="true" />
+        <div className="container hero2-grid">
+          <div className="hero2-copy">
+            <span className="hero2-pill"><Icon name="shield-check" size={15} /> Consulta veicular por placa</span>
+            <h1 id="hero-title">Saiba tudo sobre o carro <span className="grad-text">antes de fechar negócio.</span></h1>
+            <p className="hero-lead">Débitos, multas, restrições, gravame, histórico e valor FIPE em um relatório claro, em segundos. Sem mensalidade: você paga só pela consulta que fizer.</p>
             <PlateSearch authed={status === 'authed'} placement="hero" />
-            <div className="trust-row"><span><Icon name="shield-check" size={16} />Pagamento seguro</span><span><Icon name="zap" size={16} />Resultado em segundos</span><span><Icon name="printer" size={16} />PDF para imprimir</span></div>
+            <div className="hero2-links">
+              <a className="btn btn-lg btn-outline-light" href="#consultas">Ver as consultas</a>
+              <DetailsButton className="linkbtn light" icon={false}>O que vem em cada uma</DetailsButton>
+              <PdfModelLink id="COMPLETE" className="linkbtn light">Ver modelo do PDF</PdfModelLink>
+            </div>
+            <div className="trust-row"><span><Icon name="shield-check" size={16} />Pagamento seguro</span><span><Icon name="zap" size={16} />Resultado em segundos</span><span><Icon name="printer" size={16} />PDF com código de validação</span></div>
           </div>
-        </div>
-        <div className="benefit-strip"><div className="container" style={{ display: 'contents' }}>
-          {STRIP.map((s) => <div className="item" key={s.t}><span className="ib"><Icon name={s.icon} size={22} /></span><div><b>{s.t}</b><span className="s">{s.s}</span></div></div>)}
-        </div></div>
-      </section>
-
-      <HomeGuide />
-      <HomeSimulator />
-
-      <section className="section" id="como-funciona">
-        <div className="container">
-          <div className="section-head"><span className="eyebrow">Como funciona</span><h2>Três passos, menos de um minuto.</h2></div>
-          <div className="steps">{STEPS.map((s) => <div className="step" key={s.t}><h3>{s.t}</h3><p>{s.s}</p></div>)}</div>
+          <div className="hero2-visual" aria-hidden="true">
+            <div className="hv-card">
+              <div className="hv-top"><span className="hv-plate">ABC 1D23</span><div><b>VW Exemplo 1.0</b><small>2020/2021 · Prata · Flex</small></div></div>
+              <div className="hv-verdict"><Icon name="shield-check" size={20} /><div><b>Sem alertas relevantes</b><small>Nada consta nas bases consultadas</small></div></div>
+              <div className="hv-tiles">
+                <div><small>Débitos</small><b className="ok">Nenhum</b></div>
+                <div><small>Restrições</small><b className="ok">Nada consta</b></div>
+                <div><small>Gravame</small><b className="ok">Nada consta</b></div>
+                <div><small>FIPE</small><b>R$ 32.500</b></div>
+              </div>
+              <svg className="hv-chart" viewBox="0 0 300 70" preserveAspectRatio="none"><defs><linearGradient id="hvg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#60A5FA" stopOpacity=".35" /><stop offset="1" stopColor="#60A5FA" stopOpacity="0" /></linearGradient></defs><path d="M0 14 C40 18 70 24 110 30 S190 44 230 48 S280 56 300 58 L300 70 L0 70Z" fill="url(#hvg)" /><path d="M0 14 C40 18 70 24 110 30 S190 44 230 48 S280 56 300 58" fill="none" stroke="#7CB9FF" strokeWidth="2" /></svg>
+              <small className="hv-cap">Histórico da FIPE nos últimos 24 meses</small>
+            </div>
+            <div className="hv-float"><Icon name="file-text" size={18} /><div><b>Relatório em PDF</b><small>com código de validação</small></div></div>
+            <span className="hv-sample">Exemplo ilustrativo, com dados fictícios</span>
+          </div>
         </div>
       </section>
 
@@ -91,9 +94,19 @@ export default function Landing() {
           <div className="section-head" style={{ marginBottom: 0 }}><span className="eyebrow">Consultas</span><h2>Escolha o nível de segurança que você precisa.</h2><p>Cada consulta mostra exatamente o que entrega. O valor final aparece antes do pagamento.</p></div>
           <ProductCards homeOnly />
           <SmartPicker />
-          <div className="row"><LinkButton to="/planos" iconRight="arrow-right">Comparar todas as consultas</LinkButton></div>
+          <div className="row"><DetailsButton className="btn btn-primary">Detalhar e comparar consultas</DetailsButton><LinkButton to="/planos" iconRight="arrow-right">Ver preços e pacotes</LinkButton></div>
         </div>
       </section>
+
+      <section className="section" id="como-funciona">
+        <div className="container">
+          <div className="section-head"><span className="eyebrow">Como funciona</span><h2>Três passos, menos de um minuto.</h2></div>
+          <div className="steps">{STEPS.map((s) => <div className="step" key={s.t}><h3>{s.t}</h3><p>{s.s}</p></div>)}</div>
+        </div>
+      </section>
+
+      <HomeGuide />
+      <HomeSimulator />
 
       <section className="section">
         <div className="container showcase">

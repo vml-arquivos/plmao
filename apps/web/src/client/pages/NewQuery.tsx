@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { DetailsButton, PdfModelLink } from '../components/ConsultaDetails';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
 import { Alert, Badge, Button, EmptyState, Field, Input, Skeleton, useAsync, usePageTitle, useToast } from '../../shared/ui';
@@ -175,7 +176,7 @@ export default function NewQuery() {
                 return (
                   <label key={p.id} className={`prod ${productId === p.id ? 'sel' : ''} ${off ? 'off' : ''}`}>
                     <input type="radio" name="product" checked={productId === p.id} disabled={off} onChange={() => setProductId(p.id)} />
-                    <span><b>{p.name}{p.featured && <Badge tone="violet">Mais completa</Badge>}{off && <Badge>Em breve</Badge>}{p.negotiated && <Badge tone="ok">Preço negociado</Badge>}</b><p>{p.description}</p>{!!p.features?.length && <p style={{ marginTop: 4 }}>{p.features.slice(0, 4).join(' · ')}</p>}</span>
+                    <span><b>{p.name}{p.featured && <Badge tone="violet">Mais completa</Badge>}{off && <Badge>Em breve</Badge>}{p.negotiated && <Badge tone="ok">Preço negociado</Badge>}</b><p>{p.description}</p>{!!p.features?.length && <p style={{ marginTop: 4 }}>{p.features.slice(0, 4).join(' · ')}</p>}<span className="prod-links"><DetailsButton initial={p.id} className="linkbtn" icon={false}>Ver tudo que vem</DetailsButton><span aria-hidden="true">·</span><PdfModelLink id={p.id} className="linkbtn">Ver modelo do PDF</PdfModelLink></span></span>
                     <span className="pr num">{money(p.priceCents)}</span>
                   </label>
                 );

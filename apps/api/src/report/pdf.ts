@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { PDFDocument, rgb, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
+import { PDFDocument, degrees, rgb, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import QRCode from 'qrcode';
 import type { ReportItem, ReportV2 } from './normalizeV2.js';
@@ -16,6 +16,8 @@ export interface ReportMeta {
   resultHash?: string | null;
   brandName?: string;
   audience?: 'client' | 'team';
+  /** modelo de exemplo com dados fictícios: marca d'água e aviso, sem validade */
+  sample?: boolean;
 }
 
 const FONT_DIR = new URL('../../assets/fonts/', import.meta.url);
@@ -333,13 +335,17 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
   d.text(`Impressão digital: ${hash}`, tx, by + boxH - 51, 7.5, d.dm400, C.muted);
   const vurl = meta.verificationUrl.replace(/^https?:\/\//, '');
   d.text(`Confira a autenticidade em ${vurl}`, tx, by + boxH - 64, 8, d.dm400, C.muted, { maxWidth: CW - 125 });
-  const notice = 'Informações fornecidas por fonte de dados contratada, conforme retornado na data e hora da consulta; não substituem documentos oficiais nem certidões. Dados pessoais do proprietário (nome e CPF/CNPJ) não são exibidos, em conformidade com a LGPD.';
+  const notice = meta.sample ? 'Este é um modelo ilustrativo, com dados fictícios, para mostrar quais informações você recebe nesta consulta. Não tem validade e não se refere a nenhum veículo real.' : 'Informações fornecidas por fonte de dados contratada, conforme retornado na data e hora da consulta; não substituem documentos oficiais nem certidões. Dados pessoais do proprietário (nome e CPF/CNPJ) não são exibidos, em conformidade com a LGPD.';
   d.wrap(notice, d.dm400, 7, CW - 125).forEach((l, i) => d.text(l, tx, by + boxH - 79 - i * 8.5, 7, d.dm400, C.muted));
   d.y = by - 10;
 
   // rodapé em todas as páginas
   const total = d.pages.length;
   d.pages.forEach((p, i) => {
+    if (meta.sample) {
+      const wm = 'MODELO · DADOS FICTÍCIOS';
+      p.drawText(clean(wm), { x: 110, y: 250, size: 44, font: d.jx800, color: rgb(0.88, 0.88, 0.93), rotate: degrees(40), opacity: 0.55 });
+    }
     p.drawLine({ start: { x: M, y: 34 }, end: { x: W - M, y: 34 }, thickness: 0.6, color: C.line });
     const left = `${meta.brandName ?? 'Placa na Mão'}  ·  ${meta.productName}  ·  ${maskPlate(report.plate)}`;
     p.drawText(clean(left), { x: M, y: 22, size: 7.5, font: d.dm400, color: C.muted });

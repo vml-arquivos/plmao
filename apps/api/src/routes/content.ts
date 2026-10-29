@@ -6,6 +6,7 @@ import { env } from '../config.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import { requirePermission } from '../permissions.js';
 import { SECTIONS } from '../report/catalog.js';
+import { sampleSections, samplePdf } from '../report/sample.js';
 
 /** Conteúdo público do site: catálogo (produtos, matriz e pacotes), FAQ e artigos. Só leitura, sem dados internos. */
 export const publicContentRouter = Router();
@@ -55,6 +56,24 @@ publicContentRouter.get('/catalog', asyncRoute(async (_req, res) => {
     packages: packages.rows.map((p) => ({ slug: p.slug, name: p.name, description: p.description, tagline: p.tagline ?? '', badge: p.badge ?? null, highlights: Array.isArray(p.highlights) ? p.highlights : [], credits: Number(p.credits), priceCents: Number(p.price_cents), bonusCents: Math.max(Number(p.credits) * 100 - Number(p.price_cents), 0) })),
     paymentMethods: (settings.rows[0]?.enabled_methods as string[] | undefined) ?? []
   });
+}));
+
+/** O que cada consulta traz, item a item (mesma fonte do PDF de exemplo). Só produtos pagos e visíveis. */
+publicContentRouter.get('/catalog/details', asyncRoute(async (_req, res) => {
+  const products = await pool.query(`SELECT id,name FROM query_products WHERE active=true AND commercial_status = 'ACTIVE' AND NOT is_free ORDER BY display_order,price_cents`);
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  res.json({ products: products.rows.map((p) => ({ id: String(p.id), name: String(p.name), sections: sampleSections(String(p.id)) })) });
+}));
+
+/** Modelo do PDF da consulta, com dados fictícios e marca d'água: o cliente vê o que recebe antes de pagar. */
+publicContentRouter.get('/catalog/:id/modelo.pdf', asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  const p = await pool.query(`SELECT id,name FROM query_products WHERE (id=$1 OR slug=$1) AND active=true AND commercial_status <> 'HIDDEN' AND NOT is_free`, [id]);
+  if (!p.rowCount) throw notFound('PRODUCT_NOT_FOUND');
+  const buf = await samplePdf(String(p.rows[0].id), String(p.rows[0].name));
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('Content-Disposition', `inline; filename="modelo-${String(p.rows[0].id).toLowerCase()}.pdf"`);
+  res.type('application/pdf').send(buf);
 }));
 
 publicContentRouter.get('/faqs', asyncRoute(async (_req, res) => {

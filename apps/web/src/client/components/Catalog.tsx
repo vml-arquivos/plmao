@@ -4,6 +4,7 @@ import { ErrorState, LinkButton, Skeleton, useAsync } from '../../shared/ui';
 import { money } from '../../shared/format';
 import { api, type Catalog, type CatalogFeature, type CatalogPackage, type CatalogProduct } from '../api';
 import { useSession } from '../session';
+import { DetailsButton, PdfModelLink } from './ConsultaDetails';
 
 export function useCatalog() {
   return useAsync(() => api.get<Catalog>('/catalog'), []);
@@ -49,6 +50,7 @@ function ProductCard({ p, features, authed }: { p: CatalogProduct; features: Cat
         ))}
       </ul>
       {p.coverage ? <span className="cov">{p.coverage}</span> : null}
+      <div className="pcard-links"><DetailsButton initial={p.id} className="linkbtn" icon={false}>Detalhar</DetailsButton><span aria-hidden="true">·</span><PdfModelLink id={p.id} className="linkbtn">Modelo do PDF</PdfModelLink></div>
       {soon ? <span className="btn btn-block" aria-disabled="true">Em breve</span> : <LinkButton to={productTarget(authed, p.id)} variant={p.featured ? 'primary' : 'default'} block>Contratar</LinkButton>}
     </article>
   );

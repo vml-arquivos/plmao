@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.14.0 — Modelo do PDF e detalhamento de cada consulta, home nova
+
+- Modelo do PDF de cada consulta, com dados fictícios e marca d'água (`/api/catalog/:id/modelo.pdf`, público). Mostra exatamente as seções que o cliente recebe naquele produto.
+- Novo "Detalhar": lista item a item o que vem em cada consulta e compara todas numa tabela (`/api/catalog/details`). Aparece na home, nos cartões de consulta e na tela de nova consulta, junto com "Ver modelo do PDF".
+- Home: seção de consultas logo depois do topo; topo redesenhado (limpo, com prévia do relatório no lugar da foto do carro).
+- Teste novo: `catalog-sample.test.mjs`.
+
 ## 1.13.0 — Menu por tipo de cliente, painel enxuto e PDF mais limpo
 
 - Menu da área do cliente: "Minha loja" só aparece para quem tem loja liberada (pacote lojista). O cliente particular vê Painel, Consultas, Simulações, Minha garagem, Carteira, Indique e ganhe, Suporte e Minha conta. `/me` passa a devolver `storeAccess`.
