@@ -6,13 +6,14 @@ import { dateOnly } from '../../shared/format';
 import { Markdown } from '../../shared/markdown';
 import { api, type ArticleFull, type ArticleSummary } from '../api';
 import Faq from '../components/Faq';
+import { SeoH1 } from '../components/SeoContent';
 
 /* ---------- /perguntas-frequentes ---------- */
 export function FaqPage() {
   usePageTitle('Perguntas frequentes');
   return (
     <>
-      <section className="page-hero"><div className="container"><span className="eyebrow">Ajuda</span><h1>Perguntas frequentes</h1><p className="lead">Respostas diretas sobre consultas, pagamento, privacidade e o que cada relatório mostra.</p></div></section>
+      <section className="page-hero"><div className="container"><span className="eyebrow">Ajuda</span><SeoH1 path="/perguntas-frequentes" fallback="Perguntas frequentes" /><p className="lead">Respostas diretas sobre consultas, pagamento, privacidade e o que cada relatório mostra.</p></div></section>
       <section className="section" style={{ paddingTop: 12 }}><div className="container"><Faq searchable /></div></section>
     </>
   );
@@ -56,7 +57,7 @@ export function BlogPage() {
   const list = useMemo(() => (data?.articles ?? []).filter((a) => !cat || a.category === cat), [data, cat]);
   return (
     <>
-      <section className="page-hero"><div className="container"><span className="eyebrow">Blog</span><h1>Guias para comprar e vender com segurança</h1><p className="lead">Conteúdo prático sobre débitos, gravame, restrições, FIPE e o que checar antes de fechar negócio.</p></div></section>
+      <section className="page-hero"><div className="container"><span className="eyebrow">Blog</span><SeoH1 path="/blog" fallback="Guias para comprar e vender com segurança" /><p className="lead">Conteúdo prático sobre débitos, gravame, restrições, FIPE e o que checar antes de fechar negócio.</p></div></section>
       <section className="section" style={{ paddingTop: 12 }}>
         <div className="container stack-lg">
           {(data?.categories.length ?? 0) > 1 && (

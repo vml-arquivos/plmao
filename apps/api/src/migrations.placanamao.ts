@@ -1809,5 +1809,27 @@ export const placaMigrations: Migration[] = [
       }
     },
     down: async (client) => { await client.query('DROP TABLE IF EXISTS seo_pages;'); }
+  },
+  {
+    id: '051_seo_h1',
+    name: 'SEO por página: campo H1 (título da página, até 30 caracteres) e conteúdo pronto para as demais páginas do site',
+    up: async (client) => {
+      await client.query('ALTER TABLE seo_pages ADD COLUMN IF NOT EXISTS h1 text;');
+      const { SEO_SEED } = await import('./seoSeed.js');
+      for (const r of SEO_SEED) {
+        // Página nova entra completa. Página que já existia ganha o H1 e, se ninguém editou pelo painel, também os textos revisados. O que foi editado no painel nunca é sobrescrito.
+        await client.query(
+          `INSERT INTO seo_pages(path,h1,title,description,keyword,sections,faq) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)
+           ON CONFLICT (path) DO UPDATE SET
+             h1=COALESCE(seo_pages.h1,EXCLUDED.h1),
+             keyword=COALESCE(seo_pages.keyword,EXCLUDED.keyword),
+             title=CASE WHEN seo_pages.updated_by IS NULL THEN COALESCE(EXCLUDED.title,seo_pages.title) ELSE seo_pages.title END,
+             description=CASE WHEN seo_pages.updated_by IS NULL THEN COALESCE(EXCLUDED.description,seo_pages.description) ELSE seo_pages.description END,
+             sections=CASE WHEN seo_pages.updated_by IS NULL THEN EXCLUDED.sections ELSE seo_pages.sections END,
+             faq=CASE WHEN seo_pages.updated_by IS NULL THEN EXCLUDED.faq ELSE seo_pages.faq END`,
+          [r.path, r.h1, r.title ?? null, r.description ?? null, r.keyword, JSON.stringify(r.sections ?? []), JSON.stringify(r.faq)]);
+      }
+    },
+    down: async (client) => { await client.query('ALTER TABLE seo_pages DROP COLUMN IF EXISTS h1;'); }
   }
 ];

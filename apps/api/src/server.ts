@@ -1407,7 +1407,15 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
         await client.query(`UPDATE query_payment_entitlements SET status='CONSUMED',query_id=$2,consumed_at=now() WHERE id=$1 AND status='READY'`, [entitlementId, queryId]);
       }
     });
+  } catch (error: unknown) {
+    const safe = toSafeQueryError(error);
+    return { status: safe.status, body: { error: safe.code, message: safe.message, refunded: false } };
+  }
 
+  /** A fonte pode levar dezenas de segundos (o Veículo Total reúne várias bases). Roda com prazo longo e nunca rejeita: sucesso grava o resultado, falha estorna. */
+  const finish = async (): Promise<{ status: number; body: Record<string, unknown> }> => {
+  const startedAt = Date.now();
+  try {
     const output = await executeVehicleLookup({ provider, plate: input.plate, searchType: input.searchType, productId: input.productId, enrich: ENRICHED_PRODUCTS.has(String(input.productId).toUpperCase()) && env.ENRICH_FIPE_HISTORY && input.searchType === 'PLATE' ? (raw) => enrichVehicle(raw) : undefined, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
     const normalized = output.normalized;
     const resultHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
@@ -1422,6 +1430,7 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
     const completed = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
       FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.id=$1`, [queryId]);
     const completedRow = completed.rows[0] as QueryRow & Record<string, unknown>;
+    log('info', 'query_completed', { queryId, productId: input.productId, provider: provider.name, ms: Date.now() - startedAt });
     return { status: 201, body: serializeQuery(completedRow) };
   } catch (error: unknown) {
     if (queryId) {
@@ -1436,6 +1445,14 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
     const safe = toSafeQueryError(error);
     return { status: safe.status, body: { error: safe.code, message: safe.message, refunded: Boolean(queryId) && chargeSource !== 'DIRECT_PAYMENT' } };
   }
+  };
+
+  // Responde na hora se a fonte for rápida; se passar do tempo de espera, devolve 202 e a tela acompanha pela consulta (o trabalho segue no servidor).
+  const work = finish();
+  const quick = await Promise.race([work, new Promise<null>((resolve) => { setTimeout(() => resolve(null), env.QUERY_SYNC_WAIT_MS).unref(); })]);
+  if (quick) return quick;
+  log('info', 'query_running_in_background', { queryId, productId: input.productId });
+  return { status: 202, body: { id: queryId, status: 'PROCESSING', plate: input.plate, productId: input.productId } };
 }
 
 api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async (req, res) => {
@@ -3048,6 +3065,7 @@ app.get('*', asyncRoute(async (req, res, next) => {
   if (!override.notFound) {
     const seoRow = (await seoRows()).get(req.path.length > 1 ? req.path.replace(/\/$/, '') : req.path);
     if (seoRow) {
+      if (seoRow.h1 && !override.h1) override.h1 = seoRow.h1;
       if (seoRow.title && !override.title) override.title = seoRow.title;
       if (seoRow.description && !override.description) override.description = seoRow.description;
       if (!override.bodyHtml) override.bodyHtml = seoBodyHtml(seoRow);

@@ -8,7 +8,7 @@ import { requirePermission } from '../permissions.js';
 import { SECTIONS } from '../report/catalog.js';
 import { sampleSections, samplePdf } from '../report/sample.js';
 import { SITEMAP_PATHS, pageMeta } from '../seo.js';
-import { invalidateSeo, seoChecks, seedFor, seoRows } from '../seoStore.js';
+import { invalidateSeo, needsFaq, seoChecks, seedFor, seoRows, H1_MAX } from '../seoStore.js';
 
 /** Conteúdo público do site: catálogo (produtos, matriz e pacotes), FAQ e artigos. Só leitura, sem dados internos. */
 export const publicContentRouter = Router();
@@ -421,13 +421,14 @@ publicContentRouter.get('/seo/page', asyncRoute(async (req, res) => {
   const path = String(req.query.path ?? '').slice(0, 120);
   const row = (await seoRows()).get(path.length > 1 ? path.replace(/\/$/, '') : path);
   res.setHeader('Cache-Control', 'public, max-age=300');
-  res.json({ sections: row?.sections ?? [], faq: row?.faq ?? [] });
+  res.json({ h1: row?.h1 ?? null, title: row?.title ?? null, sections: row?.sections ?? [], faq: row?.faq ?? [] });
 }));
 
 // ---------------------------------------------------------------- SEO por página (painel)
 
 const seoBody = z.object({
   path: z.string().max(120),
+  h1: z.string().trim().max(70).nullable().default(null),
   title: z.string().trim().max(120).nullable().default(null),
   description: z.string().trim().max(300).nullable().default(null),
   keyword: z.string().trim().max(80).nullable().default(null),
@@ -441,10 +442,10 @@ adminContentRouter.get('/seo/pages', asyncRoute(async (_req, res) => {
   const rows = await seoRows();
   res.json({ items: SITEMAP_PATHS.map((path) => {
     const def = pageMeta[path]; const r = rows.get(path);
-    const title = r?.title || def.title; const description = r?.description || def.description;
+    const h1 = r?.h1 || ''; const title = r?.title || def.title; const description = r?.description || def.description;
     const sections = r?.sections ?? []; const faq = r?.faq ?? [];
-    const checks = seoChecks({ title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasContent: sections.length > 0 || faq.length > 0 });
-    return { path, default: def, override: r ? { title: r.title, description: r.description, keyword: r.keyword, sections: r.sections, faq: r.faq, noindex: r.noindex } : null, title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasSeed: !!seedFor(path), checks, score: checks.filter((c) => c.ok).length, total: checks.length, updatedAt: r?.updatedAt ?? null };
+    const checks = seoChecks({ h1, needsFaq: needsFaq(path), title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasContent: sections.length > 0 || faq.length > 0 });
+    return { path, default: def, override: r ? { h1: r.h1, title: r.title, description: r.description, keyword: r.keyword, sections: r.sections, faq: r.faq, noindex: r.noindex } : null, h1, title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasSeed: !!seedFor(path), needsFaq: needsFaq(path), checks, score: checks.filter((c) => c.ok).length, total: checks.length, updatedAt: r?.updatedAt ?? null };
   }) });
 }));
 
@@ -453,9 +454,9 @@ adminContentRouter.put('/seo/pages', asyncRoute(async (req, res) => {
   if (!b.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const v = b.data; seoPath(v.path);
   await pool.query(
-    `INSERT INTO seo_pages(path,title,description,keyword,sections,faq,noindex,updated_by,updated_at) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,now())
-     ON CONFLICT (path) DO UPDATE SET title=$2,description=$3,keyword=$4,sections=$5::jsonb,faq=$6::jsonb,noindex=$7,updated_by=$8,updated_at=now()`,
-    [v.path, v.title || null, v.description || null, v.keyword || null, JSON.stringify(v.sections), JSON.stringify(v.faq), v.noindex, req.user!.id]);
+    `INSERT INTO seo_pages(path,title,description,keyword,sections,faq,noindex,updated_by,h1,updated_at) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,now())
+     ON CONFLICT (path) DO UPDATE SET title=$2,description=$3,keyword=$4,sections=$5::jsonb,faq=$6::jsonb,noindex=$7,updated_by=$8,h1=$9,updated_at=now()`,
+    [v.path, v.title || null, v.description || null, v.keyword || null, JSON.stringify(v.sections), JSON.stringify(v.faq), v.noindex, req.user!.id, v.h1 || null]);
   invalidateSeo();
   await audit(req.user!.id, 'UPDATE_SEO_PAGE', 'SEO_PAGE', v.path, { noindex: v.noindex, requestId: requestId(req) });
   res.json({ ok: true });
@@ -468,9 +469,9 @@ adminContentRouter.post('/seo/pages/reset', asyncRoute(async (req, res) => {
   const path = seoPath(b.data.path); const seed = seedFor(path);
   if (seed) {
     await pool.query(
-      `INSERT INTO seo_pages(path,title,description,keyword,sections,faq,noindex,updated_by,updated_at) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,false,$7,now())
-       ON CONFLICT (path) DO UPDATE SET title=$2,description=$3,keyword=$4,sections=$5::jsonb,faq=$6::jsonb,noindex=false,updated_by=$7,updated_at=now()`,
-      [path, seed.title ?? null, seed.description ?? null, seed.keyword, JSON.stringify(seed.sections ?? []), JSON.stringify(seed.faq), req.user!.id]);
+      `INSERT INTO seo_pages(path,title,description,keyword,sections,faq,noindex,updated_by,h1,updated_at) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,false,$7,$8,now())
+       ON CONFLICT (path) DO UPDATE SET title=$2,description=$3,keyword=$4,sections=$5::jsonb,faq=$6::jsonb,noindex=false,updated_by=$7,h1=$8,updated_at=now()`,
+      [path, seed.title ?? null, seed.description ?? null, seed.keyword, JSON.stringify(seed.sections ?? []), JSON.stringify(seed.faq), req.user!.id, seed.h1]);
   } else await pool.query('DELETE FROM seo_pages WHERE path=$1', [path]);
   invalidateSeo();
   await audit(req.user!.id, 'RESET_SEO_PAGE', 'SEO_PAGE', path, { requestId: requestId(req) });

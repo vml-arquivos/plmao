@@ -222,5 +222,9 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {
 
 /* ---------- Metadados da página ---------- */
 export function usePageTitle(title: string): void {
-  useEffect(() => { document.title = title ? `${title} | Placa na Mão` : 'Placa na Mão | Consulta veicular completa'; }, [title]);
+  useEffect(() => {
+    // Título configurado no painel de SEO (o site público guarda aqui): vale sobre o texto padrão da tela.
+    const kept = (window as unknown as { __pnmSeoTitle?: Record<string, string> }).__pnmSeoTitle?.[location.pathname.replace(/\/$/, '') || '/'];
+    document.title = kept || (title ? `${title} | Placa na Mão` : 'Placa na Mão | Consulta veicular completa');
+  }, [title]);
 }

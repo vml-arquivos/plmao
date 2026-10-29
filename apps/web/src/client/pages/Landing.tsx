@@ -13,6 +13,7 @@ import Testimonials from '../components/Testimonials';
 import { LatestPosts } from './Content';
 import { HomeGuide, HomeSimulator } from '../components/HomeTools';
 import { DetailsButton, PdfModelLink } from '../components/ConsultaDetails';
+import { useSeoH1 } from '../components/SeoContent';
 
 const STEPS = [
   { t: 'Digite a placa', s: 'Aceita placa antiga e Mercosul. Sem cadastro de documentos.' },
@@ -48,6 +49,13 @@ function SamplePhones() {
   );
 }
 
+/** H1 da home: o texto curto configurado no painel de SEO; a frase de efeito vira o subtítulo. */
+function HeroTitle() {
+  const h1 = useSeoH1('/', '');
+  if (!h1) return <h1 id="hero-title">Saiba tudo sobre o carro <span className="grad-text">antes de fechar negócio.</span></h1>;
+  return <><h1 id="hero-title">{h1}</h1><p className="hero-tag">Saiba tudo sobre o carro <span className="grad-text">antes de fechar negócio.</span></p></>;
+}
+
 export default function Landing() {
   usePageTitle('');
   const { status } = useSession();
@@ -60,7 +68,7 @@ export default function Landing() {
         <div className="container hero2-grid">
           <div className="hero2-copy">
             <span className="hero2-pill"><Icon name="shield-check" size={15} /> Consulta veicular por placa</span>
-            <h1 id="hero-title">Saiba tudo sobre o carro <span className="grad-text">antes de fechar negócio.</span></h1>
+            <HeroTitle />
             <p className="hero-lead">Débitos, multas, restrições, gravame, histórico e valor FIPE em um relatório claro, em segundos. Sem mensalidade: você paga só pela consulta que fizer.</p>
             <PlateSearch authed={status === 'authed'} placement="hero" />
             <div className="hero2-links">

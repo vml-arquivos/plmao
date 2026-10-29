@@ -7,6 +7,7 @@ import { isValidPlate, money, normalizePlate } from '../../shared/format';
 import { api } from '../api';
 import { useSession } from '../session';
 import { trackFunnel } from '../funnel';
+import { SeoH1 } from '../components/SeoContent';
 
 type Item = { code: string; name: string };
 type VType = 'cars' | 'motorcycles' | 'trucks';
@@ -79,7 +80,7 @@ export default function Fipe() {
   const ready = mode === 'plate' ? isValidPlate(plate) : Boolean(brand && model && year);
   return (
     <>
-      <section className="page-hero"><div className="container"><span className="eyebrow">FIPE grátis</span><h1 style={{ maxWidth: '22ch' }}>Quanto vale o veículo? Consulte a Tabela FIPE.</h1><p className="lead">Gratuito, sem cadastro. Informe a placa ou escolha marca, modelo e ano e veja o valor médio de referência do mês.</p></div></section>
+      <section className="page-hero"><div className="container"><span className="eyebrow">FIPE grátis</span><SeoH1 path="/fipe" fallback="Quanto vale o veículo? Consulte a Tabela FIPE." style={{ maxWidth: '22ch' }} /><p className="lead">Gratuito, sem cadastro. Informe a placa ou escolha marca, modelo e ano e veja o valor médio de referência do mês.</p></div></section>
       <section className="section" style={{ paddingTop: 8 }}>
         <div className="container" style={{ maxWidth: 860 }}>
           {!enabled && <Alert tone="warn" title="Consulta FIPE em ativação.">Esta consulta ainda não está disponível neste ambiente.</Alert>}

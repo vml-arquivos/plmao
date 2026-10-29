@@ -9,6 +9,7 @@ import { Markdown } from '../../shared/markdown';
 import { useSession } from '../session';
 import { GuideFinder } from '../guideFinder';
 import { CatalogRow, ConsumptionSources, FeaturedCard, FuelCalc, GuideCover, ModelCard, fabYears, fleetLong, logInterest, snapshotLabel, RatingBars, StarPicker, Stars, formatSpec, kmlText, ratingText, typeLabel, useEconomy, useSpecMeta, versionLabel, yearsLabel, type CatalogDetail, type CatalogHit, type CatalogSearch, type FeaturedList, type GuideCard, type GuideModel, type GuideTip, type PublicOpinion, type SpecMeta, type Specs } from '../guide';
+import { SeoH1 } from '../components/SeoContent';
 
 /* ========================================================================== */
 /*  /veiculos — busca                                                          */
@@ -80,7 +81,7 @@ export function GuideHome() {
       <section className="page-hero guide-home-hero">
         <div className="container">
           <span className="eyebrow">Guia de veículos</span>
-          <h1 style={{ maxWidth: '22ch' }}>Conheça o carro antes de comprar.</h1>
+          <SeoH1 path="/veiculos" fallback="Conheça o carro antes de comprar." style={{ maxWidth: '22ch' }} />
           <p className="lead">Consumo oficial com a fonte à vista, ficha técnica, opinião de quem tem o carro e comparação lado a lado. Busque entre milhares de veículos da frota brasileira.</p>
           <div className="guide-search card card-pad stack">
             <Tabs label="Forma de busca" value={mode} onChange={setMode} items={[{ id: 'model', label: 'Por modelo' }, { id: 'plate', label: 'Por placa' }]} />

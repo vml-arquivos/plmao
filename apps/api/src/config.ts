@@ -273,7 +273,7 @@ const envSchema = z.object({
   VEHICLE_API_DEVICE_TOKEN: optionalString,
   APIBRASIL_BEARER_TOKEN: optionalString,
   APIBRASIL_DEVICE_TOKEN: optionalString,
-  VEHICLE_API_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(50000),
+  VEHICLE_API_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(100000),
   // Adaptador do provedor quando DATA_PROVIDER=real: generic = VEHICLE_API_*; credify = API Credify (auth por ClientID/ClientSecret → JWT 24h); consultarplaca = ConsultarPlaca v2 (Basic: e-mail + chave), para testes.
   VEHICLE_API_PROVIDER: z.enum(['generic', 'credify', 'consultarplaca']).default('generic'),
   /** Tipos de busca que o contrato do provedor (Credify ou genérico) atende, além da placa: CHASSIS, RENAVAM, OWNER_DOC. */
@@ -330,7 +330,9 @@ const envSchema = z.object({
 
   QUERY_CACHE_ENABLED: booleanFromEnv.default(true),
   QUERY_CACHE_TTL_SECONDS: z.coerce.number().int().positive().max(604800).default(3600),
-  QUERY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(60000),
+  QUERY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(105000),
+  /** Quanto a tela espera a fonte antes de passar a acompanhar a consulta em segundo plano. */
+  QUERY_SYNC_WAIT_MS: z.coerce.number().int().min(0).max(60000).default(20000),
   RATE_LIMIT_ENABLED: booleanFromEnv.default(true),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(120),
@@ -338,7 +340,7 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   LOG_SENSITIVE_DATA: booleanFromEnv.default(false),
   AUDIT_LOG_ENABLED: booleanFromEnv.default(true),
-  QUERY_STUCK_MINUTES: z.coerce.number().int().min(2).max(240).default(10),
+  QUERY_STUCK_MINUTES: z.coerce.number().int().min(4).max(240).default(10),
   STORE_RAW_PROVIDER_RESPONSE: booleanFromEnv.default(true),
   /** Dias para manter o dado bruto cifrado do fornecedor. 0 = não apaga. O relatório normalizado do cliente não é afetado. */
   RAW_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(0),

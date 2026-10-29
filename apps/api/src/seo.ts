@@ -44,7 +44,7 @@ let tags: GoogleTags = {};
 /** Códigos do Google/Bing (variáveis de ambiente). Viram meta tags no HTML; o app só carrega o gtag depois do aceite de cookies. */
 export function setGoogleTags(next: GoogleTags): void { tags = { ...next }; }
 
-export interface SeoOverride { title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string; noindex?: boolean }
+export interface SeoOverride { h1?: string; title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string; noindex?: boolean }
 
 /** Rotas que o app conhece, inclusive as dinâmicas. Qualquer outra recebe 404 e noindex. */
 const DYNAMIC = /^\/(blog|veiculos|simulador|validar|validar-relatorio|contrato|documento-fiscal|app|painel|recuperar-senha|consultar|desenvolvedores|loja)(\/|$)/;
@@ -105,10 +105,11 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
   ].filter(Boolean).join('\n  ');
   const unknown = override.notFound || !isKnownPath(normalized);
   const noindex = unknown || NOINDEX.test(normalized) || !!override.noindex;
-  const h1 = escapeHtml(unknown ? 'Página não encontrada' : meta.title.split(' | ')[0]);
+  const h1 = escapeHtml(unknown ? 'Página não encontrada' : (override.h1 || meta.title.split(' | ')[0]));
+  const h1Attr = !unknown && override.h1 ? ' data-seo="1"' : '';
   const intro = unknown ? 'O endereço que você abriu não existe ou foi removido.' : meta.description;
   const links = NAV.map(([href, label]) => `<li><a href="${href}">${escapeHtml(label)}</a></li>`).join('');
-  const body = noindex && !unknown ? '' : `<main><h1>${h1}</h1><p>${escapeHtml(intro)}</p>${unknown ? '' : (override.bodyHtml ?? '')}<nav aria-label="Principal"><ul>${links}</ul></nav></main>`;
+  const body = noindex && !unknown ? '' : `<main><h1${h1Attr}>${h1}</h1><p>${escapeHtml(intro)}</p>${unknown ? '' : (override.bodyHtml ?? '')}<nav aria-label="Principal"><ul>${links}</ul></nav></main>`;
   return template
     .replace('<div id="root"></div>', () => `<div id="root">${body}</div>`)
     .replace(/https:\/\/placanamao\.com\.br(?=\/brand\/)/g, baseUrl)

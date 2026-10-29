@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
 import { EmptyState, Field, Input, LinkButton, PageLoading, Select, usePageTitle } from '../../shared/ui';
 import { FuelCalc, kmlText, useEconomy, type EconomyItem } from '../guide';
+import { SeoH1 } from '../components/SeoContent';
 
 /* ========================================================================== */
 /*  /combustivel — etanol ou gasolina e custo mensal                            */
@@ -25,7 +26,7 @@ export function FuelPage() {
       <section className="page-hero">
         <div className="container">
           <span className="eyebrow">Combustível</span>
-          <h1 style={{ maxWidth: '22ch' }}>Etanol ou gasolina? Descubra para o seu carro.</h1>
+          <SeoH1 path="/combustivel" fallback="Etanol ou gasolina? Descubra para o seu carro." style={{ maxWidth: '22ch' }} />
           <p className="lead">A regra dos 70% não vale para todo carro: o consumo de cada modelo muda o ponto de equilíbrio. Escolha o veículo, digite os preços do posto e veja o custo por mês.</p>
         </div>
       </section>
@@ -107,7 +108,7 @@ export function EconomyPage() {
       <section className="page-hero">
         <div className="container">
           <Link to="/veiculos" className="back-link"><Icon name="arrow-left" size={16} /> Guia de veículos</Link>
-          <h1 style={{ maxWidth: '24ch' }}>Carros mais econômicos, por versão.</h1>
+          <SeoH1 path="/veiculos/mais-economicos" fallback="Carros mais econômicos, por versão." style={{ maxWidth: '24ch' }} />
           <p className="lead">Ranking do guia pelo consumo de ensaio, em km/l. Cada linha mostra se o número foi conferido com a tabela oficial do Inmetro ou vem da ficha de referência do modelo.</p>
         </div>
       </section>

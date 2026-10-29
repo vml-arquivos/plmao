@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.18.1 — Consulta lenta da fonte de dados passa a rodar em segundo plano
+
+- A consulta espera a Credify até 20 s (`QUERY_SYNC_WAIT_MS`). Se a fonte demorar mais, a tela vai para o relatório, que mostra "em processamento" e se atualiza sozinho a cada 3 s. O servidor continua a consulta e, no fim, grava o resultado ou estorna. Antes, o limite de 50 s encerrava a consulta com "a fonte de dados demorou para responder".
+- Tempo limite da fonte subiu para 100 s (`VEHICLE_API_TIMEOUT_MS`) e o da consulta para 105 s (`QUERY_REQUEST_TIMEOUT_MS`). A espera do histórico da FIPE caiu de 8 s para 4 s.
+- O log passa a registrar o tempo de cada chamada à Credify (`credify_call`, com caminho, status e ms) e a falha de rede com o motivo. A mensagem de timeout no painel diz qual consulta e quantos segundos.
+- Painel > Integrações: o teste com placa mostra em quantos segundos a Credify respondeu.
+- Teste novo: `query-background.test.mjs`.
+
+## 1.18.0 — H1 por página (até 30 caracteres) e SEO pronto em todas as páginas
+
+- Novo campo **H1** em cada página, no painel (SEO e Google). Limite recomendado de 30 caracteres, com contador e item na lista de verificação (inclui "palavra-chave no H1").
+- O H1 configurado aparece no site (cabeçalho da página) e no HTML inicial que o Google lê. Na página inicial o H1 fica curto e a frase de efeito vira o subtítulo. O título da aba também segue o configurado.
+- A página de contato passou a ter H1 (antes só tinha um título de seção).
+- Conteúdo pronto para as 29 páginas do sitemap: H1, título (30 a 65), descrição (70 a 165), palavra-chave e perguntas frequentes onde a página exibe esse bloco. Todas saem com nota máxima na lista de verificação, sem títulos ou H1 repetidos.
+- Editor com tabela "Como preencher cada campo" (tamanho ideal, regra e exemplo). Guia completo e tabela de todas as páginas em `docs/SEO-GUIA.md`.
+- Migração `051_seo_h1`: cria a coluna e preenche. Páginas que alguém editou pelo painel não são sobrescritas.
+- Testes: `seo-pages.test.mjs` cobre H1, unicidade, limite de 30 e nota máxima de fábrica.
+
 ## 1.17.0 — SEO por página pronto e editável no painel
 
 - Nova tela "SEO e Google" no painel: título, descrição, palavra-chave, textos e perguntas frequentes de cada página, com prévia de como aparece no Google e lista de verificação (como num plugin de SEO). Dá para tirar uma página do Google e restaurar o texto padrão.

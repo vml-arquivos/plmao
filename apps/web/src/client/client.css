@@ -1162,3 +1162,7 @@
 .seo-block { margin-bottom: 26px; }
 .seo-block h2 { font-size: 22px; font-weight: 400; margin: 0 0 8px; }
 .seo-block p { margin: 0; font-weight: 300; line-height: 1.65; color: var(--text-2); }
+
+/* H1 curto da home (SEO) com a frase de efeito logo abaixo; título de seção que também é o H1 da página (contato). */
+.hero2 .hero-tag { margin-top: 14px; font-size: clamp(20px, 2.6vw, 30px); line-height: 1.2; color: #fff; font-weight: 300; letter-spacing: -0.015em; max-width: 24ch; }
+.section-head h1 { font-size: clamp(26px, 3.6vw, 40px); margin-top: 10px; }

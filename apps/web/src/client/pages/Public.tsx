@@ -12,6 +12,7 @@ import Faq from '../components/Faq';
 import SupportChannels from '../components/SupportChannels';
 import { InstallButton, InstallGuide, useInstall, type InstallPlatform } from '../components/PwaBits';
 import { money } from '../../shared/format';
+import { SeoH1 } from '../components/SeoContent';
 
 /* ---------- /consultar (visitante) ---------- */
 export function GuestQuery() {
@@ -52,7 +53,7 @@ export function PlansPage() {
   usePageTitle('Consultas e preços');
   return (
     <>
-      <section className="page-hero"><div className="container"><span className="eyebrow">Consultas e preços</span><h1>Pague só pelo que consultar.</h1><p className="lead">Sem mensalidade obrigatória. Compare o que cada consulta entrega, descubra a combinação mais barata para o seu caso ou recarregue saldo em pacotes.</p></div></section>
+      <section className="page-hero"><div className="container"><span className="eyebrow">Consultas e preços</span><SeoH1 path="/planos" fallback="Pague só pelo que consultar." /><p className="lead">Sem mensalidade obrigatória. Compare o que cada consulta entrega, descubra a combinação mais barata para o seu caso ou recarregue saldo em pacotes.</p></div></section>
       <section className="section" style={{ paddingTop: 12 }}><div className="container stack-lg">
         <ProductCards />
         <div className="stack"><h2 style={{ fontSize: 26 }}>Compare lado a lado</h2><CompareMatrix /></div>
@@ -117,7 +118,7 @@ export function InstallApp() {
   const [guide, setGuide] = useState<InstallPlatform | null>(null);
   return (
     <>
-      <section className="page-hero"><div className="container"><span className="eyebrow">Aplicativo</span><h1>Instale o Placa na Mão na tela inicial.</h1><p className="lead">Abre em tela cheia, sem loja de aplicativos e sem ocupar espaço. Funciona no Android, no iPhone, no iPad e no computador.</p></div></section>
+      <section className="page-hero"><div className="container"><span className="eyebrow">Aplicativo</span><SeoH1 path="/instalar" fallback="Instale o Placa na Mão na tela inicial." /><p className="lead">Abre em tela cheia, sem loja de aplicativos e sem ocupar espaço. Funciona no Android, no iPhone, no iPad e no computador.</p></div></section>
       <section className="section" style={{ paddingTop: 12 }}>
         <div className="container stack-lg">
           {standalone ? <Alert tone="ok" icon="check">O app já está instalado neste aparelho.</Alert> : <div><InstallButton variant="primary" label="Instalar agora" /></div>}
@@ -141,7 +142,7 @@ export function About() {
   usePageTitle('Sobre');
   return (
     <>
-      <section className="page-hero"><div className="container"><span className="eyebrow">Sobre</span><h1>Informação clara para decidir com segurança.</h1><p className="lead">A Placa na Mão nasceu para tirar o veículo usado do campo do “achismo”: você digita a placa e recebe, em um relatório simples, o que a fonte contratada informa.</p></div></section>
+      <section className="page-hero"><div className="container"><span className="eyebrow">Sobre</span><SeoH1 path="/sobre" fallback="Informação clara para decidir com segurança." /><p className="lead">A Placa na Mão nasceu para tirar o veículo usado do campo do “achismo”: você digita a placa e recebe, em um relatório simples, o que a fonte contratada informa.</p></div></section>
       <section className="section" style={{ paddingTop: 12 }}>
         <div className="container prose">
           <h2>O que acreditamos</h2>
@@ -173,7 +174,7 @@ export function Contact() {
   return (
     <section className="section">
       <div className="container" style={{ maxWidth: 720 }}>
-        <div className="section-head"><span className="eyebrow">Contato</span><h2>Como podemos ajudar?</h2><p>Escreva sua dúvida e responderemos por e-mail. Você também pode escrever para <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>. <SupportChannels inline /></p></div>
+        <div className="section-head"><span className="eyebrow">Contato</span><SeoH1 path="/contato" fallback="Como podemos ajudar?" /><p>Escreva sua dúvida e responderemos por e-mail. Você também pode escrever para <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>. <SupportChannels inline /></p></div>
         {done ? <Alert tone="ok" title="Mensagem enviada.">{done}</Alert> : (
           <form className="card card-pad stack" onSubmit={submit}>
             <div className="form-grid cols-2">
@@ -222,7 +223,7 @@ export function Legal({ kind }: { kind: 'terms' | 'privacy' }) {
   usePageTitle(d.title);
   return (
     <>
-      <section className="page-hero"><div className="container"><span className="eyebrow">{d.kicker}</span><h1>{d.title}</h1><p className="lead">Versão vigente · atualizada em {new Date().getFullYear()}.</p></div></section>
+      <section className="page-hero"><div className="container"><span className="eyebrow">{d.kicker}</span><SeoH1 path={kind === 'terms' ? '/termos' : '/privacidade'} fallback={d.title} /><p className="lead">Versão vigente · atualizada em {new Date().getFullYear()}.</p></div></section>
       <section className="section" style={{ paddingTop: 8 }}><div className="container prose">
         <Alert tone="warn" title="Texto-base.">Este documento reúne as regras operacionais do serviço. Antes da publicação definitiva, ele deve ser revisado pelo jurídico da empresa e refletir os contratos reais com fornecedores.</Alert>
         {d.sections.map(([t, x]) => <div key={t}><h2>{t}</h2><p>{x}</p></div>)}

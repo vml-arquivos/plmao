@@ -7,7 +7,7 @@ import { SEO_BY_PATH } from '../content/seoPages';
 import { useSession } from '../session';
 import PlateSearch from '../components/PlateSearch';
 import { useFaqs } from '../components/Faq';
-import { useSeoContent } from '../components/SeoContent';
+import { SeoH1, useSeoContent } from '../components/SeoContent';
 
 const TOOLS = [
   { to: '/fipe', icon: 'tag', title: 'Valor FIPE', text: 'Preço médio do veículo, grátis.' },
@@ -29,7 +29,7 @@ export default function SeoPage({ path }: { path: string }) {
       <section className="page-hero">
         <div className="container">
           <span className="eyebrow">{page.kicker}</span>
-          <h1>{page.heading}</h1>
+          <SeoH1 path={path} fallback={page.heading} />
           <p className="lead">{page.lead}</p>
           <div style={{ marginTop: 26, maxWidth: 640 }}>
             {page.intent === 'plate' ? <PlateSearch authed={status === 'authed'} placement="seo_hero" /> : <div className="row"><LinkButton to="/criar-conta" variant="primary" size="lg" iconRight="arrow-right">Criar conta grátis</LinkButton><LinkButton to="/contato?assunto=comercial" size="lg">Falar com a equipe</LinkButton></div>}

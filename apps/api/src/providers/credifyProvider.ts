@@ -2,6 +2,7 @@ import { env, CREDIFY_CONSULTA_CODES, CREDIFY_DEFAULT_BODY, CREDIFY_DEFAULT_PATH
 import type { VehicleDataProvider } from '../types.js';
 import { providerOutcome } from '../report/normalizeV2.js';
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
+import { log } from '../lib/http.js';
 
 /**
  * Adaptador da Credify, baseado na documentação pública (docs.credify.com.br):
@@ -99,9 +100,20 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
   }
 
   private async http(url: string, init: RequestInit): Promise<Response> {
+    const startedAt = Date.now();
+    const where = new URL(url).pathname;
     try {
-      return await (this.o.fetchImpl ?? fetch)(url, { ...init, signal: AbortSignal.timeout(this.o.timeoutMs) });
-    } catch (e) { throw fail('PROVIDER_TIMEOUT', `Sem resposta da Credify (${e instanceof Error ? e.name : 'erro de rede'}).`); }
+      const response = await (this.o.fetchImpl ?? fetch)(url, { ...init, signal: AbortSignal.timeout(this.o.timeoutMs) });
+      // Tempo de cada chamada à Credify no log, para saber se a lentidão é da fonte (e em qual consulta).
+      log('info', 'credify_call', { path: where, status: response.status, ms: Date.now() - startedAt });
+      return response;
+    } catch (e) {
+      const ms = Date.now() - startedAt;
+      const kind = e instanceof Error ? e.name : 'erro de rede';
+      const cause = e instanceof Error && (e as Error & { cause?: { code?: string } }).cause?.code;
+      log('warn', 'credify_call_failed', { path: where, ms, kind, cause: cause ?? null });
+      throw fail('PROVIDER_TIMEOUT', `Sem resposta da Credify em ${where} após ${Math.round(ms / 1000)} s (${kind}${cause ? `, ${cause}` : ''}).`);
+    }
   }
 
   /** Várias consultas ao mesmo tempo com o token vencido fazem um único login (os demais esperam o mesmo resultado). */

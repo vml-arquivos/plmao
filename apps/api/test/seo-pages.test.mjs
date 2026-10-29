@@ -5,25 +5,29 @@ import { adminSession, hostRequest, startServer } from './helpers/server.mjs';
 
 useTestEnv();
 const { seoChecks } = await import('../dist/seoStore.js');
-const { SEO_SEED } = await import('../dist/seoSeed.js');
+const { SEO_SEED, NO_FAQ_PATHS } = await import('../dist/seoSeed.js');
 const { SITEMAP_PATHS } = await import('../dist/seo.js');
 
 describe('SEO por página', () => {
-  it('texto de fábrica: toda página tem palavra-chave no título, na descrição e 3+ perguntas', () => {
+  it('texto de fábrica: toda página tem H1 até 30 caracteres, palavra-chave e perguntas', () => {
     const norm = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
     for (const s of SEO_SEED) {
       assert.ok(SITEMAP_PATHS.includes(s.path), `${s.path} precisa estar no sitemap`);
-      assert.ok(s.faq.length >= 3, `${s.path}: poucas perguntas`);
+      if (!NO_FAQ_PATHS.has(s.path)) assert.ok(s.faq.length >= 3, `${s.path}: poucas perguntas`);
+      assert.ok(s.h1 && s.h1.length <= 30, `${s.path}: H1 vazio ou acima de 30 caracteres`);
       if (s.title) { assert.ok(s.title.length <= 65, `${s.path}: título longo (${s.title.length})`); assert.ok(norm(s.title).includes(norm(s.keyword)) || s.path.startsWith('/simulador/'), `${s.path}: palavra-chave fora do título`); }
       if (s.description) assert.ok(s.description.length >= 70 && s.description.length <= 165, `${s.path}: descrição fora do tamanho (${s.description.length})`);
     }
+    const titles = SEO_SEED.map((s) => s.title).filter(Boolean); assert.equal(new Set(titles).size, titles.length, 'títulos repetidos entre páginas');
+    const h1s = SEO_SEED.map((s) => s.h1); assert.equal(new Set(h1s).size, h1s.length, 'H1 repetido entre páginas');
+    assert.equal(SEO_SEED.length, SITEMAP_PATHS.length, 'toda página do sitemap tem conteúdo pronto');
     for (const p of ['/fipe', '/simulador', '/simulador/carro', '/simulador/moto', '/consultar-gravame', '/consulta-placa']) assert.ok(SEO_SEED.some((s) => s.path === p), p);
   });
 
   it('lista de verificação aponta o que ajustar', () => {
-    const bad = seoChecks({ title: 'Curto', description: 'x', keyword: null, sections: [], faq: [], noindex: true, hasContent: false });
+    const bad = seoChecks({ h1: 'Um título de página muito mais longo que o limite', needsFaq: true, title: 'Curto', description: 'x', keyword: null, sections: [], faq: [], noindex: true, hasContent: false });
     assert.ok(bad.filter((c) => !c.ok).length >= 4);
-    const good = seoChecks({ title: 'Tabela FIPE grátis: preço de carro e moto | Placa na Mão', description: 'Consulte a Tabela FIPE grátis: valor médio de carros, motos e caminhões por marca, modelo e ano, com histórico de preços.', keyword: 'tabela fipe', sections: [{ h: 'O que é a Tabela FIPE', p: 'texto' }], faq: [{ q: 'a', a: 'b' }, { q: 'c', a: 'd' }, { q: 'e', a: 'f' }], noindex: false, hasContent: true });
+    const good = seoChecks({ h1: 'Tabela FIPE grátis', needsFaq: true, title: 'Tabela FIPE grátis: preço de carro e moto | Placa na Mão', description: 'Consulte a Tabela FIPE grátis: valor médio de carros, motos e caminhões por marca, modelo e ano, com histórico de preços.', keyword: 'tabela fipe', sections: [{ h: 'O que é a Tabela FIPE', p: 'texto' }], faq: [{ q: 'a', a: 'b' }, { q: 'c', a: 'd' }, { q: 'e', a: 'f' }], noindex: false, hasContent: true });
     assert.ok(good.every((c) => c.ok), JSON.stringify(good.filter((c) => !c.ok)));
   });
 });
@@ -37,19 +41,21 @@ describe('SEO por página (integração)', integration, () => {
   it('migração deixa as páginas principais prontas', async () => {
     const r = await pool.query(`SELECT path,jsonb_array_length(faq) AS f FROM seo_pages WHERE path IN ('/fipe','/simulador','/simulador/carro','/consultar-gravame')`);
     assert.equal(r.rowCount, 4); assert.ok(r.rows.every((x) => x.f >= 3));
+    const all = await pool.query('SELECT path,h1 FROM seo_pages'); assert.equal(all.rowCount, SITEMAP_PATHS.length);
+    assert.ok(all.rows.every((x) => x.h1 && x.h1.length <= 30), 'toda página nasce com H1 até 30 caracteres');
   });
 
   it('o HTML inicial já traz título, descrição, texto, perguntas e dados estruturados', async () => {
     const h = await html('/fipe');
     if (!h.includes('<div id="root">')) return; // build do front ausente neste ambiente
-    assert.match(h, /<title>Tabela FIPE grátis: preço de carro e moto \| Placa na Mão<\/title>/);
+    assert.match(h, /<title>Tabela FIPE grátis: preço de carro e moto \| Placa na Mão<\/title>/); assert.match(h, /<h1 data-seo="1">Tabela FIPE grátis<\/h1>/);
     assert.match(h, /<h2>O que é a Tabela FIPE<\/h2>/); assert.match(h, /"@type":"FAQPage"/); assert.match(h, /"@type":"WebApplication"/); assert.match(h, /A consulta da Tabela FIPE é grátis\?/);
     const g = await html('/consultar-gravame'); assert.match(g, /O que é gravame de veículo\?/); assert.match(g, /"@type":"FAQPage"/);
   });
 
   it('API pública entrega textos e perguntas para a tela mostrar o mesmo conteúdo', async () => {
     const r = await hostRequest(server.base, '/api/seo/page?path=/simulador'); assert.equal(r.status, 200); assert.ok(r.json.faq.length >= 5); assert.ok(r.json.sections.length >= 3);
-    const none = await hostRequest(server.base, '/api/seo/page?path=/nao-existe'); assert.deepEqual(none.json, { sections: [], faq: [] });
+    const none = await hostRequest(server.base, '/api/seo/page?path=/nao-existe'); assert.deepEqual(none.json, { h1: null, title: null, sections: [], faq: [] }); assert.equal(r.json.h1, 'Simulador de financiamento');
   });
 
   it('painel: lista com nota, edita, reflete no HTML e no sitemap, exclui da indexação e restaura o padrão', async () => {
@@ -57,22 +63,25 @@ describe('SEO por página (integração)', integration, () => {
     const list = await call('/admin/content/seo/pages'); assert.equal(list.status, 200);
     assert.equal(list.json.items.length, SITEMAP_PATHS.length);
     const fipe = list.json.items.find((i) => i.path === '/fipe'); assert.ok(fipe.score >= fipe.total - 1, 'FIPE pronta de fábrica');
-    const body = { path: '/fipe', title: 'Tabela FIPE de teste hoje | Placa na Mão', description: fipe.description, keyword: 'tabela fipe', sections: [{ h: 'Seção nova', p: 'Texto novo da seção.' }], faq: fipe.faq, noindex: false };
+    for (const it of list.json.items) assert.equal(it.score, it.total, `${it.path} deveria vir 100% de fábrica: ${it.checks.filter((c) => !c.ok).map((c) => c.label).join('; ')}`);
+    assert.equal(fipe.h1, 'Tabela FIPE grátis');
+    const body = { path: '/fipe', h1: 'FIPE de teste', title: 'Tabela FIPE de teste hoje | Placa na Mão', description: fipe.description, keyword: 'tabela fipe', sections: [{ h: 'Seção nova', p: 'Texto novo da seção.' }], faq: fipe.faq, noindex: false };
     assert.equal((await call('/admin/content/seo/pages', { method: 'PUT', body })).status, 200);
     const h = await html('/fipe');
-    if (h.includes('<div id="root">')) { assert.match(h, /Tabela FIPE de teste hoje/); assert.match(h, /<h2>Seção nova<\/h2>/); }
+    if (h.includes('<div id="root">')) { assert.match(h, /Tabela FIPE de teste hoje/); assert.match(h, /<h1 data-seo="1">FIPE de teste<\/h1>/); assert.match(h, /<h2>Seção nova<\/h2>/); }
     const site = await (await fetch(`${server.base}/sitemap.xml`)).text(); assert.match(site, /\/fipe<\/loc><lastmod>\d{4}-\d{2}-\d{2}/);
     assert.equal((await call('/admin/content/seo/pages', { method: 'PUT', body: { ...body, noindex: true } })).status, 200);
     const site2 = await (await fetch(`${server.base}/sitemap.xml`)).text(); assert.doesNotMatch(site2, /\/fipe<\/loc>/);
     const h2 = await html('/fipe'); if (h2.includes('<div id="root">')) assert.match(h2, /noindex,nofollow/);
     assert.equal((await call('/admin/content/seo/pages/reset', { method: 'POST', body: { path: '/fipe' } })).status, 200);
-    const h3 = await html('/fipe'); if (h3.includes('<div id="root">')) { assert.match(h3, /Tabela FIPE grátis: preço de carro e moto/); assert.match(h3, /index,follow/); }
+    const h3 = await html('/fipe'); if (h3.includes('<div id="root">')) { assert.match(h3, /Tabela FIPE grátis: preço de carro e moto/); assert.match(h3, /<h1 data-seo="1">Tabela FIPE grátis<\/h1>/); assert.match(h3, /index,follow/); }
   });
 
   it('validações e permissão: caminho inventado, campos extras e cliente comum', async () => {
     const call = (path, opts = {}) => adm.call(`/api${path}`, opts);
     assert.equal((await call('/admin/content/seo/pages', { method: 'PUT', body: { path: '/qualquer-coisa', title: 'x' } })).status, 422);
     assert.equal((await call('/admin/content/seo/pages', { method: 'PUT', body: { path: '/fipe', extra: 1 } })).status, 400);
+    assert.equal((await call('/admin/content/seo/pages', { method: 'PUT', body: { path: '/fipe', h1: 'x'.repeat(71) } })).status, 400);
     assert.equal((await call('/admin/content/seo/pages', { method: 'PUT', body: { path: '/fipe', faq: Array.from({ length: 30 }, () => ({ q: 'a', a: 'b' })) } })).status, 400);
     assert.ok([401, 403, 404].includes((await hostRequest(server.base, '/api/admin/content/seo/pages')).status));
     const conteudo = await adminSession({ server, pool, role: 'SUPORTE' });

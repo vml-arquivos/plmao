@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
 import { Alert, Badge, Button, ErrorState, Field, Input, LinkButton, Modal, PageLoading, PlateBadge, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
@@ -52,6 +52,15 @@ export default function QueryDetail() {
     try { await api.post(`/queries/${id}/cancel`, {}); toast.ok('Consulta cancelada.'); reload(); }
     catch (e) { toast.error(errorMessage(e)); reload(); } finally { setCancelBusy(false); }
   }
+
+  // Consulta em andamento (a fonte pode levar um ou dois minutos): a tela se atualiza sozinha até concluir.
+  const processing = data?.summary.status === 'PROCESSING';
+  const reloadRef = useRef(reload); reloadRef.current = reload;
+  useEffect(() => {
+    if (!processing) return;
+    const t = setInterval(() => reloadRef.current(), 3000);
+    return () => clearInterval(t);
+  }, [processing]);
 
   if (loading && !data) return <PageLoading />;
   if (error != null) return <ErrorState error={error} onRetry={reload} />;
@@ -115,7 +124,7 @@ export default function QueryDetail() {
       {back}
       <section className="card card-pad stack">
         <div className="row"><PlateBadge plate={summary.plate} size="lg" /><div><h2>{summary.productName}</h2><p className="muted">{dateTime(summary.createdAt)} · {summary.priceCents > 0 ? money(summary.priceCents) : 'Grátis'}</p></div><Badge tone={st.tone} dot>{st.label}</Badge></div>
-        {summary.status === 'PROCESSING' && <Alert tone="info" title="Consulta em processamento.">Isso costuma levar poucos segundos. Se demorar, você pode atualizar ou cancelar: o valor volta na hora.<span className="row" style={{ marginTop: 8, gap: 8 }}><button className="btn btn-sm" onClick={reload}>Atualizar</button><Button size="sm" variant="ghost" loading={cancelBusy} onClick={() => void cancelQuery()}>Cancelar consulta</Button></span></Alert>}
+        {summary.status === 'PROCESSING' && <Alert tone="info" title="Consulta em processamento.">Estamos buscando nas bases. Pode levar até um ou dois minutos e esta tela atualiza sozinha. Se preferir, cancele: o valor volta na hora.<span className="row" style={{ marginTop: 8, gap: 8 }}><button className="btn btn-sm" onClick={reload}>Atualizar</button><Button size="sm" variant="ghost" loading={cancelBusy} onClick={() => void cancelQuery()}>Cancelar consulta</Button></span></Alert>}
         {summary.status === 'FAILED' && <Alert tone="danger" title="Não foi possível concluir esta consulta.">Se houve cobrança, o valor foi estornado automaticamente. Você pode tentar novamente.</Alert>}
         {summary.status === 'REFUNDED' && <Alert tone="warn" title="Consulta estornada.">Se você pagou com o saldo, o valor voltou para ele. Se pagou direto (Pix ou cartão), sua consulta paga continua disponível no topo de Nova consulta. Você pode tentar de novo quando quiser.</Alert>}
         {summary.status === 'SUCCESS' && <Alert tone="warn" title="Relatório indisponível.">Este relatório não pôde ser exibido. Fale com o suporte informando o código {summary.verificationCode}.</Alert>}

@@ -29,6 +29,13 @@ export class MockVehicleProvider implements VehicleDataProvider {
       throw providerError('PROVIDER_TIMEOUT', 'PROVIDER_TIMEOUT');
     }
 
+    // Ambiente de teste: fonte lenta (a consulta passa do tempo de espera da tela e termina em segundo plano).
+    if (plate === 'SLW0E00') {
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      const slow = await pool.query('SELECT raw_response FROM sandbox_vehicles ORDER BY plate LIMIT 1');
+      return { providerQueryId: `MOCK-${crypto.randomUUID()}`, raw: slow.rows[0].raw_response as unknown };
+    }
+
     const result = await pool.query('SELECT raw_response FROM sandbox_vehicles WHERE plate=$1', [plate]);
     if (!result.rowCount) {
       throw providerError('PLACA_NAO_ENCONTRADA_SANDBOX', 'NOT_FOUND', 404);

@@ -16,6 +16,7 @@ const ENTRADAS = [0, 10, 20, 30, 40, 50];
 
 import { Results, TIP_CDC, TIP_LEASING, TIP_PARCELAS } from '../simResults';
 import { SimHistory, SimProposalModal } from '../simProposal';
+import { SeoH1 } from '../components/SeoContent';
 /* ========================================================================== */
 /*  /simulador                                                                 */
 /* ========================================================================== */
@@ -70,7 +71,7 @@ export default function Simulator() {
       <section className="page-hero sim-hero">
         <div className="container">
           <span className="eyebrow">Simulador de financiamento</span>
-          <h1>{kindInfo ? `Simule o financiamento ${kindInfo.key === 'MOTORCYCLE' ? 'da sua moto' : kindInfo.key === 'TRUCK' ? 'do seu caminhão' : kindInfo.key === 'UTILITY' ? 'do seu utilitário' : 'do seu carro'}.` : 'Simule o financiamento do seu veículo.'}</h1>
+          <SeoH1 path={kindInfo ? `/simulador/${kindInfo.slug}` : '/simulador'} fallback={kindInfo ? `Simule o financiamento ${kindInfo.key === 'MOTORCYCLE' ? 'da sua moto' : kindInfo.key === 'TRUCK' ? 'do seu caminhão' : kindInfo.key === 'UTILITY' ? 'do seu utilitário' : 'do seu carro'}.` : 'Simule o financiamento do seu veículo.'} />
           <p className="lead">CDC ou leasing, com a taxa média de mercado do Banco Central, IOF e tarifas. Veja a parcela, o CET e o custo total antes de ir ao banco, e baixe o PDF.</p>
           <div className="trust-row" style={{ marginTop: 18 }}>
             <span><Icon name="shield-check" size={16} />Taxas do Banco Central</span>

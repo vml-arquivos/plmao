@@ -108,10 +108,12 @@ adminIntegrationsRouter.post('/integrations/vehicle/test', adminAuth, guard, asy
     const r = await provider.testConnection();
     result = { ok: true, expiresInMinutes: r.expiresInMinutes, serverIp, queryEnabled: env.DATA_PROVIDER === 'real' };
     if (plate) {
+      const t0 = Date.now();
       const out = await provider.queryByPlate(plate, { productId: productId || undefined });
+      const queryMs = Date.now() - t0;
       const raw = (out.raw ?? {}) as Record<string, unknown>;
       const route = provider.routeFor(productId || undefined);
-      result = { ...result, plate, productId: productId || null, servicePath: route.path, serviceCode: CREDIFY_CONSULTA_CODES[route.path.toLowerCase()] ?? null, queryOk: true, providerQueryId: out.providerQueryId ?? null, blocks: Object.keys(raw).slice(0, 20) };
+      result = { ...result, queryMs, plate, productId: productId || null, servicePath: route.path, serviceCode: CREDIFY_CONSULTA_CODES[route.path.toLowerCase()] ?? null, queryOk: true, providerQueryId: out.providerQueryId ?? null, blocks: Object.keys(raw).slice(0, 20) };
     }
   } catch (error) {
     const e = error as Error & { code?: string; detail?: string };
