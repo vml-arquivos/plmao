@@ -41,7 +41,7 @@ export function Thread({ api, messages, attachments, attachmentPath, staff }: { 
   );
 }
 
-export function Composer({ onSend, onFile, disabled, note, placeholder }: { onSend: (body: string, internal: boolean) => Promise<void>; onFile?: (f: File) => Promise<void>; disabled?: boolean; note?: boolean; placeholder?: string }) {
+export function Composer({ onSend, onFile, disabled, note, placeholder, quick, onQuick }: { quick?: Array<{ id: string; title: string; body: string }>; onQuick?: (id: string) => void; onSend: (body: string, internal: boolean) => Promise<void>; onFile?: (f: File) => Promise<void>; disabled?: boolean; note?: boolean; placeholder?: string }) {
   const [text, setText] = useState('');
   const [internal, setInternal] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,6 +58,11 @@ export function Composer({ onSend, onFile, disabled, note, placeholder }: { onSe
       <label className="sr-only" htmlFor="chat-text">Mensagem</label>
       <Textarea id="chat-text" rows={3} maxLength={2000} value={text} disabled={disabled || busy} onChange={(e) => setText(e.target.value)} placeholder={placeholder ?? 'Escreva sua mensagem'} />
       {err && <p role="alert" className="chat-err">{err}</p>}
+      {quick && quick.length > 0 && (
+        <select className="chat-quick" aria-label="Resposta pronta" value="" onChange={(e) => { const q = quick.find((x) => x.id === e.target.value); if (q) { setText(q.body); onQuick?.(q.id); } }}>
+          <option value="">Resposta pronta…</option>{quick.map((q) => <option key={q.id} value={q.id}>{q.title}</option>)}
+        </select>
+      )}
       <div className="chat-actions">
         {onFile && <label className="btn btn-ghost btn-sm chat-attach">Anexar<input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" disabled={disabled || busy} onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ''; }} /></label>}
         {note && <label className="chat-note"><input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} /> Nota interna (o cliente não vê)</label>}

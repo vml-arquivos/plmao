@@ -6,6 +6,7 @@ import { errorMessage } from '../../shared/api';
 import { dateTime } from '../../shared/format';
 import { Card, PageHead } from '../parts';
 import SupportChat from './SupportChat';
+import { SupportCanned, SupportOverview, SupportProblems } from './SupportTools';
 
 interface M { id: string; name: string; email: string; subject: string; message: string; category: string; status: 'OPEN' | 'IN_PROGRESS' | 'CLOSED'; createdAt: string; closedAt: string | null }
 const STATUS = { OPEN: { l: 'Aberto', t: 'warn' }, IN_PROGRESS: { l: 'Em atendimento', t: 'info' }, CLOSED: { l: 'Encerrado', t: 'ok' } } as const;
@@ -37,12 +38,12 @@ function ContactMessages() {
 
 export default function Support() {
   usePageTitle('Suporte');
-  const [tab, setTab] = useState<'chat' | 'form'>('chat');
+  const [tab, setTab] = useState<'chat' | 'overview' | 'problems' | 'canned' | 'form'>('chat');
   return (
     <>
-      <PageHead title="Suporte" sub="Conversas dos clientes e mensagens do formulário de contato." />
-      <Tabs label="Tipo de atendimento" value={tab} onChange={setTab} items={[{ id: 'chat', label: 'Chat' }, { id: 'form', label: 'Formulário de contato' }]} />
-      {tab === 'chat' ? <SupportChat /> : <ContactMessages />}
+      <PageHead title="Suporte" sub="Chat com a assistente e a equipe, problemas relatados, respostas prontas e formulário de contato." />
+      <Tabs label="Tipo de atendimento" value={tab} onChange={setTab} items={[{ id: 'chat', label: 'Chat' }, { id: 'overview', label: 'Visão geral' }, { id: 'problems', label: 'Problemas' }, { id: 'canned', label: 'Respostas prontas' }, { id: 'form', label: 'Formulário de contato' }]} />
+      {tab === 'chat' ? <SupportChat /> : tab === 'overview' ? <SupportOverview /> : tab === 'problems' ? <SupportProblems /> : tab === 'canned' ? <SupportCanned /> : <ContactMessages />}
     </>
   );
 }

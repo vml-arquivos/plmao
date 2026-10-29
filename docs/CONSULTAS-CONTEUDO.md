@@ -21,4 +21,4 @@ Fonte: Credify. O que a fonte não retornar é omitido do relatório. "Estimativ
 
 Já cobrimos: cadastro, débitos, multas, restrições, gravame, sinistro, roubo/furto, leilão (indício), recall, FIPE com histórico, proprietários (quantidade).
 
-Ainda dependem de fonte externa (a Credify não oferece nas consultas atuais): histórico real de quilometragem, fotos reais do veículo, ficha técnica/equipamentos, laudo de leilão com fotos, Renajud detalhado, Farol Leilão. Ver `PENDENCIAS-PRODUCAO.md`.
+Ainda dependem de fonte externa (ver `docs/COMPARATIVO-CONCORRENTES.md`) (a Credify não oferece nas consultas atuais): histórico real de quilometragem, fotos reais do veículo, ficha técnica/equipamentos, laudo de leilão com fotos, Renajud detalhado, Farol Leilão. Ver `PENDENCIAS-PRODUCAO.md`.

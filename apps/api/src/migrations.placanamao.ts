@@ -1729,5 +1729,59 @@ export const placaMigrations: Migration[] = [
       }
     },
     down: async () => { /* textos comerciais: sem reversão */ }
+  },
+  {
+    id: '049_support_assistant',
+    name: 'Suporte: respostas prontas da equipe e relatos de problema (erros do sistema)',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS support_canned_replies (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          title text NOT NULL,
+          body text NOT NULL,
+          category text NOT NULL DEFAULT 'GERAL',
+          active boolean NOT NULL DEFAULT true,
+          use_count integer NOT NULL DEFAULT 0,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_support_canned_title ON support_canned_replies(lower(title));
+        CREATE TABLE IF NOT EXISTS support_problem_reports (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          fingerprint text NOT NULL,
+          source text NOT NULL CHECK (source IN ('CHAT','NAVEGADOR','CONSULTA')),
+          severity text NOT NULL DEFAULT 'MEDIA' CHECK (severity IN ('BAIXA','MEDIA','ALTA')),
+          title text NOT NULL,
+          detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+          route text,
+          status text NOT NULL DEFAULT 'ABERTO' CHECK (status IN ('ABERTO','EM_ANALISE','RESOLVIDO','IGNORADO')),
+          occurrences integer NOT NULL DEFAULT 1,
+          users_affected integer NOT NULL DEFAULT 0,
+          last_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          conversation_id uuid REFERENCES support_conversations(id) ON DELETE SET NULL,
+          note text,
+          first_seen timestamptz NOT NULL DEFAULT now(),
+          last_seen timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_support_problem_fp ON support_problem_reports(fingerprint) WHERE status IN ('ABERTO','EM_ANALISE');
+        CREATE INDEX IF NOT EXISTS idx_support_problem_list ON support_problem_reports(status, last_seen DESC);
+      `);
+      const canned: Array<[string, string, string]> = [
+        ['Boas-vindas', 'Olá! Aqui é da equipe da Placa na Mão. Vou te ajudar com isso. Pode me passar mais detalhes?', 'GERAL'],
+        ['Consulta em andamento', 'Sua consulta está sendo processada. Costuma levar poucos segundos. Se passou de alguns minutos, me avise o número da placa que eu confiro agora.', 'CONSULTA'],
+        ['Consulta falhou: valor devolvido', 'A fonte de dados não respondeu e a consulta não foi concluída. O valor volta para o seu saldo automaticamente. Pode tentar de novo em alguns minutos.', 'CONSULTA'],
+        ['Informação não veio no relatório', 'O relatório mostra só o que a fonte de dados retorna para essa placa. Quando um item não vem, ele não aparece. Se achar que faltou algo, me diga qual item e a placa que eu verifico.', 'CONSULTA'],
+        ['Pix pago e saldo não entrou', 'Vou conferir o seu pagamento. Pix confirma em poucos minutos. Se já passou disso, me envie o comprovante (imagem ou PDF) por aqui.', 'PAGAMENTO'],
+        ['Reembolso: como funciona', 'Consulta concluída não é reembolsada, porque o dado já foi entregue. Se houve falha ou cobrança em duplicidade, eu analiso e devolvo. Me diga o dia e o valor.', 'PAGAMENTO'],
+        ['Esqueci a senha', 'Na tela de entrada, clique em "Esqueci a senha" e siga o e-mail que enviaremos. Se o e-mail não chegar, olhe o spam e me avise.', 'CONTA'],
+        ['Dados pessoais (LGPD)', 'Recebi seu pedido sobre dados pessoais. Vamos analisar e responder dentro do prazo legal. Para sua segurança, vamos confirmar sua identidade antes de qualquer alteração.', 'LGPD'],
+        ['Pedir mais informações', 'Para eu conseguir ajudar, me envie: a placa, o horário aproximado e, se tiver, uma imagem da tela com o problema.', 'GERAL'],
+        ['Problema registrado', 'Registramos o problema e a equipe técnica já está analisando. Assim que corrigido, avisamos por aqui.', 'GERAL'],
+        ['Encerramento', 'Fico à disposição. Se precisar de mais alguma coisa, é só escrever por aqui. Obrigado por usar a Placa na Mão!', 'GERAL']
+      ];
+      for (const [title, body, category] of canned) await client.query(`INSERT INTO support_canned_replies(title,body,category) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, [title, body, category]);
+    },
+    down: async (client) => { await client.query('DROP TABLE IF EXISTS support_problem_reports; DROP TABLE IF EXISTS support_canned_replies;'); }
   }
 ];

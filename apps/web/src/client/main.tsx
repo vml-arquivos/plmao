@@ -9,18 +9,23 @@ import { applyTheme, readThemePref } from '../shared/theme';
 import { ToastProvider } from '../shared/ui';
 import { SessionProvider } from './session';
 import App from './App';
+import ErrorBoundary from './components/ErrorBoundary';
+import { initErrorReporting } from './errorReport';
 
 applyTheme(readThemePref());
+initErrorReporting();
 if ('serviceWorker' in navigator && import.meta.env.PROD) registerSW({ immediate: true });
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <ToastProvider>
-        <SessionProvider>
-          <App />
-        </SessionProvider>
-      </ToastProvider>
+      <ErrorBoundary>
+        <ToastProvider>
+          <SessionProvider>
+            <App />
+          </SessionProvider>
+        </ToastProvider>
+      </ErrorBoundary>
     </BrowserRouter>
   </StrictMode>
 );

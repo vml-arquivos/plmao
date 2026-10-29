@@ -70,7 +70,7 @@ import { adminFiscalQueueRouter, fiscalPublicRouter } from './routes/adminFiscal
 import { startFiscalWorker } from './lib/fiscal.js';
 import { startPaymentSyncWorker, syncUserOpenOrders } from './lib/paymentSync.js';
 import { toCsv } from './lib/br.js';
-import { supportAdminRouter, supportClientRouter } from './routes/support.js';
+import { supportAdminRouter, supportClientRouter, supportPublicRouter } from './routes/support.js';
 import { testimonialsAdminRouter, testimonialsRouter } from './routes/testimonials.js';
 import { adminIntegrationsRouter } from './routes/adminIntegrations.js';
 import { startEmailWorker } from './lib/emailOutbox.js';
@@ -112,6 +112,7 @@ api.use('/admin', adminDealersRouter);
 api.use('/admin', adminFiscalQueueRouter);
 api.use('/fiscal', fiscalPublicRouter);
 api.use('/admin', supportAdminRouter);
+api.use('/support', supportPublicRouter);
 api.use('/support', supportClientRouter);
 api.use('/admin', testimonialsAdminRouter);
 api.use('/admin', adminIntegrationsRouter);

@@ -15,6 +15,7 @@ function Case({ id, onChanged }: { id: string; onChanged: () => void }) {
   const toast = useToast();
   const [d, setD] = useState<Detail | null>(null); const [error, setError] = useState<unknown>(null);
   const team = useAsync(() => api.get<{ items: Array<{ id: string; name: string }> }>('/admin/support/team'));
+  const canned = useAsync(() => api.get<{ items: Array<{ id: string; title: string; body: string; active: boolean }> }>('/admin/support/canned'));
   const load = useCallback(async () => { try { setD(await api.get<Detail>(`/admin/support/conversations/${id}`)); setError(null); } catch (e) { setError(e); } }, [id]);
   useEffect(() => { setD(null); void load(); const t = window.setInterval(() => { if (!document.hidden) void load(); }, 10000); return () => window.clearInterval(t); }, [load]);
   if (error && !d) return <ErrorState error={error} onRetry={() => void load()} />;
@@ -38,7 +39,7 @@ function Case({ id, onChanged }: { id: string; onChanged: () => void }) {
       </div>
       <Thread api={api} messages={d.messages} attachments={d.attachments} attachmentPath={(a) => `/admin/support/attachments/${a}`} staff />
       {closed && <Alert tone="info">Conversa encerrada: só é possível registrar notas internas.</Alert>}
-      <Composer note placeholder="Resposta ao cliente (ou marque nota interna)" onSend={async (body, internal) => { await api.post(`/admin/support/conversations/${id}/messages`, { body, internal }); await load(); onChanged(); }} />
+      <Composer note quick={(canned.data?.items ?? []).filter((c) => c.active)} onQuick={(cid) => void api.post(`/admin/support/canned/${cid}/use`).catch(() => undefined)} placeholder="Resposta ao cliente (ou marque nota interna)" onSend={async (body, internal) => { await api.post(`/admin/support/conversations/${id}/messages`, { body, internal }); await load(); onChanged(); }} />
       <details style={{ marginTop: 12 }}><summary>Histórico de ações</summary><ul className="muted" style={{ fontSize: 13, paddingLeft: 18 }}>{d.events.map((e, i) => <li key={i}>{dateTime(e.created_at)} · {EVENT[e.event] ?? e.event}</li>)}</ul></details>
     </div>
   );

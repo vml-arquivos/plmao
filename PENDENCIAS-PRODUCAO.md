@@ -1,4 +1,4 @@
-# Pendências para produção (1.15.0)
+# Pendências para produção (1.16.0)
 
 ## Roteiro de configuração (teste e produção)
 
@@ -155,7 +155,9 @@ curl -i -X POST https://placanamao.com.br/api/webhooks/email/brevo -H "Authoriza
 
 ## Chat de suporte
 
-- O assistente é determinístico: responde só com perguntas frequentes publicadas. Sem FAQs, encaminha tudo à equipe. Cadastre as perguntas no painel.
+- A assistente "Renata" responde por regras, catálogo e perguntas frequentes publicadas; o que não souber vai para a equipe. Cadastre as perguntas no painel.
+- IA opcional: defina `SUPPORT_LLM_PROVIDER` (`anthropic` ou `openai`) e `SUPPORT_LLM_API_KEY`; `SUPPORT_LLM_MODEL` é opcional. Ela só usa o catálogo e as perguntas frequentes como base e nunca promete reembolso. Visitantes sem conta não usam a IA. Acompanhe o custo no painel do provedor.
+- Equipe: abra Suporte > Respostas prontas e ajuste os 11 textos iniciais; em Problemas veja o que os clientes estão encontrando. Configure o e-mail de suporte para receber o aviso de conversa na fila.
 - Anexos ficam no banco (até 2 MB). Para volume maior, mover para armazenamento de objetos e passar antivírus.
 - Definir quem atende, horário e prazo de resposta (não há SLA automático) e o e-mail de suporte em Configurações.
 

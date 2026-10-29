@@ -14,6 +14,7 @@ export default function ConsentBanner() {
     return () => window.removeEventListener('pnm:cookie-prefs', reopen);
   }, []);
   useEffect(() => { pageView(pathname); }, [pathname]);
+  useEffect(() => { const d = document.documentElement; if (open) d.setAttribute('data-consent-open', ''); else d.removeAttribute('data-consent-open'); return () => d.removeAttribute('data-consent-open'); }, [open]);
   if (!open) return null;
   const choose = (v: 'granted' | 'denied') => { setConsent(v); setOpen(false); };
   return (

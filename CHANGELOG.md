@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.16.0 — Chat de suporte com assistente "Renata", painel de atendimento e relato de problemas
+
+- Botão de chat no canto da tela, no site e no app instalado (PWA). Visitante conversa com a assistente sem criar conta; quem está logado tem a conversa salva e pode chamar uma pessoa a qualquer momento.
+- Assistente "Renata" (o nome muda em `SUPPORT_ASSISTANT_NAME`): responde preço e conteúdo de cada consulta pelo catálogo vivo, FIPE, simulador, pagamento, prazo, instalação do app e contato; usa as perguntas frequentes publicadas; vê saldo, pagamento pendente e status das consultas da própria conta; assunto sensível (reembolso, cobrança, LGPD, fraude) vai direto para uma pessoa. É honesta sobre o que ainda não existe (km e fotos).
+- IA opcional (`SUPPORT_LLM_PROVIDER` = `anthropic` ou `openai`, com chave): responde o que as regras não cobrem, só com o catálogo e as perguntas frequentes como base, sem prometer reembolso e passando para uma pessoa quando não souber. Sem chave ou se a IA falhar, o chat segue só com as regras.
+- Problemas do sistema: consulta travada ou com falha vira relato automático para a equipe técnica; erros de tela do navegador são enviados sem dados pessoais (e-mail, placa e parâmetros da URL são removidos), agrupados por repetição; tela de erro amigável com botão de recarregar.
+- Painel (Suporte): abas Visão geral (fila, conversas da semana, assuntos, problemas que mais se repetem), Problemas (analisar, resolver, ignorar), Respostas prontas (11 modelos iniciais, criar, editar, desativar, apagar) e seletor "Resposta pronta…" dentro do atendimento.
+- Migração `049_support_assistant`. Testes novos: `support-assistant.test.mjs`. Comparativo com Olho no Carro e MTX em `docs/COMPARATIVO-CONCORRENTES.md`.
+
 ## 1.15.0 — Home de alta conversão: cards, pop-up, pacotes, simulador e SEO
 
 - Cards de consulta maiores e alinhados, só com os 4 itens principais; botões "Consultar agora", "Ver detalhes" e "Ver modelo do PDF".

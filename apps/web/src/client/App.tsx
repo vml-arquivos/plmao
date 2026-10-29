@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import ConsentBanner from './components/ConsentBanner';
+import SupportWidget from './components/SupportWidget';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { PageLoading } from '../shared/ui';
 import { AppLayout, PublicLayout, RequireAuth, ScrollManager } from './layouts';
@@ -78,6 +79,7 @@ export default function App() {
     <>
       <ScrollManager />
       <ConsentBanner />
+      <SupportWidget />
       <Suspense fallback={<PageLoading />}>
         <Routes>
           <Route path="/" element={<Home />} />

@@ -3,7 +3,8 @@ import type { PoolClient } from 'pg';
 import { pool, tx } from '../db.js';
 import { appError } from './http.js';
 import { enqueueEmail } from './emailOutbox.js';
-import { botReply, redactSensitive } from './supportBot.js';
+import { redactSensitive } from './supportBot.js';
+import { assistantReply } from './supportAssistant.js';
 import { hasPermission } from '../permissions.js';
 import { publicAppUrl } from '../config.js';
 
@@ -62,7 +63,10 @@ async function assertNotFlooding(userId: string) {
 }
 
 async function runBot(conversationId: string, text: string, first: boolean, userId: string) {
-  const reply = await botReply(text, { first });
+  const past = first ? [] : (await pool.query(`SELECT sender_type,body FROM support_messages WHERE conversation_id=$1 AND internal=false AND sender_type IN ('CLIENTE','BOT','ATENDENTE') ORDER BY created_at DESC, id DESC LIMIT 8`, [conversationId])).rows.reverse()
+    .map((m) => ({ role: (m.sender_type === 'CLIENTE' ? 'user' : 'assistant') as 'user' | 'assistant', text: String(m.body) }));
+  if (past.length && past[past.length - 1]!.role === 'user') past.pop(); // a mensagem atual segue à parte
+  const reply = await assistantReply(text, { userId, first, conversationId }, past);
   await tx(async (c) => {
     await addMessage(c, conversationId, 'BOT', null, reply.text);
     if (reply.escalate) {
@@ -72,7 +76,6 @@ async function runBot(conversationId: string, text: string, first: boolean, user
     await logEvent(c, conversationId, 'BOT_RESPONDEU', null, { kind: reply.kind, faqId: reply.faqId ?? null });
   });
   if (reply.escalate) await notifyStaff(conversationId, reply.priority ?? 'ALTA');
-  void userId;
 }
 
 export async function createConversation(userId: string, input: NewConversation): Promise<{ id: string }> {

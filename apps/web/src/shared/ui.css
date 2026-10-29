@@ -241,3 +241,4 @@ h2 { font-size: 18px; }
 @media (max-width: 760px) { .filters { grid-template-columns: 1fr; } }
 .btn-primary { --b-bg: var(--primary); background: var(--primary); box-shadow: none; }
 .btn-primary:hover { background: var(--primary-hover); box-shadow: none; filter: none; }
+.chat-quick{justify-self:start;max-width:100%;padding:6px 10px;border-radius:10px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font:inherit;font-size:13px}
