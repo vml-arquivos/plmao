@@ -3106,7 +3106,12 @@ app.get('*', asyncRoute(async (req, res, next) => {
   res.type('html').send(isPrelaunch() ? page.replace(/<meta name="robots" content="[^"]*"\s*\/>/, '<meta name="robots" content="noindex,nofollow,noarchive" />') : page);
 }));
 
-setInterval(() => { sweepStuckQueries(env.QUERY_STUCK_MINUTES).catch((error) => log('error', 'query_sweeper_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 2 * 60 * 1000).unref();
+/** Recupera consultas órfãs logo após reinício; o intervalo mantém a proteção durante a operação normal. */
+const recoverStuckQueries = () => {
+  void sweepStuckQueries(env.QUERY_STUCK_MINUTES).catch((error) => log('error', 'query_sweeper_failed', { message: error instanceof Error ? error.message : 'unknown' }));
+};
+recoverStuckQueries();
+setInterval(recoverStuckQueries, 2 * 60 * 1000).unref();
 setInterval(() => { releaseCommissions().catch((error) => log('error', 'commission_release_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 60 * 60 * 1000).unref();
 setInterval(() => { purgeExpiredRaw(env.RAW_RETENTION_DAYS).catch((error) => log('error', 'raw_retention_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 6 * 60 * 60 * 1000).unref();
 if (env.DATA_PROVIDER === 'real' && env.VEHICLE_API_PROVIDER === 'credify' && env.CREDIFY_CLIENT_ID && env.CREDIFY_CLIENT_SECRET && process.env.NODE_TEST_CONTEXT === undefined) {

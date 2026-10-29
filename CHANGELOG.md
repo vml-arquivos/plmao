@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.19.3 — Consulta Credify: reuso do token e recuperação após reinício
+
+- O JWT da Credify passa a ser reutilizado conforme a validade real documentada; a renovação ocorre quando falta menos de uma hora, reduzindo logins desnecessários e a janela de falha da consulta.
+- O keeper de token continua emitindo `credify_token_ready`, mas não força novo login a cada 30 minutos quando o token ainda está válido.
+- Na subida da API, consultas antigas em `PROCESSING` são estornadas pelo mesmo varredor idempotente que roda a cada dois minutos, evitando consultas órfãs indefinidamente.
+- Não foram alterados endpoints, códigos `IdConsulta`, dependências ou o fallback de cabeçalho existente.
+
 ## 1.19.2 — Consulta que não volta: tempo, erro real e visibilidade
 
 - A Credify tem códigos de recusa que valem para qualquer consulta (14 limite de consultas simultâneas/diárias, 15 limite mensal, 16/17 limite de valor, 18 sem saldo, 19 CPF excluído pela LGPD). Antes caíam em "resposta inválida"; agora viram erro próprio, com o código e a mensagem da Credify, e a consulta é estornada.

@@ -46,8 +46,8 @@ function tokenExpiry(token: string, now: number): number {
 }
 
 let shared: { token: string; expiresAt: number; issuedAt: number } | null = null;
-/** Token usado em consulta tem no máximo 3 min de vida: cada consulta roda com um login recente, como no teste do painel. */
-const FRESH_MS = 3 * 60_000;
+/** A Credify documenta JWT de 24 h; renova quando faltar menos de uma hora, não a cada poucos minutos. */
+const TOKEN_RENEW_BEFORE_MS = 60 * 60_000;
 let lastLogin: { at: number; ok: boolean; error?: string } | null = null;
 /** Estado do login para o painel: idade do token, último login e último erro (sem expor o token). */
 export function credifyTokenStatus(now = Date.now()): { hasToken: boolean; ageSeconds: number | null; expiresInMinutes: number | null; lastLoginOk: boolean | null; lastLoginAt: string | null; lastError: string | null } {
@@ -59,12 +59,12 @@ let authStyle: 'bearer' | 'raw' = 'bearer';
 let inflight: Promise<string> | null = null;
 export function resetCredifyTokenCache(): void { shared = null; inflight = null; authStyle = 'bearer'; lastLogin = null; }
 
-/** Mantém o token sempre novo: ao subir e a cada 30 min renova se faltar menos de 2 h para vencer. Falha aqui só é registrada; a consulta tenta o login de novo. */
+/** Confere o token ao subir e a cada 30 min; só autentica de novo quando faltar menos de uma hora. */
 export function startCredifyTokenKeeper(onError: (message: string) => void = () => undefined, provider = new CredifyVehicleProvider()): NodeJS.Timeout {
   const tick = async () => {
     try {
-      // Renova a cada ciclo (30 min): o token em uso nunca passa de poucos minutos e qualquer problema de login aparece no log na hora.
-      const r = await provider.testConnection();
+      await provider.warm();
+      const r = credifyTokenStatus();
       log('info', 'credify_token_ready', { expiresInMinutes: r.expiresInMinutes });
     } catch (e) { onError(e instanceof Error ? e.message : 'erro desconhecido'); }
   };
@@ -128,7 +128,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
   /** Várias consultas ao mesmo tempo com o token vencido fazem um único login (os demais esperam o mesmo resultado). */
   private async token(force = false): Promise<string> {
     const now = (this.o.now ?? Date.now)();
-    if (!force && shared && shared.expiresAt > now && now - shared.issuedAt < FRESH_MS) return shared.token;
+    if (!force && shared && shared.expiresAt > now + TOKEN_RENEW_BEFORE_MS) return shared.token;
     if (inflight) return inflight;
     const previous = shared;
     inflight = this.loginWithRetry(now).catch((e) => {

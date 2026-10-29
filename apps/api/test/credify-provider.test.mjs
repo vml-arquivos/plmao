@@ -4,7 +4,7 @@ import test from 'node:test';
 import { useTestEnv } from './helpers/db.mjs';
 
 useTestEnv();
-const { CredifyVehicleProvider, resetCredifyTokenCache } = await import('../dist/providers/credifyProvider.js');
+const { CredifyVehicleProvider, resetCredifyTokenCache, startCredifyTokenKeeper } = await import('../dist/providers/credifyProvider.js');
 const { buildReportV2 } = await import('../dist/report/normalizeV2.js');
 const { normalizeBdrp } = await import('../dist/normalizer.js');
 
@@ -152,6 +152,18 @@ test('testConnection só faz o login e informa a validade do token', async () =>
   await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: fakeFetch([{ status: 403, body: {} }]) }).testConnection(), (e) => e.code === 'DATA_PROVIDER_AUTH_FAILED');
 });
 
+test('keeper confere o token sem forçar novo login enquanto ele ainda é válido', async () => {
+  resetCredifyTokenCache();
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const token = jwt(Math.floor(now / 1000) + 24 * 3600);
+  const f = fakeFetch([{ body: { Success: true, Dados: token } }]);
+  const timer = startCredifyTokenKeeper(() => undefined, new CredifyVehicleProvider({ ...base, fetchImpl: f, now: () => now }));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  clearInterval(timer);
+  assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 1);
+  resetCredifyTokenCache();
+});
+
 test('login: segredo só com dígitos recusado como texto (200 sem token) é reenviado como número', async () => {
   resetCredifyTokenCache();
   const t = jwt(Math.floor(Date.now() / 1000) + 86400);
@@ -249,17 +261,17 @@ test('cada pacote usa a consulta certa da Credify: Completa = Veículo Total (46
   resetCredifyTokenCache();
 });
 
-test('token com mais de 3 minutos é trocado por um login novo antes de consultar', async () => {
+test('token ainda válido é reutilizado depois de três minutos', async () => {
   resetCredifyTokenCache();
   let now = Date.parse('2026-10-21T12:00:00Z');
-  const t1 = jwt(Math.floor(now / 1000) + 24 * 3600); const t2 = jwt(Math.floor(now / 1000) + 25 * 3600);
-  const f = fakeFetch([{ body: { Success: true, Dados: t1 } }, { body: sample }, { body: { Success: true, Dados: t2 } }, { body: sample }]);
+  const t1 = jwt(Math.floor(now / 1000) + 24 * 3600);
+  const f = fakeFetch([{ body: { Success: true, Dados: t1 } }, { body: sample }, { body: sample }]);
   const p = new CredifyVehicleProvider({ ...base, fetchImpl: f, now: () => now });
   await p.queryByPlate('AAA0000');
   now += 4 * 60_000;
   await p.queryByPlate('AAA0000');
-  assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 2);
-  assert.equal(f.calls[3].init.headers.authorization, `Bearer ${t2}`);
+  assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 1);
+  assert.equal(f.calls[2].init.headers.authorization, `Bearer ${t1}`);
   resetCredifyTokenCache();
 });
 
@@ -273,18 +285,17 @@ test('login com falha de servidor é repetido e a consulta segue', async () => {
   resetCredifyTokenCache();
 });
 
-test('login fora do ar com token anterior ainda válido: a consulta usa o token anterior', async () => {
+test('token ainda válido é reutilizado sem depender de novo login', async () => {
   resetCredifyTokenCache();
   let now = Date.parse('2026-10-21T12:00:00Z');
   const t = jwt(Math.floor(now / 1000) + 24 * 3600);
-  const down = { status: 503, body: {} };
-  const f = fakeFetch([{ body: { Success: true, Dados: t } }, { body: sample }, down, down, down, { body: sample }]);
+  const f = fakeFetch([{ body: { Success: true, Dados: t } }, { body: sample }, { body: sample }]);
   const p = new CredifyVehicleProvider({ ...base, fetchImpl: f, now: () => now });
   await p.queryByPlate('AAA0000');
   now += 10 * 60_000;
   const out = await p.queryByPlate('AAA0000');
   assert.equal(out.raw.placa, 'AAA0000');
-  assert.equal(f.calls[f.calls.length - 1].init.headers.authorization, `Bearer ${t}`);
+  assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 1);
   resetCredifyTokenCache();
 });
 
