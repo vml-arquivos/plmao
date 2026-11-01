@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import { after, before, describe, it } from 'node:test';
+import { integration, loadCore, useTestEnv } from './helpers/db.mjs';
+import { adminSession, startServer } from './helpers/server.mjs';
+
+describe('consulta interna do painel: sem repetição e com motivo claro', integration, () => {
+  let pool; let server; let adm;
+  before(async () => {
+    useTestEnv();
+    ({ pool } = await loadCore());
+    server = await startServer();
+    adm = await adminSession({ server, pool, role: 'SUPER_ADMIN' });
+  });
+  after(async () => { await server.stop(); await pool.end(); });
+  const lookup = (plate) => adm.call('/api/admin/lookups', { method: 'POST', body: { plate, productId: 'LIEN' } });
+
+  it('duas consultas iguais ao mesmo tempo: só uma chega à fonte, a outra recebe 409', async () => {
+    const [a, b] = await Promise.all([lookup('SLW0E00'), lookup('SLW0E00')]);
+    const statuses = [a.status, b.status].sort();
+    assert.deepEqual(statuses, [200, 409], `${a.text} | ${b.text}`);
+    const blocked = a.status === 409 ? a : b;
+    assert.equal(blocked.json.error, 'QUERY_IN_PROGRESS');
+    // depois que a primeira termina, a trava é solta
+    const again = await lookup('SLW0E00');
+    assert.equal(again.status, 200, again.text);
+  });
+
+  it('falha da fonte aparece com mensagem específica, e não como erro genérico', async () => {
+    const timeout = await lookup('TIM0E00');
+    assert.equal(timeout.status, 424, timeout.text);
+    assert.equal(timeout.json.error, 'PROVIDER_TIMEOUT');
+    assert.match(timeout.json.message, /não repita sem conferir/);
+    const missing = await lookup('ZZZ9Z99');
+    assert.equal(missing.status, 404, missing.text);
+    assert.match(missing.json.message, /não encontrou dados/);
+  });
+});

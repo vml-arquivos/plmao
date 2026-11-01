@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.19.5 — Sem consulta repetida e motivo claro quando a Credify recusa
+
+- A mesma placa e pacote do mesmo cliente não entra de novo enquanto a consulta anterior ainda processa (resposta 409, sem cobrar duas vezes).
+- A consulta interna do painel só roda uma vez por placa e pacote por vez; clique duplo ou duas abas não geram duas consultas pagas.
+- Teto de segurança de consultas pagas por hora e por dia (`CREDIFY_MAX_QUERIES_PER_HOUR` e `CREDIFY_MAX_QUERIES_PER_DAY`); ao atingir, a Credify não é chamada.
+- Quando a Credify responde 200 mas o sistema recusa a resposta, o motivo (blocos e códigos, sem dados de pessoas) aparece no log, na auditoria e na mensagem da consulta interna, em vez do aviso genérico.
+- Sem repetição automática de consulta paga em tempo esgotado ou erro 5xx.
+
 ## 1.19.4 — Validação de autenticação antes da consulta
 
 - Toda consulta Credify faz um preflight de autenticação imediatamente antes da cobrança: o sistema solicita e valida um JWT novo, confirma a validade e somente então debita e envia o `IdConsulta`/placa.

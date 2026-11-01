@@ -333,6 +333,9 @@ const envSchema = z.object({
   QUERY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().max(300000).default(175000),
   /** Quanto a tela espera a fonte antes de passar a acompanhar a consulta em segundo plano. */
   QUERY_SYNC_WAIT_MS: z.coerce.number().int().min(0).max(60000).default(20000),
+  /** Teto de segurança de consultas pagas enviadas à Credify (clientes, API pública e consulta interna). Ao atingir, a Credify nem é chamada. 0 = sem limite. Variável vazia vale o padrão. */
+  CREDIFY_MAX_QUERIES_PER_HOUR: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.coerce.number().int().min(0).max(100000).default(200)),
+  CREDIFY_MAX_QUERIES_PER_DAY: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.coerce.number().int().min(0).max(1000000).default(2000)),
   RATE_LIMIT_ENABLED: booleanFromEnv.default(true),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(120),

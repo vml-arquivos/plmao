@@ -1,6 +1,8 @@
 import { env, CREDIFY_CONSULTA_CODES, CREDIFY_DEFAULT_BODY, CREDIFY_DEFAULT_PATH, CREDIFY_PLATE_PATHS, CREDIFY_PRODUCT_PATHS } from '../config.js';
 import type { VehicleDataProvider } from '../types.js';
 import { providerOutcome } from '../report/normalizeV2.js';
+import { describeShape } from '../report/vehicleTotal.js';
+import { CallBudget } from '../lib/providerGuard.js';
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
 import { log } from '../lib/http.js';
 
@@ -16,7 +18,7 @@ import { log } from '../lib/http.js';
  */
 type Failure = Error & { code: string; detail?: string };
 /** `detail` guarda o motivo técnico (status HTTP e mensagem da Credify) para o painel; nunca contém chaves nem tokens. */
-const fail = (code: string, detail?: string): Failure => Object.assign(new Error(code), { code, ...(detail ? { detail: detail.slice(0, 300) } : {}) });
+const fail = (code: string, detail?: string): Failure => Object.assign(new Error(code), { code, ...(detail ? { detail: detail.slice(0, 600) } : {}) });
 /** Lê a mensagem curta que a Credify devolve em erro ({ Message } ou { MSG }), sem repassar o corpo inteiro. */
 async function reason(response: Response): Promise<string> {
   const text = await response.text().catch(() => '');
@@ -34,6 +36,8 @@ export interface CredifyOptions {
   fetchImpl?: typeof fetch;
   now?: () => number;
   baseUrl?: string; clientId?: string; clientSecret?: string; path?: string; consultaId?: string; method?: 'get' | 'post'; bodyTemplate?: string; timeoutMs?: number; searchTypes?: string;
+  /** Teto de consultas pagas por hora/dia (padrão: CREDIFY_MAX_QUERIES_PER_HOUR / _PER_DAY; 0 = sem limite). */
+  maxPerHour?: number; maxPerDay?: number;
 }
 
 /** Renova antes de vencer; o JWT dura 24 h, então usamos o `exp` quando legível e 23 h como teto. */
@@ -57,7 +61,10 @@ const AUTH_TEXT = /token|autoriz|expir|n[ãa]o autenticad|unauthori[sz]ed|sess[�
 /** A documentação diz "Bearer {token}", mas o esquema OpenAPI descreve o cabeçalho como chave direta. Guarda o formato que a Credify aceitou. */
 let authStyle: 'bearer' | 'raw' = 'bearer';
 let inflight: Promise<string> | null = null;
-export function resetCredifyTokenCache(): void { shared = null; inflight = null; authStyle = 'bearer'; lastLogin = null; }
+/** Consultas pagas já enviadas à Credify nesta execução (teto de segurança por hora e por dia). */
+const budget = new CallBudget();
+export function credifyBudgetUsage(): { lastHour: number; lastDay: number } { return budget.usage(); }
+export function resetCredifyTokenCache(): void { shared = null; inflight = null; authStyle = 'bearer'; lastLogin = null; budget.reset(); }
 
 /** Confere o token ao subir e a cada 30 min; só autentica de novo quando faltar menos de uma hora. */
 export function startCredifyTokenKeeper(onError: (message: string) => void = () => undefined, provider = new CredifyVehicleProvider()): NodeJS.Timeout {
@@ -245,6 +252,10 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
         throw e;
       }
     };
+    // Teto de segurança: cada consulta paga reserva uma vaga; ao atingir o teto a Credify nem é chamada (nada é cobrado).
+    // Nunca há repetição automática da consulta paga em timeout ou erro 5xx; só o 401 (token) refaz a chamada, sem custo.
+    try { budget.take({ perHour: this.o.maxPerHour ?? env.CREDIFY_MAX_QUERIES_PER_HOUR, perDay: this.o.maxPerDay ?? env.CREDIFY_MAX_QUERIES_PER_DAY }); }
+    catch (e) { log('warn', 'credify_budget_exceeded', { path: c.path, ...budget.usage() }); throw e; }
     let response = await send();
     if (response.status === 401) {
       // 1) o outro formato de cabeçalho com o mesmo token; 2) token novo com os dois formatos.
@@ -284,7 +295,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     }
     const outcome = providerOutcome(raw);
     if (outcome.notFound) throw fail('NOT_FOUND', 'Placa não encontrada na Credify.');
-    if (!outcome.ok) throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Credify respondeu com erro (${outcome.reason ?? 'sem motivo'}): CODIGO ${JSON.stringify(raw?.RESPOSTA?.CODIGO ?? null)}${raw?.RESPOSTA?.DADOS?.MSG ? `; ${String(raw.RESPOSTA.DADOS.MSG)}` : ''}.`);
+    if (!outcome.ok) throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Credify respondeu com erro (${outcome.reason ?? 'sem motivo'}): CODIGO ${JSON.stringify(raw?.RESPOSTA?.CODIGO ?? null)}${raw?.RESPOSTA?.DADOS?.MSG ? `; ${String(raw.RESPOSTA.DADOS.MSG)}` : ''}. Estrutura: ${describeShape(raw)}.`);
     const id = raw?.CONSULTA?.CODIGORESPOSTA ?? raw?.CONSULTA?.IDCONSULTA;
     return { providerQueryId: id == null ? undefined : String(id), raw: { ...(type === 'PLATE' ? { placa: value } : {}), idConsulta: queryId, data: raw } };
   }

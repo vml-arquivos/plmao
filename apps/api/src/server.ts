@@ -47,6 +47,7 @@ import { renderVehiclePdf, type ReportMeta } from './report/pdf.js';
 import { renderVehicleHtml } from './report/printHtml.js';
 import { encryptRaw } from './lib/rawStore.js';
 import { refundProcessingQuery, sweepStuckQueries } from './lib/queryRefund.js';
+import { runExclusive } from './lib/providerGuard.js';
 import { purgeExpiredRaw } from './lib/rawRetention.js';
 import { adminPeopleRouter } from './routes/adminPeople.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
@@ -305,6 +306,7 @@ function safeQueryFailureMessage(code?: string | null): string | undefined {
   if (code === 'DATA_PROVIDER_RATE_LIMITED') return 'A Credify informou limite temporário de consultas. O valor foi estornado; tente novamente mais tarde.';
   if (code === 'DATA_PROVIDER_QUOTA_EXHAUSTED') return 'A Credify informou limite ou saldo de consultas indisponível. O valor foi estornado; contate o suporte.';
   if (code === 'PROVIDER_TIMEOUT' || code === 'QUERY_STUCK_TIMEOUT') return 'A Credify não respondeu dentro do prazo. O valor foi estornado; tente novamente.';
+  if (code === 'PROVIDER_BUDGET_EXCEEDED') return 'Atingimos o limite de segurança de consultas à fonte de dados. O valor foi estornado; tente novamente mais tarde.';
   if (code === 'NOT_FOUND') return 'Não encontramos dados para esta placa nas bases consultadas.';
   return 'A consulta não pôde ser concluída. Se houve débito, o valor foi estornado.';
 }
@@ -328,6 +330,8 @@ function toSafeQueryError(error: unknown): { status: number; code: string; messa
   if (code === 'DATA_PROVIDER_INVALID_RESPONSE') return { status: 424, code: 'QUERY_PROVIDER_DATA_ERROR', message: 'A Credify respondeu, mas uma ou mais bases retornaram erro. O valor foi estornado; tente novamente ou informe o código desta consulta ao suporte.' };
   if (code === 'DATA_PROVIDER_UNAVAILABLE') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A Credify ficou indisponível. ${RETRY_MESSAGE}` };
   if (code === 'DATA_PROVIDER_QUOTA_EXHAUSTED') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A Credify informou limite ou saldo de consultas indisponível. ${RETRY_MESSAGE}` };
+  if (code === 'QUERY_IN_PROGRESS') return { status: 409, code, message: 'Já existe uma consulta desta placa em andamento. Aguarde terminar; você não será cobrado duas vezes.' };
+  if (code === 'PROVIDER_BUDGET_EXCEEDED') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `Atingimos o limite de segurança de consultas à fonte de dados. ${RETRY_MESSAGE}` };
   if (code === 'PRODUCT_NOT_FOUND') return { status: 404, code, message: 'Este produto de consulta não está disponível.' };
   if (code === 'PRODUCT_NOT_AVAILABLE') return { status: 409, code, message: 'Esta consulta ainda não está à venda. Nada foi cobrado.' };
   return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: RETRY_MESSAGE };
@@ -1425,6 +1429,12 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
         before = Number(wallet.rows[0].balance_cents);
         after = before - cost;
       }
+      // Trava contra consulta repetida: a mesma placa/produto do mesmo cliente não entra de novo enquanto a anterior ainda processa
+      // (clique duplo, duas abas, "tentar de novo" antes da hora). Sem isso, cada repetição gastaria uma consulta paga na Credify.
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`vq:${userId}:${input.plate}:${input.productId}:${input.searchType}`]);
+      const inFlight = await client.query(`SELECT 1 FROM vehicle_queries WHERE user_id=$1 AND plate=$2 AND product_id=$3 AND search_type=$4 AND status='PROCESSING' AND created_at > now() - make_interval(mins => $5::int) LIMIT 1`,
+        [userId, input.plate, input.productId, input.searchType, env.QUERY_STUCK_MINUTES]);
+      if (inFlight.rowCount) throw appError('QUERY_IN_PROGRESS', { code: 'QUERY_IN_PROGRESS', http: 409, expose: true });
       const created = await client.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider,idempotency_key,payment_order_id,request_metadata,source,search_type)
         VALUES($1,$2,$3,'PROCESSING',0,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) RETURNING id`, [userId, input.plate, input.productId, cost, chargeSource, provider.name, idempotencyKey, input.paymentOrderId ?? null, JSON.stringify({ requestId: input.reqId, negotiated: pricing.negotiated }), input.source, input.searchType]);
       queryId = created.rows[0].id as string;
@@ -2495,6 +2505,29 @@ api.get('/admin/queries', adminAuth, requirePermission('VIEW_QUERIES'), asyncRou
   })));
 }));
 
+/** Falhas da fonte na consulta interna viram mensagem clara para o administrador (com o motivo técnico, que não traz dados pessoais). */
+function adminLookupError(error: unknown): unknown {
+  if (!(error instanceof Error)) return error;
+  const known = error as AppError & { detail?: string };
+  if (known.expose) return error;
+  const code = typeof known.code === 'string' ? known.code : '';
+  const detail = typeof known.detail === 'string' ? known.detail.trim() : '';
+  const why = detail ? ` Motivo: ${detail}` : '';
+  const messages: Record<string, [number, string]> = {
+    NOT_FOUND: [404, 'A fonte não encontrou dados para esta placa neste pacote.'],
+    DATA_PROVIDER_INVALID_RESPONSE: [424, `A Credify respondeu, mas a resposta foi recusada pelo sistema.${why}`],
+    DATA_PROVIDER_AUTH_FAILED: [424, `Falha no login da Credify.${why}`],
+    DATA_PROVIDER_UNAVAILABLE: [424, `A Credify ficou indisponível.${why}`],
+    DATA_PROVIDER_RATE_LIMITED: [424, `A Credify informou limite temporário de consultas.${why}`],
+    DATA_PROVIDER_QUOTA_EXHAUSTED: [424, `A Credify informou limite ou saldo de consultas indisponível.${why}`],
+    PROVIDER_TIMEOUT: [424, 'A fonte demorou além do prazo configurado. A Credify pode ter cobrado esta consulta; não repita sem conferir.'],
+    PROVIDER_BUDGET_EXCEEDED: [429, `${detail || 'Limite de segurança de consultas atingido.'}`]
+  };
+  const hit = messages[code];
+  if (!hit) return error;
+  return appError(hit[1], { code, http: hit[0], expose: true, showMessage: true });
+}
+
 api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), asyncRoute(async (req, res) => {
   const parsed = z.object({ plate: plateSchema, productId: z.string().trim().min(1).max(80) }).safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
@@ -2502,13 +2535,15 @@ api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), 
   if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
   const provider = getProvider();
   try {
-    const output = await performAdminLookup({ provider, plate: parsed.data.plate, productId: parsed.data.productId, productName: product.rows[0].name, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
+    // Uma consulta interna por placa/pacote por vez: clique duplo ou duas abas não geram duas consultas pagas.
+    const output = await runExclusive(`admin-lookup:${parsed.data.plate}:${parsed.data.productId}`, () => performAdminLookup({ provider, plate: parsed.data.plate, productId: parsed.data.productId, productName: product.rows[0].name, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp }), env.QUERY_REQUEST_TIMEOUT_MS + 30_000);
     await audit(req.user!.id, 'ADMIN_LOOKUP', 'VEHICLE_QUERY', null, { plate: parsed.data.plate, productId: parsed.data.productId, provider: provider.name, status: 'SUCCESS', requestId: requestId(req) });
     res.status(200).json({ ...output, result: { ...output.result, diagnostic: diagnostic(output.result) } });
   } catch (error) {
     const errorCode = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'PROVIDER_ERROR';
-    await audit(req.user!.id, 'ADMIN_LOOKUP', 'VEHICLE_QUERY', null, { plate: parsed.data.plate, productId: parsed.data.productId, provider: provider.name, status: 'FAILED', errorCode, requestId: requestId(req) });
-    throw error;
+    const detail = error instanceof Error && typeof (error as { detail?: unknown }).detail === 'string' ? String((error as unknown as { detail: string }).detail).slice(0, 300) : undefined;
+    await audit(req.user!.id, 'ADMIN_LOOKUP', 'VEHICLE_QUERY', null, { plate: parsed.data.plate, productId: parsed.data.productId, provider: provider.name, status: 'FAILED', errorCode, ...(detail ? { detail } : {}), requestId: requestId(req) });
+    throw adminLookupError(error);
   }
 }));
 
@@ -2848,7 +2883,7 @@ app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
   const known = error as AppError;
   const status = known.http ?? 500;
   const code = known.code ?? 'INTERNAL_ERROR';
-  log('error', 'request_failed', { requestId: requestId(req), path: req.path, method: req.method, status, code, message: error instanceof Error ? error.message : 'Unknown error' });
+  log('error', 'request_failed', { requestId: requestId(req), path: req.path, method: req.method, status, code, message: error instanceof Error ? error.message : 'Unknown error', ...(typeof (error as { detail?: unknown }).detail === 'string' ? { detail: ((error as { detail: string }).detail).slice(0, 400) } : {}) });
   const details = known.expose ? (known as AppError & { details?: unknown }).details : undefined;
   res.status(status).json({ error: code, message: known.expose ? (code.startsWith('SIM_') || known.showMessage ? known.message : humanMessage(code)) : 'Não foi possível concluir esta operação agora. Tente novamente.', ...(Array.isArray(details) ? { details } : {}) });
 });

@@ -197,3 +197,28 @@ export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
   out.set('VT_FIPE_VIGENCIA', fipeOk ? textItem(fr!.VIGENCIA) : NOT_PROVIDED);
   return out;
 }
+
+const SHAPE_LABEL: Record<BlockName, string> = { INDICIOSINISTROVEICULAR: 'SINISTRO', RECALL: 'RECALL', HISTORICOROUBOFURTO: 'ROUBOFURTO', LEILAOCONJUGADO: 'LEILAO', HISTORICOPROPRIETARIO: 'PROPRIETARIOS', VEICULARBNACIONAL: 'BASE_NACIONAL', PRECIFICADORFIPE: 'FIPE', VEICULOSBDRP: 'BDRP' };
+
+/**
+ * Resumo só da ESTRUTURA da resposta (blocos, código de cada bloco e a descrição curta que a fonte deu), para
+ * diagnosticar "resposta inválida" no log e no painel sem refazer a consulta. Nunca inclui valores de RETORNO ou
+ * REGISTRO (dados do veículo e de pessoas).
+ */
+export function describeShape(raw: unknown): string {
+  const r = findResposta(raw);
+  if (!r) return `sem bloco RESPOSTA (campos: ${isRec(raw) ? Object.keys(raw).slice(0, 6).join(', ') || 'nenhum' : typeof raw})`;
+  const arr = codes(r);
+  const full = Boolean(arr) && arr!.length === VT_BLOCKS.length;
+  const parts: string[] = [];
+  VT_BLOCKS.forEach((name, i) => {
+    const b = block(r, name);
+    const code = full ? arr![i] : undefined;
+    if (!b && code === undefined) return;
+    const desc = b ? str(b.DESCRICAORETORNO).replace(/\s+/g, ' ').slice(0, 30) : '';
+    parts.push(`${SHAPE_LABEL[name]}${code !== undefined ? `=${code}` : ''}${b ? '' : ' (ausente)'}${desc && fold(desc) !== 'SUCESSO' ? ` "${desc}"` : ''}`);
+  });
+  const msg = isRec(r.DADOS) ? str((r.DADOS as Rec).MSG).replace(/\s+/g, ' ').slice(0, 60) : '';
+  const head = parts.length ? parts.join('; ') : `CODIGO ${JSON.stringify(r.CODIGO ?? null)}`;
+  return `${head}${msg ? `; mensagem "${msg}"` : ''}`.slice(0, 380);
+}
