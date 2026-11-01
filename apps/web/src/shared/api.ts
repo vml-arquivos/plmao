@@ -69,6 +69,19 @@ export function createApi(opts: ApiClientOptions) {
     setTimeout(() => URL.revokeObjectURL(href), 10_000);
   }
 
+  /** Busca um arquivo autenticado (PDF) e devolve um endereço temporário para abrir/visualizar no navegador. */
+  async function blobUrl(path: string): Promise<string> {
+    const res = await raw('GET', path, { headers: { Accept: '*/*' } });
+    if (!res.ok) {
+      let message = 'Não foi possível abrir o arquivo agora.';
+      try { const d = await res.json() as { message?: string }; if (d.message) message = d.message; } catch { /* corpo não-JSON */ }
+      throw new ApiError(res.status, 'DOWNLOAD_FAILED', message);
+    }
+    const href = URL.createObjectURL(await res.blob());
+    setTimeout(() => URL.revokeObjectURL(href), 10 * 60_000);
+    return href;
+  }
+
   /** Envia um arquivo como corpo bruto (anexos). */
   async function upload<T>(path: string, file: File, query?: RequestOptions['query']): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': file.type || 'application/octet-stream' };
@@ -89,7 +102,8 @@ export function createApi(opts: ApiClientOptions) {
     put: <T,>(path: string, body?: unknown, o?: RequestOptions) => request<T>('PUT', path, { ...o, body: body ?? {} }),
     patch: <T,>(path: string, body?: unknown, o?: RequestOptions) => request<T>('PATCH', path, { ...o, body: body ?? {} }),
     del: <T,>(path: string, o?: RequestOptions) => request<T>('DELETE', path, o),
-    download
+    download,
+    blobUrl
   };
 }
 export type Api = ReturnType<typeof createApi>;

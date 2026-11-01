@@ -35,6 +35,21 @@ export function maskVehicleId(raw: string | null | undefined, head = 3, tail = 4
   return `${value.slice(0, head)}${'*'.repeat(value.length - head - tail)}${value.slice(-tail)}`;
 }
 
+/** CPF ou CNPJ com pontuação (11 ou 14 dígitos); outros formatos voltam como vieram. */
+export function formatDocument(raw: string | null | undefined): string {
+  const value = String(raw ?? '').trim();
+  const d = digits(value);
+  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+  return value;
+}
+
+/**
+ * Relatório para conferência de crédito e comércio de veículos: nome e CPF/CNPJ de proprietários aparecem completos.
+ * Padrão ligado; só `REPORT_SHOW_OWNER_IDENTITY=false` (ou 0/não) volta a proteger pessoa física.
+ */
+export function ownerIdentityEnabled(): boolean { return !/^(0|false|nao|não|no|off)$/i.test(String(process.env.REPORT_SHOW_OWNER_IDENTITY ?? '').trim()); }
+
 export function maskPlate(plate: string): string {
   const p = plate.toUpperCase();
   return p.length === 7 ? `${p.slice(0, 3)}***${p.slice(-1)}` : '***';

@@ -22,7 +22,7 @@ describe('modelo de relatório e detalhes das consultas (público)', integration
     assert.ok(!labels('BASIC').includes('Indício de sinistro'));
     for (const id of ids) {
       const all = labels(id).join('|');
-      assert.doesNotMatch(all, /Nome do proprietário|CPF|Chave de retorno|Controle interno/i);
+      assert.doesNotMatch(all, /Chave de retorno|Controle interno/i);
     }
   });
 

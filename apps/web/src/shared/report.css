@@ -55,6 +55,11 @@
 .rv-item dt { color: var(--muted); font-size: 13.5px; flex: 0 1 46%; }
 .rv-item dt small { font-size: 11.5px; opacity: .85; }
 .rv-item dd { margin: 0; font-weight: 500; text-align: right; display: inline-flex; gap: 8px; align-items: center; justify-content: flex-end; flex: 1 1 54%; min-width: 0; overflow-wrap: anywhere; }
+.rv-item.multi { flex-direction: column; align-items: stretch; gap: 6px; }
+.rv-item.multi dt, .rv-item.multi dd { flex: none; width: 100%; text-align: left; justify-content: flex-start; }
+.rv-lines { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-weight: 500; }
+.rv-lines li { padding: 8px 12px; border-radius: 10px; background: var(--soft, rgba(127,127,160,.1)); font-size: 14px; }
+.rv-section-head:disabled { cursor: default; opacity: 1; }
 .rv-item dd.missing { color: var(--muted); font-weight: 400; font-style: italic; font-size: 13.5px; }
 .rv-item.alert dd { color: var(--warn-ink); }
 .rv-item.component { padding-left: 14px; }

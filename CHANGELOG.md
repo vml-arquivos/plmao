@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.19.6 — Relatório completo na tela, PDF sem mascaramento e cadastro completo do cliente
+
+- O relatório abre inteiro na tela (aba "Relatório completo", com todas as seções abertas) e também em Resumo e Seções. No histórico do cliente há Visualizar PDF, Baixar PDF, Imprimir e Link de validação; a consulta fica salva em "Minhas consultas".
+- Placa, chassi, RENAVAM, motor, câmbio, carroceria e eixos aparecem completos na tela, no PDF e na impressão. O número do contrato de financiamento (gravame) também.
+- Nova seção "Histórico de proprietários" com um proprietário por linha (atual e anteriores, ano, município/UF). Nome e CPF/CNPJ de proprietários (pessoa física e jurídica), do comprador, do arrendatário e da financeira saem completos, sem máscara, na tela, no PDF e na impressão, para uso em crédito e comércio de veículos. Para voltar a proteger pessoa física: `REPORT_SHOW_OWNER_IDENTITY=false`.
+- O PDF ganhou o bloco "Considerações importantes" e itens de várias linhas em largura total.
+- Cadastro completo: ao criar a conta o cliente informa nome completo, telefone, CPF ou CNPJ (CNPJ e empresa para conta de empresa) e endereço, e aceita o termo de responsabilidade pelas informações consultadas (data e versão gravadas). Sem isso não consulta nem paga; contas antigas completam uma vez em Minha conta e voltam para a consulta. Desligar: `CUSTOMER_PROFILE_REQUIRED=false`.
+- Política de Privacidade e página institucional atualizadas para refletir o que o relatório mostra.
+- A consulta Completa passa a incluir a seção de proprietário no relatório do cliente (migração `053_complete_owner_section`); os modelos de relatório do painel também podem usar os campos de proprietário.
+- Migrações `052_customer_responsibility` e `053_complete_owner_section`. Relatórios já gerados continuam como foram salvos (mascarados); vale para as consultas novas.
+
 ## 1.19.5 — Sem consulta repetida e motivo claro quando a Credify recusa
 
 - A mesma placa e pacote do mesmo cliente não entra de novo enquanto a consulta anterior ainda processa (resposta 409, sem cobrar duas vezes).

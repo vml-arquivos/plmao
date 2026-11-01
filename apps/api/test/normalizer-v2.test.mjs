@@ -74,21 +74,42 @@ test('veredito: ATTENTION por débitos; HIGH_RISK por furto; INCONCLUSIVE sem re
   assert.equal(buildReportV2(clean).verdict.level, 'INCONCLUSIVE');
 });
 
-test('LGPD: proprietário mascarado no relatório e ausente da visão do cliente', () => {
+// Padrão: relatório completo, sem máscara (uso em crédito e comércio de veículos).
+test('relatório completo: proprietário e documentos em claro, inclusive para o cliente', () => {
+  const report = buildReportV2({ RESPOSTA: { CODIGO: '1', VEICULOSBDRP: { DESCRICAORETORNO: 'SUCESSO', RETORNO: { ...ret, PRONOME: 'JOAO DA SILVA SANTOS', CPF_CNPJ_PROPRIETARIO: '12345678901', CHASSI: '9BWZZZ377VT004251' } } } });
+  const all = report.sections.flatMap((s) => s.items);
+  assert.equal(all.find((i) => i.key === 'PRONOME').value, 'JOAO DA SILVA SANTOS');
+  assert.equal(all.find((i) => i.key === 'CPF_CNPJ_PROPRIETARIO').value, '123.456.789-01');
+  assert.ok(!all.find((i) => i.key === 'PRONOME').masked);
+  const client = viewReport(report, { audience: 'client', tier: 3 });
+  const items = client.sections.flatMap((s) => s.items);
+  assert.equal(items.find((i) => i.key === 'PRONOME').value, 'JOAO DA SILVA SANTOS');
+  assert.equal(items.find((i) => i.key === 'CPF_CNPJ_PROPRIETARIO').value, '123.456.789-01');
+  assert.equal(items.find((i) => i.key === 'CHASSI').value, '9BWZZZ377VT004251');
+  assert.ok(!items.some((i) => i.key === 'CHAVERETORNO'), 'controle interno continua fora');
+});
+
+test('LGPD (REPORT_SHOW_OWNER_IDENTITY=false): proprietário mascarado no relatório e ausente da visão do cliente', () => {
+  process.env.REPORT_SHOW_OWNER_IDENTITY = 'false';
+  try { lgpdProtected(); } finally { delete process.env.REPORT_SHOW_OWNER_IDENTITY; }
+});
+function lgpdProtected() {
   const report = buildReportV2({ RESPOSTA: { CODIGO: '1', VEICULOSBDRP: { DESCRICAORETORNO: 'SUCESSO', RETORNO: { ...ret, PRONOME: 'JOAO DA SILVA SANTOS', CPF_CNPJ_PROPRIETARIO: '12345678901', CHASSI: '9BWZZZ377VT004251' } } } });
   const all = report.sections.flatMap((s) => s.items);
   assert.equal(all.find((i) => i.key === 'PRONOME').value, 'JOAO DA S**** S*****');
   assert.equal(all.find((i) => i.key === 'CPF_CNPJ_PROPRIETARIO').value, '***.456.789-**');
   assert.ok(!JSON.stringify(report).includes('12345678901'));
   assert.ok(!JSON.stringify(report).includes('SILVA'));
-  assert.ok(!JSON.stringify(report).includes('9BWZZZ377VT004251'));
+  // Identificadores do veículo (chassi, renavam, motor) saem completos; só dados de pessoas ficam protegidos.
+  assert.equal(all.find((i) => i.key === 'CHASSI').value, '9BWZZZ377VT004251');
+  assert.ok(!all.find((i) => i.key === 'CHASSI').masked);
   const client = viewReport(report, { audience: 'client', tier: 3 });
   const keys = client.sections.flatMap((s) => s.items.map((i) => i.key));
   assert.ok(!keys.includes('PRONOME') && !keys.includes('CPF_CNPJ_PROPRIETARIO') && !keys.includes('CHAVERETORNO'));
   assert.ok(keys.includes('TIPODOCUMENTOPROPRIETARIO'));
   const team = viewReport(report, { audience: 'team', tier: 3 });
   assert.ok(team.sections.flatMap((s) => s.items.map((i) => i.key)).includes('CHAVERETORNO'));
-});
+}
 
 test('plano básico não vaza débitos/restrições; avisa que há pontos fora do plano', () => {
   const view = viewReport(buildReportV2(sample), { audience: 'client', tier: 1 });
@@ -99,13 +120,12 @@ test('plano básico não vaza débitos/restrições; avisa que há pontos fora d
   assert.ok(view.verdict.alerts.length === 0);
 });
 
-test('normalizeBdrp: dono mascarado, sem dupla contagem de multas e v2 anexado; público não vaza owner', () => {
+test('normalizeBdrp: sem dupla contagem de multas e v2 anexado; o bloco legado do dono não vai ao público', () => {
   const n = normalizeBdrp(sample);
   assert.ok(n.v2);
   assert.equal(n.debts.reduce((a, d) => a + d.amountCents, 0), 29347 + 16022);
   const pub = publicVehicleResult(n);
   assert.equal(pub.owner, undefined);
-  assert.ok(!JSON.stringify(pub).includes('PRONOME'));
 });
 
 test('máscaras', () => {

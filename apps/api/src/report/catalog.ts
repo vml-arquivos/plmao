@@ -37,7 +37,7 @@ export const SECTIONS: Array<{ key: SectionKey; label: string; description: stri
   { key: 'INSPECAO_RECALL', label: 'Inspeção e recall', description: 'Inspeção veicular e campanhas de recall', order: 70 },
   { key: 'FIPE', label: 'Valor de referência (FIPE)', description: 'Preço FIPE e preço médio de mercado', order: 72 },
   { key: 'ANALISES', label: 'Análises da Placa na Mão', description: 'Cálculos e estimativas feitos pelo sistema a partir dos dados da consulta; não vêm de órgão oficial', order: 76 },
-  { key: 'PROPRIETARIO', label: 'Proprietário (dados protegidos)', description: 'Tipo de documento; dados pessoais protegidos pela LGPD', order: 80 },
+  { key: 'PROPRIETARIO', label: 'Proprietário', description: 'Proprietário atual: nome e documento, conforme retornados pela fonte', order: 80 },
   { key: 'INTERNO', label: 'Controle interno', description: 'Metadados técnicos do provedor', order: 99 }
 ];
 
@@ -51,13 +51,13 @@ export const FIELD_CATALOG: FieldDef[] = [
   f('MARCA', 'Marca', 'IDENTIFICACAO', 'text', 1),
   f('MODELO', 'Modelo', 'IDENTIFICACAO', 'text', 1),
   f('MARCAMODELOCOMPLETO', 'Marca/modelo completo', 'IDENTIFICACAO', 'text', 1),
-  f('CHASSI', 'Chassi', 'IDENTIFICACAO', 'text', 1, { sensitivity: 'PARTIAL', doc: 'VEHICLE_ID' }),
-  f('RENAVAM', 'RENAVAM', 'IDENTIFICACAO', 'text', 2, { sensitivity: 'PARTIAL', doc: 'VEHICLE_ID' }),
-  f('MOTOR', 'Número do motor', 'IDENTIFICACAO', 'text', 2, { sensitivity: 'PARTIAL', doc: 'VEHICLE_ID' }),
-  f('NUMERO_CAIXACAMBIO', 'Número da caixa de câmbio', 'IDENTIFICACAO', 'text', 3, { sensitivity: 'PARTIAL', doc: 'VEHICLE_ID' }),
-  f('NUMERO_CARROCERIA', 'Número da carroceria', 'IDENTIFICACAO', 'text', 3, { sensitivity: 'PARTIAL', doc: 'VEHICLE_ID' }),
-  f('NUMERO_EIXOTRASEIRODIF', 'Eixo traseiro/diferencial', 'IDENTIFICACAO', 'text', 3, { sensitivity: 'PARTIAL', doc: 'VEHICLE_ID' }),
-  f('NUMERO_TERCEIROEIXO', 'Terceiro eixo', 'IDENTIFICACAO', 'text', 3, { sensitivity: 'PARTIAL', doc: 'VEHICLE_ID' }),
+  f('CHASSI', 'Chassi', 'IDENTIFICACAO', 'text', 1),
+  f('RENAVAM', 'RENAVAM', 'IDENTIFICACAO', 'text', 2),
+  f('MOTOR', 'Número do motor', 'IDENTIFICACAO', 'text', 2),
+  f('NUMERO_CAIXACAMBIO', 'Número da caixa de câmbio', 'IDENTIFICACAO', 'text', 3),
+  f('NUMERO_CARROCERIA', 'Número da carroceria', 'IDENTIFICACAO', 'text', 3),
+  f('NUMERO_EIXOTRASEIRODIF', 'Eixo traseiro/diferencial', 'IDENTIFICACAO', 'text', 3),
+  f('NUMERO_TERCEIROEIXO', 'Terceiro eixo', 'IDENTIFICACAO', 'text', 3),
   f('TIPOREMARCACAOCHASSI', 'Remarcação de chassi', 'IDENTIFICACAO', 'flag', 2, { clear: /^NORMAL$|^NAO REMARCADO|^SEM REMARCACAO/, high: true }),
   internal('CODIGOMARCA', 'Código da marca'),
   // Características
@@ -138,7 +138,7 @@ export const FIELD_CATALOG: FieldDef[] = [
   owner('CGCFINANCEIRA', 'CNPJ da financeira', 'CPF_CNPJ', 'GRAVAME'),
   internal('CODIGOFINANCEIRA', 'Código da financeira'),
   internal('CODIGOAGENTEFINANCEIRO', 'Código do agente financeiro'),
-  f('NUMEROCONTRATOFINANCEIRA', 'Número do contrato', 'GRAVAME', 'text', 3, { sensitivity: 'OWNER', doc: 'VEHICLE_ID' }),
+  f('NUMEROCONTRATOFINANCEIRA', 'Número do contrato', 'GRAVAME', 'text', 3),
   f('DATAVIGENCIACONTRATOFINANCEIRA', 'Vigência do contrato', 'GRAVAME', 'date', 3),
   f('DATAINCLUSAOINTENCAOTROCAFINANCEIRA', 'Inclusão da intenção de troca de financeira', 'GRAVAME', 'date', 3),
   // Inspeção e recall
@@ -179,6 +179,7 @@ export const VT_CATALOG: FieldDef[] = [
   f('VT_ROUBOFURTO_DETALHES', 'Roubo ou furto — detalhes do registro', 'HISTORICO', 'text', 2, { optional: true }),
   f('VT_LEILAO_DETALHES', 'Leilão — detalhes do registro', 'HISTORICO', 'text', 2, { optional: true }),
   f('VT_PROPRIETARIOS_QTD', 'Proprietários no histórico', 'HISTORICO', 'number', 2),
+  f('VT_PROPRIETARIOS_HISTORICO', 'Histórico de proprietários', 'HISTORICO', 'text', 2, { optional: true }),
   f('VT_RECALL', 'Recall (fabricante)', 'INSPECAO_RECALL', 'flag', 2),
   f('VT_RECALL_DETALHES', 'Recall — campanhas registradas', 'INSPECAO_RECALL', 'text', 2, { optional: true }),
   f('VT_FIPE_PRECO', 'Preço FIPE', 'FIPE', 'text', 2),
@@ -186,7 +187,7 @@ export const VT_CATALOG: FieldDef[] = [
   f('VT_FIPE_CODIGO', 'Código FIPE', 'FIPE', 'text', 2),
   f('VT_FIPE_MODELO', 'Modelo na tabela FIPE', 'FIPE', 'text', 2),
   f('VT_FIPE_VIGENCIA', 'Vigência da tabela', 'FIPE', 'text', 2),
-  f('VT_PROPRIETARIOS_LISTA', 'Histórico de proprietários (mascarado)', 'PROPRIETARIO', 'text', 3, { sensitivity: 'OWNER' })
+  f('VT_PROPRIETARIOS_LISTA', 'Histórico de proprietários (lista protegida)', 'PROPRIETARIO', 'text', 3, { sensitivity: 'OWNER', optional: true })
 ];
 
 /**

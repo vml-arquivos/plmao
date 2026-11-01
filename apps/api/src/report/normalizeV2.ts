@@ -10,7 +10,7 @@
 import { CATALOG_BY_KEY, ENRICH_CATALOG, FIELD_CATALOG, SECTIONS, VT_CATALOG, type FieldDef, type SectionKey, type Tier } from './catalog.js';
 import { enrichmentExtras } from './enrichmentExtras.js';
 import { adaptVehicleTotal, isVehicleTotal, vehicleTotalExtras, vehicleTotalOutcome } from './vehicleTotal.js';
-import { maskDocument, maskName, maskVehicleId } from './mask.js';
+import { formatDocument, maskDocument, maskName, maskVehicleId, ownerIdentityEnabled } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
 
 export const NORMALIZER_VERSION = 2;
@@ -156,6 +156,8 @@ function buildItem(def: FieldDef, rawValue: unknown): ReportItem {
   const text = scalar(rawValue);
   if (!text) return base;
 
+  if (def.doc === 'CPF_CNPJ' && ownerIdentityEnabled()) { const v = formatDocument(text); return { ...base, state: 'INFO', value: v, display: v }; }
+  if (def.doc === 'NAME' && ownerIdentityEnabled()) { const v = text.replace(/\s+/g, ' ').trim(); return { ...base, state: 'INFO', value: v, display: v }; }
   if (def.doc === 'CPF_CNPJ') { const v = maskDocument(text); return { ...base, state: 'INFO', value: v, display: v, masked: true }; }
   if (def.doc === 'NAME') { const v = maskName(text); return { ...base, state: 'INFO', value: v, display: v, masked: true }; }
   if (def.doc === 'VEHICLE_ID') { const v = maskVehicleId(text); return { ...base, state: 'INFO', value: v, display: v, masked: true }; }
@@ -341,7 +343,7 @@ function applyTemplate(sections: ReportSection[], template: ViewTemplate): Repor
         const item = byKey.get(f.key);
         const def = CATALOG_BY_KEY.get(f.key);
         // O modelo só libera campos do catálogo da própria seção e nunca dados de pessoas ou controle interno.
-        if (!item || !def || def.section !== s.key || def.sensitivity === 'OWNER' || def.sensitivity === 'INTERNAL') return [];
+        if (!item || !def || def.section !== s.key || (def.sensitivity === 'OWNER' && !ownerIdentityEnabled()) || def.sensitivity === 'INTERNAL') return [];
         return [f.label ? { ...item, label: f.label } : item];
       });
       const m = meta.get(s.key)!;
@@ -368,7 +370,7 @@ export function viewReport(report: ReportV2, opts: { audience: Audience; tier: T
     .map((s) => {
       const items = s.items.filter((i) => {
         if (i.sensitivity === 'INTERNAL') return opts.audience === 'team';
-        if (i.sensitivity === 'OWNER' && opts.audience === 'client') return false;
+        if (i.sensitivity === 'OWNER' && opts.audience === 'client' && !ownerIdentityEnabled()) return false;
         return i.tier <= effectiveTier;
       });
       const providedCount = items.filter((i) => i.state !== 'NOT_PROVIDED').length;

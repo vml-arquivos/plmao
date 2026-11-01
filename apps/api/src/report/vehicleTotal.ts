@@ -9,7 +9,7 @@
  *    base nacional e a FIPE quando o BDRP deixa algum campo vazio);
  *  - extrai os campos extras do relatório sem nunca afirmar "sem ocorrência" quando a fonte não respondeu.
  */
-import { maskDocument, maskName } from './mask.js';
+import { formatDocument, maskDocument, maskName, ownerIdentityEnabled } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
 
 export const VT_BLOCKS = ['INDICIOSINISTROVEICULAR', 'RECALL', 'HISTORICOROUBOFURTO', 'LEILAOCONJUGADO', 'HISTORICOPROPRIETARIO', 'VEICULARBNACIONAL', 'PRECIFICADORFIPE', 'VEICULOSBDRP'] as const;
@@ -166,6 +166,33 @@ function occurrenceDetails(r: Rec, name: BlockName, main: VtValue): VtValue {
   return text ? { state: 'INFO', value: text, display: text } : NOT_PROVIDED;
 }
 
+const digitsOnly = (s: string) => s.replace(/\D/g, '');
+const unknownText = (s: string) => !s || /^(NAO INFORMAD[OA]|N\/?A|-+)$/.test(fold(s));
+
+/**
+ * Histórico de proprietários, um por linha (mais recente primeiro): ano, local e quem era. Empresa (CNPJ) aparece completa;
+ * pessoa física com nome e CPF por padrão (REPORT_SHOW_OWNER_IDENTITY=false protege), senão sai como "Pessoa física (dados pessoais protegidos)".
+ */
+export function ownerHistory(owners: Rec[]): VtValue {
+  if (!owners.length) return NOT_PROVIDED;
+  const showPeople = ownerIdentityEnabled();
+  const year = (o: Rec) => Number(str(o.ANO_EXERCICIO));
+  const ordered = owners.every((o) => Number.isFinite(year(o)) && year(o) > 1900) ? [...owners].sort((a, b) => year(b) - year(a)) : owners;
+  const lines = ordered.slice(0, 30).map((o, i) => {
+    const doc = digitsOnly(str(o.CGC_CPF));
+    const name = str(o.NOME_PROPRIETARIO).replace(/\s+/g, ' ');
+    const where = [str(o.MUNICIPIO), str(o.UF_DUT)].filter((x) => !unknownText(x)).join('/');
+    const who = doc.length === 14
+      ? [name, `CNPJ ${formatDocument(doc)}`].filter(Boolean).join(' · ')
+      : showPeople && (name || doc) ? [name, doc.length === 11 ? `CPF ${formatDocument(doc)}` : doc].filter(Boolean).join(' · ')
+        : 'Pessoa física (dados pessoais protegidos)';
+    const label = i === 0 ? '1º · atual' : `${i + 1}º · anterior`;
+    return [label, str(o.ANO_EXERCICIO) || str(o.DATA_PROCESSAMENTO), where, who].filter(Boolean).join(' · ');
+  });
+  const text = lines.join('\n');
+  return { state: 'INFO', value: text, display: text };
+}
+
 /** Campos extras do relatório a partir dos blocos do Veículo Total. */
 export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
   const out = new Map<string, VtValue>();
@@ -188,8 +215,12 @@ export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
 
   const owners = blockCode(r, 'HISTORICOPROPRIETARIO') === '3' ? [] : records(block(r, 'HISTORICOPROPRIETARIO'));
   out.set('VT_PROPRIETARIOS_QTD', owners.length ? { state: 'INFO', value: String(owners.length), display: String(owners.length) } : NOT_PROVIDED);
-  const line = (o: Rec) => `${str(o.ANO_EXERCICIO) || str(o.DATA_PROCESSAMENTO) || '—'}: ${maskName(str(o.NOME_PROPRIETARIO)) ?? '—'} (${maskDocument(str(o.CGC_CPF)) ?? '—'})`;
-  out.set('VT_PROPRIETARIOS_LISTA', owners.length ? { state: 'INFO', value: owners.map(line).join(' · '), masked: true, display: owners.map(line).join(' · ') } : NOT_PROVIDED);
+  out.set('VT_PROPRIETARIOS_HISTORICO', ownerHistory(owners));
+  const clear = ownerIdentityEnabled();
+  const line = (o: Rec) => clear
+    ? `${str(o.ANO_EXERCICIO) || str(o.DATA_PROCESSAMENTO) || '—'}: ${str(o.NOME_PROPRIETARIO).replace(/\s+/g, ' ') || '—'} (${formatDocument(str(o.CGC_CPF)) || '—'})`
+    : `${str(o.ANO_EXERCICIO) || str(o.DATA_PROCESSAMENTO) || '—'}: ${maskName(str(o.NOME_PROPRIETARIO)) ?? '—'} (${maskDocument(str(o.CGC_CPF)) ?? '—'})`;
+  out.set('VT_PROPRIETARIOS_LISTA', owners.length && !clear ? { state: 'INFO', value: owners.map(line).join(' · '), ...(clear ? {} : { masked: true }), display: owners.map(line).join(' · ') } : NOT_PROVIDED);
 
   const fb = block(r, 'PRECIFICADORFIPE');
   const fr = records(fb)[0];

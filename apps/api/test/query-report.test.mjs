@@ -10,7 +10,7 @@ describe('consulta → relatório v2: LGPD, planos, PDF/HTML e revelação audit
   before(async () => {
     useTestEnv();
     ({ pool } = await loadCore());
-    server = await startServer({ ADMIN_HOSTS: 'admin.placanamao.test' });
+    server = await startServer({ ADMIN_HOSTS: 'admin.placanamao.test', REPORT_SHOW_OWNER_IDENTITY: 'false' });
     const reg = await call('/api/auth/register', { method: 'POST', token: undefined, body: { name: 'Cliente Relatório', email: `${uid('rel')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });
     assert.equal(reg.status, 201);
     clientToken = reg.json.token; clientId = reg.json.user.id;

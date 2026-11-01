@@ -83,6 +83,15 @@ export default function QueryDetail() {
     setPdfBusy(true);
     try { await api.download(path, name); } catch (e) { toast.error(errorMessage(e)); } finally { setPdfBusy(false); }
   }
+  /** Abre o PDF numa nova aba para ler na tela (sem baixar). A aba é reservada no clique para o navegador não bloquear. */
+  async function viewPdf(path: string) {
+    const tab = window.open('about:blank', '_blank');
+    setPdfBusy(true);
+    try {
+      const href = await api.blobUrl(path);
+      if (tab) tab.location.href = href; else window.location.assign(href);
+    } catch (e) { tab?.close(); toast.error(errorMessage(e)); } finally { setPdfBusy(false); }
+  }
   async function copy(text: string) { try { await navigator.clipboard.writeText(text); toast.ok('Link copiado!'); } catch { toast.error('Não foi possível copiar.'); } }
 
   const back = <Link to="/app/historico" className="muted no-print" style={{ display: 'inline-flex', gap: 6, alignItems: 'center', marginBottom: 14 }}><Icon name="arrow-left" size={16} /> Consultas</Link>;
@@ -98,7 +107,8 @@ export default function QueryDetail() {
           productName={envelope.productName}
           verificationCode={envelope.verificationCode}
           actions={<>
-            <Button variant="primary" icon="download" loading={pdfBusy} onClick={() => pdf(`/queries/${id}/report/pdf`, `placa-na-mao-${envelope.verificationCode}.pdf`)}>Baixar PDF</Button>
+            <Button variant="primary" icon="file-text" loading={pdfBusy} onClick={() => void viewPdf(`/queries/${id}/report/pdf`)}>Visualizar PDF</Button>
+            <Button icon="download" loading={pdfBusy} onClick={() => pdf(`/queries/${id}/report/pdf`, `placa-na-mao-${envelope.verificationCode}.pdf`)}>Baixar PDF</Button>
             <Button icon="printer" onClick={() => window.print()}>Imprimir</Button>
             <Button icon="link" onClick={() => copy(envelope.verificationUrl)}>Link de validação</Button>
           </>}

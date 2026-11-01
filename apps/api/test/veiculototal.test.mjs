@@ -51,7 +51,20 @@ test('campos que o BDRP deixa vazio são completados com a base nacional (sem so
   assert.equal(r.headline.model, bdrpModel);
 });
 
-test('histórico de proprietários: o cliente nunca vê nome ou documento; a equipe vê só mascarado', () => {
+test('histórico de proprietários: por padrão o cliente vê nome e documento completos, sem a lista protegida duplicada', () => {
+  const r = buildReportV2(ok);
+  const client = viewReport(r, { audience: 'client', tier: 3 });
+  const items = client.sections.flatMap((s) => s.items);
+  const hist = items.find((i) => i.key === 'VT_PROPRIETARIOS_HISTORICO');
+  assert.ok(hist && /JOAO/.test(hist.value) && /123\.456\.789-00/.test(hist.value), hist?.value);
+  assert.ok(!items.some((i) => i.key === 'VT_PROPRIETARIOS_LISTA' && i.state !== 'NOT_PROVIDED'));
+});
+
+test('histórico de proprietários (REPORT_SHOW_OWNER_IDENTITY=false): o cliente nunca vê nome ou documento; a equipe vê só mascarado', () => {
+  process.env.REPORT_SHOW_OWNER_IDENTITY = 'false';
+  try { ownersProtected(); } finally { delete process.env.REPORT_SHOW_OWNER_IDENTITY; }
+});
+function ownersProtected() {
   const r = buildReportV2(ok);
   const team = viewReport(r, { audience: 'team', tier: 3 });
   const lista = team.sections.flatMap((s) => s.items).find((i) => i.key === 'VT_PROPRIETARIOS_LISTA');
@@ -61,7 +74,7 @@ test('histórico de proprietários: o cliente nunca vê nome ou documento; a equ
   const json = JSON.stringify(client);
   assert.ok(!json.includes('VT_PROPRIETARIOS_LISTA') && !json.includes('JOAO') && !json.includes('SANTOS'));
   assert.ok(json.includes('VT_PROPRIETARIOS_QTD'));
-});
+}
 
 test('roubo/furto, leilão e sinistro encontrados viram alerta (roubo/furto = alto risco)', () => {
   const theft = buildReportV2(withBlock('HISTORICOROUBOFURTO', { DESCRICAORETORNO: 'VEICULO COM REGISTRO DE ROUBO' }, '1'));
@@ -177,4 +190,48 @@ test('BDRP sem dados e base nacional também sem dados continua sendo placa não
   const err = structuredClone(ok);
   err.RESPOSTA.CODIGO = ['1', '1', '1', '1', '1', '1', '1', '3'];
   assert.equal(providerOutcome(err).ok, false);
+});
+
+const { ownerHistory } = await import('../dist/report/vehicleTotal.js');
+const { renderVehiclePdf } = await import('../dist/report/pdf.js');
+const { PDFDocument } = await import('pdf-lib');
+
+test('chassi, renavam e motor saem completos no relatório do Veículo Total', () => {
+  const r = buildReportV2(ok);
+  const all = r.sections.flatMap((s) => s.items);
+  for (const k of ['CHASSI', 'RENAVAM']) {
+    const it = all.find((i) => i.key === k);
+    assert.ok(it && it.state !== 'NOT_PROVIDED' && !it.masked && !String(it.value).includes('*'), k);
+  }
+  assert.equal(all.find((i) => i.key === 'CHASSI').value, '9BWZZZ377VT004251');
+});
+
+test('histórico de proprietários: tudo completo por padrão; pessoa física protegida só com REPORT_SHOW_OWNER_IDENTITY=false', () => {
+  const owners = [
+    { ANO_EXERCICIO: '2015', NOME_PROPRIETARIO: 'AUTOMOVEIS BRASIL LTDA', CGC_CPF: '98765432000110', MUNICIPIO: 'NAO INFORMADO', UF_DUT: 'SP' },
+    { ANO_EXERCICIO: '2024', NOME_PROPRIETARIO: 'JOAO SILVA SANTOS', CGC_CPF: '12345678900', MUNICIPIO: 'SAO PAULO', UF_DUT: 'SP' }
+  ];
+  process.env.REPORT_SHOW_OWNER_IDENTITY = 'false';
+  const off = ownerHistory(owners);
+  const offLines = off.value.split('\n');
+  assert.equal(offLines.length, 2);
+  assert.match(offLines[0], /^1º · atual · 2024 · SAO PAULO\/SP · Pessoa física \(dados pessoais protegidos\)$/);
+  assert.match(offLines[1], /^2º · anterior · 2015 · SP · AUTOMOVEIS BRASIL LTDA · CNPJ 98\.765\.432\/0001-10$/);
+  assert.ok(!off.value.includes('JOAO') && !off.value.includes('123.456'));
+  delete process.env.REPORT_SHOW_OWNER_IDENTITY;
+  try {
+    const on = ownerHistory(owners);
+    assert.match(on.value.split('\n')[0], /JOAO SILVA SANTOS · CPF 123\.456\.789-00$/);
+  } finally { delete process.env.REPORT_SHOW_OWNER_IDENTITY; }
+  assert.equal(ownerHistory([]).state, 'NOT_PROVIDED');
+});
+
+test('relatório do Veículo Total traz o histórico de proprietários e o PDF usa a placa completa', async () => {
+  const r = buildReportV2(ok);
+  const hist = item(r, 'VT_PROPRIETARIOS_HISTORICO');
+  assert.ok(hist && hist.value.split('\n').length === 2, 'um registro por linha');
+  const bytes = await renderVehiclePdf(r, { productName: 'Consulta Completa', verificationCode: 'ABCD1234', verificationUrl: 'https://placanamao.com.br/validar/ABCD1234', consultedAt: new Date('2026-11-01T12:00:00Z') });
+  const doc = await PDFDocument.load(bytes);
+  assert.equal(doc.getTitle(), 'Relatório de consulta veicular - ABC1234');
+  assert.ok(doc.getPageCount() >= 1);
 });

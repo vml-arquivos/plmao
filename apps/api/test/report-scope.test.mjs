@@ -14,7 +14,20 @@ const cfg = (fields, label) => ({ model: 'CATALOG_V1', sections: [
   { key: 'DEBITOS', fields: fields.filter((f) => f.startsWith('DEB') || f.startsWith('EXISTE')).map((key) => ({ key, ...(label?.[key] ? { label: label[key] } : {}) })) }
 ].filter((s) => s.fields.length) });
 
-test('validação do escopo: recusa campo de pessoa, interno, fora do catálogo, seção errada, repetido e vazio', () => {
+test('validação do escopo: recusa campo de pessoa, interno, fora do catálogo, seção errada, repetido e vazio (modo protegido)', () => {
+  process.env.REPORT_SHOW_OWNER_IDENTITY = 'false';
+  try { scopeValidation(); } finally { delete process.env.REPORT_SHOW_OWNER_IDENTITY; }
+});
+
+test('validação do escopo (padrão, relatório completo): proprietário pode entrar no modelo; interno continua barrado', () => {
+  assert.equal(validateScopeConfig({ model: 'CATALOG_V1', sections: [{ key: 'PROPRIETARIO', fields: [{ key: 'PRONOME' }, { key: 'CPF_CNPJ_PROPRIETARIO' }] }] }).ok, true);
+  const r = validateScopeConfig({ model: 'CATALOG_V1', sections: [{ key: 'INTERNO', fields: [{ key: 'CHAVERETORNO' }] }] });
+  assert.equal(r.ok, false);
+  assert.ok(scopeCatalog().some((s) => s.key === 'PROPRIETARIO'));
+  assert.ok(!scopeCatalog().flatMap((s) => s.fields.map((f) => f.key)).includes('CHAVERETORNO'));
+});
+
+function scopeValidation() {
   assert.equal(validateScopeConfig(cfg(['PLACA', 'MARCA', 'DEBIPVA'])).ok, true);
   const bad = (config) => { const r = validateScopeConfig(config); assert.equal(r.ok, false); return r.errors.join(' | '); };
   assert.match(bad({ model: 'CATALOG_V1', sections: [{ key: 'PROPRIETARIO', fields: [{ key: 'PRONOME' }] }] }), /não pode ser entregue/);
@@ -25,16 +38,21 @@ test('validação do escopo: recusa campo de pessoa, interno, fora do catálogo,
   assert.match(bad({ model: 'CATALOG_V1', sections: [{ key: 'IDENTIFICACAO', fields: [{ key: 'PLACA' }, { key: 'PLACA' }] }] }), /repetido/);
   assert.match(bad({ model: 'CATALOG_V1', sections: [{ key: 'IDENTIFICACAO', fields: [{ key: 'PLACA', visible: false }] }] }), /ao menos um campo/);
   assert.equal(validateScopeConfig({ model: 'OUTRO', sections: [] }).ok, false);
+}
+
+test('catálogo editável (modo protegido) nunca oferece proprietário nem controle interno; padrão por nível respeita o tier', () => {
+  process.env.REPORT_SHOW_OWNER_IDENTITY = 'false';
+  try { scopeCatalogProtected(); } finally { delete process.env.REPORT_SHOW_OWNER_IDENTITY; }
 });
 
-test('catálogo editável nunca oferece proprietário nem controle interno; padrão por nível respeita o tier', () => {
+function scopeCatalogProtected() {
   const keys = scopeCatalog().flatMap((s) => s.fields.map((f) => f.key));
   assert.ok(!keys.includes('PRONOME') && !keys.includes('CHAVERETORNO') && !keys.includes('CPF_CNPJ_PROPRIETARIO'));
   assert.ok(scopeCatalog().every((s) => s.key !== 'PROPRIETARIO' && s.key !== 'INTERNO'));
   const t1 = defaultScopeForTier(1).sections.flatMap((s) => s.fields.map((f) => f.key));
   assert.ok(t1.includes('PLACA') && !t1.includes('RESFURTO'));
   assert.equal(validateScopeConfig(defaultScopeForTier(3)).ok, true);
-});
+}
 
 test('viewReport com modelo: só os campos escolhidos, rótulo trocado, fora-do-produto declarado e veredito parcial', () => {
   const report = buildReportV2(sample);

@@ -45,7 +45,7 @@ describe('API pública v1: chaves, autenticação, cobrança e revogação', int
     assert.equal(q.status, 201, q.text);
     assert.equal(q.json.object, 'vehicle_query');
     assert.ok(q.json.result.v2); assert.equal(q.json.result.owner, undefined);
-    assert.ok(!q.text.includes('PROPRIETARIO FICTICIO'));
+    assert.ok(q.text.includes('PROPRIETARIO FICTICIO'), 'a API entrega o mesmo relatório completo da tela');
     const src = (await pool.query('SELECT source,price_cents FROM vehicle_queries WHERE id=$1', [q.json.id])).rows[0];
     assert.equal(src.source, 'API');
     assert.equal((await hostRequest(on.base, '/api/v1/balance', { token: key })).json.balanceCents, 20000 - Number(src.price_cents));

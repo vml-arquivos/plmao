@@ -22,6 +22,15 @@ function StateMark({ state }: { state: ItemState }) {
 function ItemRow({ item }: { item: ReportItem }) {
   const missing = item.state === 'NOT_PROVIDED';
   const text = missing ? 'Não informado pela fonte' : (item.display ?? item.value ?? '—');
+  // Lista com uma linha por registro (ex.: histórico de proprietários): ocupa a linha toda.
+  if (!missing && text.includes('\n')) {
+    return (
+      <div className={`rv-item multi ${item.state.toLowerCase()}`}>
+        <dt>{item.label}</dt>
+        <dd><ol className="rv-lines">{text.split('\n').map((l, i) => <li key={i}>{l}</li>)}</ol></dd>
+      </div>
+    );
+  }
   return (
     <div className={`rv-item ${item.state.toLowerCase()} ${item.component ? 'component' : ''}`}>
       <dt>{item.label}{item.component && <small> · detalhe do total de multas</small>}</dt>
@@ -34,13 +43,14 @@ function ItemRow({ item }: { item: ReportItem }) {
   );
 }
 
-function Section({ section, defaultOpen }: { section: ReportSection; defaultOpen: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
+function Section({ section, defaultOpen, forceOpen = false }: { section: ReportSection; defaultOpen: boolean; forceOpen?: boolean }) {
+  const [openState, setOpen] = useState(defaultOpen);
+  const open = forceOpen || openState;
   const tone = section.status === 'ALERT' ? 'warn' : section.status === 'CLEAR' ? 'ok' : section.status === 'NOT_PROVIDED' ? 'neutral' : 'violet';
   const statusText = section.status === 'ALERT' ? 'Atenção' : section.status === 'CLEAR' ? 'Regular' : section.status === 'NOT_PROVIDED' ? 'Não informado' : `${section.providedCount} informado${section.providedCount === 1 ? '' : 's'}`;
   return (
     <section className={`rv-section ${open ? 'open' : ''}`}>
-      <button type="button" className="rv-section-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button type="button" className="rv-section-head" aria-expanded={open} onClick={() => setOpen(!openState)} disabled={forceOpen}>
         <span className={`rv-sec-ico ${tone}`}><Icon name={SECTION_ICON[section.key] ?? 'file-text'} size={20} /></span>
         <span className="rv-sec-title"><b>{section.label}</b><small>{section.description}</small></span>
         <Badge tone={tone === 'neutral' ? 'neutral' : (tone as 'ok' | 'warn' | 'violet')}>{statusText}</Badge>
@@ -69,7 +79,7 @@ export interface ReportViewProps {
 }
 
 export default function ReportView({ report, consultedAt, productName, verificationCode, actions, upsell, audience = 'client' }: ReportViewProps) {
-  const [tab, setTab] = useState<'summary' | 'details'>('summary');
+  const [tab, setTab] = useState<'summary' | 'details' | 'full'>('full');
   const v = VERDICT[report.verdict.level];
   const h = report.headline;
   const title = [h.brand, h.model].filter(Boolean).join(' ') || h.fullModel || 'Veículo consultado';
@@ -138,10 +148,10 @@ export default function ReportView({ report, consultedAt, productName, verificat
         {gravame && sectionTile(gravame, 'credit-card', 'Financiamento / gravame')}
       </div>
 
-      <div className="rv-tabs no-print"><Tabs label="Visões do relatório" value={tab} onChange={setTab} items={[{ id: 'summary', label: 'Resumo' }, { id: 'details', label: 'Detalhes completos' }]} /></div>
+      <div className="rv-tabs no-print"><Tabs label="Visões do relatório" value={tab} onChange={setTab} items={[{ id: 'full', label: 'Relatório completo' }, { id: 'summary', label: 'Resumo' }, { id: 'details', label: 'Seções' }]} /></div>
 
       {(
-        <div className={`rv-panel ${tab === 'summary' ? '' : 'rv-hide-screen'}`}>
+        <div className={`rv-panel ${tab === 'summary' || tab === 'full' ? '' : 'rv-hide-screen'}`}>
           {alertItems.length > 0 && (
             <section className="card rv-card">
               <h3><Icon name="alert-triangle" size={20} /> Pontos de atenção</h3>
@@ -165,14 +175,14 @@ export default function ReportView({ report, consultedAt, productName, verificat
         </div>
       )}
 
-      <div className={`rv-panel rv-sections ${tab === 'details' ? '' : 'rv-hide-screen'}`}>
-        {visibleSections.map((s) => <Section key={s.key} section={s} defaultOpen={s.status === 'ALERT'} />)}
+      <div className={`rv-panel rv-sections ${tab === 'details' || tab === 'full' ? '' : 'rv-hide-screen'}`}>
+        {visibleSections.map((s) => <Section key={s.key} section={s} defaultOpen={s.status === 'ALERT'} forceOpen={tab === 'full'} />)}
       </div>
 
       <footer className="rv-foot">
         <p><Icon name="info" size={16} /> {report.coverage.provided} de {report.coverage.total} campos foram informados pela fonte contratada. Campos <b>não informados</b> não significam “nada consta”: apenas não vieram nesta consulta.</p>
         {!!report.scope?.notIncluded.length && <p>Não incluído neste produto: {report.scope.notIncluded.map((n) => n.label).join(', ')}. Isso não significa ausência de ocorrências.</p>}
-        <p>Este relatório apoia sua decisão, mas não substitui vistoria, certidões ou consulta aos órgãos competentes. Dados pessoais são exibidos de forma protegida (LGPD).</p>
+        <p>Este relatório apoia sua decisão, mas não substitui vistoria, certidões ou consulta aos órgãos competentes. Os dados de proprietários constam como retornados pela fonte e o uso é de responsabilidade de quem consulta (LGPD).</p>
         {verificationCode && <p>Código de verificação: <b className="mono">{verificationCode}</b></p>}
       </footer>
     </article>

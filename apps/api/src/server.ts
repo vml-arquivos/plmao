@@ -71,6 +71,7 @@ import { adminFiscalQueueRouter, fiscalPublicRouter } from './routes/adminFiscal
 import { startFiscalWorker } from './lib/fiscal.js';
 import { startPaymentSyncWorker, syncUserOpenOrders } from './lib/paymentSync.js';
 import { toCsv } from './lib/br.js';
+import { RESPONSIBILITY_VERSION, assertCustomerProfile, profileDto, profileRequired, validDocument, validPhone, validateRegistrationProfile } from './lib/customerProfile.js';
 import { supportAdminRouter, supportClientRouter, supportPublicRouter } from './routes/support.js';
 import { testimonialsAdminRouter, testimonialsRouter } from './routes/testimonials.js';
 import { adminIntegrationsRouter } from './routes/adminIntegrations.js';
@@ -140,7 +141,19 @@ const registerSchema = z.object({
   acceptPrivacy: z.literal(true),
   marketingOptIn: z.boolean().optional().default(false),
   affiliateCode: z.string().trim().min(3).max(40).optional(),
-  accountType: z.enum(['PARTICULAR', 'AUTONOMO', 'EMPRESA']).optional().default('PARTICULAR')
+  accountType: z.enum(['PARTICULAR', 'AUTONOMO', 'EMPRESA']).optional().default('PARTICULAR'),
+  // Cadastro completo (obrigatório quando CUSTOMER_PROFILE_REQUIRED está ligado; validado na rota).
+  phone: z.string().trim().max(30).optional(),
+  cpfCnpj: z.string().trim().max(30).optional(),
+  companyName: z.string().trim().max(160).optional(),
+  zip: z.string().trim().max(12).optional(),
+  street: z.string().trim().max(160).optional(),
+  streetNumber: z.string().trim().max(20).optional(),
+  complement: z.string().trim().max(80).optional(),
+  district: z.string().trim().max(100).optional(),
+  city: z.string().trim().max(120).optional(),
+  state: z.string().trim().regex(/^[A-Za-z]{2}$/).optional(),
+  acceptResponsibility: z.literal(true).optional()
 });
 const oauthTicketSchema = z.object({ ticket: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/) });
 const loginSchema = z.object({ email: z.string().trim().email().max(254), password: z.string().min(1).max(128) }).strict();
@@ -175,6 +188,12 @@ const profileUpdateSchema = z.object({
   companyName: z.string().trim().max(160).optional(),
   city: z.string().trim().max(120).optional(),
   state: z.string().trim().regex(/^[A-Za-z]{2}$/).optional(),
+  zip: z.string().trim().max(12).optional(),
+  street: z.string().trim().max(160).optional(),
+  streetNumber: z.string().trim().max(20).optional(),
+  complement: z.string().trim().max(80).optional(),
+  district: z.string().trim().max(100).optional(),
+  acceptResponsibility: z.literal(true).optional(),
   marketingOptIn: z.boolean().optional()
 });
 const forgotPasswordSchema = z.object({ email: z.string().trim().email().max(254) }).strict();
@@ -610,6 +629,11 @@ api.post('/auth/register', asyncRoute(async (req, res) => {
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const email = parsed.data.email.toLowerCase();
   assertSiteOpenFor(email);
+  const d = parsed.data;
+  if (profileRequired()) {
+    const invalid = validateRegistrationProfile({ phone: d.phone, cpfCnpj: d.cpfCnpj, companyName: d.companyName, zip: d.zip, street: d.street, streetNumber: d.streetNumber, district: d.district, city: d.city, state: d.state, acceptResponsibility: d.acceptResponsibility }, d.accountType);
+    if (invalid) throw appError(invalid, { code: invalid, http: 400, expose: true });
+  }
   const passwordHash = await bcrypt.hash(parsed.data.password, 12);
   try {
     const created = await tx(async (client) => {
@@ -621,7 +645,9 @@ api.post('/auth/register', asyncRoute(async (req, res) => {
       }
       const user = await client.query('INSERT INTO users(email,password_hash,name,role,affiliate_id) VALUES($1,$2,$3,$4,$5) RETURNING id,email,name,role', [email, passwordHash, parsed.data.name, 'CLIENTE', affiliateId]);
       await client.query('INSERT INTO wallets(user_id,balance) VALUES($1,0)', [user.rows[0].id]);
-      await client.query('INSERT INTO user_profiles(user_id,marketing_opt_in,customer_type) VALUES($1,$2,$3)', [user.rows[0].id, parsed.data.marketingOptIn, parsed.data.accountType]);
+      await client.query(`INSERT INTO user_profiles(user_id,marketing_opt_in,customer_type,cpf_cnpj,phone,company_name,zip,street,street_number,complement,district,city,state,responsibility_accepted_at,responsibility_version)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        [user.rows[0].id, d.marketingOptIn, d.accountType, d.cpfCnpj || null, d.phone || null, d.companyName || null, d.zip ? d.zip.replace(/\D/g, '') : null, d.street || null, d.streetNumber || null, d.complement || null, d.district || null, d.city || null, d.state ? d.state.toUpperCase() : null, d.acceptResponsibility ? new Date() : null, d.acceptResponsibility ? RESPONSIBILITY_VERSION : null]);
       await client.query(`INSERT INTO user_consents(user_id,consent_type,granted,policy_version,source,ip_hash)
         VALUES($1,'TERMS_OF_SERVICE',true,'2026-08','registration',$2),
               ($1,'PRIVACY_POLICY',true,'2026-08','registration',$2),
@@ -629,7 +655,7 @@ api.post('/auth/register', asyncRoute(async (req, res) => {
       return user.rows[0] as AuthUser;
     });
     const issued = await issueSession(created, { flow: 'password_registration', requestId: requestId(req) });
-    await audit(created.id, 'REGISTER', 'USER', created.id, { requestId: requestId(req) });
+    await audit(created.id, 'REGISTER', 'USER', created.id, { requestId: requestId(req), responsibilityAccepted: Boolean(d.acceptResponsibility) });
     res.status(201).json({ token: issued.token, user: created });
   } catch (error: unknown) {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') throw appError('EMAIL_ALREADY_EXISTS', { code: 'EMAIL_ALREADY_EXISTS', http: 409, expose: true });
@@ -669,24 +695,35 @@ api.post('/auth/logout', auth, asyncRoute(async (req, res) => {
 }));
 
 api.get('/profile', auth, asyncRoute(async (req, res) => {
-  const result = await pool.query(`SELECT u.id,u.email,u.name,u.role,u.password_enabled,p.cpf_cnpj,p.phone,p.company_name,p.city,p.state,p.marketing_opt_in
+  const result = await pool.query(`SELECT u.id,u.email,u.name,u.role,u.password_enabled,p.*
     FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=$1 AND u.active=true`, [req.user!.id]);
   if (!result.rowCount) throw appError('ACCOUNT_NOT_FOUND', { code: 'ACCOUNT_NOT_FOUND', http: 404, expose: true });
   const row = result.rows[0];
-  res.json({ profile: { id: String(row.id), email: String(row.email), name: String(row.name), role: String(row.role), passwordEnabled: Boolean(row.password_enabled), cpfCnpj: row.cpf_cnpj ?? '', phone: row.phone ?? '', companyName: row.company_name ?? '', city: row.city ?? '', state: row.state ?? '', marketingOptIn: Boolean(row.marketing_opt_in) } });
+  res.json({ profile: profileDto({ id: String(row.id), email: String(row.email), name: String(row.name), role: String(row.role), passwordEnabled: Boolean(row.password_enabled) }, row) });
 }));
 
 api.put('/profile', auth, asyncRoute(async (req, res) => {
   const parsed = profileUpdateSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const input = parsed.data;
+  if (profileRequired() && req.user!.role === 'CLIENTE') {
+    // Dados informados precisam ser válidos; o que falta aparece como pendência no app (e trava a consulta).
+    if (input.cpfCnpj && !validDocument(input.cpfCnpj)) throw appError('INVALID_OWNER_DOC', { code: 'INVALID_OWNER_DOC', http: 400, expose: true });
+    if (input.phone && !validPhone(input.phone)) throw appError('INVALID_PHONE', { code: 'INVALID_PHONE', http: 400, expose: true });
+    if (input.zip && input.zip.replace(/\D/g, '').length !== 8) throw appError('INVALID_ZIP', { code: 'INVALID_ZIP', http: 400, expose: true });
+  }
+  const zip = input.zip === undefined ? null : input.zip.replace(/\D/g, '');
   const profile = await tx(async (client) => {
     const user = await client.query('UPDATE users SET name=$2 WHERE id=$1 AND active=true RETURNING id,email,name,role,password_enabled', [req.user!.id, input.name]);
     if (!user.rowCount) throw appError('ACCOUNT_NOT_FOUND', { code: 'ACCOUNT_NOT_FOUND', http: 404, expose: true });
-    const updated = await client.query(`INSERT INTO user_profiles(user_id,cpf_cnpj,phone,company_name,city,state,marketing_opt_in)
-      VALUES($1,$2,$3,$4,$5,$6,COALESCE($7,false))
-      ON CONFLICT(user_id) DO UPDATE SET cpf_cnpj=EXCLUDED.cpf_cnpj,phone=EXCLUDED.phone,company_name=EXCLUDED.company_name,city=EXCLUDED.city,state=EXCLUDED.state,marketing_opt_in=COALESCE($7,user_profiles.marketing_opt_in),updated_at=now()
-      RETURNING cpf_cnpj,phone,company_name,city,state,marketing_opt_in`, [req.user!.id, input.cpfCnpj ?? null, input.phone ?? null, input.companyName ?? null, input.city ?? null, input.state?.toUpperCase() ?? null, input.marketingOptIn ?? null]);
+    const updated = await client.query(`INSERT INTO user_profiles(user_id,cpf_cnpj,phone,company_name,city,state,marketing_opt_in,zip,street,street_number,complement,district,responsibility_accepted_at,responsibility_version)
+      VALUES($1,$2,$3,$4,$5,$6,COALESCE($7,false),$8,$9,$10,$11,$12,CASE WHEN $13::boolean THEN now() END,CASE WHEN $13::boolean THEN $14 END)
+      ON CONFLICT(user_id) DO UPDATE SET cpf_cnpj=EXCLUDED.cpf_cnpj,phone=EXCLUDED.phone,company_name=EXCLUDED.company_name,city=EXCLUDED.city,state=EXCLUDED.state,marketing_opt_in=COALESCE($7,user_profiles.marketing_opt_in),
+        zip=COALESCE($8,user_profiles.zip),street=COALESCE($9,user_profiles.street),street_number=COALESCE($10,user_profiles.street_number),complement=COALESCE($11,user_profiles.complement),district=COALESCE($12,user_profiles.district),
+        responsibility_accepted_at=CASE WHEN $13::boolean THEN now() ELSE user_profiles.responsibility_accepted_at END,
+        responsibility_version=CASE WHEN $13::boolean THEN $14 ELSE user_profiles.responsibility_version END,updated_at=now()
+      RETURNING *`, [req.user!.id, input.cpfCnpj ?? null, input.phone ?? null, input.companyName ?? null, input.city ?? null, input.state?.toUpperCase() ?? null, input.marketingOptIn ?? null,
+        zip, input.street ?? null, input.streetNumber ?? null, input.complement ?? null, input.district ?? null, input.acceptResponsibility === true, RESPONSIBILITY_VERSION]);
     if (input.marketingOptIn !== undefined) {
       await client.query(`INSERT INTO user_consents(user_id,consent_type,granted,policy_version,source,ip_hash)
         VALUES($1,'MARKETING_EMAIL',$2,'2026-08','profile_update',$3)`, [req.user!.id, input.marketingOptIn, hashIp(req.ip)]);
@@ -694,8 +731,8 @@ api.put('/profile', auth, asyncRoute(async (req, res) => {
     return { user: user.rows[0], profile: updated.rows[0] };
   });
   const publicAccount = publicUser({ id: String(profile.user.id), email: String(profile.user.email), name: String(profile.user.name), role: String(profile.user.role) });
-  await audit(req.user!.id, 'PROFILE_UPDATED', 'USER', req.user!.id, { requestId: requestId(req) });
-  res.json({ user: publicAccount, profile: { id: publicAccount.id, email: publicAccount.email, name: publicAccount.name, role: publicAccount.role, passwordEnabled: Boolean(profile.user.password_enabled), cpfCnpj: profile.profile.cpf_cnpj ?? '', phone: profile.profile.phone ?? '', companyName: profile.profile.company_name ?? '', city: profile.profile.city ?? '', state: profile.profile.state ?? '', marketingOptIn: Boolean(profile.profile.marketing_opt_in) } });
+  await audit(req.user!.id, 'PROFILE_UPDATED', 'USER', req.user!.id, { requestId: requestId(req), responsibilityAccepted: input.acceptResponsibility === true });
+  res.json({ user: publicAccount, profile: profileDto({ id: publicAccount.id, email: publicAccount.email, name: publicAccount.name, role: publicAccount.role, passwordEnabled: Boolean(profile.user.password_enabled) }, profile.profile) });
 }));
 
 api.post('/auth/forgot-password', passwordResetRateLimit, asyncRoute(async (req, res) => {
@@ -775,7 +812,7 @@ api.post('/auth/change-password', auth, asyncRoute(async (req, res) => {
 
 api.get('/me', auth, asyncRoute(async (req, res) => {
   const [account, wallet, identities] = await Promise.all([
-    pool.query(`SELECT u.id,u.email,u.name,u.role,p.cpf_cnpj,p.phone,p.company_name,p.city,p.state,p.marketing_opt_in
+    pool.query(`SELECT u.id,u.email,u.name,u.role,u.password_enabled,p.*
       FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=$1 AND u.active=true`, [req.user!.id]),
     pool.query('SELECT balance_cents FROM wallets WHERE user_id=$1', [req.user!.id]),
     pool.query('SELECT provider FROM user_identities WHERE user_id=$1 ORDER BY provider', [req.user!.id])
@@ -785,7 +822,7 @@ api.get('/me', auth, asyncRoute(async (req, res) => {
   const user = publicUser({ id: String(row.id), email: String(row.email), name: String(row.name), role: String(row.role) });
   const membership = await loadMembership(user.id).catch(() => null);
   const storeAccess = membership ? { name: membership.store.name, role: membership.role, active: membership.store.active && !membership.store.archivedAt } : null;
-  res.json({ user, storeAccess, balanceCents: Number(wallet.rows[0]?.balance_cents ?? 0), permissions: permissionsFor(user.role), sandbox: env.DATA_PROVIDER === 'mock', identities: identities.rows.map((identity) => identity.provider), profile: { id: user.id, email: user.email, name: user.name, role: user.role, passwordEnabled: Boolean(row.password_enabled), cpfCnpj: row.cpf_cnpj ?? '', phone: row.phone ?? '', companyName: row.company_name ?? '', city: row.city ?? '', state: row.state ?? '', marketingOptIn: Boolean(row.marketing_opt_in) } });
+  res.json({ user, storeAccess, balanceCents: Number(wallet.rows[0]?.balance_cents ?? 0), permissions: permissionsFor(user.role), sandbox: env.DATA_PROVIDER === 'mock', identities: identities.rows.map((identity) => identity.provider), profile: profileDto({ id: user.id, email: user.email, name: user.name, role: user.role, passwordEnabled: Boolean(row.password_enabled) }, row) });
 }));
 
 function fipeUnavailable(): AppError {
@@ -1506,6 +1543,7 @@ api.post('/queries/warm', auth, requirePermission('QUERY_VEHICLE'), (_req, res) 
 
 api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async (req, res) => {
   assertSiteOpenFor(req.user!.email);
+  await assertCustomerProfile(req.user!.id, req.user!.role);
   const parsed = requestQuerySchema.safeParse(req.body);
   if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
   const idempotencyKeyHeader = req.headers['idempotency-key'];
@@ -1989,6 +2027,7 @@ api.post('/payments/query/quote', auth, requirePermission('BUY_CREDITS'), asyncR
 
 api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
   assertSiteOpenFor(req.user!.email);
+  await assertCustomerProfile(req.user!.id, req.user!.role);
   const parsed = queryCheckoutSchema.safeParse(req.body);
   if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
   const paymentProvider = getPaymentProvider();
@@ -2970,6 +3009,10 @@ function humanMessage(code: string): string {
     INVALID_CHASSIS: 'Informe um chassi válido (8 a 17 letras e números).',
     INVALID_RENAVAM: 'Informe um Renavam válido (9 a 11 dígitos).',
     INVALID_OWNER_DOC: 'Informe um CPF ou CNPJ válido.',
+    INVALID_PHONE: 'Informe um telefone válido, com DDD.',
+    INVALID_ZIP: 'Informe um CEP válido, com 8 números.',
+    RESPONSIBILITY_REQUIRED: 'Para criar a conta, aceite o termo de responsabilidade pelas informações consultadas.',
+    PROFILE_INCOMPLETE: 'Preencha todos os dados do cadastro (nome, telefone, CPF ou CNPJ e endereço completo).',
     SEARCH_TYPE_NOT_SUPPORTED: 'Este tipo de busca ainda não está disponível na fonte de dados atual. Nada foi cobrado.',
     INVALID_CREDENTIALS: 'E-mail ou senha inválidos.',
     EMAIL_ALREADY_EXISTS: 'Já existe uma conta para este e-mail.',

@@ -1,7 +1,7 @@
 import type { NormalizedVehicle } from './types.js';
 import { buildReportV2 } from './report/normalizeV2.js';
 import { adaptVehicleTotal, isVehicleTotal, vehicleTotalOutcome } from './report/vehicleTotal.js';
-import { maskDocument, maskName, maskVehicleId } from './report/mask.js';
+import { formatDocument, maskDocument, maskName, ownerIdentityEnabled } from './report/mask.js';
 
 const cents = (v: unknown) => {
   if (typeof v !== 'string' && typeof v !== 'number') return 0;
@@ -110,10 +110,10 @@ export function normalizeBdrp(original: any): NormalizedVehicle {
   return {
     identification: {
       plate,
-      renavam: maskVehicleId(text(valueOf(raw, ['RENAVAM', 'renavam'])), 2, 3) ?? undefined,
-      chassis: maskVehicleId(text(valueOf(raw, ['CHASSI', 'chassis', 'chassi']))) ?? undefined,
-      engine: maskVehicleId(text(valueOf(raw, ['MOTOR', 'engine', 'numeroMotor']))) ?? undefined,
-      gearbox: maskVehicleId(text(valueOf(raw, ['NUMEROCAIXACAMBIO', 'gearbox', 'cambio', 'numeroCambio']))) ?? undefined,
+      renavam: text(valueOf(raw, ['RENAVAM', 'renavam'])) || undefined,
+      chassis: text(valueOf(raw, ['CHASSI', 'chassis', 'chassi'])) || undefined,
+      engine: text(valueOf(raw, ['MOTOR', 'engine', 'numeroMotor'])) || undefined,
+      gearbox: text(valueOf(raw, ['NUMEROCAIXACAMBIO', 'gearbox', 'cambio', 'numeroCambio'])) || undefined,
       brand,
       model,
       fullModel
@@ -142,8 +142,8 @@ export function normalizeBdrp(original: any): NormalizedVehicle {
       status: text(valueOf(raw, ['SITUACAOVEICULO', 'situacaoVeiculo', 'status', 'vehicleStatus']))
     },
     owner: {
-      name: maskName(text(valueOf(raw, ['PRONOME', 'nomeProprietario', 'ownerName']))) ?? undefined,
-      document: maskDocument(text(valueOf(raw, ['CPF_CNPJ_PROPRIETARIO', 'cpfCnpjProprietario', 'ownerDocument']))) ?? undefined,
+      name: (ownerIdentityEnabled() ? text(valueOf(raw, ['PRONOME', 'nomeProprietario', 'ownerName'])) : maskName(text(valueOf(raw, ['PRONOME', 'nomeProprietario', 'ownerName'])))) || undefined,
+      document: (ownerIdentityEnabled() ? formatDocument(text(valueOf(raw, ['CPF_CNPJ_PROPRIETARIO', 'cpfCnpjProprietario', 'ownerDocument']))) : maskDocument(text(valueOf(raw, ['CPF_CNPJ_PROPRIETARIO', 'cpfCnpjProprietario', 'ownerDocument'])))) || undefined,
       documentType: text(valueOf(raw, ['TIPODOCUMENTOPROPRIETARIO', 'tipoDocumentoProprietario', 'ownerDocumentType']))
     },
     debts: legacyDebts(raw, original),

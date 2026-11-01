@@ -223,6 +223,8 @@ const envSchema = z.object({
   // Mascaramento LGPD: documentos e nomes mascarados por padrão.
   PII_REVEAL_ENABLED: booleanFromEnv.default(true),
   // API pública v1 para integradores (chaves pnm_live_…). Desligada por padrão: rotas respondem 404.
+  // Cliente precisa do cadastro completo (telefone, CPF/CNPJ, endereço e aceite de responsabilidade) para consultar ou pagar. Vazio = ligado (desligado só nos testes automáticos).
+  CUSTOMER_PROFILE_REQUIRED: z.preprocess((v) => (typeof v === 'string' && v.trim() !== '' ? ['1', 'true', 'yes', 'on', 'sim'].includes(v.trim().toLowerCase()) : undefined), z.boolean().optional()),
   PUBLIC_API_ENABLED: booleanFromEnv.default(false),
   PUBLIC_API_RATE_LIMIT_MAX: z.coerce.number().int().positive().max(10000).default(60),
 

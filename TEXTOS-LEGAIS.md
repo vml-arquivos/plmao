@@ -25,6 +25,10 @@ As duas são obrigatórias na tela e no servidor (erros `PURCHASE_CONTRACT_REQUI
 
 **Natureza do relatório e limites da plataforma.** Os dados vêm de fontes públicas e fornecedores terceiros e são entregues como foram recebidos, sem garantia de que sejam completos, exatos ou atualizados. A plataforma não responde por decisões tomadas, negócios feitos ou perdidos, lucros cessantes ou danos indiretos decorrentes do resultado da consulta. Em falha de entrega, a responsabilidade se limita a entregar o relatório ou devolver o valor pago. Os limites valem na máxima extensão permitida em lei e não afastam direitos do consumidor.
 
+## Cadastro completo e termo de responsabilidade (criar conta e Minha conta)
+
+No cadastro o cliente informa nome, telefone, CPF ou CNPJ (CNPJ e nome da empresa para conta de empresa) e endereço completo, e marca: "Declaro que os dados acima são verdadeiros e que sou o único responsável pelas informações a que tiver acesso nas consultas (incluindo dados de proprietários e histórico do veículo), usando-as apenas para finalidade legítima, como a conferência de uma compra, venda ou financiamento, e respondendo pelo seu armazenamento, compartilhamento e descarte, conforme a cláusula 4 dos Termos de Uso e a Política de Privacidade." O aceite guarda data e versão (`user_profiles.responsibility_accepted_at` e `responsibility_version`, versão `2026-11`). Sem cadastro completo e aceite, o cliente não consulta nem paga (`PROFILE_INCOMPLETE`); contas antigas completam uma vez em Minha conta. Para desligar a trava: `CUSTOMER_PROFILE_REQUIRED=false`. O relatório sai com nome e CPF/CNPJ de proprietários em claro (uso em crédito e comércio de veículos); a base é o termo de responsabilidade e a finalidade legítima declarada. Confirme com advogado e com o contrato da Credify antes de divulgar amplamente. **Texto sem revisão de advogado.**
+
 ## LGPD (cláusula 8 do contrato, seção 6 da Política de Privacidade)
 
 - Dados do cadastro: a plataforma é controladora.

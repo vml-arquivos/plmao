@@ -1831,5 +1831,28 @@ export const placaMigrations: Migration[] = [
       }
     },
     down: async (client) => { await client.query('ALTER TABLE seo_pages DROP COLUMN IF EXISTS h1;'); }
+  },
+  {
+    id: '052_customer_responsibility',
+    name: 'Cadastro completo do cliente: aceite do termo de responsabilidade pelas informações consultadas (data e versão)',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE user_profiles
+          ADD COLUMN IF NOT EXISTS responsibility_accepted_at timestamptz,
+          ADD COLUMN IF NOT EXISTS responsibility_version text;
+      `);
+    },
+    down: async (client) => { await client.query('ALTER TABLE user_profiles DROP COLUMN IF EXISTS responsibility_version, DROP COLUMN IF EXISTS responsibility_accepted_at;'); }
+  },
+  {
+    id: '053_complete_owner_section',
+    name: 'Consulta Completa: seção de proprietário liberada no relatório do cliente (dados completos, sem máscara)',
+    up: async (client) => {
+      await client.query(`UPDATE query_products SET report_sections = report_sections || ARRAY['PROPRIETARIO'], updated_at=now()
+        WHERE id='COMPLETE' AND report_sections IS NOT NULL AND NOT ('PROPRIETARIO' = ANY(report_sections))`);
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET report_sections = array_remove(report_sections,'PROPRIETARIO') WHERE id='COMPLETE' AND report_sections IS NOT NULL`);
+    }
   }
 ];

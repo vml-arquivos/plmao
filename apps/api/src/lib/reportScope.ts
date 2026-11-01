@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { pool } from '../db.js';
 import { CATALOG_BY_KEY, SECTIONS, type SectionKey } from '../report/catalog.js';
+import { ownerIdentityEnabled } from '../report/mask.js';
 
 /**
  * Escopo de relatório por produto: quais seções e campos do catálogo o cliente recebe.
@@ -17,6 +18,8 @@ export interface ProductScope { sections: string[] | null; template: ScopeTempla
 
 /** Seções que nunca podem ser vendidas ao cliente (dados de pessoas e controle interno). */
 export const NON_SELLABLE_SECTIONS: ReadonlySet<string> = new Set(['PROPRIETARIO', 'INTERNO']);
+/** Seção de proprietário só é vendável quando o relatório sai sem máscara (padrão). */
+export const sectionSellable = (key: string): boolean => !NON_SELLABLE_SECTIONS.has(key) || (key === 'PROPRIETARIO' && ownerIdentityEnabled());
 
 const fieldSchema = z.object({ key: z.string().min(1).max(80), label: z.string().trim().min(1).max(120).optional(), visible: z.boolean().optional() }).strict();
 const sectionSchema = z.object({
@@ -39,14 +42,14 @@ export function validateScopeConfig(input: unknown): ScopeValidation {
   let visibleFields = 0;
   for (const section of parsed.data.sections) {
     if (!sectionKeys.has(section.key)) errors.push(`Seção desconhecida: ${section.key}`);
-    else if (NON_SELLABLE_SECTIONS.has(section.key)) errors.push(`A seção ${section.key} não pode ser entregue ao cliente.`);
+    else if (!sectionSellable(section.key)) errors.push(`A seção ${section.key} não pode ser entregue ao cliente.`);
     if (seenSections.has(section.key)) errors.push(`Seção repetida: ${section.key}`);
     seenSections.add(section.key);
     for (const field of section.fields) {
       const def = CATALOG_BY_KEY.get(field.key);
       if (!def) { errors.push(`Campo fora do catálogo do provedor: ${field.key}`); continue; }
       if (def.section !== section.key) errors.push(`O campo ${field.key} pertence à seção ${def.section}, não a ${section.key}.`);
-      if (def.sensitivity === 'OWNER' || def.sensitivity === 'INTERNAL') errors.push(`O campo ${field.key} é protegido (dados de pessoas/controle interno) e não pode ser entregue.`);
+      if ((def.sensitivity === 'OWNER' && !ownerIdentityEnabled()) || def.sensitivity === 'INTERNAL') errors.push(`O campo ${field.key} é protegido (dados de pessoas/controle interno) e não pode ser entregue.`);
       if (seenFields.has(field.key)) errors.push(`Campo repetido: ${field.key}`);
       seenFields.add(field.key);
       if (field.visible !== false && section.visible !== false) visibleFields += 1;
@@ -58,9 +61,9 @@ export function validateScopeConfig(input: unknown): ScopeValidation {
 
 /** Catálogo editável: seções vendáveis com seus campos permitidos (nunca expõe proprietário/interno). */
 export function scopeCatalog() {
-  return SECTIONS.filter((s) => !NON_SELLABLE_SECTIONS.has(s.key)).map((s) => ({
+  return SECTIONS.filter((s) => sectionSellable(s.key)).map((s) => ({
     key: s.key, label: s.label, description: s.description, order: s.order,
-    fields: [...CATALOG_BY_KEY.values()].filter((f) => f.section === s.key && f.sensitivity !== 'OWNER' && f.sensitivity !== 'INTERNAL')
+    fields: [...CATALOG_BY_KEY.values()].filter((f) => f.section === s.key && (f.sensitivity !== 'OWNER' || ownerIdentityEnabled()) && f.sensitivity !== 'INTERNAL')
       .map((f) => ({ key: f.key, label: f.label, kind: f.kind, tier: f.tier, sensitivity: f.sensitivity }))
   }));
 }

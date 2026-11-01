@@ -5,7 +5,7 @@ import fontkit from '@pdf-lib/fontkit';
 import QRCode from 'qrcode';
 import type { ReportItem, ReportV2 } from './normalizeV2.js';
 import { brlFromCents } from './format.js';
-import { maskPlate } from './mask.js';
+import { ownerIdentityEnabled } from './mask.js';
 
 export interface ReportMeta {
   productName: string;
@@ -192,20 +192,33 @@ function sectionTitle(d: Doc, label: string, status: ReportItem['state'], sub: s
   d.y = y - 18;
 }
 
+function itemLines(d: Doc, it: ReportItem, width: number): string[] {
+  return String(it.display ?? it.value ?? '').split('\n').flatMap((part) => d.wrap(part, d.jx600, 9.5, width));
+}
+
 function itemsGrid(d: Doc, items: ReportItem[]) {
   const colGap = 14; const colW = (CW - colGap) / 2;
-  for (let i = 0; i < items.length; i += 2) {
-    const row = items.slice(i, i + 2);
-    const heights = row.map((it) => 14 + d.wrap(it.display ?? it.value ?? '', d.jx600, 9.5, colW - 16).length * 12);
+  // Itens com várias linhas (histórico de proprietários) ocupam a largura toda; os demais seguem em duas colunas.
+  const rows: ReportItem[][] = [];
+  let pending: ReportItem[] = [];
+  for (const it of items) {
+    if (String(it.display ?? it.value ?? '').includes('\n')) { if (pending.length) rows.push(pending); pending = []; rows.push([it]); continue; }
+    pending.push(it);
+    if (pending.length === 2) { rows.push(pending); pending = []; }
+  }
+  if (pending.length) rows.push(pending);
+  for (const row of rows) {
+    const wide = row.length === 1 && String(row[0].display ?? row[0].value ?? '').includes('\n');
+    const width = wide ? CW - 16 : colW - 16;
+    const heights = row.map((it) => 14 + itemLines(d, it, width).length * 12);
     const rowH = Math.max(...heights) + 4;
-    d.ensure(rowH + 4);
+    d.ensure(Math.min(rowH, 220) + 4);
     row.forEach((it, c) => {
       const x = M + c * (colW + colGap); const top = d.y;
-      d.text(it.label.toUpperCase(), x, top - 8, 6.5, d.dm700, C.muted, { maxWidth: colW });
+      d.text(it.label.toUpperCase(), x, top - 8, 6.5, d.dm700, C.muted, { maxWidth: wide ? CW : colW });
       const color = it.state === 'ALERT' ? C.red : it.state === 'CLEAR' ? C.green : C.ink;
       if (it.state !== 'INFO') d.page.drawCircle({ x: x + 3, y: top - 19.5, size: 2.6, color });
-      const lines = d.wrap(it.display ?? it.value ?? '', d.jx600, 9.5, colW - 16);
-      lines.forEach((l, li) => d.text(l, x + (it.state !== 'INFO' ? 11 : 0), top - 21 - li * 12, 9.5, d.jx600, it.state === 'INFO' ? C.ink : color));
+      itemLines(d, it, width).forEach((l, li) => d.text(l, x + (it.state !== 'INFO' ? 11 : 0), top - 21 - li * 12, 9.5, d.jx600, it.state === 'INFO' ? C.ink : color));
     });
     d.y -= rowH;
   }
@@ -275,9 +288,30 @@ export async function qr(d: Doc, url: string, x: number, y: number, size: number
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (code.modules.get(r, c)) rect(p, { x: x + c * cell, y: y + size - (r + 1) * cell, width: cell + 0.2, height: cell + 0.2, color: C.ink });
 }
 
+const CONSIDERATIONS = [
+  'Indício de sinistro, leilão e roubo/furto vêm de bases de terceiros e indicam possibilidade, não certeza. Confirme com vistoria física e com os órgãos competentes.',
+  'Multas, débitos e restrições seguem os critérios de cada Detran e Secretaria da Fazenda e podem ser lançados depois da consulta. Confira no site do órgão antes de fechar negócio.',
+  'Item marcado como não fornecido não significa "nada consta": apenas não veio nesta consulta.',
+  'A consulta vale para o momento em que foi feita. Quem consulta responde pelo uso das informações, conforme o contrato aceito.'
+];
+
+function considerations(d: Doc) {
+  d.ensure(30);
+  d.text('CONSIDERAÇÕES IMPORTANTES', M, d.y - 8, 7, d.dm700, C.muted);
+  d.y -= 16;
+  for (const c of CONSIDERATIONS) {
+    const lines = d.wrap(c, d.dm400, 8, CW - 14);
+    d.ensure(lines.length * 10 + 6);
+    d.page.drawCircle({ x: M + 3, y: d.y - 5.5, size: 1.4, color: C.muted });
+    lines.forEach((l, i) => d.text(l, M + 12, d.y - 8 - i * 10, 8, d.dm400, C.text));
+    d.y -= lines.length * 10 + 4;
+  }
+  d.y -= 6;
+}
+
 export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Promise<Buffer> {
   const d = await Doc.create();
-  d.pdf.setTitle(`Relatório de consulta veicular - ${maskPlate(report.plate)}`);
+  d.pdf.setTitle(`Relatório de consulta veicular - ${report.plate}`);
   d.pdf.setAuthor(meta.brandName ?? 'Placa na Mão');
   d.pdf.setSubject(`${meta.productName} - código ${meta.verificationCode}`);
   d.pdf.setCreationDate(meta.consultedAt);
@@ -322,6 +356,8 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
     d.y -= 46;
   }
 
+  if (!meta.sample) considerations(d);
+
   // validação + avisos
   d.ensure(150);
   d.y -= 6;
@@ -335,7 +371,7 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
   d.text(`Impressão digital: ${hash}`, tx, by + boxH - 51, 7.5, d.dm400, C.muted);
   const vurl = meta.verificationUrl.replace(/^https?:\/\//, '');
   d.text(`Confira a autenticidade em ${vurl}`, tx, by + boxH - 64, 8, d.dm400, C.muted, { maxWidth: CW - 125 });
-  const notice = meta.sample ? 'Este é um modelo ilustrativo, com dados fictícios, para mostrar quais informações você recebe nesta consulta. Não tem validade e não se refere a nenhum veículo real.' : 'Informações fornecidas por fonte de dados contratada, conforme retornado na data e hora da consulta; não substituem documentos oficiais nem certidões. Dados pessoais do proprietário (nome e CPF/CNPJ) não são exibidos, em conformidade com a LGPD.';
+  const notice = meta.sample ? 'Este é um modelo ilustrativo, com dados fictícios, para mostrar quais informações você recebe nesta consulta. Não tem validade e não se refere a nenhum veículo real.' : 'Informações fornecidas por fonte de dados contratada, conforme retornado na data e hora da consulta; não substituem documentos oficiais nem certidões. ' + (ownerIdentityEnabled() ? 'Os dados de proprietários constam como retornados pela fonte e o uso é de responsabilidade de quem consulta (LGPD).' : 'Dados pessoais de proprietários pessoa física (nome e CPF) não são exibidos, em conformidade com a LGPD.');
   d.wrap(notice, d.dm400, 7, CW - 125).forEach((l, i) => d.text(l, tx, by + boxH - 79 - i * 8.5, 7, d.dm400, C.muted));
   d.y = by - 10;
 
@@ -347,7 +383,7 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
       p.drawText(clean(wm), { x: 110, y: 250, size: 44, font: d.jx800, color: rgb(0.88, 0.88, 0.93), rotate: degrees(40), opacity: 0.55 });
     }
     p.drawLine({ start: { x: M, y: 34 }, end: { x: W - M, y: 34 }, thickness: 0.6, color: C.line });
-    const left = `${meta.brandName ?? 'Placa na Mão'}  ·  ${meta.productName}  ·  ${maskPlate(report.plate)}`;
+    const left = `${meta.brandName ?? 'Placa na Mão'}  ·  ${meta.productName}  ·  ${report.plate}`;
     p.drawText(clean(left), { x: M, y: 22, size: 7.5, font: d.dm400, color: C.muted });
     const right = `Página ${i + 1} de ${total}`;
     p.drawText(right, { x: W - M - d.dm500.widthOfTextAtSize(right, 7.5), y: 22, size: 7.5, font: d.dm500, color: C.muted });

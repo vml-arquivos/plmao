@@ -98,6 +98,7 @@ export default function NewQuery() {
       nav(`/app/consulta/${r.id}`);
     } catch (e) {
       idem.current = '';
+      if (e instanceof ApiError && e.code === 'PROFILE_INCOMPLETE') { nav('/app/conta?voltar=/app/consultar'); return; }
       if (e instanceof ApiError && e.code === 'QUERY_CANCELLED') { toast.ok('Consulta cancelada. O valor voltou para o seu saldo.'); void refresh(); setBusy(''); return; }
       const refunded = e instanceof ApiError && e.data.refunded === true;
       setError(errorMessage(e) + (refunded ? ' O valor debitado foi estornado ao seu saldo.' : ''));
@@ -129,7 +130,7 @@ export default function NewQuery() {
         if (sendCheckoutWindow(r.checkoutUrl)) nav(`/app/consultar/pedido/${r.orderId}?checkout=pending`);
         else window.location.assign(r.checkoutUrl);
       } else closeCheckoutWindow();
-    } catch (e) { closeCheckoutWindow(); setError(errorMessage(e)); setBusy(''); }
+    } catch (e) { closeCheckoutWindow(); if (e instanceof ApiError && e.code === 'PROFILE_INCOMPLETE') { nav('/app/conta?voltar=/app/consultar'); return; } setError(errorMessage(e)); setBusy(''); }
   }
 
   if (busy === 'wallet') {
@@ -151,6 +152,11 @@ export default function NewQuery() {
   return (
     <div className="stack-lg">
       <div className="page-head"><div><h1>Nova consulta</h1></div></div>
+      {me?.profile.profileRequired && !me.profile.profileComplete && (
+        <Alert tone="warn" title="Complete seu cadastro para consultar">
+          Falta: {me.profile.profileMissing.join(', ')}. <Link to="/app/conta?voltar=/app/consultar">Completar agora</Link>
+        </Alert>
+      )}
       <PaidQueries />
       <div className="nq-grid">
         <div className="stack-lg">
