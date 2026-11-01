@@ -7,6 +7,9 @@
 - Teto de segurança de consultas pagas por hora e por dia (`CREDIFY_MAX_QUERIES_PER_HOUR` e `CREDIFY_MAX_QUERIES_PER_DAY`); ao atingir, a Credify não é chamada.
 - Quando a Credify responde 200 mas o sistema recusa a resposta, o motivo (blocos e códigos, sem dados de pessoas) aparece no log, na auditoria e na mensagem da consulta interna, em vez do aviso genérico.
 - Sem repetição automática de consulta paga em tempo esgotado ou erro 5xx.
+- Consulta Completa: quando a base BDRP volta sem dados (código 2) mas a base nacional traz o veículo, a consulta é aceita e o relatório sai com a base nacional, sinistro, roubo/furto, leilão, proprietários e FIPE. Antes a resposta inteira era recusada e estornada.
+- Pagamento da consulta avulsa abre em outra aba; a tela original confirma o pagamento sozinha, segue para a consulta e fecha a aba do Mercado Pago. Se o navegador bloquear a nova aba, abre na mesma aba como antes.
+- O botão "Tentar novamente" some enquanto a consulta ainda está processando, para não gerar consulta repetida.
 
 ## 1.19.4 — Validação de autenticação antes da consulta
 

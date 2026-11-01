@@ -59,6 +59,12 @@ function Home() {
   const { login } = useSession();
   const p = new URLSearchParams(loc.search);
   const ticket = p.get('oauth_ticket');
+  const returning = Boolean(p.get('checkout'));
+  // Aba do pagamento aberta pelo próprio app: ao voltar do Mercado Pago ela se fecha e a aba original segue a consulta.
+  useEffect(() => {
+    if (!returning) return;
+    try { if (window.opener && window.opener !== window && window.opener.location.origin === window.location.origin) window.close(); } catch { /* aba normal */ }
+  }, [returning]);
   useEffect(() => {
     if (!ticket) return;
     api.post<{ token: string }>('/auth/oauth/consume', { ticket }).then((r) => login(r.token)).catch(() => undefined).finally(() => { window.history.replaceState(null, '', '/app'); window.location.replace('/app'); });

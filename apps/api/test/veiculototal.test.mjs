@@ -159,3 +159,22 @@ test('leilão, roubo/furto e recall com registro trazem os detalhes da fonte; se
   assert.match(item(r, 'VT_RECALL_DETALHES').display, /AIRBAG/);
   assert.equal(item(r, 'VT_LEILAO').state, 'ALERT');
 });
+
+test('BDRP sem dados (código 2) mas base nacional com o veículo: a consulta é aceita e o relatório sai com a base nacional', () => {
+  const x = structuredClone(ok);
+  x.RESPOSTA.CODIGO = ['2', '1', '1', '1', '1', '1', '2', '2'];
+  x.RESPOSTA.VEICULOSBDRP = { DESCRICAORETORNO: 'NAO FOI POSSIVEL LOCALIZAR', RETORNO: {} };
+  assert.deepEqual(providerOutcome(x), { ok: true });
+  const r = buildReportV2(x);
+  assert.ok(r.headline.brand, 'marca vem da base nacional');
+  assert.equal(r.plate, 'ABC1234');
+});
+
+test('BDRP sem dados e base nacional também sem dados continua sendo placa não encontrada; BDRP com erro (3) continua recusado', () => {
+  const none = structuredClone(ok);
+  none.RESPOSTA.CODIGO = ['1', '1', '1', '1', '1', '2', '2', '2'];
+  assert.equal(providerOutcome(none).ok, false);
+  const err = structuredClone(ok);
+  err.RESPOSTA.CODIGO = ['1', '1', '1', '1', '1', '1', '1', '3'];
+  assert.equal(providerOutcome(err).ok, false);
+});

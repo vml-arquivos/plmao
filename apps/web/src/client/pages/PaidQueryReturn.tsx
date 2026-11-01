@@ -6,6 +6,7 @@ import { Alert, Button, PlateBadge, usePageTitle, useToast } from '../../shared/
 import { ApiError, errorMessage } from '../../shared/api';
 import { api } from '../api';
 import { useSession } from '../session';
+import { checkoutWindowOpen, closeCheckoutWindow } from '../checkoutWindow';
 
 interface OrderState { orderId: string; status: string; entitlementStatus?: string | null; plate: string; searchType?: string; productId: string; amountCents: number; queryId?: string | null }
 type Phase = 'waiting' | 'running' | 'failed' | 'cancelled' | 'refunded' | 'unpaid' | 'notfound' | 'timeout';
@@ -34,7 +35,7 @@ export default function PaidQueryReturn() {
   const [busy, setBusy] = useState(false);
   const [confirmRefund, setConfirmRefund] = useState(false);
 
-  const open = useCallback((queryId: string) => { void refresh(); nav(`/app/consulta/${queryId}`, { replace: true }); }, [nav, refresh]);
+  const open = useCallback((queryId: string) => { closeCheckoutWindow(); void refresh(); nav(`/app/consulta/${queryId}`, { replace: true }); }, [nav, refresh]);
 
   const run = useCallback(async (o: OrderState) => {
     if (running.current) return;
@@ -126,7 +127,7 @@ export default function PaidQueryReturn() {
               : STEPS.map((s, i) => <li key={s} className={i < step ? 'done' : i === step ? 'cur' : ''}>{i < step ? <Icon name="check-circle" size={20} /> : i === step ? <span className="spin" style={{ width: 18, height: 18 }} /> : <Icon name="clock" size={20} />} {s}</li>)}
           </ol>
           {!waiting && <Button variant="ghost" size="sm" loading={busy} onClick={() => void cancelRunning()}>Cancelar consulta</Button>}
-          <p className="muted" style={{ fontSize: 13.5 }}>{waiting ? (checkout === 'pending' ? 'Pagou o Pix? A consulta começa sozinha assim que o pagamento for confirmado. Pode deixar esta página aberta.' : 'Leva poucos segundos. A consulta começa sozinha.') : 'Não feche esta página. Se algo falhar, o valor volta para você automaticamente.'}</p>
+          <p className="muted" style={{ fontSize: 13.5 }}>{waiting ? (checkoutWindowOpen() ? 'O pagamento está aberto em outra aba. Assim que for aprovado, esta tela continua sozinha e a outra aba fecha.' : checkout === 'pending' ? 'Pagou o Pix? A consulta começa sozinha assim que o pagamento for confirmado. Pode deixar esta página aberta.' : 'Leva poucos segundos. A consulta começa sozinha.') : 'Não feche esta página. Se algo falhar, o valor volta para você automaticamente.'}</p>
         </div>
       </div>
     );

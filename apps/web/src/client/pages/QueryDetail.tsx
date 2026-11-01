@@ -140,7 +140,7 @@ export default function QueryDetail() {
         {summary.status === 'FAILED' && <Alert tone="danger" title="Não foi possível concluir esta consulta.">{summary.failureMessage ?? 'Se houve cobrança, o valor foi estornado automaticamente. Você pode tentar novamente.'}</Alert>}
         {summary.status === 'REFUNDED' && <Alert tone="warn" title="Consulta estornada.">{summary.failureMessage ?? 'Se você pagou com o saldo, o valor voltou para ele. Se pagou direto (Pix ou cartão), sua consulta paga continua disponível no topo de Nova consulta. Você pode tentar de novo quando quiser.'}</Alert>}
         {summary.status === 'SUCCESS' && <Alert tone="warn" title="Relatório indisponível.">Este relatório não pôde ser exibido. Fale com o suporte informando o código {summary.verificationCode}.</Alert>}
-        <div className="row"><Button variant="primary" onClick={() => nav(`/app/consultar?placa=${summary.plate}`)} icon="refresh">Tentar novamente</Button></div>
+        {summary.status !== 'PROCESSING' && <div className="row"><Button variant="primary" onClick={() => nav(`/app/consultar?placa=${summary.plate}`)} icon="refresh">Tentar novamente</Button></div>}
       </section>
     </div>
   );

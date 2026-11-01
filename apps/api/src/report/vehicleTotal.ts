@@ -65,6 +65,12 @@ export function vehicleTotalOutcome(raw: unknown): VtOutcome {
   const bdrp = block(r, 'VEICULOSBDRP');
   const bc = blockCode(r, 'VEICULOSBDRP');
   if (!bdrp && isRec(r.DADOS) && str((r.DADOS as Rec).MSG)) return { ok: false, notFound: true, reason: 'DADOS.MSG' };
+  // BDRP sem dados (código 2) mas a base nacional trouxe o veículo: o relatório sai completo com a base nacional,
+  // sinistro, roubo/furto, leilão, proprietários e FIPE, em vez de recusar tudo por causa de um bloco só.
+  if (bc === '2' && blockCode(r, 'VEICULARBNACIONAL') === '1') {
+    const nat = records(block(r, 'VEICULARBNACIONAL'))[0];
+    if (nat && (str(nat.PLACA) || str(nat.CHASSI) || str(nat.MARCA) || str(nat.MODELO))) return { ok: true };
+  }
   if (bc !== undefined && bc !== '1') {
     // sem BDRP e sem base nacional: a placa não existe; só um dos dois faltando é falha de fornecedor.
     return bc === '2' && blockCode(r, 'VEICULARBNACIONAL') === '2' ? { ok: false, notFound: true, reason: 'BDRP/VEICULAR=2' } : { ok: false, reason: `VEICULOSBDRP CODIGO=${bc}` };

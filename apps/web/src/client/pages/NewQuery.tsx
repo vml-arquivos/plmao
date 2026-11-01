@@ -10,6 +10,7 @@ import { api, type Catalog } from '../api';
 import { useSession } from '../session';
 import { storedReferral, trackFunnel } from '../funnel';
 import PaidQueries from '../components/PaidQueries';
+import { closeCheckoutWindow, reserveCheckoutWindow, sendCheckoutWindow } from '../checkoutWindow';
 import PurchaseContract, { ACCEPT_MISSING, NO_ACCEPT, bothAccepted, type LegalAccept } from '../components/PurchaseContract';
 
 interface QProduct { id: string; name: string; description: string; priceCents: number; basePriceCents: number; negotiated: boolean; features: string[] | null; isFree: boolean; featured: boolean; commercialStatus: string }
@@ -108,11 +109,13 @@ export default function NewQuery() {
     if (!can || !product) return;
     if (!bothAccepted(accept)) { setError(ACCEPT_MISSING); return; }
     setBusy('pay'); setError('');
+    reserveCheckoutWindow();
     trackFunnel('CHECKOUT_STARTED', { productId: product.id, amountCents: due, hasCoupon: Boolean(quote?.couponCode) });
     try {
       const ref = storedReferral();
       const r = await api.post<{ checkoutUrl: string | null; free?: boolean; orderId: string }>('/payments/query/checkout', { productId: product.id, ...searchBody, acceptContract: true, acceptPrivacy: true, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(ref ? { affiliateCode: ref } : {}) });
       if (r.free) {
+        closeCheckoutWindow();
         // Cupom de 100%: sem pagamento. Executa a consulta liberada pelo pedido.
         try {
           const q = await api.post<{ id: string }>('/queries', { ...searchBody, productId: product.id, paymentOrderId: r.orderId });
@@ -121,8 +124,12 @@ export default function NewQuery() {
         } catch (e) { setError(errorMessage(e) + ' A consulta grátis continua liberada no topo desta página.'); setBusy(''); }
         return;
       }
-      if (r.checkoutUrl) window.location.assign(r.checkoutUrl);
-    } catch (e) { setError(errorMessage(e)); setBusy(''); }
+      if (r.checkoutUrl) {
+        // Pagamento na outra aba; esta aba espera a aprovação e segue sozinha para a consulta.
+        if (sendCheckoutWindow(r.checkoutUrl)) nav(`/app/consultar/pedido/${r.orderId}?checkout=pending`);
+        else window.location.assign(r.checkoutUrl);
+      } else closeCheckoutWindow();
+    } catch (e) { closeCheckoutWindow(); setError(errorMessage(e)); setBusy(''); }
   }
 
   if (busy === 'wallet') {
