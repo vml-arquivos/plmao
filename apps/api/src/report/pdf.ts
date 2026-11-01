@@ -170,7 +170,7 @@ function summaryBadges(d: Doc, report: ReportV2) {
     { label: 'Busca e apreensão', state: fromItems(['RES_BUSCA_APREENSAO']) },
     { label: 'Indício de sinistro', state: fromItems(['VT_SINISTRO']) },
     { label: 'Roubo ou furto', state: fromItems(['VT_ROUBOFURTO', 'RESFURTO']) },
-    { label: 'Leilão', state: fromItems(['VT_LEILAO']) },
+    { label: 'Leilão', state: fromItems(['VT_LEILAO', 'AU_LEILAO']) },
     { label: 'Recall', state: fromItems(['VT_RECALL', 'RECALL']) }
   ];
   const shown = badges.filter((b): b is { label: string; state: BadgeState } => b.state !== null);
@@ -218,7 +218,41 @@ function bandTitle(d: Doc, label: string, right?: string) {
 }
 
 const valueOf = (it: ReportItem) => String(it.display ?? it.value ?? '');
-const isWide = (it: ReportItem) => { const v = valueOf(it); return v.includes('\n') || v.length > 64; };
+const isWide = (it: ReportItem) => { const v = valueOf(it); return Boolean(it.table) || v.includes('\n') || v.length > 64; };
+
+/** Tabela do item (gravames, leilões): cabeçalho cinza, colunas proporcionais ao conteúdo, linhas que não quebram no meio. */
+function tableBlock(d: Doc, it: ReportItem) {
+  const t = it.table; if (!t) return;
+  const size = 7.6; const pad = 4;
+  const weight = t.columns.map((c, ci) => Math.min(34, Math.max(9, c.length, ...t.rows.map((r) => Math.max(...String(r[ci] ?? '').split('\n').map((x) => x.length), 0)))));
+  const totalW = weight.reduce((a, b) => a + b, 0);
+  const widths = weight.map((w) => (CW * w) / totalW);
+  const cellLines = (txt: string, ci: number, font: Doc['dm400']) => String(txt ?? '').split('\n').flatMap((part) => d.wrap(part, font, size, widths[ci]! - pad * 2));
+  const headLines0 = t.columns.map((c, ci) => cellLines(c, ci, d.dm700));
+  d.ensure(30 + Math.max(...headLines0.map((l) => l.length)) * 9.5 + 8 + 40);
+  d.text(it.label, M + 2, d.y - 10, 8, d.dm700, N.ink, { maxWidth: CW });
+  d.y -= 15;
+  const headLines = t.columns.map((c, ci) => cellLines(c, ci, d.dm700));
+  const headH = Math.max(...headLines.map((l) => l.length)) * 9.5 + 8;
+  d.ensure(headH + 30);
+  const drawHead = () => {
+    d.page.drawRectangle({ x: M, y: d.y - headH, width: CW, height: headH, color: N.band });
+    let x = M;
+    headLines.forEach((ls, ci) => { ls.forEach((l, li) => d.text(l, x + pad, d.y - 10.5 - li * 9.5, size, d.dm700, N.ink)); x += widths[ci]!; });
+    d.y -= headH;
+  };
+  drawHead();
+  for (const row of t.rows) {
+    const cells = row.map((c, ci) => cellLines(c, ci, d.dm500));
+    const h = Math.max(...cells.map((l) => l.length)) * 9.5 + 7;
+    const before = d.y; d.ensure(h + 2); if (d.y !== before) drawHead();
+    let x = M;
+    cells.forEach((ls, ci) => { ls.forEach((l, li) => d.text(l, x + pad, d.y - 10 - li * 9.5, size, d.dm500, N.text)); x += widths[ci]!; });
+    d.y -= h;
+    d.page.drawLine({ start: { x: M, y: d.y }, end: { x: W - M, y: d.y }, thickness: 0.4, color: N.hair });
+  }
+  d.y -= 8;
+}
 
 function itemsGrid(d: Doc, items: ReportItem[]) {
   const colGap = 18; const colW = (CW - colGap) / 2; const valW = colW - LABEL_W - 4;
@@ -233,6 +267,7 @@ function itemsGrid(d: Doc, items: ReportItem[]) {
   for (const row of rows) {
     if (row.length === 1 && isWide(row[0]!)) {
       const it = row[0]!; const alert = it.state === 'ALERT';
+      if (it.table) { tableBlock(d, it); continue; }
       const parts = valueOf(it).split('\n').flatMap((part) => d.wrap(part, alert ? d.dm700 : d.dm500, 8.5, CW - 14));
       d.ensure(Math.min(14 + parts.length * 11, 120));
       d.text(it.label, M + 2, d.y - 10, 8, d.dm700, N.ink, { maxWidth: CW });

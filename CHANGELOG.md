@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.19.7 — Gravame e Leilão com consulta própria, tabelas claras e PDF na consulta interna
+
+- Consulta interna do painel: agora mostra o relatório do pacote (o mesmo que o cliente veria) e tem os botões Visualizar PDF e Baixar PDF. O JSON ficou recolhido em "Dados técnicos". O PDF sai da própria resposta, sem consultar a Credify de novo. Na página da consulta também há Visualizar PDF e Baixar PDF.
+- Pacote Gravame: além de Débitos e Restrições, chama sempre o `/gravame` (533) da Credify. Se essa consulta ficar indisponível, a consulta falha e o cliente é estornado, em vez de entregar relatório sem o gravame.
+- Gravame em tabela: quem financiou (banco, CNPJ, código do agente), contrato (número, início, UF), registro do gravame (número, UF, data e tempo), situação e outras informações. Gravames atuais e baixados (histórico) aparecem juntos, cada um marcado.
+- Pacote Leilão: passa a usar Débitos e Restrições e chama sempre o `/leilaoconjugado` (448). Mostra "Participação em leilão" e a tabela de registros (data, leilão, lote, leiloeiro, comitente, pátio, condição e situação). "Veículo não apresentado na base de leilão" aparece como nada consta; fonte fora do ar derruba a consulta com estorno. Dados de pessoas (CPF/CNPJ de comitente) não entram.
+- Tabelas de registros também no PDF, na impressão e na tela (no celular viram cartões). Os detalhes de leilão da Completa também saem em tabela.
+- Produtos sem a seção de débitos (Gravame, Leilão, Cadastral) não mostram mais "Débitos: nada consta" nem "Resumo de débitos", porque débitos não foram consultados.
+- Situação do chassi "N" é lida como Normal; "Existe erro: 0" não aparece mais como alerta no controle interno.
+- Sem variáveis novas e sem migração.
+
 ## 1.19.6 — Relatório completo na tela, PDF sem mascaramento e cadastro completo do cliente
 
 - O relatório abre inteiro na tela (aba "Relatório completo", com todas as seções abertas) e também em Resumo e Seções. No histórico do cliente há Visualizar PDF, Baixar PDF, Imprimir e Link de validação; a consulta fica salva em "Minhas consultas".

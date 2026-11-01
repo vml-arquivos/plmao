@@ -25,6 +25,23 @@ describe('consulta interna do painel: sem repetição e com motivo claro', integ
     assert.equal(again.status, 200, again.text);
   });
 
+  it('a consulta interna devolve o relatório do pacote e o PDF pronto (não só o JSON)', async () => {
+    const r = await lookup('SLW0E00');
+    assert.equal(r.status, 200, r.text);
+    assert.ok(r.json.report, 'relatório estruturado');
+    assert.ok(r.json.report.sections.length > 0);
+    assert.ok(r.json.pdfBase64, 'PDF em base64');
+    assert.equal(Buffer.from(r.json.pdfBase64, 'base64').subarray(0, 5).toString(), '%PDF-');
+    assert.match(r.json.pdfName, /\.pdf$/);
+  });
+
+  it('PDF de uma consulta já feita, pelo painel da equipe', async () => {
+    const q = await pool.query("SELECT q.id FROM vehicle_queries q JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.status='SUCCESS' AND r.normalized->'v2' IS NOT NULL LIMIT 1");
+    if (!q.rowCount) return;
+    const res = await adm.call(`/api/admin/queries/${q.rows[0].id}/report/pdf`);
+    assert.equal(res.status, 200);
+  });
+
   it('falha da fonte aparece com mensagem específica, e não como erro genérico', async () => {
     const timeout = await lookup('TIM0E00');
     assert.equal(timeout.status, 424, timeout.text);

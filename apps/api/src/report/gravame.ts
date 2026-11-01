@@ -106,18 +106,25 @@ export function gravameExtras(upper: Rec, raw: unknown, now = new Date()): Map<s
 
   const bank = str(upper.RESTRICAONOMEAGENTE) || str(upper.INTENCAONOMEFINANC);
   const cnpj = str(upper.CGCFINANCEIRA);
-  out.set('GR_SITUACAO', info(`Há gravame / alienação fiduciária${bank ? ` — ${bank}` : ''}.`));
-
-  const lines: string[] = [];
   const rows: Rec[] = recs.length ? recs : [{
     NOME_AGENTE: str(upper.RESTRICAONOMEAGENTE), DOCUMENTO_AGENTE: str(upper.CGCFINANCEIRA), NUMERO_CONTRATO: str(upper.NUMEROCONTRATOFINANCEIRA),
     DATA_RESTRICAO: str(upper.RESTRICAODATAINCLUSAO), STATUS: str(upper.RESTRICAOFINAN)
   }];
-  rows.slice(0, 10).forEach((r, i) => {
+  const cleared = (r: Rec) => /BAIX|CANCEL|EXTINT|ENCERR|QUITAD/.test(fold(str(r.STATUS)));
+  const activeCount = recs.length ? recs.filter((r) => !cleared(r)).length : 1;
+  const clearedCount = recs.length ? recs.length - activeCount : 0;
+  if (recs.length && !activeCount) out.set('GR_SITUACAO', info(`Sem gravame ativo. Há ${clearedCount} ${clearedCount === 1 ? 'gravame baixado' : 'gravames baixados'} no histórico do veículo${bank ? ` (${bank})` : ''}.`));
+  else out.set('GR_SITUACAO', info(`Há gravame / alienação fiduciária ativo${bank ? ` — ${bank}` : ''}${clearedCount ? `; mais ${clearedCount} ${clearedCount === 1 ? 'baixado' : 'baixados'} no histórico` : ''}.`));
+
+  const lines: string[] = [];
+  const table: string[][] = [];
+  rows.slice(0, 20).forEach((r, i) => {
     const bankName = str(r.NOME_AGENTE) || bank;
     const doc = str(r.DOCUMENTO_AGENTE) || cnpj;
     const inc = parseDate(r.DATA_RESTRICAO);
     const start = parseDate(r.DATA_CONTRATO);
+    const done = recs.length ? cleared(r) : false;
+    const status = done ? 'Gravame baixado pelo agente financeiro' : 'Gravame ativo (alienação fiduciária)';
     const parts = [
       rows.length > 1 ? `${i + 1}º gravame` : '',
       bankName ? `Banco/financeira: ${bankName}${doc ? ` (CNPJ ${doc})` : ''}` : '',
@@ -126,11 +133,26 @@ export function gravameExtras(upper: Rec, raw: unknown, now = new Date()): Map<s
       inc ? `gravame incluído em ${brDate(inc)} (${distance(inc, now).text})` : '',
       start ? `contrato iniciado em ${brDate(start)} (${distance(start, now).text})` : '',
       str(r.ESTADO_RESTRICAO) ? `UF ${str(r.ESTADO_RESTRICAO)}` : '',
-      str(r.STATUS) && !/^ALIENACAO FIDUCIARIA \/ GRAVAME ATIVO/.test(fold(str(r.STATUS))) ? `situação: ${str(r.STATUS)}` : ''
+      recs.length ? `situação: ${status.toLowerCase()}` : (str(r.STATUS) && !/^ALIENACAO FIDUCIARIA \/ GRAVAME ATIVO/.test(fold(str(r.STATUS))) ? `situação: ${str(r.STATUS)}` : '')
     ].filter(Boolean);
     if (parts.length) lines.push(parts.join(' · '));
+    const HANDLED = /^(NOME_AGENTE|DOCUMENTO_AGENTE|CODIGO_AGENTE|NUMERO_CONTRATO|NUMERO_RESTRICAO|DATA_RESTRICAO|DATA_CONTRATO|ESTADO_RESTRICAO|ESTADO_CONTRATO|STATUS)$|CPF|DEVEDOR|PROPRIETARIO|ARRENDATARIO|FINANCIADO$/;
+    const other = Object.entries(r).filter(([k, v]) => !HANDLED.test(k) && str(v) && !none(str(v))).map(([k, v]) => `${k.split('_').join(' ').toLowerCase().replace(/^./, (c) => c.toUpperCase())}: ${str(v).slice(0, 80)}`);
+    if (!recs.length) {
+      const intent = str(upper.INTENCAONOMEFINANC) || str(upper.INTENCAONOMEAGENTE);
+      if (intent) other.push(`Intenção de troca de financiamento: ${intent}${str(upper.INTENCAODATAINCLUSAO) ? ` (${str(upper.INTENCAODATAINCLUSAO)})` : ''}`);
+      if (str(upper.DATAVIGENCIACONTRATOFINANCEIRA)) other.push(`Vigência do contrato: ${str(upper.DATAVIGENCIACONTRATOFINANCEIRA)}`);
+    }
+    const ufGrav = str(r.ESTADO_RESTRICAO); const ufCont = str(r.ESTADO_CONTRATO);
+    table.push([
+      [bankName, doc ? `CNPJ ${doc}` : '', str(r.CODIGO_AGENTE) ? `Cód. agente ${str(r.CODIGO_AGENTE)}` : ''].filter(Boolean).join('\n') || '—',
+      [str(r.NUMERO_CONTRATO) ? `Contrato nº ${str(r.NUMERO_CONTRATO)}` : '', start ? `Início ${brDate(start)}` : '', ufCont ? `UF do contrato ${ufCont}` : ''].filter(Boolean).join('\n') || 'Contrato não informado',
+      [str(r.NUMERO_RESTRICAO) ? `Restrição nº ${str(r.NUMERO_RESTRICAO)}` : '', inc ? `Incluído em ${brDate(inc)} (${distance(inc, now).text})` : str(r.DATA_RESTRICAO), ufGrav ? `UF do gravame ${ufGrav}` : ''].filter(Boolean).join('\n') || '—',
+      `${status}${done ? ' — HISTÓRICO' : ' — ATUAL'}`,
+      other.join('\n') || '—'
+    ]);
   });
-  out.set('GR_DETALHES', lines.length ? info(lines.join('\n')) : NOT_PROVIDED);
+  out.set('GR_DETALHES', lines.length ? { state: 'INFO', value: lines.join('\n'), display: lines.join('\n'), table: { columns: ['Quem financiou (agente financeiro)', 'Contrato', 'Gravame (registro, UF e data)', 'Situação', 'Outras informações'], rows: table } } : NOT_PROVIDED);
 
   const vig = parseDate(upper.DATAVIGENCIACONTRATOFINANCEIRA);
   if (vig) {
@@ -138,7 +160,7 @@ export function gravameExtras(upper: Rec, raw: unknown, now = new Date()): Map<s
     out.set('GR_PRAZO', info(d.future ? `Contrato vigente até ${brDate(vig)} (${d.text})` : `Vigência do contrato encerrada em ${brDate(vig)} (${d.text}); confirme a baixa do gravame com o banco`));
   } else out.set('GR_PRAZO', NOT_PROVIDED);
 
-  if (hasData) out.set('GR_VALORES', info('As bases oficiais (Detran, Senatran e Credify) não informam saldo devedor, valor financiado, parcelas pagas ou a pagar. Para esses valores, peça ao vendedor o contrato e confirme a quitação com o banco acima.'));
+  if (hasData && activeCount > 0) out.set('GR_VALORES', info('As bases oficiais (Detran, Senatran e Credify) não informam saldo devedor, valor financiado, parcelas pagas ou a pagar. Para esses valores, peça ao vendedor o contrato e confirme a quitação com o banco acima.'));
   return out;
 }
 

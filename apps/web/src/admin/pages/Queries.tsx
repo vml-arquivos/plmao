@@ -48,17 +48,38 @@ export function QueriesList() {
   );
 }
 
+interface LookupOutput { plate: string; productName: string; consultedAt: string; report: ReportV2 | null; pdfBase64: string | null; pdfName: string | null; result: unknown }
+
+function pdfBlobUrl(base64: string): string {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  return URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+}
+
 function LookupModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const products = useAsync(() => api.get<Array<{ id: string; name: string; isFree?: boolean; active: boolean }>>('/admin/products'));
   const [plate, setPlate] = useState('');
   const [productId, setProductId] = useState('');
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<unknown>(null);
+  const [result, setResult] = useState<LookupOutput | null>(null);
   const usable = (products.data ?? []).filter((p) => p.active);
   async function run() {
     setBusy(true); setResult(null);
-    try { setResult(await api.post('/admin/lookups', { plate: normalizePlate(plate), productId: productId || usable[0]?.id })); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+    try { setResult(await api.post<LookupOutput>('/admin/lookups', { plate: normalizePlate(plate), productId: productId || usable[0]?.id })); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  }
+  function viewPdf() {
+    if (!result?.pdfBase64) return;
+    const href = pdfBlobUrl(result.pdfBase64);
+    const tab = window.open(href, '_blank');
+    if (!tab) window.location.assign(href);
+    setTimeout(() => URL.revokeObjectURL(href), 10 * 60_000);
+  }
+  function downloadPdf() {
+    if (!result?.pdfBase64) return;
+    const href = pdfBlobUrl(result.pdfBase64);
+    const a = document.createElement('a');
+    a.href = href; a.download = result.pdfName ?? 'placa-na-mao.pdf'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 10_000);
   }
   return (
     <Modal title="Consulta interna" onClose={onClose} wide footer={<><Button variant="ghost" onClick={onClose}>Fechar</Button><Button variant="primary" loading={busy} disabled={!isValidPlate(plate)} onClick={() => void run()}>Consultar</Button></>}>
@@ -66,7 +87,23 @@ function LookupModal({ onClose }: { onClose: () => void }) {
         <Alert tone="warn" title="Consome o provedor">Esta consulta usa o provedor contratado e fica registrada na auditoria. Não cobra o cliente.</Alert>
         <div className="form-grid"><Field label="Placa"><Input value={plate} onChange={(e) => setPlate(normalizePlate(e.target.value))} placeholder="ABC1D23" /></Field>
           <Field label="Produto"><Select value={productId} onChange={(e) => setProductId(e.target.value)}>{usable.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select></Field></div>
-        {result != null && <pre className="code-box" style={{ maxHeight: 360, overflow: 'auto' }}>{JSON.stringify(result, null, 2)}</pre>}
+        {result && (
+          <>
+            {result.pdfBase64 && (
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <Button variant="primary" icon="file-text" onClick={viewPdf}>Visualizar PDF</Button>
+                <Button icon="download" onClick={downloadPdf}>Baixar PDF</Button>
+              </div>
+            )}
+            {result.report
+              ? <ReportView report={result.report} consultedAt={result.consultedAt} productName={`${result.productName} (consulta interna)`} audience="client" />
+              : <Alert tone="info">Esta consulta não gerou relatório estruturado; os dados técnicos estão abaixo.</Alert>}
+            <details>
+              <summary className="muted" style={{ cursor: 'pointer' }}>Dados técnicos (JSON)</summary>
+              <pre className="code-box" style={{ maxHeight: 360, overflow: 'auto' }}>{JSON.stringify(result.result, null, 2)}</pre>
+            </details>
+          </>
+        )}
       </div>
     </Modal>
   );
@@ -83,13 +120,21 @@ export function QueryDetailPage() {
   const d = useAsync(() => api.get<Detail>(`/admin/queries/${id}`), [id]);
   const reveals = useAsync(() => api.get<Reveal[]>(`/admin/queries/${id}/reveals`), [id]);
   const [reveal, setReveal] = useState(false);
+  const toast = useToast();
+  async function openPdf(qid: string) {
+    const tab = window.open('about:blank', '_blank');
+    try { const href = await api.blobUrl(`/admin/queries/${qid}/report/pdf`); if (tab) tab.location.href = href; else window.location.assign(href); } catch (e) { tab?.close(); toast.error(errorMessage(e)); }
+  }
+  async function savePdf(qid: string) {
+    try { await api.download(`/admin/queries/${qid}/report/pdf`, `placa-na-mao-${qid.slice(0, 8)}.pdf`); } catch (e) { toast.error(errorMessage(e)); }
+  }
   usePageTitle(d.data ? `Consulta ${formatPlate(d.data.plate)}` : 'Consulta');
   if (d.loading && !d.data) return <PageLoading />;
   if (d.error || !d.data) return <ErrorState error={d.error} onRetry={d.reload} />;
   const x = d.data;
   return (
     <>
-      <PageHead title={`Consulta ${formatPlate(x.plate)}`} sub={<Link to="/consultas">← Voltar às consultas</Link>} actions={can('REVEAL_PII') && x.hasRaw && <Button icon="eye" onClick={() => setReveal(true)}>Revelar dado protegido</Button>} />
+      <PageHead title={`Consulta ${formatPlate(x.plate)}`} sub={<Link to="/consultas">← Voltar às consultas</Link>} actions={<>{x.report && <Button icon="file-text" onClick={() => void openPdf(x.id)}>Visualizar PDF</Button>}{x.report && <Button icon="download" onClick={() => void savePdf(x.id)}>Baixar PDF</Button>}{can('REVEAL_PII') && x.hasRaw && <Button icon="eye" onClick={() => setReveal(true)}>Revelar dado protegido</Button>}</>} />
       <div className="adm-split">
         <Card title="Detalhes">
           <div className="row"><PlateBadge plate={x.plate} size="sm" /><QueryStatusBadge status={x.status} /></div>

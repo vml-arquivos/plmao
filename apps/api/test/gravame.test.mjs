@@ -41,8 +41,8 @@ test('Completa com base de gravame vazia + /gravame com gravame: banco, CNPJ, co
   assert.equal(item(r, 'RESTRICAONOMEAGENTE').value, 'BANCO ITAU S.A.');
   assert.equal(item(r, 'CGCFINANCEIRA').value, '60.701.190/0001-04');
   assert.equal(item(r, 'NUMEROCONTRATOFINANCEIRA').value, 'CT-998877');
-  assert.match(item(r, 'GR_SITUACAO').value, /Há gravame \/ alienação fiduciária — BANCO ITAU S\.A\./);
-  assert.match(item(r, 'GR_DETALHES').value, /Banco\/financeira: BANCO ITAU S\.A\. \(CNPJ 60701190000104\) · contrato nº CT-998877 · restrição nº 123456 · gravame incluído em 15\/03\/2023 \(há \d+ anos? e \d+ m/);
+  assert.match(item(r, 'GR_SITUACAO').value, /Há gravame \/ alienação fiduciária ativo — BANCO ITAU S\.A\./);
+  assert.match(item(r, 'GR_DETALHES').value, /Banco\/financeira: BANCO ITAU S\.A\. \(CNPJ 60701190000104\) · contrato nº CT-998877 · restrição nº 123456 · gravame incluído em 15\/03\/2023 \(há \d+ anos?/);
   assert.match(item(r, 'GR_VALORES').value, /não informam saldo devedor, valor financiado, parcelas/);
   assert.ok(r.verdict.level !== 'CLEAR', 'gravame ativo pesa no veredito');
 });
@@ -102,7 +102,7 @@ test('provedor: com BDRP preenchido, ou em outro pacote, não faz a chamada extr
   assert.equal(f1.calls.filter((c) => !c.url.endsWith('/auth')).length, 1); assert.equal(a.raw.gravame, undefined);
   resetCredifyTokenCache();
   const f2 = fakeFetch([login, { body: noBdrp() }]);
-  const b = await new CredifyVehicleProvider(opts(f2)).queryByPlate('ABC1D34', { productId: 'AUCTION' });
+  const b = await new CredifyVehicleProvider(opts(f2)).queryByPlate('ABC1D34', { productId: 'BASIC' });
   assert.equal(f2.calls.filter((c) => !c.url.endsWith('/auth')).length, 1); assert.equal(b.raw.gravame, undefined);
   resetCredifyTokenCache();
   const f3 = fakeFetch([login, { body: noBdrp() }, { status: 500, body: { Message: 'erro' } }]);
@@ -167,7 +167,7 @@ test('Renajud: sem restrição judicial no Total não há chamada extra; falha d
   assert.ok(buildReportV2(b.raw), 'o relatório ainda sai');
   resetCredifyTokenCache();
   const f3 = fakeFetch([login, { body: flagged }]);
-  await new CredifyVehicleProvider(opts(f3)).queryByPlate('ABC1D34', { productId: 'AUCTION' });
+  await new CredifyVehicleProvider(opts(f3)).queryByPlate('ABC1D34', { productId: 'BASIC' });
   assert.equal(f3.calls.filter((c) => !c.url.endsWith('/auth')).length, 1);
 });
 
@@ -192,4 +192,59 @@ test('base nacional do Veículo Total: restrições 01–04, situação do chass
   assert.match(item(r, 'VN_IMPORTACAO').value, /DI nº 2612345678 · registrada em 01\/02\/2015 · unidade da Receita PORTO DE SANTOS · importador 12\.345\.678\/0001-95/);
   const plain = buildReportV2({ placa: 'ABC1234', idConsulta: '467', data: ok });
   assert.equal(item(plain, 'VN_IMPORTACAO'), undefined);
+});
+
+const LEILAO = (body) => ({ CONSULTA: {}, RESPOSTA: { CODIGO: '1', LEILAOCONJUGADO: body } });
+
+test('pacote Gravame chama sempre o /gravame (533) e mostra banco, CNPJ, contrato, UF e data em tabela', async () => {
+  resetCredifyTokenCache();
+  const f = fakeFetch([login, { body: ok }, { body: GRAV({ REGISTRO_1: lien, REGISTRO_2: { ...lien, NUMERO_RESTRICAO: '1', STATUS: 'BAIXADO', NOME_AGENTE: 'BANCO ANTIGO S.A.' } }) }]);
+  const out = await new CredifyVehicleProvider(opts(f)).queryByPlate('ABC1D34', { productId: 'LIEN' });
+  const paid = f.calls.filter((c) => !c.url.endsWith('/auth'));
+  assert.match(paid[0].url, /\/debitosrestricoesproprietarios$/);
+  assert.match(paid[1].url, /\/gravame$/); assert.match(paid[1].body, /"IdConsulta":"533"/);
+  const r = buildReportV2(out.raw);
+  const det = item(r, 'GR_DETALHES');
+  assert.equal(det.table.rows.length, 2);
+  assert.match(det.table.rows[0][0], /BANCO ITAU S\.A\.\nCNPJ 60701190000104/);
+  assert.match(det.table.rows[0][1], /Contrato nº CT-998877/);
+  assert.match(det.table.rows[0][2], /UF do gravame SP/);
+  assert.match(det.table.rows[0][3], /ATUAL/); assert.match(det.table.rows[1][3], /HISTÓRICO/);
+});
+
+test('pacote Gravame: se o /gravame cair, a consulta falha (cliente estornado) em vez de entregar relatório sem o gravame', async () => {
+  resetCredifyTokenCache();
+  const f = fakeFetch([login, { body: ok }, { status: 500, body: { Message: 'erro' } }]);
+  await assert.rejects(() => new CredifyVehicleProvider(opts(f)).queryByPlate('ABC1D34', { productId: 'LIEN' }));
+});
+
+test('pacote Leilão usa Débitos+Restrições e chama sempre o /leilaoconjugado (448): tabela com data, lote, leiloeiro e comitente', async () => {
+  resetCredifyTokenCache();
+  const reg = { DATA_LEILAO: '2013-08-22', ID_LEILAO: '991', LOTE: '12', LEILOEIRO: 'LEILOES BRASIL', COMITENTE: 'SEGURADORA X', PATIO: 'SAO PAULO', CONDICAO_GERAL: 'SUCATA', CPF_COMITENTE: '12345678900' };
+  const f = fakeFetch([login, { body: ok }, { body: LEILAO({ DESCRICAORETORNO: 'SUCESSO', REGISTRO_1: reg }) }]);
+  const out = await new CredifyVehicleProvider(opts(f)).queryByPlate('ABC1D34', { productId: 'AUCTION' });
+  const paid = f.calls.filter((c) => !c.url.endsWith('/auth'));
+  assert.match(paid[0].url, /\/debitosrestricoesproprietarios$/);
+  assert.match(paid[1].url, /\/leilaoconjugado$/); assert.match(paid[1].body, /"IdConsulta":"448"/);
+  const r = buildReportV2(out.raw);
+  assert.equal(item(r, 'AU_LEILAO').state, 'ALERT');
+  const t = item(r, 'AU_LEILAO_DETALHES').table;
+  assert.deepEqual(t.columns.slice(0, 4), ['Data', 'Leilão', 'Lote', 'Leiloeiro']);
+  assert.equal(t.rows[0][0], '22/08/2013'); assert.equal(t.rows[0][2], '12');
+  assert.ok(!JSON.stringify(t).includes('12345678900'), 'documento de pessoa não entra');
+  // "não apresentado na base de leilão" = nada consta
+  resetCredifyTokenCache();
+  const f2 = fakeFetch([login, { body: ok }, { body: LEILAO({ DESCRICAORETORNO: 'O VEÍCULO NÃO FOI APRESENTADO NA BASE DE LEILÃO.' }) }]);
+  const out2 = await new CredifyVehicleProvider(opts(f2)).queryByPlate('ABC1D34', { productId: 'AUCTION' });
+  assert.equal(item(buildReportV2(out2.raw), 'AU_LEILAO').state, 'CLEAR');
+});
+
+test('pacote Leilão: /leilaoconjugado fora do ar derruba a consulta (estorno); placa sem leilão (não encontrado) = nada consta', async () => {
+  resetCredifyTokenCache();
+  const f = fakeFetch([login, { body: ok }, { status: 500, body: { Message: 'erro' } }]);
+  await assert.rejects(() => new CredifyVehicleProvider(opts(f)).queryByPlate('ABC1D34', { productId: 'AUCTION' }));
+  resetCredifyTokenCache();
+  const f2 = fakeFetch([login, { body: ok }, { body: { CONSULTA: {}, RESPOSTA: { CODIGO: '2', MSG: 'NAO ENCONTRADO' } } }]);
+  const out = await new CredifyVehicleProvider(opts(f2)).queryByPlate('ABC1D34', { productId: 'AUCTION' });
+  assert.equal(item(buildReportV2(out.raw), 'AU_LEILAO').state, 'CLEAR');
 });

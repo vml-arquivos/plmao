@@ -8,6 +8,8 @@ import { decryptRaw } from '../lib/rawStore.js';
 import { requirePermission } from '../permissions.js';
 import { extractReturn, viewReport, type ReportV2 } from '../report/normalizeV2.js';
 import type { NormalizedVehicle } from '../types.js';
+import { renderVehiclePdf, type ReportMeta } from '../report/pdf.js';
+import { env } from '../config.js';
 
 /**
  * Consultas vistas pela equipe (LGPD): relatório com dados pessoais mascarados e revelação
@@ -32,6 +34,23 @@ adminQueriesRouter.get('/:id', requirePermission('VIEW_QUERIES'), asyncRoute(asy
     productId: q.product_id, productName: q.product_name, createdAt: q.created_at, completedAt: q.completed_at, errorCode: q.error_code, errorMessage: q.error_message,
     customer: { name: q.customer_name, email: q.customer_email }, hasRaw: Boolean(q.has_raw), revealableFields: REVEALABLE_FIELDS, report
   });
+}));
+
+/** PDF da consulta para a equipe (mesmo layout do cliente, com a visão completa do relatório). */
+adminQueriesRouter.get('/:id/report/pdf', requirePermission('VIEW_QUERIES'), asyncRoute(async (req, res) => {
+  const row = await pool.query(`SELECT q.id,q.created_at,q.completed_at,q.result_hash,p.name AS product_name,r.normalized
+    FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.id=$1 AND q.status='SUCCESS'`, [req.params.id]);
+  if (!row.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
+  const q = row.rows[0] as Record<string, unknown>;
+  const v2 = (q.normalized as NormalizedVehicle | null)?.v2;
+  if (!v2) throw appError('REPORT_UNAVAILABLE', { code: 'REPORT_UNAVAILABLE', http: 409, expose: true });
+  const report = viewReport(v2, { audience: 'team', tier: 3 });
+  const code = String(q.id).slice(0, 8).toUpperCase();
+  const base = (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '');
+  const meta: ReportMeta = { productName: String(q.product_name), verificationCode: code, verificationUrl: `${base}/validar/${code}`, consultedAt: new Date(String(q.completed_at ?? q.created_at)), resultHash: q.result_hash ? String(q.result_hash) : null, audience: 'team' };
+  await audit(req.user!.id, 'EXPORT_QUERY_REPORT_PDF', 'VEHICLE_QUERY', String(req.params.id), { requestId: requestId(req), area: 'admin' });
+  res.setHeader('Content-Disposition', `attachment; filename="placa-na-mao-${code}.pdf"`);
+  res.type('application/pdf').send(await renderVehiclePdf(report, meta));
 }));
 
 const revealSchema = z.object({ field: z.enum(REVEALABLE_FIELDS), reason: z.string().trim().min(10).max(280) });

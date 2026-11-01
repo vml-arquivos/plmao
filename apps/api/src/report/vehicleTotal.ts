@@ -11,12 +11,15 @@
  */
 import { formatDocument, maskDocument, maskName, ownerIdentityEnabled } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
+import { auctionRecords, auctionTable } from './leilao.js';
 
 export const VT_BLOCKS = ['INDICIOSINISTROVEICULAR', 'RECALL', 'HISTORICOROUBOFURTO', 'LEILAOCONJUGADO', 'HISTORICOPROPRIETARIO', 'VEICULARBNACIONAL', 'PRECIFICADORFIPE', 'VEICULOSBDRP'] as const;
 type BlockName = (typeof VT_BLOCKS)[number];
 type Rec = Record<string, unknown>;
 
-export interface VtValue { state: 'NOT_PROVIDED' | 'CLEAR' | 'ALERT' | 'INFO'; value: string | null; display?: string | null; masked?: boolean }
+/** Tabela de um item (gravame, leilão, restrição judicial): colunas e linhas de texto, para PDF, impressão e tela. */
+export interface ReportTable { columns: string[]; rows: string[][] }
+export interface VtValue { state: 'NOT_PROVIDED' | 'CLEAR' | 'ALERT' | 'INFO'; value: string | null; display?: string | null; masked?: boolean; table?: ReportTable }
 
 const isRec = (v: unknown): v is Rec => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const fold = (v: string) => v.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
@@ -165,6 +168,10 @@ function occurrenceDetails(r: Rec, name: BlockName, main: VtValue): VtValue {
   if (main.state !== 'ALERT') return NOT_PROVIDED;
   const b = block(r, name);
   if (!b) return NOT_PROVIDED;
+  if (name === 'LEILAOCONJUGADO') {
+    const table = auctionTable(auctionRecords(r[name]));
+    if (table) { const n = table.rows.length; const t = `${n} ${n === 1 ? 'registro' : 'registros'} de leilão`; return { state: 'INFO', value: t, display: t, table }; }
+  }
   const recs = records(b);
   const pool: Rec[] = recs.length ? recs : [b];
   const lines = pool.slice(0, 8).map((rec) => Object.entries(rec).filter(([k, v]) => !SKIP_DETAIL.test(k) && !isRec(v) && !Array.isArray(v) && str(v) !== '' && str(v) !== '0').slice(0, 14).map(([k, v]) => `${humanize(k)}: ${str(v).slice(0, 160)}`).join(' · ')).filter(Boolean);
@@ -208,7 +215,7 @@ export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
   out.set('VT_EMPLACAMENTO', textItem(brDate(nat?.DATA_EMPLACAMENTO)));
 
   // Campos da base nacional que o BDRP não repete.
-  const flagged = (v: unknown): VtValue => { const t = str(v); if (!t || unknownText(t)) return NOT_PROVIDED; return /^(SEM |NADA|NAO |NORMAL|0+$)/.test(fold(t)) ? { state: 'CLEAR', value: t, display: sentenceCase(t) } : { state: 'ALERT', value: t, display: sentenceCase(t) }; };
+  const flagged = (v: unknown): VtValue => { const t = str(v); if (!t || unknownText(t)) return NOT_PROVIDED; return /^(SEM |NADA|NAO |NORMAL|N$|0+$)/.test(fold(t)) ? { state: 'CLEAR', value: t, display: fold(t) === 'N' ? 'Normal' : sentenceCase(t) } : { state: 'ALERT', value: t, display: sentenceCase(t) }; };
   for (let i = 1; i <= 4; i++) out.set(`VN_RESTRICAO_${i}`, flagged(nat?.[`RESTRICAO${i}`]));
   out.set('VN_DATA_LIMITE_RESTRICAO', textItem(brDate(nat?.DATA_LIMITE_RESTRICAO) && !unknownText(str(nat?.DATA_LIMITE_RESTRICAO)) ? brDate(nat?.DATA_LIMITE_RESTRICAO) : ''));
   out.set('VN_SITUACAO_CHASSI', flagged(nat?.SITUACAO_CHASSI));

@@ -161,7 +161,7 @@ export const FIELD_CATALOG: FieldDef[] = [
   // Interno
   internal('CHAVERETORNO', 'Chave de retorno', 'text'),
   internal('TEMPOEXECUCAO', 'Tempo de execução', 'number'),
-  internal('EXISTE_ERRO', 'Existe erro', 'flag'),
+  { ...internal('EXISTE_ERRO', 'Existe erro', 'flag'), clear: /^0+$/ },
   internal('MSG_ERRO', 'Mensagem de erro', 'text'),
   internal('REDUNDANCIA', 'Redundância', 'text')
 ];
@@ -207,6 +207,8 @@ export const VT_CATALOG: FieldDef[] = [
  */
 export const ENRICH_CATALOG: FieldDef[] = [
   // Gravame em linguagem direta: situação, banco/contrato/tempo, prazo restante e aviso sobre valores.
+  f('AU_LEILAO', 'Participação em leilão', 'HISTORICO', 'flag', 2, { optional: true }),
+  f('AU_LEILAO_DETALHES', 'Leilão — registros', 'HISTORICO', 'text', 2, { optional: true }),
   f('GR_SITUACAO', 'Alienação fiduciária / gravame', 'GRAVAME', 'text', 2),
   f('GR_DETALHES', 'Gravames: banco, contrato e tempo', 'GRAVAME', 'text', 2, { optional: true }),
   f('GR_PRAZO', 'Prazo restante do contrato', 'GRAVAME', 'text', 2, { optional: true }),

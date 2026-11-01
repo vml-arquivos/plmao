@@ -22,6 +22,23 @@ function StateMark({ state }: { state: ItemState }) {
 function ItemRow({ item }: { item: ReportItem }) {
   const missing = item.state === 'NOT_PROVIDED';
   const text = missing ? 'Não informado pela fonte' : (item.display ?? item.value ?? '—');
+  // Tabela de registros (gravames, leilões): ocupa a linha toda.
+  if (!missing && item.table) {
+    const t = item.table;
+    return (
+      <div className={`rv-item multi ${item.state.toLowerCase()}`}>
+        <dt>{item.label}</dt>
+        <dd>
+          <div className="rv-table-wrap">
+            <table className="rv-table">
+              <thead><tr>{t.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+              <tbody>{t.rows.map((r, ri) => <tr key={ri}>{r.map((c, ci) => <td key={ci} data-label={t.columns[ci]}>{c.split('\n').map((l, li) => <span key={li}>{l}</span>)}</td>)}</tr>)}</tbody>
+            </table>
+          </div>
+        </dd>
+      </div>
+    );
+  }
   // Lista com uma linha por registro (ex.: histórico de proprietários): ocupa a linha toda.
   if (!missing && text.includes('\n')) {
     return (

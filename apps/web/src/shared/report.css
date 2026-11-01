@@ -122,3 +122,16 @@
 
 :root[data-theme='dark'] .rv { --bg-soft: #1d1d1d; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .rv { --bg-soft: #1d1d1d; } }
+
+.rv-table-wrap { width: 100%; overflow-x: auto; }
+.rv-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rv-table th { text-align: left; background: var(--soft, rgba(127,127,160,.12)); padding: 8px 10px; font-weight: 700; white-space: nowrap; }
+.rv-table td { padding: 8px 10px; border-bottom: 1px solid var(--line, rgba(127,127,160,.2)); vertical-align: top; font-weight: 500; }
+.rv-table td span { display: block; }
+@media (max-width: 560px) {
+  .rv-table thead { display: none; }
+  .rv-table, .rv-table tbody, .rv-table tr, .rv-table td { display: block; width: 100%; }
+  .rv-table tr { margin-bottom: 8px; padding: 6px 0; border: 1px solid var(--line, rgba(127,127,160,.2)); border-radius: 10px; }
+  .rv-table td { border: 0; padding: 4px 10px; }
+  .rv-table td::before { content: attr(data-label); display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; opacity: .65; font-weight: 700; }
+}

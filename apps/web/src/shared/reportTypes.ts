@@ -1,7 +1,7 @@
 // Espelha o contrato `placanamao.vehicle.report.v2` (apps/api/src/report/normalizeV2.ts), já filtrado por audiência/plano.
 export type ItemState = 'NOT_PROVIDED' | 'CLEAR' | 'ALERT' | 'INFO';
 export type Verdict = 'CLEAR' | 'ATTENTION' | 'HIGH_RISK' | 'INCONCLUSIVE';
-export interface ReportItem { key: string; label: string; kind: string; state: ItemState; value: string | null; display?: string | null; amountCents?: number; masked?: boolean; sensitivity: string; tier: number; component?: boolean; high?: boolean }
+export interface ReportItem { key: string; label: string; kind: string; state: ItemState; value: string | null; display?: string | null; amountCents?: number; masked?: boolean; sensitivity: string; tier: number; component?: boolean; high?: boolean; table?: { columns: string[]; rows: string[][] } }
 export interface ReportSection { key: string; label: string; description: string; status: ItemState; items: ReportItem[]; providedCount: number; notProvidedCount: number }
 export interface ReportV2 {
   schema: string; normalizerVersion: number; plate: string;

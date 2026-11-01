@@ -64,15 +64,15 @@ export const CREDIFY_DEFAULT_BODY = '{"Consulta":{"IdConsulta":"{{queryId}}","Pl
 /** Consultas da Credify que recebem só a placa (corpo padrão). As demais pedem CPF/CNPJ, Renavam etc. e precisam de modelo próprio. */
 export const CREDIFY_PLATE_PATHS: readonly string[] = ['/veiculototal', '/debitosrestricoesproprietarios', '/veicularbnacionalonline', '/indiciosinistro', '/leilaoconjugado', '/gravame', '/veiculoproprietarioplaca'];
 /**
- * Qual consulta da Credify atende cada pacote. Completa e Leilão usam o Veículo Total (467: sinistro, recall, roubo/furto, leilão,
+ * Qual consulta da Credify atende cada pacote. Completa e Premium usam o Veículo Total (467: sinistro, recall, roubo/furto, leilão,
  * proprietários, FIPE e o cadastro com débitos e restrições numa chamada só). Básica, Gravame e Cadastral usam Débitos,
- * Restrições e Proprietários (487), que já traz cadastro, débitos, restrições e os campos de financiamento.
+ * Restrições e Proprietários (487), que já traz cadastro, débitos, restrições e os campos de financiamento. Gravame soma sempre a consulta /gravame (533) e Leilão soma sempre /leilaoconjugado (448).
  * Com CREDIFY_QUERY_PATH definido, todos os pacotes usam esse caminho (modo antigo).
  */
 export const CREDIFY_PRODUCT_PATHS: Record<string, string> = {
   COMPLETE: '/veiculototal',
   PREMIUM: '/veiculototal',
-  AUCTION: '/veiculototal',
+  AUCTION: '/debitosrestricoesproprietarios',
   BASIC: '/debitosrestricoesproprietarios',
   LIEN: '/debitosrestricoesproprietarios',
   CADASTRAL: '/debitosrestricoesproprietarios',

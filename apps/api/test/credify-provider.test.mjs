@@ -264,14 +264,14 @@ test('cada pacote usa a consulta certa da Credify: Completa = Veículo Total (46
   const tok = jwt(Math.floor(now / 1000) + 24 * 3600);
   const run = async (productId, opts = {}) => {
     resetCredifyTokenCache();
-    const f = fakeFetch([{ body: { Success: true, Dados: tok } }, { body: sample }]);
+    const f = fakeFetch([{ body: { Success: true, Dados: tok } }, { body: sample }, { body: sample }]);
     const p = new CredifyVehicleProvider({ ...base, path: undefined, bodyTemplate: undefined, fetchImpl: f, now: () => now, ...opts });
-    await p.queryByPlate('AAA0000', { productId });
+    await p.queryByPlate('AAA0000', { productId }).catch(() => undefined);
     const c = f.calls.find((x) => !x.url.endsWith('/auth'));
     return { url: c.url.replace('https://api.credify.test', ''), body: JSON.parse(c.init.body) };
   };
   assert.deepEqual(await run('COMPLETE'), { url: '/veiculototal', body: { Consulta: { IdConsulta: '467', Placa: 'AAA0000' } } });
-  for (const id of ['BASIC', 'LIEN', 'CADASTRAL']) assert.deepEqual(await run(id), { url: '/debitosrestricoesproprietarios', body: { Consulta: { IdConsulta: '487', Placa: 'AAA0000' } } });
+  for (const id of ['BASIC', 'LIEN', 'CADASTRAL', 'AUCTION']) assert.deepEqual(await run(id), { url: '/debitosrestricoesproprietarios', body: { Consulta: { IdConsulta: '487', Placa: 'AAA0000' } } });
   assert.equal((await run(undefined)).url, '/veiculototal'); // sem pacote: consulta padrão
   assert.equal((await run('COMPLETE', { path: '/debitosrestricoesproprietarios' })).body.Consulta.IdConsulta, '487'); // caminho global ganha
   resetCredifyTokenCache();

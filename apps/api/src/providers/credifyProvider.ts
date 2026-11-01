@@ -220,66 +220,68 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
   async queryByPlate(plate: string, ctx?: { productId?: string }): Promise<{ providerQueryId?: string; raw: unknown }> {
     const startedAt = Date.now();
     const main = await this.run('PLATE', plate, ctx?.productId);
-    return this.withJudicial(await this.withLien(main, plate, ctx?.productId, startedAt), plate, ctx?.productId, startedAt);
+    const pid = ctx?.productId;
+    const withLien = await this.supplement(main, plate, pid, startedAt, {
+      key: 'gravame', path: '/gravame', label: 'gravame', enabled: env.CREDIFY_GRAVAME_SUPPLEMENT,
+      products: ['COMPLETE', 'PREMIUM'], core: ['LIEN'],
+      needed: (data) => isVehicleTotal(data) && bdrpCode(data) !== '1'
+    });
+    const withJudicial = await this.supplement(withLien, plate, pid, startedAt, {
+      key: 'renajud', path: '/renajud', label: 'renajud', enabled: env.CREDIFY_JUDICIAL_SUPPLEMENT,
+      products: ['COMPLETE', 'PREMIUM'], core: [],
+      needed: (data) => {
+        if (!isVehicleTotal(data)) return false;
+        const upper = Object.fromEntries(Object.entries(extractReturn(data) ?? {}).map(([k, v]) => [k.toUpperCase(), v]));
+        return bdrpCode(data) !== '1' || judicialNeeded(upper);
+      }
+    });
+    return this.supplement(withJudicial, plate, pid, startedAt, {
+      key: 'leilao', path: '/leilaoconjugado', label: 'leilão', enabled: true,
+      products: [], core: ['AUCTION'], needed: () => true
+    });
   }
 
   /**
-   * Completa: quando o Veículo Total acusa restrição judicial/Renajud (ou veio sem a base de restrições), consulta o /renajud (483)
-   * para trazer tribunal, órgão, processo e data. Uma chamada a mais, só nesse caso; qualquer falha deixa o relatório como estava.
+   * Consulta complementar da Credify junto da principal.
+   *  - "products": pacotes em que a chamada é opcional e só acontece quando `needed` pede (falha só deixa o dado como "não informado");
+   *  - "core": pacotes em que a consulta complementar é o próprio produto (Gravame → /gravame, Leilão → /leilaoconjugado):
+   *    sempre chamada, e se a fonte ficar indisponível a consulta falha (e o cliente é estornado) em vez de entregar relatório sem o dado contratado.
+   * Prazo curto para nunca estourar o tempo da consulta. Resposta "não encontrado" é resultado válido ("nada consta").
    */
-  private async withJudicial(main: { providerQueryId?: string; raw: unknown }, plate: string, productId: string | undefined, startedAt: number): Promise<{ providerQueryId?: string; raw: unknown }> {
+  private async supplement(main: { providerQueryId?: string; raw: unknown }, plate: string, productId: string | undefined, startedAt: number, spec: { key: string; path: string; label: string; enabled: boolean; products: string[]; core: string[]; needed: (data: unknown) => boolean }): Promise<{ providerQueryId?: string; raw: unknown }> {
+    const pid = String(productId ?? '').toUpperCase();
+    const core = spec.core.includes(pid);
     try {
-      if (!env.CREDIFY_JUDICIAL_SUPPLEMENT || this.o.path || env.CREDIFY_QUERY_PATH) return main;
-      if (!['COMPLETE', 'PREMIUM'].includes(String(productId ?? '').toUpperCase())) return main;
-      const data = (main.raw as { data?: unknown } | null)?.data;
-      if (!isVehicleTotal(data)) return main;
-      const ret = extractReturn(data);
-      const upper = Object.fromEntries(Object.entries(ret ?? {}).map(([k, v]) => [k.toUpperCase(), v]));
-      if (bdrpCode(data) === '1' && !judicialNeeded(upper)) return main;
-      const left = env.QUERY_REQUEST_TIMEOUT_MS - (Date.now() - startedAt) - 4000;
-      if (left < 8000) { log('warn', 'credify_renajud_skipped', { reason: 'sem_tempo', leftMs: left }); return main; }
-      const judicial = new CredifyVehicleProvider({ ...this.o, path: '/renajud', consultaId: CREDIFY_CONSULTA_CODES['/renajud'], bodyTemplate: CREDIFY_DEFAULT_BODY, timeoutMs: Math.min(25000, left) });
-      let renajud: Record<string, unknown>;
-      try {
-        const out = await judicial.run('PLATE', plate, undefined);
-        renajud = { data: (out.raw as { data?: unknown }).data };
-      } catch (e) {
-        renajud = (e as { code?: string }).code === 'NOT_FOUND' ? { notFound: true } : { unavailable: true };
-        if (renajud.unavailable) log('warn', 'credify_renajud_failed', { code: (e as { code?: string }).code ?? null });
+      if (this.o.path || env.CREDIFY_QUERY_PATH) return main;
+      if (!core) {
+        if (!spec.enabled || !spec.products.includes(pid)) return main;
+        if (!spec.needed((main.raw as { data?: unknown } | null)?.data)) return main;
       }
-      return { ...main, raw: { ...(main.raw as Record<string, unknown>), renajud } };
     } catch (e) {
-      log('warn', 'credify_renajud_error', { error: e instanceof Error ? e.message : 'unknown' });
+      log('warn', `credify_${spec.key}_error`, { error: e instanceof Error ? e.message : 'unknown' });
       return main;
     }
-  }
-
-  /**
-   * Completa: se a base de gravame do Veículo Total veio sem dados, complementa com o /gravame (533): banco, CNPJ, contrato e datas.
-   * Uma chamada a mais, só nesse caso, com prazo curto para nunca estourar o tempo da consulta; qualquer falha apenas deixa o gravame como "não informado".
-   */
-  private async withLien(main: { providerQueryId?: string; raw: unknown }, plate: string, productId: string | undefined, startedAt: number): Promise<{ providerQueryId?: string; raw: unknown }> {
-    try {
-      if (!env.CREDIFY_GRAVAME_SUPPLEMENT || this.o.path || env.CREDIFY_QUERY_PATH) return main;
-      if (!['COMPLETE', 'PREMIUM'].includes(String(productId ?? '').toUpperCase())) return main;
-      const data = (main.raw as { data?: unknown } | null)?.data;
-      if (!isVehicleTotal(data) || bdrpCode(data) === '1') return main;
-      const left = env.QUERY_REQUEST_TIMEOUT_MS - (Date.now() - startedAt) - 4000;
-      if (left < 8000) { log('warn', 'credify_gravame_skipped', { reason: 'sem_tempo', leftMs: left }); return main; }
-      const lien = new CredifyVehicleProvider({ ...this.o, path: '/gravame', consultaId: CREDIFY_CONSULTA_CODES['/gravame'], bodyTemplate: CREDIFY_DEFAULT_BODY, timeoutMs: Math.min(25000, left) });
-      let gravame: Record<string, unknown>;
-      try {
-        const out = await lien.run('PLATE', plate, undefined);
-        gravame = { data: (out.raw as { data?: unknown }).data };
-      } catch (e) {
-        gravame = (e as { code?: string }).code === 'NOT_FOUND' ? { notFound: true } : { unavailable: true };
-        if (gravame.unavailable) log('warn', 'credify_gravame_failed', { code: (e as { code?: string }).code ?? null });
-      }
-      return { ...main, raw: { ...(main.raw as Record<string, unknown>), gravame } };
-    } catch (e) {
-      log('warn', 'credify_gravame_error', { error: e instanceof Error ? e.message : 'unknown' });
+    const left = env.QUERY_REQUEST_TIMEOUT_MS - (Date.now() - startedAt) - 4000;
+    if (left < 8000) {
+      log('warn', `credify_${spec.key}_skipped`, { reason: 'sem_tempo', leftMs: left });
+      if (core) throw fail('PROVIDER_TIMEOUT');
       return main;
     }
+    const extra = new CredifyVehicleProvider({ ...this.o, path: spec.path, consultaId: CREDIFY_CONSULTA_CODES[spec.path], bodyTemplate: CREDIFY_DEFAULT_BODY, timeoutMs: Math.min(25000, left) });
+    let value: Record<string, unknown>;
+    try {
+      const out = await extra.run('PLATE', plate, undefined);
+      value = { data: (out.raw as { data?: unknown }).data };
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === 'NOT_FOUND') value = { notFound: true };
+      else {
+        log('warn', `credify_${spec.key}_failed`, { code: code ?? null });
+        if (core) throw e;
+        value = { unavailable: true };
+      }
+    }
+    return { ...main, raw: { ...(main.raw as Record<string, unknown>), [spec.key]: value } };
   }
 
   queryBy(type: SearchType, value: string): Promise<{ providerQueryId?: string; raw: unknown }> {
@@ -357,7 +359,9 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       const detail = `Credify recusou a consulta (código ${logonCode}): ${msg || 'limite ou saldo do logon'}.`;
       throw fail(logonCode === '14' ? 'DATA_PROVIDER_RATE_LIMITED' : logonCode === '19' ? 'DATA_PROVIDER_INVALID_RESPONSE' : 'DATA_PROVIDER_QUOTA_EXHAUSTED', detail);
     }
-    const outcome = providerOutcome(raw);
+    // /leilaoconjugado devolve texto livre ("veículo não apresentado na base de leilão") em DESCRICAORETORNO: só o CODIGO decide.
+    const lenientCode = this.o.path === '/leilaoconjugado' ? String(Array.isArray(raw?.RESPOSTA?.CODIGO) ? raw.RESPOSTA.CODIGO[0] : raw?.RESPOSTA?.CODIGO ?? '').trim() : undefined;
+    const outcome = lenientCode !== undefined ? (lenientCode === '2' ? { ok: false, notFound: true, reason: 'CODIGO=2' } : lenientCode === '3' ? { ok: false, reason: 'CODIGO=3' } : { ok: true }) : providerOutcome(raw);
     if (outcome.notFound) throw fail('NOT_FOUND', 'Placa não encontrada na Credify.');
     if (!outcome.ok) throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Credify respondeu com erro (${outcome.reason ?? 'sem motivo'}): CODIGO ${JSON.stringify(raw?.RESPOSTA?.CODIGO ?? null)}${raw?.RESPOSTA?.DADOS?.MSG ? `; ${String(raw.RESPOSTA.DADOS.MSG)}` : ''}. Estrutura: ${describeShape(raw)}.`);
     const id = raw?.CONSULTA?.CODIGORESPOSTA ?? raw?.CONSULTA?.IDCONSULTA;

@@ -41,7 +41,7 @@ import { acceptContractAtCheckout, claimContractForOrder, previewPurchaseContrac
 import { INVALID_CODE, SEARCH_LABELS, SEARCH_TYPES, maskSearchValue, resolveSearchInput, type SearchType } from './searchKey.js';
 import { calculateAffiliateCommission, calculateCouponDiscount, couponHasCapacity, couponWindowIsOpen, effectiveQueryPriceCents, queryAmountAfterCoupon } from './commercial.js';
 import { publicVehicleResult, sanitizeAuditMetadata } from './privacy.js';
-import { NORMALIZER_VERSION, tierForProductCode, viewReport } from './report/normalizeV2.js';
+import { NORMALIZER_VERSION, tierForProductCode, viewReport, type ReportV2 } from './report/normalizeV2.js';
 import { defaultReportTemplate } from './reportEngine.js';
 import { renderVehiclePdf, type ReportMeta } from './report/pdf.js';
 import { renderVehicleHtml } from './report/printHtml.js';
@@ -2578,7 +2578,20 @@ api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), 
     // Uma consulta interna por placa/pacote por vez: clique duplo ou duas abas não geram duas consultas pagas.
     const output = await runExclusive(`admin-lookup:${parsed.data.plate}:${parsed.data.productId}`, () => performAdminLookup({ provider, plate: parsed.data.plate, productId: parsed.data.productId, productName: product.rows[0].name, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp }), env.QUERY_REQUEST_TIMEOUT_MS + 30_000);
     await audit(req.user!.id, 'ADMIN_LOOKUP', 'VEHICLE_QUERY', null, { plate: parsed.data.plate, productId: parsed.data.productId, provider: provider.name, status: 'SUCCESS', requestId: requestId(req) });
-    res.status(200).json({ ...output, result: { ...output.result, diagnostic: diagnostic(output.result) } });
+    // A consulta interna mostra o mesmo relatório do cliente (com o recorte do pacote) e já traz o PDF pronto, sem consultar o provedor de novo.
+    let report: ReportV2 | null = null; let pdfBase64: string | null = null; let pdfName: string | null = null;
+    try {
+      if (output.result.v2) {
+        const at = new Date(output.consultedAt);
+        const scope = scopeForProduct(parsed.data.productId, at);
+        report = viewReport(output.result.v2, { audience: 'client', tier: tierForProductCode(parsed.data.productId), sections: scope.sections, template: scope.template });
+        const base = (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '');
+        const meta: ReportMeta = { productName: `${product.rows[0].name} (consulta interna)`, verificationCode: 'INTERNA', verificationUrl: `${base}/validar`, consultedAt: at, resultHash: null, audience: 'client' };
+        pdfBase64 = (await renderVehiclePdf(report, meta)).toString('base64');
+        pdfName = `placa-na-mao-${parsed.data.plate}-${parsed.data.productId.toLowerCase()}.pdf`;
+      }
+    } catch (e) { log('warn', 'admin_lookup_pdf_failed', { error: e instanceof Error ? e.message : 'unknown' }); }
+    res.status(200).json({ ...output, result: { ...output.result, diagnostic: diagnostic(output.result) }, report, pdfBase64, pdfName });
   } catch (error) {
     const errorCode = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'PROVIDER_ERROR';
     const detail = error instanceof Error && typeof (error as { detail?: unknown }).detail === 'string' ? String((error as unknown as { detail: string }).detail).slice(0, 300) : undefined;

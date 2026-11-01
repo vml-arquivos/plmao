@@ -10,8 +10,9 @@
 import { CATALOG_BY_KEY, ENRICH_CATALOG, FIELD_CATALOG, SECTIONS, VT_CATALOG, type FieldDef, type SectionKey, type Tier } from './catalog.js';
 import { enrichmentExtras } from './enrichmentExtras.js';
 import { applyLien, gravameExtras, seizureExtra } from './gravame.js';
+import { leilaoExtras } from './leilao.js';
 import { applyJudicial, judicialExtras } from './judicial.js';
-import { adaptVehicleTotal, isVehicleTotal, vehicleTotalExtras, vehicleTotalOutcome } from './vehicleTotal.js';
+import { adaptVehicleTotal, isVehicleTotal, vehicleTotalExtras, vehicleTotalOutcome, type ReportTable } from './vehicleTotal.js';
 import { formatDocument, maskDocument, maskName, maskVehicleId, ownerIdentityEnabled } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
 
@@ -32,6 +33,8 @@ export interface ReportItem {
   display?: string | null;
   amountCents?: number;
   masked?: boolean;
+  /** quando o item é uma lista de registros (gravames, leilões, restrições judiciais): colunas e linhas */
+  table?: ReportTable;
   sensitivity: FieldDef['sensitivity'];
   tier: Tier;
   /** componente de outro total (ex.: multa por órgão): exibido, mas não somado */
@@ -220,17 +223,18 @@ export function buildReportV2(raw: unknown): ReportV2 {
     const extras = vehicleTotalExtras(raw);
     for (const def of VT_CATALOG) {
       const x = extras.get(def.key) ?? { state: 'NOT_PROVIDED' as const, value: null };
-      items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, ...(x.masked ? { masked: true } : {}), sensitivity: def.sensitivity, tier: def.tier, high: def.high && x.state === 'ALERT' ? true : undefined });
+      items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, ...(x.masked ? { masked: true } : {}), ...(x.table ? { table: x.table } : {}), sensitivity: def.sensitivity, tier: def.tier, high: def.high && x.state === 'ALERT' ? true : undefined });
     }
   }
   // Análises do sistema (chassi, quilometragem de referência, histórico e projeção da FIPE).
   const enr = enrichmentExtras(upper, raw);
   for (const [k, v] of gravameExtras(upper, raw)) enr.set(k, v);
   for (const [k, v] of judicialExtras(raw)) enr.set(k, v);
+  for (const [k, v] of leilaoExtras(raw)) enr.set(k, v);
   enr.set('RES_BUSCA_APREENSAO', seizureExtra(upper, raw));
   for (const def of ENRICH_CATALOG) {
     const x = enr.get(def.key) ?? { state: 'NOT_PROVIDED' as const, value: null };
-    items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, sensitivity: def.sensitivity, tier: def.tier, high: def.high && x.state === 'ALERT' ? true : undefined });
+    items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, ...(x.table ? { table: x.table } : {}), sensitivity: def.sensitivity, tier: def.tier, high: def.high && x.state === 'ALERT' ? true : undefined });
   }
   // Medidas zeradas (eixos, carga, CMT, PBT em carro de passeio) não informam nada: tratadas como ausentes.
   for (const k of ['EIXOS', 'CAPACIDADECARGA', 'CMT', 'PBT']) { const it = items.get(k); if (it && it.state !== 'NOT_PROVIDED' && /^0+([.,]0+)?$/.test(String(it.value ?? '').trim())) items.set(k, { ...it, state: 'NOT_PROVIDED', value: null, display: null }); }
@@ -391,7 +395,8 @@ export function viewReport(report: ReportV2, opts: { audience: Audience; tier: T
   const visibleAlerts = report.verdict.alerts.filter((a) => visible.has(a.key));
   const lockedAlertCount = report.verdict.alerts.length - visibleAlerts.length;
   const debtsAllowed = allow ? allow.has('DEBITOS') : opts.tier >= 2;
-  const debtsHidden = !debtsAllowed && (report.debts.hasDebt || report.debts.totalCents > 0);
+  // Produto sem a seção de débitos (ex.: Gravame, Leilão, Cadastral): nada de "débitos: nada consta", porque isso não foi consultado.
+  const debtsHidden = !debtsAllowed;
   let verdict = { ...report.verdict, alerts: visibleAlerts };
   if (lockedAlertCount > 0 && !visibleAlerts.length) {
     verdict = { level: 'ATTENTION', title: 'Há pontos de atenção fora deste plano', reason: `O provedor retornou ${lockedAlertCount === 1 ? 'um ponto de atenção' : `${lockedAlertCount} pontos de atenção`} que não são exibidos no plano contratado.`, alerts: [] };

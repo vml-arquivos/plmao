@@ -7,6 +7,11 @@ const esc = (v: unknown) => String(v ?? '').replaceAll('&', '&amp;').replaceAll(
 const VERDICT = { CLEAR: ['ok', 'Sem alertas'], ATTENTION: ['warn', 'Atenção'], HIGH_RISK: ['bad', 'Alto risco'], INCONCLUSIVE: ['neutral', 'Análise limitada'] } as const;
 
 function cell(i: ReportItem) {
+  if (i.table) {
+    const head = i.table.columns.map((c) => `<th>${esc(c)}</th>`).join('');
+    const body = i.table.rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c).replaceAll('\n', '<br>')}</td>`).join('')}</tr>`).join('');
+    return `<div class="cell wide ${i.state === 'ALERT' ? 'bad' : ''}"><span>${esc(i.label)}</span><table class="rt"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  }
   const cls = i.state === 'ALERT' ? 'bad' : i.state === 'CLEAR' ? 'ok' : '';
   return `<div class="cell ${cls}"><span>${esc(i.label)}</span><strong>${i.state !== 'INFO' ? '<i></i>' : ''}${esc(i.display ?? i.value ?? '').replaceAll('\n', '<br>')}</strong></div>`;
 }
@@ -49,6 +54,7 @@ section{margin-top:22px;break-inside:avoid-page}h2{display:flex;align-items:cent
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px}.cell{break-inside:avoid}.cell span{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em;font-weight:700}.cell strong{display:flex;align-items:center;gap:6px;font:600 14px "Plus Jakarta Sans",system-ui,sans-serif;color:var(--ink);word-break:break-word}
 .cell i{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}.cell.ok i{background:#fff;border:2px solid #262626}.cell.bad strong{font-weight:800}.cell.bad i{background:#111;border-radius:1px}
 table{width:100%;border-collapse:collapse}td{padding:7px 4px;border-bottom:1px solid var(--line)}td+td{text-align:right;font-weight:700}tr.total td{border:0;background:var(--soft);font-weight:800}tr.total td+td{color:var(--ink)}
+.cell.wide{grid-column:1/-1}table.rt{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px}table.rt th{background:#e9e9e9;color:var(--ink);text-align:left;padding:6px 6px;font-weight:700}table.rt td,table.rt td+td{padding:6px;border-bottom:1px solid var(--line);text-align:left;font-weight:500;vertical-align:top}table.rt tr{break-inside:avoid}
 .note{color:var(--muted);font-size:12px;margin:8px 0 0}.locked{margin-top:20px;padding:12px 14px;border-radius:10px;background:var(--soft);color:var(--violet);font-weight:600}
 footer{margin:26px 28px 24px;padding:14px 16px;background:var(--soft);border-radius:12px;font-size:11px;color:var(--muted)}footer b{color:var(--ink)}
 .print{display:inline-block;margin:0 0 16px;padding:10px 18px;border:0;border-radius:10px;background:var(--violet);color:#fff;font:700 14px "Plus Jakarta Sans",system-ui,sans-serif;cursor:pointer}

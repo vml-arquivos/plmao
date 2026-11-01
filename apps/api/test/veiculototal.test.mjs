@@ -167,8 +167,10 @@ test('leilão, roubo/furto e recall com registro trazem os detalhes da fonte; se
   x.RESPOSTA.CODIGO = ['1', '1', '2', '1', '1', '1', '1', '1'];
   const r = buildReportV2(x);
   const leilao = item(r, 'VT_LEILAO_DETALHES');
-  assert.ok(leilao && /Leiloeiro: LEILOES BRASIL/.test(leilao.display) && /Lote: 12/.test(leilao.display) && /30\/10\/2013/.test(leilao.display));
-  assert.ok(!/12345678900/.test(leilao.display), 'documento de pessoa não entra no relatório');
+  assert.ok(leilao?.table, 'leilão sai em tabela');
+  assert.deepEqual(leilao.table.columns.slice(0, 3), ['Data', 'Lote', 'Leiloeiro']);
+  assert.deepEqual(leilao.table.rows[0].slice(0, 3), ['30/10/2013', '12', 'LEILOES BRASIL']);
+  assert.ok(!/12345678900/.test(JSON.stringify(leilao.table)), 'documento de pessoa não entra no relatório');
   assert.match(item(r, 'VT_RECALL_DETALHES').display, /AIRBAG/);
   assert.equal(item(r, 'VT_LEILAO').state, 'ALERT');
 });
