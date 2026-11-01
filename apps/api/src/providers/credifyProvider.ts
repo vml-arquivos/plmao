@@ -1,7 +1,7 @@
 import { env, CREDIFY_CONSULTA_CODES, CREDIFY_DEFAULT_BODY, CREDIFY_DEFAULT_PATH, CREDIFY_PLATE_PATHS, CREDIFY_PRODUCT_PATHS } from '../config.js';
 import type { VehicleDataProvider } from '../types.js';
 import { providerOutcome } from '../report/normalizeV2.js';
-import { describeShape } from '../report/vehicleTotal.js';
+import { bdrpCode, describeShape, isVehicleTotal } from '../report/vehicleTotal.js';
 import { CallBudget } from '../lib/providerGuard.js';
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
 import { log } from '../lib/http.js';
@@ -216,7 +216,39 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     return JSON.stringify(fill(parsed));
   }
 
-  queryByPlate(plate: string, ctx?: { productId?: string }): Promise<{ providerQueryId?: string; raw: unknown }> { return this.run('PLATE', plate, ctx?.productId); }
+  async queryByPlate(plate: string, ctx?: { productId?: string }): Promise<{ providerQueryId?: string; raw: unknown }> {
+    const startedAt = Date.now();
+    const main = await this.run('PLATE', plate, ctx?.productId);
+    return this.withLien(main, plate, ctx?.productId, startedAt);
+  }
+
+  /**
+   * Completa: se a base de gravame do Veículo Total veio sem dados, complementa com o /gravame (533): banco, CNPJ, contrato e datas.
+   * Uma chamada a mais, só nesse caso, com prazo curto para nunca estourar o tempo da consulta; qualquer falha apenas deixa o gravame como "não informado".
+   */
+  private async withLien(main: { providerQueryId?: string; raw: unknown }, plate: string, productId: string | undefined, startedAt: number): Promise<{ providerQueryId?: string; raw: unknown }> {
+    try {
+      if (!env.CREDIFY_GRAVAME_SUPPLEMENT || this.o.path || env.CREDIFY_QUERY_PATH) return main;
+      if (!['COMPLETE', 'PREMIUM'].includes(String(productId ?? '').toUpperCase())) return main;
+      const data = (main.raw as { data?: unknown } | null)?.data;
+      if (!isVehicleTotal(data) || bdrpCode(data) === '1') return main;
+      const left = env.QUERY_REQUEST_TIMEOUT_MS - (Date.now() - startedAt) - 4000;
+      if (left < 8000) { log('warn', 'credify_gravame_skipped', { reason: 'sem_tempo', leftMs: left }); return main; }
+      const lien = new CredifyVehicleProvider({ ...this.o, path: '/gravame', consultaId: CREDIFY_CONSULTA_CODES['/gravame'], bodyTemplate: CREDIFY_DEFAULT_BODY, timeoutMs: Math.min(25000, left) });
+      let gravame: Record<string, unknown>;
+      try {
+        const out = await lien.run('PLATE', plate, undefined);
+        gravame = { data: (out.raw as { data?: unknown }).data };
+      } catch (e) {
+        gravame = (e as { code?: string }).code === 'NOT_FOUND' ? { notFound: true } : { unavailable: true };
+        if (gravame.unavailable) log('warn', 'credify_gravame_failed', { code: (e as { code?: string }).code ?? null });
+      }
+      return { ...main, raw: { ...(main.raw as Record<string, unknown>), gravame } };
+    } catch (e) {
+      log('warn', 'credify_gravame_error', { error: e instanceof Error ? e.message : 'unknown' });
+      return main;
+    }
+  }
 
   queryBy(type: SearchType, value: string): Promise<{ providerQueryId?: string; raw: unknown }> {
     if (type !== 'PLATE' && !this.supportedSearchTypes.includes(type)) throw fail('SEARCH_TYPE_NOT_SUPPORTED');

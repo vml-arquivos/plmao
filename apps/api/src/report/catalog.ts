@@ -195,6 +195,11 @@ export const VT_CATALOG: FieldDef[] = [
  * Todos opcionais: só aparecem quando há como calcular.
  */
 export const ENRICH_CATALOG: FieldDef[] = [
+  // Gravame em linguagem direta: situação, banco/contrato/tempo, prazo restante e aviso sobre valores.
+  f('GR_SITUACAO', 'Alienação fiduciária / gravame', 'GRAVAME', 'text', 2),
+  f('GR_DETALHES', 'Gravames: banco, contrato e tempo', 'GRAVAME', 'text', 2, { optional: true }),
+  f('GR_PRAZO', 'Prazo restante do contrato', 'GRAVAME', 'text', 2, { optional: true }),
+  f('GR_VALORES', 'Saldo devedor, parcelas e valor financiado', 'GRAVAME', 'text', 2, { optional: true }),
   f('EN_FIPE_VAR_12M', 'Variação da FIPE em 12 meses', 'FIPE', 'text', 2, { optional: true }),
   f('EN_FIPE_VAR_24M', 'Variação da FIPE em 24 meses', 'FIPE', 'text', 2, { optional: true }),
   f('EN_FIPE_SERIE', 'Histórico mensal da FIPE (24 meses)', 'FIPE', 'text', 2, { optional: true }),

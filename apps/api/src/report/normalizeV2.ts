@@ -9,6 +9,7 @@
  */
 import { CATALOG_BY_KEY, ENRICH_CATALOG, FIELD_CATALOG, SECTIONS, VT_CATALOG, type FieldDef, type SectionKey, type Tier } from './catalog.js';
 import { enrichmentExtras } from './enrichmentExtras.js';
+import { applyLien, gravameExtras } from './gravame.js';
 import { adaptVehicleTotal, isVehicleTotal, vehicleTotalExtras, vehicleTotalOutcome } from './vehicleTotal.js';
 import { formatDocument, maskDocument, maskName, maskVehicleId, ownerIdentityEnabled } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
@@ -201,6 +202,9 @@ export function buildReportV2(raw: unknown): ReportV2 {
   if (isEmptyValue(upper.VEIANOFABR)) upper.VEIANOFABR = upper.VEIANOFAB ?? upper.ANOFABRICACAO;
   if (isEmptyValue(upper.NUMERO_CAIXACAMBIO)) upper.NUMERO_CAIXACAMBIO = upper.NUMEROCAIXACAMBIO;
 
+  // Complemento do /gravame (quando a base de gravame do Veículo Total veio vazia): preenche banco, CNPJ, contrato e datas.
+  applyLien(upper, raw);
+
   const plate = scalar(upper.PLACA).toUpperCase();
   if (!plate) throw new Error('Resposta do provedor inválida');
   if (!scalar(upper.MARCA) && !scalar(upper.MODELO) && !scalar(upper.MARCAMODELOCOMPLETO)) throw new Error('Resposta do provedor inválida');
@@ -218,6 +222,7 @@ export function buildReportV2(raw: unknown): ReportV2 {
   }
   // Análises do sistema (chassi, quilometragem de referência, histórico e projeção da FIPE).
   const enr = enrichmentExtras(upper, raw);
+  for (const [k, v] of gravameExtras(upper, raw)) enr.set(k, v);
   for (const def of ENRICH_CATALOG) {
     const x = enr.get(def.key) ?? { state: 'NOT_PROVIDED' as const, value: null };
     items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, sensitivity: def.sensitivity, tier: def.tier });

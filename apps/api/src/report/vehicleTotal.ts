@@ -53,6 +53,12 @@ function blockCode(r: Rec, name: BlockName): string | undefined {
 const block = (r: Rec, name: BlockName): Rec | undefined => (isRec(r[name]) ? upperKeys(r[name] as Rec) : undefined);
 const records = (b: Rec | undefined): Rec[] => b ? Object.entries(b).filter(([k, v]) => /^REGISTRO_\d+$/.test(k) && isRec(v)).sort((a, c) => Number(a[0].slice(9)) - Number(c[0].slice(9))).map(([, v]) => upperKeys(v as Rec)) : [];
 
+/** Código da base de gravame (VEICULOSBDRP) no Veículo Total: '1' = há dados; outro valor = sem dados ou erro; undefined = não é Veículo Total. */
+export function bdrpCode(raw: unknown): string | undefined {
+  const r = findResposta(raw);
+  return r && Array.isArray(r.CODIGO) ? blockCode(r, 'VEICULOSBDRP') : undefined;
+}
+
 export interface VtOutcome { ok: boolean; notFound?: boolean; reason?: string }
 
 /** ok = dá para montar o relatório; notFound = a placa não existe nas bases; senão a resposta é inválida (estorno). */
