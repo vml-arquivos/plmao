@@ -43,4 +43,20 @@ describe('relatórios antigos mascarados são refeitos em claro', integration, (
     assert.match(row.n, /RES_BUSCA_APREENSAO/);
     assert.match(row.n, /GR_SITUACAO/);
   });
+
+  it('consulta antiga é completada com o gravame detalhado (banco, CNPJ, contrato e data) uma única vez', async () => {
+    const { refreshQueryGravame, canFetchSupplement } = await import('../dist/lib/lienRefresh.js');
+    const lien = { NUMERO_RESTRICAO: '777', DATA_RESTRICAO: '2023-03-15', ESTADO_RESTRICAO: 'SP', STATUS: 'ATIVO', CODIGO_AGENTE: '33', NOME_AGENTE: 'BANCO DO BRASIL S.A.', DOCUMENTO_AGENTE: '00000000000191', DATA_CONTRATO: '2023-03-10', ESTADO_CONTRATO: 'SP', NUMERO_CONTRATO: 'CT-1' };
+    let calls = 0;
+    const source = { fetchSupplement: async (plate, kind) => { calls += 1; assert.equal(kind, 'gravame'); assert.equal(plate, 'DEV1B11'); return { data: { CONSULTA: {}, RESPOSTA: { CODIGO: '1', GRAVAME: { GRAVAMES: { REGISTRO_1: lien } } } } }; } };
+    assert.ok(canFetchSupplement(source)); assert.ok(!canFetchSupplement({}));
+    assert.equal(await refreshQueryGravame(queryId, source, null), 'UPDATED');
+    const n = (await pool.query('SELECT normalized::text AS n FROM vehicle_query_results WHERE query_id=$1', [queryId])).rows[0].n;
+    assert.match(n, /BANCO DO BRASIL S\.A\./); assert.match(n, /CT-1/); assert.match(n, /15\/03\/2023/);
+    assert.equal(await refreshQueryGravame(queryId, source, null), 'ALREADY');
+    assert.equal(calls, 1, 'não paga duas vezes');
+    const failing = { fetchSupplement: async () => { throw new Error('fora do ar'); } };
+    await pool.query("UPDATE vehicle_query_results SET raw_enc=raw_enc WHERE query_id=$1", [queryId]);
+    assert.equal(await refreshQueryGravame('00000000-0000-0000-0000-000000000000', failing, null), 'NOT_ELIGIBLE');
+  });
 });

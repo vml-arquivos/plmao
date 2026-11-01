@@ -284,6 +284,22 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     return { ...main, raw: { ...(main.raw as Record<string, unknown>), [spec.key]: value } };
   }
 
+  /**
+   * Consulta avulsa de uma base complementar (gravame, renajud, leilão) para uma placa: usada para completar consultas já feitas.
+   * Devolve { data } com a resposta, { notFound: true } quando a base não tem o veículo; qualquer falha é lançada (nada é gravado).
+   */
+  async fetchSupplement(plate: string, kind: 'gravame' | 'renajud' | 'leilao'): Promise<Record<string, unknown>> {
+    const path = { gravame: '/gravame', renajud: '/renajud', leilao: '/leilaoconjugado' }[kind];
+    const extra = new CredifyVehicleProvider({ ...this.o, path, consultaId: CREDIFY_CONSULTA_CODES[path], bodyTemplate: CREDIFY_DEFAULT_BODY, timeoutMs: Math.min(25000, env.QUERY_REQUEST_TIMEOUT_MS) });
+    try {
+      const out = await extra.run('PLATE', plate, undefined);
+      return { data: (out.raw as { data?: unknown }).data };
+    } catch (e) {
+      if ((e as { code?: string }).code === 'NOT_FOUND') return { notFound: true };
+      throw e;
+    }
+  }
+
   queryBy(type: SearchType, value: string): Promise<{ providerQueryId?: string; raw: unknown }> {
     if (type !== 'PLATE' && !this.supportedSearchTypes.includes(type)) throw fail('SEARCH_TYPE_NOT_SUPPORTED');
     return this.run(type, value);

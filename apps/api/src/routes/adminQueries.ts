@@ -10,6 +10,9 @@ import { extractReturn, viewReport, type ReportV2 } from '../report/normalizeV2.
 import type { NormalizedVehicle } from '../types.js';
 import { renderVehiclePdf, type ReportMeta } from '../report/pdf.js';
 import { env } from '../config.js';
+import { getProvider } from '../providers/index.js';
+import { canFetchSupplement, queriesMissingLien, refreshQueryGravame } from '../lib/lienRefresh.js';
+import { runExclusive } from '../lib/providerGuard.js';
 
 /**
  * Consultas vistas pela equipe (LGPD): relatório com dados pessoais mascarados e revelação
@@ -19,6 +22,47 @@ export const adminQueriesRouter = Router();
 adminQueriesRouter.use(adminAuth);
 
 export const REVEALABLE_FIELDS = ['PRONOME', 'PRONOMEANTERIOR', 'CPF_CNPJ_PROPRIETARIO', 'CPFCNPJFATURADO', 'CPFCNPJCOMPRADOR', 'CHASSI', 'RENAVAM', 'MOTOR'] as const;
+
+/**
+ * Completa consultas já feitas com o gravame detalhado (Credify /gravame, uma chamada paga por consulta).
+ * Sem "confirm", só informa quantas consultas precisam e quanto custa. Com "confirm", atualiza até "max" (padrão 25, teto 100) por vez.
+ */
+adminQueriesRouter.post('/refresh-gravame', requirePermission('VIEW_SENSITIVE_DATA'), asyncRoute(async (req, res) => {
+  const parsed = z.object({ confirm: z.boolean().default(false), max: z.number().int().min(1).max(100).default(25) }).safeParse(req.body ?? {});
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const pending = await queriesMissingLien();
+  if (!parsed.data.confirm) { res.json({ pending: pending.length }); return; }
+  const provider = getProvider();
+  if (!canFetchSupplement(provider)) throw appError('PROVIDER_NO_SUPPLEMENT', { code: 'PROVIDER_NO_SUPPLEMENT', http: 409, expose: true });
+  const batch = pending.slice(0, parsed.data.max);
+  let updated = 0; let failed = 0; let stopped: string | null = null;
+  for (const id of batch) {
+    try {
+      const out = await runExclusive(`lien-refresh:${id}`, () => refreshQueryGravame(id, provider, req.user!.id));
+      if (out === 'UPDATED') updated += 1;
+    } catch (e) {
+      failed += 1;
+      const code = (e as { code?: string }).code ?? 'ERRO';
+      // Limite de segurança, saldo ou limite da Credify: não adianta continuar.
+      if (/BUDGET|QUOTA|RATE_LIMITED/.test(code)) { stopped = code; break; }
+    }
+  }
+  await audit(req.user!.id, 'QUERIES_GRAVAME_REFRESH_BATCH', 'VEHICLE_QUERY', null, { updated, failed, stopped, requestId: requestId(req) });
+  res.json({ updated, failed, stopped, remaining: Math.max(0, pending.length - updated) });
+}));
+
+adminQueriesRouter.post('/:id/refresh-gravame', requirePermission('VIEW_SENSITIVE_DATA'), asyncRoute(async (req, res) => {
+  const provider = getProvider();
+  if (!canFetchSupplement(provider)) throw appError('PROVIDER_NO_SUPPLEMENT', { code: 'PROVIDER_NO_SUPPLEMENT', http: 409, expose: true });
+  try {
+    const out = await runExclusive(`lien-refresh:${req.params.id}`, () => refreshQueryGravame(String(req.params.id), provider, req.user!.id));
+    res.json({ result: out });
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    if (code === 'QUERY_IN_PROGRESS') throw e;
+    throw appError('Não foi possível buscar o gravame agora. Nada foi alterado; tente novamente em instantes.', { code: code ?? 'PROVIDER_ERROR', http: 424, expose: true, showMessage: true });
+  }
+}));
 
 adminQueriesRouter.get('/:id', requirePermission('VIEW_QUERIES'), asyncRoute(async (req, res) => {
   const row = await pool.query(`SELECT q.id,q.plate,q.status,q.price_cents,q.charge_source,q.provider,q.source,q.created_at,q.completed_at,q.error_code,q.error_message,

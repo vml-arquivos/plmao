@@ -21,10 +21,11 @@ export function QueriesList() {
   const [status, setStatus] = useState('');
   const [type, setType] = useState('');
   const [lookup, setLookup] = useState(false);
+  const [lien, setLien] = useState(false);
   const rows = useMemo(() => (list.data ?? []).filter((r) => (!status || r.status === status) && (!type || r.customerType === type) && (!q || `${r.plate} ${r.customer.email} ${r.customer.name}`.toLowerCase().includes(q.toLowerCase()))), [list.data, q, status]);
   return (
     <>
-      <PageHead title="Consultas" sub="Últimas 300 consultas. Dados pessoais ficam mascarados; a revelação é motivada e auditada." actions={can('VIEW_SENSITIVE_DATA') && <Button variant="primary" icon="search" onClick={() => setLookup(true)}>Consulta interna</Button>} />
+      <PageHead title="Consultas" sub="Últimas 300 consultas. Dados pessoais ficam mascarados; a revelação é motivada e auditada." actions={can('VIEW_SENSITIVE_DATA') && <><Button icon="refresh" onClick={() => setLien(true)}>Atualizar gravames</Button><Button variant="primary" icon="search" onClick={() => setLookup(true)}>Consulta interna</Button></>} />
       <div className="toolbar">
         <div className="grow"><Input icon="search" placeholder="Buscar por placa, nome ou e-mail" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar" /></div>
         <Select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">Todos os status</option>{Object.entries(QUERY_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select>
@@ -44,7 +45,35 @@ export function QueriesList() {
         </tbody></table></div>
       )}
       {lookup && <LookupModal onClose={() => setLookup(false)} />}
+      {lien && <LienRefreshModal onClose={() => { setLien(false); list.reload(); }} />}
     </>
+  );
+}
+
+/** Completa consultas antigas com o gravame detalhado (banco, CNPJ, contrato, datas e histórico), a partir do dado já guardado. */
+function LienRefreshModal({ onClose }: { onClose: () => void }) {
+  const toast = useToast();
+  const info = useAsync(() => api.post<{ pending: number }>('/admin/queries/refresh-gravame', { confirm: false }));
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<{ updated: number; failed: number; stopped: string | null; remaining: number } | null>(null);
+  async function go() {
+    setBusy(true);
+    try { setDone(await api.post('/admin/queries/refresh-gravame', { confirm: true, max: 25 })); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  }
+  const d = info.data;
+  return (
+    <Modal title="Atualizar gravames das consultas" onClose={onClose} footer={done ? <Button variant="primary" onClick={onClose}>Fechar</Button> : <><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={busy} disabled={!d || d.pending === 0} onClick={() => void go()}>Atualizar até 25</Button></>}>
+      <div className="stack">
+        {info.loading && !d ? <PageLoading /> : info.error ? <ErrorState error={info.error} onRetry={info.reload} /> : done ? (
+          <Alert tone={done.failed ? 'warn' : 'info'} title="Concluído">{done.updated} consulta(s) atualizada(s){done.failed ? `, ${done.failed} com falha (nada foi alterado nelas)` : ''}{done.stopped ? `. Parou por limite da Credify (${done.stopped})` : ''}. Restam {done.remaining}.</Alert>
+        ) : d && d.pending === 0 ? <Alert tone="info">Todas as consultas com gravame já estão completas.</Alert> : d ? (
+          <>
+            <p>{d.pending} consulta(s) com gravame ainda não têm banco, CNPJ, contrato e datas completos. A atualização busca o gravame na Credify e refaz o relatório, sem cobrar o cliente.</p>
+            <Alert tone="warn" title="Consome o provedor">Cada consulta atualizada faz uma chamada paga à Credify. Cada clique atualiza no máximo 25.</Alert>
+          </>
+        ) : null}
+      </div>
+    </Modal>
   );
 }
 
@@ -125,6 +154,12 @@ export function QueryDetailPage() {
     const tab = window.open('about:blank', '_blank');
     try { const href = await api.blobUrl(`/admin/queries/${qid}/report/pdf`); if (tab) tab.location.href = href; else window.location.assign(href); } catch (e) { tab?.close(); toast.error(errorMessage(e)); }
   }
+  async function refreshLien(qid: string) {
+    try {
+      const r = await api.post<{ result: string }>(`/admin/queries/${qid}/refresh-gravame`, {});
+      if (r.result === 'UPDATED') { toast.ok('Gravame atualizado.'); d.reload(); } else if (r.result === 'ALREADY') toast.ok('Esta consulta já tem o gravame completo.'); else toast.error('Esta consulta não tem o dado bruto guardado para atualizar.');
+    } catch (e) { toast.error(errorMessage(e)); }
+  }
   async function savePdf(qid: string) {
     try { await api.download(`/admin/queries/${qid}/report/pdf`, `placa-na-mao-${qid.slice(0, 8)}.pdf`); } catch (e) { toast.error(errorMessage(e)); }
   }
@@ -134,7 +169,7 @@ export function QueryDetailPage() {
   const x = d.data;
   return (
     <>
-      <PageHead title={`Consulta ${formatPlate(x.plate)}`} sub={<Link to="/consultas">← Voltar às consultas</Link>} actions={<>{x.report && <Button icon="file-text" onClick={() => void openPdf(x.id)}>Visualizar PDF</Button>}{x.report && <Button icon="download" onClick={() => void savePdf(x.id)}>Baixar PDF</Button>}{can('REVEAL_PII') && x.hasRaw && <Button icon="eye" onClick={() => setReveal(true)}>Revelar dado protegido</Button>}</>} />
+      <PageHead title={`Consulta ${formatPlate(x.plate)}`} sub={<Link to="/consultas">← Voltar às consultas</Link>} actions={<>{x.report && <Button icon="file-text" onClick={() => void openPdf(x.id)}>Visualizar PDF</Button>}{x.report && <Button icon="download" onClick={() => void savePdf(x.id)}>Baixar PDF</Button>}{x.report && x.hasRaw && can('VIEW_SENSITIVE_DATA') && <Button icon="refresh" onClick={() => void refreshLien(x.id)}>Atualizar gravame</Button>}{can('REVEAL_PII') && x.hasRaw && <Button icon="eye" onClick={() => setReveal(true)}>Revelar dado protegido</Button>}</>} />
       <div className="adm-split">
         <Card title="Detalhes">
           <div className="row"><PlateBadge plate={x.plate} size="sm" /><QueryStatusBadge status={x.status} /></div>
