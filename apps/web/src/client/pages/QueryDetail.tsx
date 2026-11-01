@@ -116,6 +116,7 @@ export default function QueryDetail() {
             <Button icon="link" onClick={() => copy(envelope.verificationUrl)}>Link de validação</Button>
             <Button icon="external-link" onClick={() => setShare(true)}>Enviar ao comprador</Button>
             <Button icon="search" onClick={() => setAdCheck(true)}>Conferir anúncio</Button>
+            <LinkButton to={`/app/comparar-consultas?a=${id}`} icon="bar-chart">Comparar com outra</LinkButton>
           </>}
           upsell={<div className="row-between"><span><b>Há pontos de atenção fora do seu plano.</b> A consulta completa mostra todos os detalhes.</span><LinkButton to={`/app/consultar?placa=${summary.plate}&produto=COMPLETE`} variant="primary" size="sm" iconRight="arrow-right">Consulta completa</LinkButton></div>}
         />

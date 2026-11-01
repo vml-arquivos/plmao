@@ -28,6 +28,8 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const PaidQueryReturn = lazy(() => import('./pages/PaidQueryReturn'));
 const NewQuery = lazy(() => import('./pages/NewQuery'));
 const History = lazy(() => import('./pages/History'));
+const Batch = lazy(() => import('./pages/Batch'));
+const CompareQueries = lazy(() => import('./pages/CompareQueries'));
 const QueryDetail = lazy(() => import('./pages/QueryDetail'));
 const Wallet = lazy(() => import('./pages/Wallet'));
 const Partner = lazy(() => import('./pages/Partner'));
@@ -137,6 +139,8 @@ export default function App() {
             <Route path="consultar" element={<NewQuery />} />
             <Route path="consultar/pedido/:orderId" element={<PaidQueryReturn />} />
             <Route path="historico" element={<History />} />
+            <Route path="lote" element={<Batch />} />
+            <Route path="comparar-consultas" element={<CompareQueries />} />
             <Route path="simulacoes" element={<Simulations />} />
             <Route path="consulta/:id" element={<QueryDetail />} />
             <Route path="carteira" element={<Wallet />} />

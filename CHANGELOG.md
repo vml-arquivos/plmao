@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.21.0 — Consulta em lote e comparação de consultas
+
+- Consulta em lote (`/app/lote`): cola até 30 placas, escolhe o tipo de consulta e roda tudo com o saldo da conta. Cada placa é uma consulta normal, com a mesma cobrança, estorno e relatório, e chave de idempotência (repetir não cobra de novo). Mostra o total antes, ignora repetidas, marca inválidas e para sozinha se o saldo acabar. Resultado em tabela (veredito, débitos, gravame, leilão) e planilha CSV pronta para Excel.
+- Comparar consultas (`/app/comparar-consultas`): duas consultas já feitas lado a lado, com destaque do que difere. Também pelo botão "Comparar com outra" na consulta. Sem cobrança.
+- Atalhos "Em lote" e "Comparar" na lista de Consultas.
+- Sem migração nova e sem variável nova.
+
 ## 1.20.1 — Dados do veículo e do proprietário sempre completos
 
 - Fim de qualquer máscara nos dados do veículo e do proprietário: nome, CPF/CNPJ, placa, chassi, RENAVAM e motor aparecem inteiros na tela, no PDF, na impressão, na visão da equipe e no link enviado ao comprador.

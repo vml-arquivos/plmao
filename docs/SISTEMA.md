@@ -1,6 +1,6 @@
 # Placa na Mão — o sistema por inteiro
 
-Documento de referência da versão 1.20.1. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
+Documento de referência da versão 1.21.0. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
 
 Documentos de apoio: `ARCHITECTURE.md` (módulos), `DATABASE.md`, `SECURITY.md`, `DEPLOY-COOLIFY.md`, `TESTING.md`, `PRODUCT.md`, `docs/COMPARATIVO-CONCORRENTES.md` e `CHANGELOG.md`.
 
@@ -114,6 +114,8 @@ O parecer e a lista são indicativos calculados só com o que a consulta trouxe.
 | Consultar | Nova consulta por placa (ou chassi, quando o produto permite), com escolha do produto |
 | Histórico | Todas as consultas, com PDF, impressão e link de validação |
 | Consulta | Relatório completo na tela, PDF (ver e baixar), imprimir, **Enviar ao comprador**, **Conferir anúncio**, guardar na garagem, informar dado incorreto |
+| Em lote | Até 30 placas de uma vez, cada uma como consulta normal cobrada do saldo; tabela com veredito, débitos, gravame e leilão, e planilha (CSV) para Excel |
+| Comparar consultas | Duas consultas já feitas lado a lado, destacando o que difere; sem cobrança |
 | Simulações | Financiamentos simulados e salvos |
 | Carteira | Saldo, recarga por Pix ou cartão, extrato em CSV |
 | Garagem | Até 10 veículos, quilometragem, lembretes, manutenções e gastos, exportação em JSON e **avisos por e-mail** |
@@ -121,6 +123,14 @@ O parecer e a lista são indicativos calculados só com o que a consulta trouxe.
 | Parceiro | Indique e ganhe (seção 9) |
 | Conta | Dados, senha, segurança, privacidade |
 | Suporte | Conversa com a equipe e assistente automático |
+
+### Consulta em lote (novo na 1.21)
+
+Em `/app/lote` a pessoa cola placas (uma por linha ou separadas por vírgula, espaço ou ponto e vírgula), escolhe o tipo de consulta e vê o total e o saldo. O lote roda duas consultas por vez, cada uma pela mesma rota de uma consulta comum (`POST /api/queries`), com chave de idempotência por placa: repetir não cobra duas vezes. Placas repetidas são ignoradas e inválidas aparecem marcadas. Se o saldo acabar, as demais ficam como "não consultadas" e nada é cobrado por elas. Consulta que falha é estornada pelas regras de sempre. O aceite do contrato e da privacidade é pedido uma vez, se ainda não existir. O resultado sai em tabela e em planilha CSV (separador ponto e vírgula, com acentos corretos para o Excel). Não há tela nem tabela nova no servidor: o lote é só uma forma de usar as consultas existentes.
+
+### Comparar consultas (novo na 1.21)
+
+Em `/app/comparar-consultas` (ou pelo botão "Comparar com outra" na consulta) a pessoa escolhe duas consultas concluídas e vê, lado a lado: veículo, ano, cor, veredito, valor FIPE, débitos, risco na revenda e cada verificação do "Antes de pagar". As linhas diferentes ficam em destaque. Usa só relatórios já gerados, sem consulta nova e sem cobrança. "Não consultado" é mostrado como tal.
 
 ### Enviar ao comprador (novo)
 
@@ -270,7 +280,7 @@ As demais continuam em `.env.example`. Nenhuma variável nova tem valor secreto.
 - `npm run build` compila API e web.
 - Suíte de API: `TEST_DATABASE_URL=postgresql://...  node --test --test-concurrency=1 apps/api/test/*.test.mjs` (usa um PostgreSQL de teste isolado).
 - `npm run release:source-check` confere o pacote de entrega.
-- Testes novos da 1.20: `advice`, `share-link`, `ad-check`, `garage-alerts`, além de `fipe-match` da 1.19.8.
+- Testes novos da 1.20: `advice`, `share-link`, `ad-check`, `garage-alerts`, além de `fipe-match` da 1.19.8. Da 1.21: `batch-contract` (o que a consulta em lote usa da API).
 - Depois de publicar: fazer uma consulta real de cada produto e conferir (1) que cada pacote mostra só o que promete, (2) o gravame com banco e contrato, (3) a FIPE com projeção, (4) abrir um link de comprador em janela anônima e confirmar que não há CPF.
 
 ---
