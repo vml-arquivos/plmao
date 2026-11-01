@@ -56,6 +56,10 @@ import { publicVehiclesRouter } from './routes/vehicles.js';
 import { fipeBrands, fipeModels, fipeYears, fipeSearch, getFipePrice } from './lib/fipeLookup.js';
 import { adminSimulatorRouter } from './routes/adminSimulator.js';
 import { garageRouter } from './routes/garage.js';
+import { watchesRouter } from './routes/watches.js';
+import { adminResultsRouter } from './routes/adminResults.js';
+import { renderDossierPdf } from './report/dossier.js';
+import { startPlateWatch } from './lib/plateWatch.js';
 import { dealerRouter } from './routes/dealer.js';
 import { loadMembership } from './dealer/context.js';
 import { dealerLeadsRouter } from './routes/dealerLeads.js';
@@ -99,6 +103,7 @@ await refreshProductSections();
 startProductSectionsRefresh();
 startEmailWorker();
 startGarageAlerts(log);
+startPlateWatch((input) => runVehicleQuery(input), log);
 startFiscalWorker();
 startPaymentSyncWorker();
 
@@ -119,6 +124,7 @@ api.use('/admin', adminCnpjRouter);
 api.use('/admin', adminContractsRouter);
 api.use('/admin', adminPaymentOpsRouter);
 api.use('/admin', adminDealersRouter);
+api.use('/admin', adminResultsRouter);
 api.use('/admin', adminFiscalQueueRouter);
 api.use('/fiscal', fiscalPublicRouter);
 api.use('/admin', supportAdminRouter);
@@ -1399,6 +1405,7 @@ api.post('/vehicles/by-plate', auth, asyncRoute(async (req, res) => {
 api.use(publicVehiclesRouter);
 api.use(simulatorRouter);
 api.use(garageRouter);
+api.use(watchesRouter);
 api.use(dealerPublicRouter);
 api.use(dealerRouter);
 api.use(dealerLeadsRouter);
@@ -1782,6 +1789,33 @@ api.get('/queries/:id/report/print', auth, requirePermission('VIEW_HISTORY'), as
   const { report, meta } = await vehicleReportForQuery(String(req.params.id), req.user!.id);
   await audit(req.user!.id, 'PRINT_QUERY_REPORT', 'VEHICLE_QUERY', String(req.params.id), { requestId: requestId(req) });
   res.type('html').send(renderVehicleHtml(report, meta));
+}));
+
+/**
+ * Dossiê da placa: reúne em um PDF os relatórios das consultas da própria pessoa para aquela placa (o mais recente de cada tipo, até 6),
+ * com uma capa de resumo. Não consulta o provedor de novo e não cobra.
+ */
+const DOSSIER_MAX = 6;
+api.get('/vehicles/:plate/dossier.pdf', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const plate = plateSchema.safeParse(req.params.plate);
+  if (!plate.success) throw appError('INVALID_PLATE', { code: 'INVALID_PLATE', http: 400, expose: true });
+  const rows = await pool.query(`SELECT DISTINCT ON (q.product_id) q.id,coalesce(q.completed_at,q.created_at) AS at FROM vehicle_queries q JOIN vehicle_query_results r ON r.query_id=q.id
+    WHERE q.user_id=$1 AND q.plate=$2 AND q.status='SUCCESS' AND r.normalized->'v2' IS NOT NULL ORDER BY q.product_id, coalesce(q.completed_at,q.created_at) DESC`, [req.user!.id, plate.data]);
+  if (!rows.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
+  const newest = [...rows.rows].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, DOSSIER_MAX);
+  const entries = [];
+  let vehicle = '';
+  for (const r of newest) {
+    const { report, meta } = await vehicleReportForQuery(String(r.id), req.user!.id);
+    if (!vehicle) vehicle = [report.headline.brand, report.headline.model ?? report.headline.fullModel, report.headline.modelYear ?? report.headline.manufactureYear, report.headline.color].filter(Boolean).join(' · ');
+    entries.push({ productName: meta.productName, consultedAt: meta.consultedAt, code: meta.verificationCode, verdict: report.verdict.title, checks: report.advice?.checks ?? [], pdf: await renderVehiclePdf(report, meta) });
+  }
+  const base = (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '');
+  const pdf = await renderDossierPdf({ plate: plate.data, vehicle, entries, generatedAt: new Date(), validateUrl: `${base}/validar` });
+  await audit(req.user!.id, 'DOSSIER_PDF', 'VEHICLE', null, { plate: plate.data, queries: entries.length, requestId: requestId(req) });
+  res.setHeader('Content-Disposition', `attachment; filename="dossie-${plate.data}.pdf"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.type('application/pdf').send(pdf);
 }));
 
 /**

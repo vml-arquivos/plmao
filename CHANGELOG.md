@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.23.0 — Monitoramento de placa, meus veículos, dossiê em PDF e resultados da equipe
+
+- Monitoramento de placa (`/app/monitoramento`): escolhe placa, tipo de consulta e intervalo (7, 15 ou 30 dias). Cada verificação é uma consulta normal, cobrada do saldo, e é comparada com a anterior. Se algo piorar (gravame, restrição, leilão, sinistro, roubo ou furto, chassi, recall ou débitos) chega um e-mail. Sem saldo ou após três falhas seguidas, pausa e avisa. Histórico de cada verificação na tela. Máximo de 20 por pessoa e uma verificação cobrada por dia por monitoramento.
+- Meus veículos (`/app/veiculos`): uma linha por placa já consultada, com situação, alertas, débitos, risco de revenda, busca, filtros e exportação em planilha.
+- Dossiê em PDF: reúne os relatórios que a pessoa já fez da placa (até 6) com uma capa de resumo. Cada relatório mantém o código de validação. Sem nova cobrança. Botão em Meus veículos e na consulta.
+- Resultados no painel da equipe (`/resultados`): consultas, receita, ticket médio, falhas e estornos por período, por produto, por dia, forma de pagamento e clientes que mais consultaram, mais consultas internas e monitoramentos. Exportação por produto.
+- Menu do cliente ganhou "Meus veículos" e "Monitoramento".
+- Migração 057 (tabelas `plate_watches` e `plate_watch_events`). Nova variável: `PLATE_WATCH_ENABLED` (padrão ligada).
+
 ## 1.22.0 — Consulta interna salva, visível e pronta para entregar ao cliente
 
 - Correção: a consulta feita pelo painel (Consultas → Consulta interna) não ficava guardada; só aparecia na tela naquele momento. Agora é salva como consulta de verdade, com origem "Interna", sem valor e sem cobrança.

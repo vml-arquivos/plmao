@@ -1,6 +1,6 @@
 # Placa na Mão — o sistema por inteiro
 
-Documento de referência da versão 1.22.0. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
+Documento de referência da versão 1.23.0. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
 
 Documentos de apoio: `ARCHITECTURE.md` (módulos), `DATABASE.md`, `SECURITY.md`, `DEPLOY-COOLIFY.md`, `TESTING.md`, `PRODUCT.md`, `docs/COMPARATIVO-CONCORRENTES.md` e `CHANGELOG.md`.
 
@@ -148,6 +148,27 @@ O comprador digita o que o anúncio informa (preço, modelo, cor e ano). O siste
 
 Lembretes de IPVA, revisão e outros que a própria pessoa cadastrou geram e-mail uma vez quando faltam até 7 dias (ou 500 km) e uma vez quando vencem, em um resumo por pessoa. Quem não quer, desliga na própria garagem. Se a pessoa muda o prazo, o aviso volta a valer. O sistema não inventa calendário de IPVA por estado: só avisa o que a pessoa registrou.
 
+### Meus veículos (novo na 1.23)
+
+`/app/veiculos`: uma linha por placa já consultada, com a situação da consulta mais recente (sem alertas, atenção, risco alto), alertas e atenções, débitos, risco de revenda, quantas consultas existem e se a placa está monitorada. Busca por placa, modelo ou cor, filtros (com alerta, com atenção, com débitos, monitorados) e exportação em planilha. Cada linha abre a consulta, baixa o dossiê ou leva ao monitoramento. É só leitura das consultas que a pessoa já fez: não chama o fornecedor e não cobra. Mostra até 200 placas, as mais recentes. A situação é a da última consulta e pode ter mudado desde então.
+
+### Dossiê da placa (novo na 1.23)
+
+`GET /api/vehicles/:placa/dossier.pdf`. Reúne em um único PDF os relatórios que a própria pessoa já fez daquela placa (o mais recente de cada tipo de consulta, até 6), com uma capa: placa, veículo, lista das consultas reunidas (tipo, data, código de validação) e a pior situação de cada verificação entre elas. Os relatórios seguem exatamente como foram emitidos, cada um com o seu código de validação. Não consulta o fornecedor, não cobra e só entrega ao dono das consultas. Botões: em Meus veículos e dentro da consulta.
+
+### Monitoramento de placa (novo na 1.23)
+
+`/app/monitoramento`. A pessoa escolhe placa, tipo de consulta e intervalo (7, 15 ou 30 dias) e confirma que cada verificação é cobrada do saldo. Regras:
+
+- Cada verificação é uma **consulta normal** (mesma cobrança, mesmo estorno em falha, mesmo relatório e histórico). Não há preço nem fonte diferente.
+- Se a pessoa já tem uma consulta igual dessa placa, ela vira a base e a primeira verificação só vem depois do intervalo. Sem consulta anterior, a primeira verificação é feita na hora e vira a base (sem aviso).
+- A cada rodada, o sistema compara as verificações do "Antes de pagar" com as da consulta anterior. **Só piora gera aviso**: ocorrência nova ou mais grave (gravame, restrição, leilão, sinistro, roubo ou furto, chassi, recall, débitos). Melhora e "não consultado" não avisam. O e-mail lista o que mudou e leva ao relatório.
+- Sem saldo, o monitoramento **pausa** e avisa por e-mail. Três falhas seguidas (a falha é estornada) também pausam. A pessoa retoma quando quiser; retomar verifica logo e cobra uma verificação.
+- Segurança de gasto: no máximo 20 monitoramentos por pessoa, um por placa e tipo, no máximo uma verificação cobrada por monitoramento por dia (chave de idempotência por dia) e verificação em lotes de 10 por rodada.
+- A rotina roda 2 minutos depois de iniciar e a cada 30 minutos. Pode ser desligada com `PLATE_WATCH_ENABLED=false` (ninguém é reconsultado nem cobrado; a tela avisa).
+- Respeita o pré-lançamento: durante o site fechado, só e-mails liberados são reconsultados.
+- Tabelas: `plate_watches` e `plate_watch_events` (migração 057).
+
 ---
 
 ## 7. Segurança do relatório compartilhado
@@ -186,6 +207,7 @@ Acesso em host próprio, com senha e TOTP, e opcionalmente restrição por IP. T
 | Área | Para que serve |
 | --- | --- |
 | Dashboard | Números do dia, funil e pendências |
+| Resultados | Consultas, receita, ticket médio, falhas e estornos por período, por produto, por dia, forma de pagamento e clientes que mais consultaram, mais consultas internas e monitoramentos; exportação por produto. Consulta interna não gera receita |
 | Consultas | Todas as consultas (dos clientes e as internas), com filtro de origem, relatório do pacote, PDF, atualização de gravame e FIPE, estorno, cancelamento, envio ao cliente e link de visualização |
 | Clientes e Empresas | Cadastro, saldo, histórico, bloqueio |
 | Cobranças, Pagamentos, Financeiro | Pedidos, conciliação, ajustes, estornos, receitas e despesas |
@@ -274,6 +296,7 @@ Rotas novas (cliente autenticado, salvo as públicas):
 | Apagar dado bruto vencido | A cada 6 horas |
 | Fila de e-mail | Contínua |
 | Avisos da garagem | Ao iniciar (1 minuto depois) e a cada 6 horas |
+| Monitoramento de placa | Ao iniciar (2 minutos depois) e a cada 30 minutos |
 
 ---
 
@@ -281,6 +304,7 @@ Rotas novas (cliente autenticado, salvo as públicas):
 
 | Variável | Padrão | Para que serve |
 | --- | --- | --- |
+| `PLATE_WATCH_ENABLED` | `true` | Liga a rotina do monitoramento de placa. Com `false`, ninguém é reconsultado nem cobrado e a tela avisa que está desligado |
 | `GARAGE_ALERTS_ENABLED` | `true` | Liga os avisos de lembrete da garagem por e-mail. Com `false`, o botão some da garagem e nenhum e-mail sai |
 
 As demais continuam em `.env.example`. Nenhuma variável nova tem valor secreto.

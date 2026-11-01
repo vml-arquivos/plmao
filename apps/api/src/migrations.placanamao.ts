@@ -1899,5 +1899,47 @@ export const placaMigrations: Migration[] = [
     down: async (client) => {
       await client.query(`UPDATE faqs SET answer=$1, updated_at=now() WHERE question='Dados pessoais do proprietário aparecem?' AND answer=$2`, ['Não de forma aberta. Nome e documentos são protegidos conforme a LGPD, e identificadores sensíveis aparecem parcialmente mascarados no relatório.', 'Sim. O relatório é feito para uso profissional (análise de crédito, avaliação de veículo e comércio), por isso nome, CPF/CNPJ e identificadores do veículo aparecem completos, sem máscara, nos pacotes que incluem proprietário. O acesso é protegido por login e o uso dos dados deve seguir a LGPD.']);
     }
+  },
+  {
+    id: '057_plate_watches',
+    name: 'Monitoramento de placa: reconsulta periódica paga pelo saldo do cliente, com histórico e aviso quando algo piora',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS plate_watches (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          plate text NOT NULL,
+          product_id text NOT NULL REFERENCES query_products(id),
+          interval_days integer NOT NULL CHECK (interval_days IN (7,15,30)),
+          status text NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','PAUSED')),
+          pause_reason text,
+          baseline_query_id uuid REFERENCES vehicle_queries(id) ON DELETE SET NULL,
+          pending_query_id uuid REFERENCES vehicle_queries(id) ON DELETE SET NULL,
+          last_checked_at timestamptz,
+          next_check_at timestamptz NOT NULL DEFAULT now(),
+          failures integer NOT NULL DEFAULT 0,
+          runs integer NOT NULL DEFAULT 0,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_plate_watches_user_plate_product ON plate_watches(user_id, plate, product_id);
+        CREATE INDEX IF NOT EXISTS idx_plate_watches_due ON plate_watches(next_check_at) WHERE status='ACTIVE';
+        CREATE TABLE IF NOT EXISTS plate_watch_events (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          watch_id uuid NOT NULL REFERENCES plate_watches(id) ON DELETE CASCADE,
+          kind text NOT NULL CHECK (kind IN ('BASELINE','NO_CHANGE','CHANGED','FAILED','PAUSED')),
+          query_id uuid REFERENCES vehicle_queries(id) ON DELETE SET NULL,
+          summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_plate_watch_events_watch ON plate_watch_events(watch_id, created_at DESC);
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        DROP TABLE IF EXISTS plate_watch_events;
+        DROP TABLE IF EXISTS plate_watches;
+      `);
+    }
   }
 ];

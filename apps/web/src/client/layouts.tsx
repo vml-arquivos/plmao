@@ -118,6 +118,8 @@ const ITEMS: NavItem[] = [
   { to: '/app', label: 'Painel', icon: 'home', end: true },
   { to: '/app/historico', label: 'Consultas', icon: 'clock' },
   { to: '/app/simulacoes', label: 'Simulações', icon: 'calculator' },
+  { to: '/app/veiculos', label: 'Meus veículos', icon: 'list' },
+  { to: '/app/monitoramento', label: 'Monitoramento', icon: 'eye' },
   { to: '/app/garagem', label: 'Minha garagem', icon: 'car' },
   { to: '/app/loja', label: 'Minha loja', icon: 'building', store: true },
   { to: '/app/carteira', label: 'Carteira', icon: 'wallet' },

@@ -30,6 +30,8 @@ const NewQuery = lazy(() => import('./pages/NewQuery'));
 const History = lazy(() => import('./pages/History'));
 const Batch = lazy(() => import('./pages/Batch'));
 const CompareQueries = lazy(() => import('./pages/CompareQueries'));
+const Vehicles = lazy(() => import('./pages/Vehicles'));
+const Watches = lazy(() => import('./pages/Watches'));
 const QueryDetail = lazy(() => import('./pages/QueryDetail'));
 const Wallet = lazy(() => import('./pages/Wallet'));
 const Partner = lazy(() => import('./pages/Partner'));
@@ -141,6 +143,8 @@ export default function App() {
             <Route path="historico" element={<History />} />
             <Route path="lote" element={<Batch />} />
             <Route path="comparar-consultas" element={<CompareQueries />} />
+            <Route path="veiculos" element={<Vehicles />} />
+            <Route path="monitoramento" element={<Watches />} />
             <Route path="simulacoes" element={<Simulations />} />
             <Route path="consulta/:id" element={<QueryDetail />} />
             <Route path="carteira" element={<Wallet />} />

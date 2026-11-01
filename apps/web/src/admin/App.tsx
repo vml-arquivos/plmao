@@ -29,6 +29,7 @@ import Seo from './pages/Seo';
 import Partners from './pages/Partners';
 import System from './pages/System';
 import Account from './pages/Account';
+import ResultsPage from './pages/Results';
 
 export default function App() {
   const { user, ready, can } = useAdminSession();
@@ -38,6 +39,7 @@ export default function App() {
     <Routes>
       <Route element={<AdminLayout />}>
         <Route index element={can('VIEW_DASHBOARD') ? <Dashboard /> : <Navigate to={firstAllowedRoute(can)} replace />} />
+        <Route path="resultados" element={<ResultsPage />} />
         <Route path="consultas" element={<QueriesList />} />
         <Route path="consultas/:id" element={<QueryDetailPage />} />
         <Route path="clientes" element={<Customers />} />

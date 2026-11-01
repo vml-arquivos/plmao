@@ -123,6 +123,8 @@ export default function QueryDetail() {
         <div className="row no-print" style={{ marginTop: 22 }}>
           <LinkButton to={`/app/consultar?placa=${summary.plate}`} icon="refresh">Consultar de novo</LinkButton>
           <LinkButton to="/app/consultar" variant="ghost" icon="search">Outra placa</LinkButton>
+          <Button variant="ghost" icon="file-text" loading={pdfBusy} onClick={() => pdf(`/vehicles/${summary.plate}/dossier.pdf`, `dossie-${summary.plate}.pdf`)}>Dossiê da placa</Button>
+          <LinkButton to={`/app/monitoramento?placa=${summary.plate}`} variant="ghost" icon="eye">Monitorar placa</LinkButton>
           <Button variant="ghost" icon="car" onClick={() => void api.post('/garage/vehicles', { plate: summary.plate, modelLabel: [report.headline.brand, report.headline.model].filter(Boolean).join(' ').slice(0, 80), modelYear: Number(report.headline.modelYear) || null }).then(() => { toast.ok('Guardado na sua garagem.'); nav('/app/garagem'); }, (e) => { if (e instanceof ApiError && e.status === 409) { toast.ok('Já está na sua garagem.'); nav('/app/garagem'); } else toast.error(errorMessage(e)); })}>Guardar na garagem</Button>
           <Button variant="ghost" icon="alert-triangle" onClick={() => setDispute(true)}>Informar dado incorreto</Button>
         </div>

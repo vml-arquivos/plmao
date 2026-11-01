@@ -17,6 +17,7 @@ export const GROUPS: Array<{ title: string; items: NavItem[] }> = [
   ] },
   { title: 'Operação', items: [
     { to: '/consultas', label: 'Consultas', icon: 'search', perm: 'VIEW_QUERIES' },
+    { to: '/resultados', label: 'Resultados', icon: 'bar-chart', perm: 'VIEW_DASHBOARD' },
     { to: '/suporte', label: 'Suporte', icon: 'mail', perm: 'MANAGE_SUPPORT' }
   ] },
   { title: 'Financeiro', items: [
