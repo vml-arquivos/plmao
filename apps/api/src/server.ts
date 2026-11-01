@@ -71,6 +71,7 @@ import { adminFiscalQueueRouter, fiscalPublicRouter } from './routes/adminFiscal
 import { startFiscalWorker } from './lib/fiscal.js';
 import { startPaymentSyncWorker, syncUserOpenOrders } from './lib/paymentSync.js';
 import { toCsv } from './lib/br.js';
+import { refreshMaskedReports } from './lib/reportRefresh.js';
 import { RESPONSIBILITY_VERSION, assertCustomerProfile, profileDto, profileRequired, validDocument, validPhone, validateRegistrationProfile } from './lib/customerProfile.js';
 import { supportAdminRouter, supportClientRouter, supportPublicRouter } from './routes/support.js';
 import { testimonialsAdminRouter, testimonialsRouter } from './routes/testimonials.js';
@@ -3218,6 +3219,8 @@ if (env.DATA_PROVIDER === 'real' && env.VEHICLE_API_PROVIDER === 'credify' && en
   startCredifyTokenKeeper((message) => log('warn', 'credify_token_refresh_failed', { message }));
 }
 const httpServer = app.listen(env.PORT, '0.0.0.0', () => log('info', 'server_started', { port: env.PORT, provider: env.DATA_PROVIDER, environment: env.NODE_ENV }));
+// Relatórios antigos (gravados com máscara) são refeitos em claro a partir do bruto cifrado. Roda uma vez, em segundo plano.
+if (env.NODE_ENV !== 'test') setTimeout(() => { refreshMaskedReports().catch((error: unknown) => log('warn', 'reports_unmask_failed', { error: error instanceof Error ? error.message : 'unknown' })); }, 15000).unref();
 let shuttingDown = false;
 function shutdown(signal: string): void {
   if (shuttingDown) return;

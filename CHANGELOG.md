@@ -9,7 +9,8 @@
 - Cadastro completo: ao criar a conta o cliente informa nome completo, telefone, CPF ou CNPJ (CNPJ e empresa para conta de empresa) e endereço, e aceita o termo de responsabilidade pelas informações consultadas (data e versão gravadas). Sem isso não consulta nem paga; contas antigas completam uma vez em Minha conta e voltam para a consulta. Desligar: `CUSTOMER_PROFILE_REQUIRED=false`.
 - Política de Privacidade e página institucional atualizadas para refletir o que o relatório mostra.
 - A consulta Completa passa a incluir a seção de proprietário no relatório do cliente (migração `053_complete_owner_section`); os modelos de relatório do painel também podem usar os campos de proprietário.
-- Migrações `052_customer_responsibility` e `053_complete_owner_section`. Relatórios já gerados continuam como foram salvos (mascarados); vale para as consultas novas.
+- Relatórios já gravados com máscara são refeitos em claro, uma vez, na subida do servidor, a partir do dado bruto cifrado da fonte (quando guardado). Quem não tem bruto guardado continua como estava.
+- Migrações `052_customer_responsibility` e `053_complete_owner_section`. 
 
 ## 1.19.5 — Sem consulta repetida e motivo claro quando a Credify recusa
 
