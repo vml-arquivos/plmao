@@ -3,11 +3,20 @@ import { api } from './api';
 
 export interface Profile { id: string; email: string; name: string; role: string; passwordEnabled: boolean; cpfCnpj: string; phone: string; companyName: string; city: string; state: string; zip: string; street: string; streetNumber: string; complement: string; district: string; customerType: string; responsibilityAccepted: boolean; profileComplete: boolean; profileMissing: string[]; profileRequired: boolean; marketingOptIn: boolean }
 export interface StoreAccess { name: string; role: 'OWNER' | 'MANAGER' | 'SELLER'; active: boolean }
-export interface Me { storeAccess?: StoreAccess | null; user: { id: string; email: string; name: string; role: string }; balanceCents: number; permissions: string[]; sandbox: boolean; identities: string[]; profile: Profile }
+export type UsageProfile = 'CLIENTE' | 'LOJISTA' | 'AFILIADO';
+export const PROFILE_LABEL: Record<UsageProfile, string> = { CLIENTE: 'Cliente', LOJISTA: 'Lojista', AFILIADO: 'Afiliado' };
+export interface Me { profiles?: UsageProfile[]; activeProfile?: UsageProfile; storeAccess?: StoreAccess | null; user: { id: string; email: string; name: string; role: string }; balanceCents: number; permissions: string[]; sandbox: boolean; identities: string[]; profile: Profile }
 
-interface SessionState { status: 'loading' | 'anon' | 'authed'; me: Me | null; login: (token: string) => Promise<void>; logout: () => Promise<void>; refresh: () => Promise<void>; setBalance: (cents: number) => void }
+interface SessionState { status: 'loading' | 'anon' | 'authed'; me: Me | null; login: (token: string) => Promise<void>; logout: () => Promise<void>; refresh: () => Promise<void>; setBalance: (cents: number) => void; switchProfile: (profile: UsageProfile) => Promise<void> }
 const Ctx = createContext<SessionState | null>(null);
 export const useSession = (): SessionState => { const v = useContext(Ctx); if (!v) throw new Error('SessionProvider ausente'); return v; };
+
+/** Perfil em uso, já conferido com o que a conta realmente tem. */
+export function useActiveProfile(): UsageProfile {
+  const { me } = useSession();
+  const active = me?.activeProfile ?? 'CLIENTE';
+  return (me?.profiles ?? ['CLIENTE']).includes(active) ? active : 'CLIENTE';
+}
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionState['status']>(api.token.get() ? 'loading' : 'anon');
@@ -33,6 +42,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
   const setBalance = useCallback((cents: number) => setMe((m) => (m ? { ...m, balanceCents: cents } : m)), []);
 
-  const value = useMemo(() => ({ status, me, login, logout, refresh, setBalance }), [status, me, login, logout, refresh, setBalance]);
+  const switchProfile = useCallback(async (profile: UsageProfile) => { await api.put('/me/profile', { profile }); await refresh(); }, [refresh]);
+
+  const value = useMemo(() => ({ status, me, login, logout, refresh, setBalance, switchProfile }), [status, me, login, logout, refresh, setBalance, switchProfile]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -60,6 +60,7 @@ import { watchesRouter } from './routes/watches.js';
 import { adminResultsRouter } from './routes/adminResults.js';
 import { renderDossierPdf } from './report/dossier.js';
 import { startPlateWatch } from './lib/plateWatch.js';
+import { isProfile, loadProfileState } from './lib/profiles.js';
 import { dealerRouter } from './routes/dealer.js';
 import { loadMembership } from './dealer/context.js';
 import { dealerLeadsRouter } from './routes/dealerLeads.js';
@@ -73,6 +74,7 @@ import { adminContractsRouter, contractsPublicRouter } from './routes/contracts.
 import { adminPaymentOpsRouter } from './routes/adminPaymentOps.js';
 import { adminFiscalQueueRouter, fiscalPublicRouter } from './routes/adminFiscalQueue.js';
 import { startFiscalWorker } from './lib/fiscal.js';
+import { startFiscalAuto } from './lib/fiscalAuto.js';
 import { startPaymentSyncWorker, syncUserOpenOrders } from './lib/paymentSync.js';
 import { toCsv } from './lib/br.js';
 import { refreshStaleReports } from './lib/reportRefresh.js';
@@ -105,6 +107,7 @@ startEmailWorker();
 startGarageAlerts(log);
 startPlateWatch((input) => runVehicleQuery(input), log);
 startFiscalWorker();
+startFiscalAuto();
 startPaymentSyncWorker();
 
 const app = express();
@@ -823,6 +826,18 @@ api.post('/auth/change-password', auth, asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
+/** Troca o perfil de uso (cliente, lojista, afiliado). Só aceita perfis que a conta realmente tem; quem não tem loja ou link não consegue se dar esse perfil. */
+api.put('/me/profile', auth, asyncRoute(async (req, res) => {
+  const parsed = z.object({ profile: z.string() }).strict().safeParse(req.body);
+  if (!parsed.success || !isProfile(parsed.data.profile)) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const membership = await loadMembership(req.user!.id).catch(() => null);
+  const state = await loadProfileState(req.user!.id, { hasStore: Boolean(membership && membership.store.active && !membership.store.archivedAt) });
+  if (!state.profiles.includes(parsed.data.profile)) throw appError('PROFILE_NOT_AVAILABLE', { code: 'PROFILE_NOT_AVAILABLE', http: 403, expose: true });
+  await pool.query('UPDATE users SET active_profile=$2 WHERE id=$1', [req.user!.id, parsed.data.profile]);
+  await audit(req.user!.id, 'PROFILE_SWITCHED', 'USER', req.user!.id, { from: state.activeProfile, to: parsed.data.profile, requestId: requestId(req) });
+  res.json({ profiles: state.profiles, activeProfile: parsed.data.profile });
+}));
+
 api.get('/me', auth, asyncRoute(async (req, res) => {
   const [account, wallet, identities] = await Promise.all([
     pool.query(`SELECT u.id,u.email,u.name,u.role,u.password_enabled,p.*
@@ -835,7 +850,8 @@ api.get('/me', auth, asyncRoute(async (req, res) => {
   const user = publicUser({ id: String(row.id), email: String(row.email), name: String(row.name), role: String(row.role) });
   const membership = await loadMembership(user.id).catch(() => null);
   const storeAccess = membership ? { name: membership.store.name, role: membership.role, active: membership.store.active && !membership.store.archivedAt } : null;
-  res.json({ user, storeAccess, balanceCents: Number(wallet.rows[0]?.balance_cents ?? 0), permissions: permissionsFor(user.role), sandbox: env.DATA_PROVIDER === 'mock', identities: identities.rows.map((identity) => identity.provider), profile: profileDto({ id: user.id, email: user.email, name: user.name, role: user.role, passwordEnabled: Boolean(row.password_enabled) }, row) });
+  const profileState = await loadProfileState(user.id, { hasStore: Boolean(storeAccess?.active) });
+  res.json({ user, storeAccess, profiles: profileState.profiles, activeProfile: profileState.activeProfile, balanceCents: Number(wallet.rows[0]?.balance_cents ?? 0), permissions: permissionsFor(user.role), sandbox: env.DATA_PROVIDER === 'mock', identities: identities.rows.map((identity) => identity.provider), profile: profileDto({ id: user.id, email: user.email, name: user.name, role: user.role, passwordEnabled: Boolean(row.password_enabled) }, row) });
 }));
 
 function fipeUnavailable(): AppError {

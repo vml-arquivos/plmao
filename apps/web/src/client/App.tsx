@@ -5,6 +5,7 @@ import SeoContent from './components/SeoContent';
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { PageLoading } from '../shared/ui';
 import { AppLayout, PublicLayout, RequireAuth, ScrollManager } from './layouts';
+import { useActiveProfile } from './session';
 import { SEO_PAGES } from './content/seoPages';
 import { useEffect } from 'react';
 import { captureReferral } from './funnel';
@@ -25,6 +26,11 @@ const GuideModelPage = lazy(() => import('./pages/Guide').then((m) => ({ default
 const Compare = lazy(() => import('./pages/Compare'));
 const Simulator = lazy(() => import('./pages/Simulator'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+/** Página inicial da área logada conforme o perfil: afiliado cai direto no painel de indicações. */
+function AppHome() {
+  const profile = useActiveProfile();
+  return profile === 'AFILIADO' ? <Navigate to="/app/parceiro" replace /> : <Dashboard />;
+}
 const PaidQueryReturn = lazy(() => import('./pages/PaidQueryReturn'));
 const NewQuery = lazy(() => import('./pages/NewQuery'));
 const History = lazy(() => import('./pages/History'));
@@ -137,7 +143,7 @@ export default function App() {
             <Route path="*" element={<NotFound />} />
           </Route>
           <Route path="/app" element={<RequireAuth><AppLayout /></RequireAuth>}>
-            <Route index element={<Dashboard />} />
+            <Route index element={<AppHome />} />
             <Route path="consultar" element={<NewQuery />} />
             <Route path="consultar/pedido/:orderId" element={<PaidQueryReturn />} />
             <Route path="historico" element={<History />} />

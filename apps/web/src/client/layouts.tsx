@@ -4,7 +4,8 @@ import { Icon, type IconName } from '../shared/icons';
 import { Button, LinkButton, Logo, PageLoading, ThemeSwitch } from '../shared/ui';
 import { initials, money } from '../shared/format';
 import { BRAND } from './config';
-import { useSession } from './session';
+import { useActiveProfile, useSession, type UsageProfile } from './session';
+import ProfileSwitch from './components/ProfileSwitch';
 import { analyticsConfigured } from './analytics';
 import { InstallButton, InstallLink, InstallPrompt, OfflineBanner } from './components/PwaBits';
 import SupportChannels from './components/SupportChannels';
@@ -112,18 +113,23 @@ export function PublicLayout() {
 }
 
 /* ---------- Área logada ---------- */
-type NavItem = { to: string; label: string; icon: IconName; end?: boolean; store?: boolean };
-/** Cliente particular vê o essencial. "Minha loja" só aparece para quem tem pacote lojista (loja ativada pelo suporte). */
+type NavItem = { to: string; label: string; icon: IconName; end?: boolean; only?: UsageProfile[]; labelFor?: Partial<Record<UsageProfile, string>> };
+/**
+ * Menu por perfil de uso. Cliente vê o essencial para consultar; lojista ganha a loja, a consulta em lote e a carteira de veículos;
+ * afiliado vê o painel de indicações. O menu é só navegação: o acesso a cada área é conferido no servidor.
+ */
 const ITEMS: NavItem[] = [
-  { to: '/app', label: 'Painel', icon: 'home', end: true },
+  { to: '/app', label: 'Painel', icon: 'home', end: true, only: ['CLIENTE', 'LOJISTA'] },
+  { to: '/app/parceiro', label: 'Indicações', icon: 'users', only: ['AFILIADO'] },
+  { to: '/app/loja', label: 'Minha loja', icon: 'building', only: ['LOJISTA'] },
   { to: '/app/historico', label: 'Consultas', icon: 'clock' },
-  { to: '/app/simulacoes', label: 'Simulações', icon: 'calculator' },
-  { to: '/app/veiculos', label: 'Meus veículos', icon: 'list' },
-  { to: '/app/monitoramento', label: 'Monitoramento', icon: 'eye' },
-  { to: '/app/garagem', label: 'Minha garagem', icon: 'car' },
-  { to: '/app/loja', label: 'Minha loja', icon: 'building', store: true },
+  { to: '/app/lote', label: 'Em lote', icon: 'list', only: ['LOJISTA'] },
+  { to: '/app/veiculos', label: 'Meus veículos', icon: 'car', only: ['LOJISTA'] },
+  { to: '/app/monitoramento', label: 'Monitoramento', icon: 'eye', only: ['CLIENTE', 'LOJISTA'] },
+  { to: '/app/simulacoes', label: 'Simulações', icon: 'calculator', only: ['CLIENTE', 'LOJISTA'] },
+  { to: '/app/garagem', label: 'Minha garagem', icon: 'car', only: ['CLIENTE', 'LOJISTA'] },
   { to: '/app/carteira', label: 'Carteira', icon: 'wallet' },
-  { to: '/app/parceiro', label: 'Indique e ganhe', icon: 'users' },
+  { to: '/app/parceiro', label: 'Indique e ganhe', icon: 'users', only: ['CLIENTE', 'LOJISTA'] },
   { to: '/app/suporte', label: 'Suporte', icon: 'mail' },
   { to: '/app/conta', label: 'Minha conta', icon: 'user' }
 ];
@@ -140,7 +146,9 @@ export function AppLayout() {
   const { me, logout } = useSession();
   const nav = useNavigate();
   if (!me) return null;
-  const items = ITEMS.filter((i) => !i.store || Boolean(me.storeAccess));
+  const profile = useActiveProfile();
+  const items = ITEMS.filter((i) => !i.only || i.only.includes(profile));
+  const homeTo = profile === 'AFILIADO' ? '/app/parceiro' : '/app';
   const out = async () => { await logout(); nav('/', { replace: true }); };
   return (
     <div className="app-shell">
@@ -151,6 +159,7 @@ export function AppLayout() {
           {items.map((i) => <NavLink key={i.to} to={i.to} end={i.end} className={({ isActive }) => (isActive ? 'active' : '')}><Icon name={i.icon} /> {i.label}</NavLink>)}
         </nav>
         <div className="app-side-foot">
+          <ProfileSwitch />
           <div className="user-chip"><span className="avatar">{initials(me.user.name)}</span><span style={{ minWidth: 0 }}><b>{me.user.name.split(' ')[0]}</b><small className="truncate">{me.user.email}</small></span></div>
           <div className="row"><ThemeSwitch /><Button variant="ghost" size="sm" icon="log-out" onClick={out}>Sair</Button></div>
         </div>
@@ -165,7 +174,7 @@ export function AppLayout() {
         <main className="app-content" id="conteudo"><InstallPrompt /><Outlet /></main>
       </div>
       <nav className="app-tabbar" aria-label="Navegação">
-        <NavLink to="/app" end className={({ isActive }) => (isActive ? 'active' : '')}><Icon name="home" /><span>Início</span></NavLink>
+        <NavLink to={homeTo} end className={({ isActive }) => (isActive ? 'active' : '')}><Icon name="home" /><span>Início</span></NavLink>
         <NavLink to="/app/historico" className={({ isActive }) => (isActive ? 'active' : '')}><Icon name="clock" /><span>Consultas</span></NavLink>
         <NavLink to="/app/consultar" className={({ isActive }) => `mid ${isActive ? 'active' : ''}`}><span className="mi"><Icon name="search" size={24} /></span><span>Consultar</span></NavLink>
         <NavLink to="/app/carteira" className={({ isActive }) => (isActive ? 'active' : '')}><Icon name="wallet" /><span>Carteira</span></NavLink>

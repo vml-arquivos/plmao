@@ -1,6 +1,6 @@
 # Placa na Mão — o sistema por inteiro
 
-Documento de referência da versão 1.23.0. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
+Documento de referência da versão 1.25.0. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
 
 Documentos de apoio: `ARCHITECTURE.md` (módulos), `DATABASE.md`, `SECURITY.md`, `DEPLOY-COOLIFY.md`, `TESTING.md`, `PRODUCT.md`, `docs/COMPARATIVO-CONCORRENTES.md` e `CHANGELOG.md`.
 
@@ -26,9 +26,9 @@ Princípios que valem em todo o sistema:
 | Perfil | Onde entra | O que faz |
 | --- | --- | --- |
 | Visitante | Site público | Consulta FIPE grátis, simuladores, guia de veículos, comparador, blog, planos, validação de relatório |
-| Cliente (pessoa) | `/app` | Compra e vê consultas, guarda veículos na garagem, envia relatório ao comprador, simula financiamento |
+| Cliente (pessoa) | `/app` | Compra e vê consultas, guarda veículos na garagem, envia relatório ao comprador, simula financiamento (perfil Cliente) |
 | Lojista | `/app/loja` | Estoque, vitrine pública, leads, propostas, equipe, campanhas e selo de consulta verificada |
-| Parceiro | `/app/parceiro` | Programa "Indique e ganhe" com link, comissões e repasses |
+| Parceiro | `/app/parceiro` | Programa "Indique e ganhe" com link, comissões e repasses (perfil Afiliado) |
 | Equipe | Painel (host próprio, com TOTP) | Operação, preços, conteúdo, financeiro, suporte, fiscal, contratos, auditoria |
 
 Papéis da equipe: Super admin, Administrador, Operador, Financeiro, Suporte e Conteúdo. Cada um tem permissões próprias e só enxerga quem está abaixo na hierarquia (`permissions.ts`).
@@ -169,6 +169,18 @@ Lembretes de IPVA, revisão e outros que a própria pessoa cadastrou geram e-mai
 - Respeita o pré-lançamento: durante o site fechado, só e-mails liberados são reconsultados.
 - Tabelas: `plate_watches` e `plate_watch_events` (migração 057).
 
+### Perfis de uso: cliente, lojista e afiliado (novo na 1.25)
+
+Uma conta pode ter mais de um perfil e alternar sem sair (seletor no menu lateral e em Minha conta). O perfil escolhido muda o menu e a página inicial; dados e saldo são os mesmos.
+
+| Perfil | Quem tem | Menu | Página inicial |
+| --- | --- | --- | --- |
+| Cliente | Toda conta | Painel, Consultas, Monitoramento, Simulações, Garagem, Carteira, Indique e ganhe, Suporte, Conta | Painel de consulta |
+| Lojista | Quem participa de uma loja ativa | Cliente + Minha loja, Em lote, Meus veículos; botões de comparar consultas | Painel de consulta |
+| Afiliado | Quem ativou o "Indique e ganhe" (link ativo) | Indicações, Consultas, Carteira, Suporte, Conta | Painel de indicações |
+
+Regras: ninguém se dá um perfil que não tem (loja e link são conferidos no servidor a cada troca); se a loja for suspensa ou o link desativado, a conta volta sozinha para Cliente; contas que já participavam de uma loja foram colocadas no perfil Lojista pela migração 058, todas as outras ficaram em Cliente. O perfil é só navegação: o acesso à área da loja e ao painel de indicações continua decidido pelo servidor a cada chamada (participação na loja, dono do link), e as telas profissionais (lote, meus veículos, comparar) seguem acessíveis por endereço direto para quem já as usava, para não quebrar nada.
+
 ---
 
 ## 7. Segurança do relatório compartilhado
@@ -247,8 +259,30 @@ A consulta feita pela equipe em Consultas → "Consulta interna" é uma consulta
 | Mercado Pago (e Asaas, se configurado) | Pix, cartão e conciliação por webhook idempotente |
 | E-mail transacional por SMTP | Fila (`email_outbox`) com tentativas, atraso progressivo e idempotência; modelos de contrato, nota fiscal, código de compra e aviso geral |
 | Login social | Google, Microsoft e Apple, quando configurados |
+| Emissor de NFS-e (Focus NFe) | Emissão automática da nota de serviço no padrão nacional, quando contratado e ligado (ver abaixo) |
 
 A confirmação do retorno real do fornecedor em produção (por exemplo qual versão da consulta de leilão está contratada) precisa ser feita com uma consulta real depois da publicação. O relatório lida com a ausência de dado sem inventar.
+
+
+### Nota fiscal automática (novo na 1.24)
+
+A consulta é um **serviço**, então a nota é de serviço (NFS-e), no padrão nacional. A API oficial do governo exige certificado digital da empresa e XML assinado em cada chamada; por isso o sistema usa um integrador (Focus NFe), que guarda o certificado, assina, transmite ao Sistema Nacional NFS-e e devolve número, código de verificação, XML e PDF. O sistema envia só os dados da nota e nunca guarda certificado.
+
+Como funciona:
+1. O cliente paga. O robô (a cada 2 minutos) cria o documento fiscal do pagamento confirmado e coloca na fila de emissão.
+2. A fila envia ao emissor (referência única por nota, então reenviar nunca duplica), acompanha até autorizar e grava número, código, chave, XML e PDF.
+3. Nota emitida: o cliente recebe o e-mail com link seguro. Falha de rede tenta de novo com atraso; recusa do emissor mostra o motivo e não repete; nota sem os dados do cliente (CPF/CNPJ e endereço) fica pendente no painel para ajuste.
+
+Garantias: só pagamentos dos últimos 3 dias entram sozinhos (ligar o recurso nunca emite nota de venda antiga); documentos criados ou editados por uma pessoa não são emitidos sozinhos; a emissão automática só roda com “Dados do emissor” completos; homologação e produção usam tokens diferentes, conforme o ambiente escolhido na tela Fiscal.
+
+Para ligar (passo a passo):
+1. Contratar o Focus NFe e cadastrar a empresa com o certificado digital A1 (feito no painel deles).
+2. Habilitar a emissão no padrão nacional para o município (ou o Emissor Nacional, que é obrigatório para optantes do Simples a partir de 1º/09/2026 — confirmar com o contador).
+3. Em Notas fiscais → Dados do emissor: razão social, CNPJ, inscrição municipal, código IBGE do município, código de tributação nacional do serviço (6 dígitos), regime e ambiente.
+4. No servidor: `FISCAL_PROVIDER=focusnfe`, o token de homologação, `FISCAL_AUTO_EMIT=true`. Testar em homologação (notas de teste, sem validade), conferir a primeira nota com o contador e só então trocar o ambiente para produção e colocar o token de produção.
+5. Com a reforma tributária, o contador informa `FOCUSNFE_NBS`, `FOCUSNFE_IBSCBS_CST` e `FOCUSNFE_IBSCBS_CLASS_TRIB` quando o município exigir.
+
+Limites: o cancelamento da nota continua sendo feito no emissor (o painel só registra); os nomes de campos do emissor foram escritos pela documentação dele e precisam ser confirmados na primeira nota de homologação.
 
 ---
 
@@ -306,6 +340,14 @@ Rotas novas (cliente autenticado, salvo as públicas):
 | --- | --- | --- |
 | `PLATE_WATCH_ENABLED` | `true` | Liga a rotina do monitoramento de placa. Com `false`, ninguém é reconsultado nem cobrado e a tela avisa que está desligado |
 | `GARAGE_ALERTS_ENABLED` | `true` | Liga os avisos de lembrete da garagem por e-mail. Com `false`, o botão some da garagem e nenhum e-mail sai |
+
+| `FISCAL_PROVIDER` | `disabled` | `focusnfe` liga a emissão de NFS-e pelo integrador; `disabled`/`manual` mantêm a emissão fora do sistema |
+| `FOCUSNFE_TOKEN` | vazio | Token de produção do Focus NFe (obrigatório em produção com `focusnfe`) |
+| `FOCUSNFE_TOKEN_HOMOLOGACAO` | vazio | Token de homologação (testes, sem validade fiscal) |
+| `FOCUSNFE_BASE_URL` | vazio | Só para teste local; vazio usa os endereços oficiais |
+| `FOCUSNFE_NBS` | vazio | Código NBS do serviço (reforma tributária), se exigido |
+| `FOCUSNFE_IBSCBS_CST` / `FOCUSNFE_IBSCBS_CLASS_TRIB` | vazio | Situação e classificação tributária de IBS/CBS, se exigidas |
+| `FISCAL_AUTO_EMIT` | `false` | Emite a nota sozinho a cada pagamento confirmado |
 
 As demais continuam em `.env.example`. Nenhuma variável nova tem valor secreto.
 

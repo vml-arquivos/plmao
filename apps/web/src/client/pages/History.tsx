@@ -1,3 +1,4 @@
+import { useActiveProfile } from '../session';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EmptyState, ErrorState, Button, Input, LinkButton, Select, Skeleton, Tabs, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
@@ -10,6 +11,7 @@ const PAGE = 30;
 type Status = '' | 'SUCCESS' | 'PROCESSING' | 'FAILED' | 'REFUNDED' | 'ARCHIVED';
 
 export default function History() {
+  const pro = useActiveProfile() === 'LOJISTA';
   usePageTitle('Consultas');
   const toast = useToast();
   const [status, setStatus] = useState<Status>('');
@@ -59,7 +61,7 @@ export default function History() {
 
   return (
     <div className="stack-lg">
-      <div className="page-head"><h1>Consultas</h1><div className="row"><Button icon="download" loading={csvBusy} onClick={csv} disabled={!rows.length}>Exportar CSV</Button><LinkButton to="/app/lote" icon="list">Em lote</LinkButton><LinkButton to="/app/comparar-consultas" icon="bar-chart">Comparar</LinkButton><LinkButton to="/app/consultar" variant="primary" icon="search">Nova consulta</LinkButton></div></div>
+      <div className="page-head"><h1>Consultas</h1><div className="row"><Button icon="download" loading={csvBusy} onClick={csv} disabled={!rows.length}>Exportar CSV</Button>{pro && <><LinkButton to="/app/lote" icon="list">Em lote</LinkButton><LinkButton to="/app/comparar-consultas" icon="bar-chart">Comparar</LinkButton></>}<LinkButton to="/app/consultar" variant="primary" icon="search">Nova consulta</LinkButton></div></div>
       <Tabs label="Situação" value={status} onChange={setStatus} items={[{ id: '', label: 'Todas' }, { id: 'SUCCESS', label: 'Realizadas' }, { id: 'PROCESSING', label: 'Em processamento' }, { id: 'FAILED', label: 'Falha' }, { id: 'REFUNDED', label: 'Estornadas' }, { id: 'ARCHIVED', label: 'Arquivadas' }]} />
       {hasClutter && status !== 'ARCHIVED' && <div className="row"><Button size="sm" loading={archiving === 'all'} onClick={() => void archiveFailed()}>Arquivar estornadas e falhas</Button><span className="muted" style={{ fontSize: 13 }}>Esconde da lista; os registros ficam guardados na aba Arquivadas.</span></div>}
       <div className="filters">

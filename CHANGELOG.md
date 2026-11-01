@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.25.0 — Perfis de uso: cliente, lojista e afiliado
+
+- Cada conta tem perfil de uso: Cliente (todos), Lojista (quem participa de uma loja ativa) e Afiliado (quem ativou o Indique e ganhe). Troca pelo seletor no menu lateral ou em Minha conta.
+- Menu e página inicial por perfil. Cliente vê só o essencial para consultar; lojista ganha Minha loja, Em lote, Meus veículos e comparar consultas; afiliado cai direto no painel de indicações.
+- O servidor só aceita trocar para um perfil que a conta realmente tem. Loja suspensa ou link desativado devolve a conta para Cliente. Troca fica na auditoria (`PROFILE_SWITCHED`).
+- Migração 058: coluna do perfil escolhido e mapeamento das contas existentes (quem já estava em uma loja vira Lojista; o resto, Cliente).
+- Sem variável nova.
+
+## 1.24.0 — Nota fiscal automática (NFS-e padrão nacional)
+
+- Emissão automática de nota fiscal de serviço pelo Focus NFe: cada pagamento confirmado gera a nota, o emissor autoriza e o cliente recebe o e-mail com o link seguro. Referência única por nota (reenviar nunca duplica), tentativas com atraso, recusa com motivo e acompanhamento até autorizar.
+- Só pagamentos dos últimos 3 dias entram sozinhos; documentos criados pela equipe não são emitidos automaticamente; clientes sem CPF/CNPJ ou endereço ficam pendentes no painel.
+- Tela Notas fiscais: estado da emissão (ligada, ambiente de teste ou produção, o que falta preencher, notas com problema) e botão "Emitir pendentes agora".
+- Novas variáveis: `FISCAL_PROVIDER=focusnfe`, `FOCUSNFE_TOKEN`, `FOCUSNFE_TOKEN_HOMOLOGACAO`, `FOCUSNFE_BASE_URL`, `FOCUSNFE_NBS`, `FOCUSNFE_IBSCBS_CST`, `FOCUSNFE_IBSCBS_CLASS_TRIB`, `FISCAL_AUTO_EMIT` (padrão desligada). Sem migração.
+
 ## 1.23.0 — Monitoramento de placa, meus veículos, dossiê em PDF e resultados da equipe
 
 - Monitoramento de placa (`/app/monitoramento`): escolhe placa, tipo de consulta e intervalo (7, 15 ou 30 dias). Cada verificação é uma consulta normal, cobrada do saldo, e é comparada com a anterior. Se algo piorar (gravame, restrição, leilão, sinistro, roubo ou furto, chassi, recall ou débitos) chega um e-mail. Sem saldo ou após três falhas seguidas, pausa e avisa. Histórico de cada verificação na tela. Máximo de 20 por pessoa e uma verificação cobrada por dia por monitoramento.

@@ -1941,5 +1941,25 @@ export const placaMigrations: Migration[] = [
         DROP TABLE IF EXISTS plate_watches;
       `);
     }
+  },
+  {
+    id: '058_user_profiles_usage',
+    name: 'Perfil de uso da conta (cliente, lojista, afiliado): guarda o perfil escolhido e mapeia as contas que já existem',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS active_profile text NOT NULL DEFAULT 'CLIENTE';
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_active_profile_check;
+        ALTER TABLE users ADD CONSTRAINT users_active_profile_check CHECK (active_profile IN ('CLIENTE','LOJISTA','AFILIADO'));
+        UPDATE users u SET active_profile='LOJISTA'
+          WHERE u.role='CLIENTE' AND u.active_profile='CLIENTE'
+            AND EXISTS (SELECT 1 FROM dealership_members m WHERE m.user_id=u.id AND m.active);
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_active_profile_check;
+        ALTER TABLE users DROP COLUMN IF EXISTS active_profile;
+      `);
+    }
   }
 ];

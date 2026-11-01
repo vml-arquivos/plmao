@@ -130,6 +130,7 @@ function validateProductionConfig(value: ParsedEnv): void {
     requireProduction(!value.CONSULTARPLACA_BASE_URL || isHttpsUrl(value.CONSULTARPLACA_BASE_URL), 'CONSULTARPLACA_BASE_URL_HTTPS_REQUIRED', issues);
   }
   requireProduction(value.FISCAL_PROVIDER !== 'mock', 'FISCAL_PROVIDER_MOCK_FORBIDDEN', issues);
+  if (value.FISCAL_PROVIDER === 'focusnfe') requireProduction(Boolean(value.FOCUSNFE_TOKEN), 'FOCUSNFE_TOKEN_REQUIRED', issues);
 
   if (value.PAYMENT_PROVIDER === 'asaas') {
     requireProduction(Boolean(value.PAYMENT_API_BASE_URL && value.PAYMENT_API_KEY && value.PAYMENT_WEBHOOK_SECRET), 'ASAAS_CHECKOUT_AND_WEBHOOK_REQUIRED', issues);
@@ -257,7 +258,17 @@ const envSchema = z.object({
   ESIGN_WEBHOOK_SECRET: optionalString,
 
   // Emissão fiscal: disabled = nenhuma fila; manual = fila para emissão externa e registro do resultado; mock = só testes.
-  FISCAL_PROVIDER: z.enum(['disabled', 'manual', 'mock']).default('disabled'),
+  FISCAL_PROVIDER: z.enum(['disabled', 'manual', 'mock', 'focusnfe']).default('disabled'),
+  /** Emissão automática de NFS-e pelo integrador Focus NFe (padrão nacional). Token de produção e de homologação são diferentes no painel deles. */
+  FOCUSNFE_TOKEN: optionalString,
+  FOCUSNFE_TOKEN_HOMOLOGACAO: optionalString,
+  FOCUSNFE_BASE_URL: optionalUrl,
+  /** Código NBS do serviço e classificação IBS/CBS exigidos pela DPS (reforma tributária); o contador informa os valores. */
+  FOCUSNFE_NBS: optionalString,
+  FOCUSNFE_IBSCBS_CST: optionalString,
+  FOCUSNFE_IBSCBS_CLASS_TRIB: optionalString,
+  /** Emite sozinho a nota dos pagamentos confirmados nos últimos 3 dias (só notas criadas pelo sistema; as manuais seguem manuais). */
+  FISCAL_AUTO_EMIT: booleanFromEnv.default(false),
 
   // Dados veiculares: o modo real só pode operar com contrato e credenciais válidos.
   DATA_PROVIDER: z.enum(['mock', 'real', 'disabled']).default('mock'),

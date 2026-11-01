@@ -4,6 +4,7 @@ import { adminAuth } from '../auth.js';
 import { pool } from '../db.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import { deliverFiscalDocument, enqueueFiscalEmission, retryFiscalJob } from '../lib/fiscal.js';
+import { fiscalAutoStatus, runFiscalAuto } from '../lib/fiscalAuto.js';
 import { consumeSecureLink } from '../lib/secureLinks.js';
 import { requirePermission } from '../permissions.js';
 import { rateLimit } from 'express-rate-limit';
@@ -19,6 +20,21 @@ adminFiscalQueueRouter.get('/fiscal/jobs', guard, asyncRoute(async (_req, res) =
   const r = await pool.query(`SELECT j.id,j.document_id,j.status,j.provider,j.attempts,j.max_attempts,j.next_attempt_at,j.last_error,j.created_at,d.number,d.amount_cents
     FROM fiscal_jobs j JOIN fiscal_documents d ON d.id=j.document_id ORDER BY j.created_at DESC LIMIT 100`);
   res.json({ items: r.rows });
+}));
+
+adminFiscalQueueRouter.get('/fiscal/auto', guard, asyncRoute(async (_req, res) => {
+  const [status, counts] = [await fiscalAutoStatus(), await pool.query(`SELECT
+      count(*) FILTER (WHERE status IN ('PENDENTE','RETRY','ENVIANDO','AGUARDANDO_PROVEDOR'))::int AS in_progress,
+      count(*) FILTER (WHERE status='FALHOU')::int AS failed, count(*) FILTER (WHERE status='REJEITADO')::int AS rejected
+    FROM fiscal_jobs WHERE created_at >= now() - interval '30 days'`)];
+  res.json({ ...status, jobs30d: counts.rows[0] });
+}));
+
+/** Roda a emissão automática agora (o robô roda sozinho a cada 2 minutos). Útil depois de completar a configuração. */
+adminFiscalQueueRouter.post('/fiscal/auto/run', guard, asyncRoute(async (req, res) => {
+  const out = await runFiscalAuto();
+  await audit(req.user!.id, 'FISCAL_AUTO_RUN', 'FISCAL_SETTINGS', '1', { ...out, requestId: requestId(req) });
+  res.json(out);
 }));
 
 adminFiscalQueueRouter.post('/fiscal/documents/:id/enqueue', guard, asyncRoute(async (req, res) => {

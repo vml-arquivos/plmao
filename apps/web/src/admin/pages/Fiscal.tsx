@@ -13,6 +13,37 @@ interface Doc {
 }
 interface Summary { pending: number; pendingCents: number; issuedMonth: number; issuedMonthCents: number; cancelledMonth: number; paymentsWithoutDocument: number; paymentsWithoutDocumentCents: number; settingsReady: boolean; settingsMissing: string[]; environment: string }
 
+interface AutoState { provider: string; configured: boolean; autoEmit: boolean; environment: string; missing: string[]; windowDays: number; jobs30d: { in_progress: number; failed: number; rejected: number } }
+const MISSING_LABEL: Record<string, string> = { legal_name: 'razão social', cnpj: 'CNPJ', municipal_registration: 'inscrição municipal', service_code: 'código do serviço', city: 'cidade', state: 'UF', city_ibge_code: 'código IBGE do município', tax_regime: 'regime tributário' };
+
+/** Estado da emissão automática de NFS-e: o que está ligado, o que falta e o botão para rodar agora. */
+function AutoEmit({ onChanged }: { onChanged: () => void }) {
+  const toast = useToast();
+  const st = useAsync(() => api.get<AutoState>('/admin/fiscal/auto'), []);
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    setBusy(true);
+    try {
+      const r = await api.post<{ skipped: string | null; created: number; queued: number; incomplete: number }>('/admin/fiscal/auto/run', {});
+      toast.ok(r.skipped ? 'Nada foi emitido: confira a configuração.' : `${r.queued} nota(s) enviada(s) para emissão.${r.incomplete ? ` ${r.incomplete} cliente(s) sem dados completos ficaram pendentes.` : ''}`);
+      st.reload(); onChanged();
+    } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  }
+  const a = st.data;
+  if (!a) return null;
+  if (!a.configured) return <Alert tone="info" title="Emissão manual">As notas são emitidas no emissor da prefeitura ou do seu contador e registradas aqui. Para emitir sozinho, ligue o emissor automático nas configurações do servidor.</Alert>;
+  const test = a.environment !== 'PRODUCAO';
+  return (
+    <Alert tone={a.missing.length ? 'warn' : test ? 'info' : 'ok'} title={a.autoEmit ? 'Emissão automática ligada' : 'Emissor conectado, emissão automática desligada'}>
+      {a.missing.length > 0 ? `Falta preencher em “Dados do emissor”: ${a.missing.map((m) => MISSING_LABEL[m] ?? m).join(', ')}. ` : ''}
+      {test ? 'Ambiente de testes: as notas emitidas não têm validade fiscal. Mude para produção em “Dados do emissor” quando estiver tudo certo. ' : 'Ambiente de produção: as notas têm validade fiscal. '}
+      {a.autoEmit ? `Cada pagamento confirmado gera a nota sozinho (pagamentos dos últimos ${a.windowDays} dias).` : 'Para as notas saírem sozinhas, ligue a emissão automática nas configurações do servidor.'}
+      {a.jobs30d.failed + a.jobs30d.rejected > 0 && ` Atenção: ${a.jobs30d.failed + a.jobs30d.rejected} nota(s) com problema nos últimos 30 dias.`}
+      {a.autoEmit && !a.missing.length && <> <button type="button" className="btn btn-sm" disabled={busy} onClick={() => void run()}>Emitir pendentes agora</button></>}
+    </Alert>
+  );
+}
+
 export default function Fiscal() {
   usePageTitle('Notas fiscais');
   const toast = useToast();
@@ -49,7 +80,7 @@ export default function Fiscal() {
       <PageHead title="Notas fiscais" sub="Controle do que precisa de nota, dos dados do cliente e das notas emitidas e canceladas, com planilha para o contador."
         actions={<><Button variant="ghost" icon="download" onClick={() => void exportCsv()}>Exportar planilha</Button><Button variant="primary" icon="plus" onClick={() => setCreating(true)}>Nova nota</Button></>} />
       {s && !s.settingsReady && <Alert tone="warn" title="Complete os dados do emissor">Faltam informações da sua empresa para emitir notas. <button type="button" className="btn btn-sm" onClick={() => setTab('settings')}>Configurar agora</button></Alert>}
-      <Alert tone="info" title="Como funciona a emissão">As notas são emitidas no seu emissor (prefeitura, portal nacional ou o sistema do seu contador) e registradas aqui com número, chave e arquivo. A emissão automática exige certificado digital e um emissor contratado; ela ainda não está ligada.</Alert>
+      <AutoEmit onChanged={() => { summary.reload(); list.reload(); }} />
       <div className="adm-grid-4">
         <Kpi label="A emitir" value={num(s?.pending ?? 0)} tone={(s?.pending ?? 0) > 0 ? 'warn' : undefined} sub={money(s?.pendingCents ?? 0)} />
         <Kpi label="Emitidas no mês" value={num(s?.issuedMonth ?? 0)} tone="ok" sub={money(s?.issuedMonthCents ?? 0)} />

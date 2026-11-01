@@ -501,19 +501,24 @@ adminBillingRouter.post('/fiscal/documents', requirePermission('MANAGE_FISCAL'),
 }));
 
 /** Cria "notas a emitir" para pagamentos confirmados que ainda não têm nota. */
-adminBillingRouter.post('/fiscal/sync', requirePermission('MANAGE_FISCAL'), asyncRoute(async (req, res) => {
-  const created = await tx(async (client) => {
+/** Cria o documento fiscal pendente de cada pagamento pago ainda sem nota. Usado pelo botão Sincronizar e pela emissão automática. */
+export async function syncPaidPayments(createdBy: string | null, windowDays = 120): Promise<number> {
+  return tx(async (client) => {
     const payments = await client.query(`SELECT p.id,p.user_id,p.amount_cents,o.purchase_type,pr.name AS product_name
       FROM payments p LEFT JOIN payment_orders o ON o.id=p.order_id LEFT JOIN query_products pr ON pr.id=o.product_id
-      WHERE p.status='PAID' AND p.paid_at >= now() - interval '120 days' AND p.amount_cents > 0
+      WHERE p.status='PAID' AND p.paid_at >= now() - make_interval(days => $1::int) AND p.amount_cents > 0
         AND NOT EXISTS (SELECT 1 FROM fiscal_documents d WHERE d.payment_id=p.id AND d.status <> 'CANCELLED')
-      ORDER BY p.paid_at LIMIT 300`);
+      ORDER BY p.paid_at LIMIT 300`, [windowDays]);
     for (const p of payments.rows) {
       const description = p.purchase_type === 'QUERY' && p.product_name ? `Serviço de consulta veicular — ${p.product_name}` : 'Saldo pré-pago para consultas veiculares';
-      await createFiscalDocumentRow(client, { userId: String(p.user_id), organizationId: null, amountCents: Number(p.amount_cents), description, paymentId: String(p.id), createdBy: req.user!.id });
+      await createFiscalDocumentRow(client, { userId: String(p.user_id), organizationId: null, amountCents: Number(p.amount_cents), description, paymentId: String(p.id), createdBy });
     }
     return payments.rowCount ?? 0;
   });
+}
+
+adminBillingRouter.post('/fiscal/sync', requirePermission('MANAGE_FISCAL'), asyncRoute(async (req, res) => {
+  const created = await syncPaidPayments(req.user!.id);
   await audit(req.user!.id, 'FISCAL_SYNC', 'FISCAL_DOCUMENT', null, { created, requestId: requestId(req) });
   res.json({ created });
 }));

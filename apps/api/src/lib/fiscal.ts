@@ -4,11 +4,13 @@ import { appError, log } from './http.js';
 import { enqueueEmail } from './emailOutbox.js';
 import { backoffSeconds } from './emailOutbox.js';
 import { createSecureLink } from './secureLinks.js';
+import { createFocusNfeProvider } from './fiscalFocusNfe.js';
 
 /**
  * Emissão fiscal por fila. O sistema NÃO fala com nenhuma prefeitura/SEFAZ por conta própria: a emissão automática
  * depende de um adaptador (FiscalProvider) para o provedor que a contabilidade escolher. Hoje existem:
  *  - disabled/manual: sem emissão automática (a nota é emitida fora e registrada no painel, como já era);
+ *  - focusnfe: emissão automática de NFS-e (padrão nacional) pelo integrador Focus NFe (lib/fiscalFocusNfe.ts);
  *  - mock: só para desenvolvimento e testes (proibido em produção).
  * A entrega ao cliente (e-mail com link seguro) só acontece com a nota EMITIDA, automática ou registrada à mão.
  */
@@ -35,8 +37,11 @@ export const mockFiscalProvider: FiscalProvider = {
   async emit(input) { mockCounter += 1; return { status: 'ISSUED', number: `MOCK-${Date.now()}-${mockCounter}`, series: '1', verificationCode: `V${input.idempotencyKey.slice(-6)}` }; }
 };
 
+let focusProvider: FiscalProvider | undefined;
 export function configuredFiscalProvider(): FiscalProvider | null {
-  return env.FISCAL_PROVIDER === 'mock' ? mockFiscalProvider : null;
+  if (env.FISCAL_PROVIDER === 'mock') return mockFiscalProvider;
+  if (env.FISCAL_PROVIDER === 'focusnfe') { focusProvider ??= createFocusNfeProvider(); return focusProvider; }
+  return null;
 }
 
 const err = (code: string, http = 409) => appError(code, { code, http, expose: true });
@@ -70,7 +75,7 @@ async function buildInput(documentId: string, jobKey: string): Promise<{ input: 
   const d = await pool.query(`SELECT d.kind,d.status,d.amount_cents,d.description,d.customer_snapshot,
       coalesce((SELECT p.status='PAID' FROM payments p WHERE p.id=d.payment_id),(SELECT i.status='PAID' FROM charge_installments i WHERE i.id=d.installment_id),false) AS paid
     FROM fiscal_documents d WHERE d.id=$1`, [documentId]);
-  const s = (await pool.query('SELECT legal_name,cnpj,municipal_registration,service_code,service_description,iss_rate_bps,tax_regime,city_ibge_code,environment FROM fiscal_settings WHERE id=1')).rows[0] ?? {};
+  const s = (await pool.query('SELECT legal_name,cnpj,municipal_registration,service_code,service_description,iss_rate_bps,tax_regime,city_ibge_code,environment,series FROM fiscal_settings WHERE id=1')).rows[0] ?? {};
   const r = d.rows[0];
   return { status: r.status, paid: Boolean(r.paid), input: { idempotencyKey: jobKey, kind: r.kind, amountCents: Number(r.amount_cents), description: r.description, customer: r.customer_snapshot, issuer: s } };
 }

@@ -1,3 +1,4 @@
+import ProfileSwitch from '../components/ProfileSwitch';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Alert, Button, Check, Field, Input, Select, ThemeSwitch, usePageTitle, useToast } from '../../shared/ui';
@@ -64,6 +65,7 @@ export default function Account() {
   return (
     <div className="stack-lg">
       <div className="page-head"><div><h1>Minha conta</h1><p>{me.user.email}</p></div></div>
+      {(me.profiles?.length ?? 1) > 1 && <div className="card card-pad stack-sm"><h2 style={{ fontSize: 18 }}>Perfil de uso</h2><p className="muted" style={{ fontSize: 14 }}>Sua conta tem mais de um perfil. O perfil muda o menu e a página inicial; seus dados e seu saldo são os mesmos.</p><ProfileSwitch label /></div>}
       {p.profileRequired && !p.profileComplete && <Alert tone="warn">Para consultar placas, complete seu cadastro. Falta: {p.profileMissing.join(', ')}.</Alert>}
       <form className="card card-pad stack" onSubmit={save}>
         <h2 style={{ fontSize: 18 }}>Dados pessoais</h2>
