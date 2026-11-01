@@ -1854,5 +1854,50 @@ export const placaMigrations: Migration[] = [
     down: async (client) => {
       await client.query(`UPDATE query_products SET report_sections = array_remove(report_sections,'PROPRIETARIO') WHERE id='COMPLETE' AND report_sections IS NOT NULL`);
     }
+  },
+  {
+    id: '054_report_share_links',
+    name: 'Link do vendedor: compartilhar o relatório com o comprador (expira, limita visualizações e pode ser revogado)',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE secure_links DROP CONSTRAINT IF EXISTS secure_links_purpose_check;
+        ALTER TABLE secure_links ADD CONSTRAINT secure_links_purpose_check CHECK (purpose IN ('CONTRACT_SIGN','CONTRACT_VIEW','FISCAL_DOCUMENT','REPORT_SHARE'));
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        DELETE FROM secure_links WHERE purpose='REPORT_SHARE';
+        ALTER TABLE secure_links DROP CONSTRAINT IF EXISTS secure_links_purpose_check;
+        ALTER TABLE secure_links ADD CONSTRAINT secure_links_purpose_check CHECK (purpose IN ('CONTRACT_SIGN','CONTRACT_VIEW','FISCAL_DOCUMENT'));
+      `);
+    }
+  },
+  {
+    id: '055_garage_email_alerts',
+    name: 'Garagem: aviso por e-mail de lembrete perto de vencer e vencido (uma vez por etapa, com opção de desligar)',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS garage_email_alerts boolean NOT NULL DEFAULT true;
+        ALTER TABLE garage_items ADD COLUMN IF NOT EXISTS alert_soon_at timestamptz;
+        ALTER TABLE garage_items ADD COLUMN IF NOT EXISTS alert_overdue_at timestamptz;
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        ALTER TABLE garage_items DROP COLUMN IF EXISTS alert_overdue_at;
+        ALTER TABLE garage_items DROP COLUMN IF EXISTS alert_soon_at;
+        ALTER TABLE users DROP COLUMN IF EXISTS garage_email_alerts;
+      `);
+    }
+  },
+  {
+    id: '056_faq_owner_data_visible',
+    name: 'FAQ de privacidade: dados do proprietário e do veículo aparecem completos (só troca o texto original, nunca um texto editado)',
+    up: async (client) => {
+      await client.query(`UPDATE faqs SET answer=$2, updated_at=now() WHERE question='Dados pessoais do proprietário aparecem?' AND answer=$1`, ['Não de forma aberta. Nome e documentos são protegidos conforme a LGPD, e identificadores sensíveis aparecem parcialmente mascarados no relatório.', 'Sim. O relatório é feito para uso profissional (análise de crédito, avaliação de veículo e comércio), por isso nome, CPF/CNPJ e identificadores do veículo aparecem completos, sem máscara, nos pacotes que incluem proprietário. O acesso é protegido por login e o uso dos dados deve seguir a LGPD.']);
+    },
+    down: async (client) => {
+      await client.query(`UPDATE faqs SET answer=$1, updated_at=now() WHERE question='Dados pessoais do proprietário aparecem?' AND answer=$2`, ['Não de forma aberta. Nome e documentos são protegidos conforme a LGPD, e identificadores sensíveis aparecem parcialmente mascarados no relatório.', 'Sim. O relatório é feito para uso profissional (análise de crédito, avaliação de veículo e comércio), por isso nome, CPF/CNPJ e identificadores do veículo aparecem completos, sem máscara, nos pacotes que incluem proprietário. O acesso é protegido por login e o uso dos dados deve seguir a LGPD.']);
+    }
   }
 ];

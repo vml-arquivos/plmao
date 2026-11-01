@@ -34,6 +34,11 @@ export function renderVehicleHtml(report: ReportV2, meta: ReportMeta): string {
   }).join('');
   const locked = report.lockedAlertCount ? `<div class="locked">Há ${report.lockedAlertCount} ponto(s) de atenção fora do plano contratado.</div>` : '';
   const outside = report.scope?.notIncluded.length ? `<p class="note">Não incluído neste produto: ${esc(report.scope.notIncluded.map((n) => n.label).join(', '))}. Isso não significa ausência de ocorrências.</p>` : '';
+  const TAG = { OK: 'OK', ATTENTION: 'Atenção', ALERT: 'Alerta', NOT_CHECKED: 'Não consultado' } as const;
+  const adv = report.advice;
+  const advice = adv
+    ? `${adv.resale ? `<section><h2>Revenda e seguro</h2><p><b>${esc(adv.resale.title)}</b></p><ul>${adv.resale.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul><p class="note">${esc(adv.resale.note)}</p></section>` : ''}<section><h2>Antes de pagar</h2><table class="chk">${adv.checks.map((c) => `<tr><td><b>${esc(c.label)}</b><br><span class="note">${esc(c.detail)}</span></td><td>${TAG[c.status]}</td></tr>`).join('')}</table><p><b>Confira você mesmo</b></p><ul>${adv.toDo.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></section>`
+    : '';
   const brand = esc(meta.brandName ?? 'Placa na Mão');
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Relatório ${esc(report.plate)} — ${brand}</title><style>
 :root{--ink:#0f0f14;--text:#1f2530;--muted:#6b7280;--line:#dcdcdc;--soft:#f4f4f4;--violet:#262626;--ok:#262626;--warn:#262626;--bad:#111}
@@ -55,7 +60,7 @@ section{margin-top:22px;break-inside:avoid-page}h2{display:flex;align-items:cent
 .cell i{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}.cell.ok i{background:#fff;border:2px solid #262626}.cell.bad strong{font-weight:800}.cell.bad i{background:#111;border-radius:1px}
 table{width:100%;border-collapse:collapse}td{padding:7px 4px;border-bottom:1px solid var(--line)}td+td{text-align:right;font-weight:700}tr.total td{border:0;background:var(--soft);font-weight:800}tr.total td+td{color:var(--ink)}
 .cell.wide{grid-column:1/-1}table.rt{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px}table.rt th{background:#e9e9e9;color:var(--ink);text-align:left;padding:6px 6px;font-weight:700}table.rt td,table.rt td+td{padding:6px;border-bottom:1px solid var(--line);text-align:left;font-weight:500;vertical-align:top}table.rt tr{break-inside:avoid}
-.note{color:var(--muted);font-size:12px;margin:8px 0 0}.locked{margin-top:20px;padding:12px 14px;border-radius:10px;background:var(--soft);color:var(--violet);font-weight:600}
+.chk td{vertical-align:top}.chk td+td{white-space:nowrap;font-weight:700}ul{margin:6px 0;padding-left:18px}.note{color:var(--muted);font-size:12px;margin:8px 0 0}.locked{margin-top:20px;padding:12px 14px;border-radius:10px;background:var(--soft);color:var(--violet);font-weight:600}
 footer{margin:26px 28px 24px;padding:14px 16px;background:var(--soft);border-radius:12px;font-size:11px;color:var(--muted)}footer b{color:var(--ink)}
 .print{display:inline-block;margin:0 0 16px;padding:10px 18px;border:0;border-radius:10px;background:var(--violet);color:#fff;font:700 14px "Plus Jakarta Sans",system-ui,sans-serif;cursor:pointer}
 .bar{max-width:820px;margin:16px auto 0;padding:0 8px}
@@ -64,6 +69,6 @@ footer{margin:26px 28px 24px;padding:14px 16px;background:var(--soft);border-rad
 </style></head><body><div class="bar"><button class="print" type="button" id="print-btn">Imprimir / salvar PDF</button></div><div class="sheet"><header><div class="logo"><i></i>${brand}</div><div class="meta"><b>Relatório de consulta veicular</b><span>Código ${esc(meta.verificationCode)}</span><br>${esc(when)}</div></header><main>
 <div class="hero"><div class="plate"><small>BRASIL</small><strong>${esc(report.plate)}</strong></div><div><h1>${esc(title)}</h1><p>${esc(sub)}</p></div></div>
 <div class="verdict ${vcls}"><b>${vlabel}</b><h3>${esc(report.verdict.title)}</h3><p>${esc(report.verdict.reason)}</p></div>
-${debts}${sections}${outside}${locked}</main>
+${debts}${sections}${advice}${outside}${locked}</main>
 <footer><b>Validação:</b> código ${esc(meta.verificationCode)} — confira em ${esc(meta.verificationUrl.replace(/^https?:\/\//, ''))}.<br>Informações fornecidas por fonte de dados contratada, conforme retornado na data e hora da consulta; não substituem documentos oficiais nem certidões. ${ownerIdentityEnabled() ? 'Os dados de proprietários constam como retornados pela fonte e o uso é de responsabilidade de quem consulta (LGPD).' : 'Dados pessoais de proprietários pessoa física (nome e CPF) não são exibidos, em conformidade com a LGPD.'}<br>Produto: ${esc(meta.productName)}.</footer></div><script src="/print-helper.js"></script></body></html>`;
 }

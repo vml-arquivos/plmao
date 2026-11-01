@@ -89,28 +89,6 @@ test('relatório completo: proprietário e documentos em claro, inclusive para o
   assert.ok(!items.some((i) => i.key === 'CHAVERETORNO'), 'controle interno continua fora');
 });
 
-test('LGPD (REPORT_SHOW_OWNER_IDENTITY=false): proprietário mascarado no relatório e ausente da visão do cliente', () => {
-  process.env.REPORT_SHOW_OWNER_IDENTITY = 'false';
-  try { lgpdProtected(); } finally { delete process.env.REPORT_SHOW_OWNER_IDENTITY; }
-});
-function lgpdProtected() {
-  const report = buildReportV2({ RESPOSTA: { CODIGO: '1', VEICULOSBDRP: { DESCRICAORETORNO: 'SUCESSO', RETORNO: { ...ret, PRONOME: 'JOAO DA SILVA SANTOS', CPF_CNPJ_PROPRIETARIO: '12345678901', CHASSI: '9BWZZZ377VT004251' } } } });
-  const all = report.sections.flatMap((s) => s.items);
-  assert.equal(all.find((i) => i.key === 'PRONOME').value, 'JOAO DA S**** S*****');
-  assert.equal(all.find((i) => i.key === 'CPF_CNPJ_PROPRIETARIO').value, '***.456.789-**');
-  assert.ok(!JSON.stringify(report).includes('12345678901'));
-  assert.ok(!JSON.stringify(report).includes('SILVA'));
-  // Identificadores do veículo (chassi, renavam, motor) saem completos; só dados de pessoas ficam protegidos.
-  assert.equal(all.find((i) => i.key === 'CHASSI').value, '9BWZZZ377VT004251');
-  assert.ok(!all.find((i) => i.key === 'CHASSI').masked);
-  const client = viewReport(report, { audience: 'client', tier: 3 });
-  const keys = client.sections.flatMap((s) => s.items.map((i) => i.key));
-  assert.ok(!keys.includes('PRONOME') && !keys.includes('CPF_CNPJ_PROPRIETARIO') && !keys.includes('CHAVERETORNO'));
-  assert.ok(keys.includes('TIPODOCUMENTOPROPRIETARIO'));
-  const team = viewReport(report, { audience: 'team', tier: 3 });
-  assert.ok(team.sections.flatMap((s) => s.items.map((i) => i.key)).includes('CHAVERETORNO'));
-}
-
 test('plano básico não vaza débitos/restrições; avisa que há pontos fora do plano', () => {
   const view = viewReport(buildReportV2(sample), { audience: 'client', tier: 1 });
   const keys = view.sections.flatMap((s) => s.items.map((i) => i.key));

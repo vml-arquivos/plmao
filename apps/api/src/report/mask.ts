@@ -45,10 +45,10 @@ export function formatDocument(raw: string | null | undefined): string {
 }
 
 /**
- * Relatório para conferência de crédito e comércio de veículos: nome e CPF/CNPJ de proprietários aparecem completos.
- * Padrão ligado; só `REPORT_SHOW_OWNER_IDENTITY=false` (ou 0/não) volta a proteger pessoa física.
+ * Regra do produto: o relatório serve a crédito, avaliação de veículo e comércio. Dados do veículo e do proprietário
+ * (nome, CPF/CNPJ, placa, chassi, RENAVAM, motor) aparecem sempre completos, para qualquer cliente. Não há opção de máscara.
  */
-export function ownerIdentityEnabled(): boolean { return !/^(0|false|nao|não|no|off)$/i.test(String(process.env.REPORT_SHOW_OWNER_IDENTITY ?? '').trim()); }
+export function ownerIdentityEnabled(): boolean { return true; }
 
 export function maskPlate(plate: string): string {
   const p = plate.toUpperCase();

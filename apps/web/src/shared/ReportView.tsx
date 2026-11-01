@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Icon, type IconName } from './icons';
 import { Badge, PlateBadge, Tabs } from './ui';
 import { dateTime, money, vehicleStatusLabel } from './format';
-import type { ItemState, ReportItem, ReportSection, ReportV2, Verdict } from './reportTypes';
+import type { CheckStatus, ItemState, ReportItem, ReportSection, ReportV2, Verdict } from './reportTypes';
 import './report.css';
 
 const VERDICT: Record<Verdict, { tone: string; icon: IconName; label: string }> = {
@@ -77,6 +77,39 @@ function Section({ section, defaultOpen, forceOpen = false }: { section: ReportS
         <dl className="rv-grid">{section.items.map((i) => <ItemRow key={i.key} item={i} />)}</dl>
       </div>
     </section>
+  );
+}
+
+const CHECK_LABEL: Record<CheckStatus, string> = { OK: 'Ok', ATTENTION: 'Atenção', ALERT: 'Alerta', NOT_CHECKED: 'Não consultado' };
+const CHECK_TONE: Record<CheckStatus, string> = { OK: 'ok', ATTENTION: 'warn', ALERT: 'danger', NOT_CHECKED: 'muted' };
+const RESALE_TONE = { LOW: 'ok', MODERATE: 'warn', HIGH: 'danger' } as const;
+
+/** Parecer de revenda/seguro e checklist "Antes de pagar": indicativos calculados só com o que o pacote consultou. */
+function AdviceCards({ advice }: { advice: NonNullable<ReportV2['advice']> }) {
+  return (
+    <>
+      {advice.resale && (
+        <section className={`card rv-card rv-resale ${RESALE_TONE[advice.resale.level]}`}>
+          <h3><Icon name="shield-check" size={20} /> Revenda e seguro</h3>
+          <p className="rv-resale-title">{advice.resale.title}</p>
+          <ul>{advice.resale.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+          <small>{advice.resale.note}</small>
+        </section>
+      )}
+      <section className="card rv-card rv-before">
+        <h3><Icon name="check-circle" size={20} /> Antes de pagar</h3>
+        <ul className="rv-checks">
+          {advice.checks.map((c) => (
+            <li key={c.key} className={CHECK_TONE[c.status]}>
+              <span className="rv-check-tag">{CHECK_LABEL[c.status]}</span>
+              <div><b>{c.label}</b><span>{c.detail}</span></div>
+            </li>
+          ))}
+        </ul>
+        <h4>Confira você mesmo</h4>
+        <ul className="rv-todo">{advice.toDo.map((t) => <li key={t}>{t}</li>)}</ul>
+      </section>
+    </>
   );
 }
 
@@ -185,6 +218,7 @@ export default function ReportView({ report, consultedAt, productName, verificat
               {report.debts.fineBreakdown.length > 0 && <div className="rv-fines"><b>Multas por órgão</b><ul>{report.debts.fineBreakdown.map((f) => <li key={f.key}><span>{f.label}</span><span className="num">{money(f.amountCents)}</span></li>)}</ul><small>{report.debts.note}</small></div>}
             </section>
           )}
+          {report.advice && <AdviceCards advice={report.advice} />}
           <section className="card rv-card">
             <h3><Icon name="car" size={20} /> Ficha do veículo</h3>
             <dl className="rv-grid">{facts.map((i) => <ItemRow key={i.key} item={i} />)}</dl>

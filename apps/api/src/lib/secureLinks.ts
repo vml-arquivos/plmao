@@ -7,7 +7,7 @@ import { pool } from '../db.js';
  * Links seguros e expiráveis para contratos e documentos fiscais.
  * O token só existe no e-mail/na tela de quem o recebe; no banco fica apenas o hash.
  */
-export type LinkPurpose = 'CONTRACT_SIGN' | 'CONTRACT_VIEW' | 'FISCAL_DOCUMENT';
+export type LinkPurpose = 'CONTRACT_SIGN' | 'CONTRACT_VIEW' | 'FISCAL_DOCUMENT' | 'REPORT_SHARE';
 export interface SecureLinkRow { id: string; purpose: LinkPurpose; resource_type: string; resource_id: string; recipient_email: string | null; expires_at: Date; uses: number; max_uses: number }
 
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');

@@ -14,5 +14,9 @@ export interface ReportV2 {
   lockedAlertCount?: number;
   debtsHidden?: boolean;
   scope?: { mode: 'TEMPLATE' | 'SECTIONS' | 'TIER'; templateVersion?: number; notIncluded: Array<{ key: string; label: string }> };
+  advice?: ReportAdvice;
 }
+export type CheckStatus = 'OK' | 'ATTENTION' | 'ALERT' | 'NOT_CHECKED';
+export interface AdviceCheck { key: string; label: string; status: CheckStatus; detail: string }
+export interface ReportAdvice { resale?: { level: 'LOW' | 'MODERATE' | 'HIGH'; title: string; reasons: string[]; note: string }; checks: AdviceCheck[]; toDo: string[] }
 export interface ReportEnvelope { report: ReportV2; verificationCode: string; verificationUrl: string; consultedAt: string; productName: string }

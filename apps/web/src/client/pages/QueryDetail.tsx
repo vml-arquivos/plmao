@@ -7,6 +7,7 @@ import { dateTime, money } from '../../shared/format';
 import ReportView from '../../shared/ReportView';
 import type { ReportEnvelope } from '../../shared/reportTypes';
 import { api } from '../api';
+import { AdCheckModal, ShareModal } from '../components/ReportTools';
 import { STATUS, type QuerySummary } from '../components/QueryRow';
 
 interface FipeQuote { documentCode: string; consultedAt: string; referenceMonth: string; brand: { name: string }; model: { name: string }; year: { name: string }; fuel?: string; fipeCode: string; valueLabel: string; blocks: Array<{ key: string; label: string; message: string }> }
@@ -38,6 +39,8 @@ export default function QueryDetail() {
   const toast = useToast();
   const [pdfBusy, setPdfBusy] = useState(false);
   const [dispute, setDispute] = useState(false);
+  const [share, setShare] = useState(false);
+  const [adCheck, setAdCheck] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   usePageTitle('Relatório');
   const runningRef = useRef(false);
@@ -111,6 +114,8 @@ export default function QueryDetail() {
             <Button icon="download" loading={pdfBusy} onClick={() => pdf(`/queries/${id}/report/pdf`, `placa-na-mao-${envelope.verificationCode}.pdf`)}>Baixar PDF</Button>
             <Button icon="printer" onClick={() => window.print()}>Imprimir</Button>
             <Button icon="link" onClick={() => copy(envelope.verificationUrl)}>Link de validação</Button>
+            <Button icon="external-link" onClick={() => setShare(true)}>Enviar ao comprador</Button>
+            <Button icon="search" onClick={() => setAdCheck(true)}>Conferir anúncio</Button>
           </>}
           upsell={<div className="row-between"><span><b>Há pontos de atenção fora do seu plano.</b> A consulta completa mostra todos os detalhes.</span><LinkButton to={`/app/consultar?placa=${summary.plate}&produto=COMPLETE`} variant="primary" size="sm" iconRight="arrow-right">Consulta completa</LinkButton></div>}
         />
@@ -120,6 +125,8 @@ export default function QueryDetail() {
           <Button variant="ghost" icon="car" onClick={() => void api.post('/garage/vehicles', { plate: summary.plate, modelLabel: [report.headline.brand, report.headline.model].filter(Boolean).join(' ').slice(0, 80), modelYear: Number(report.headline.modelYear) || null }).then(() => { toast.ok('Guardado na sua garagem.'); nav('/app/garagem'); }, (e) => { if (e instanceof ApiError && e.status === 409) { toast.ok('Já está na sua garagem.'); nav('/app/garagem'); } else toast.error(errorMessage(e)); })}>Guardar na garagem</Button>
           <Button variant="ghost" icon="alert-triangle" onClick={() => setDispute(true)}>Informar dado incorreto</Button>
         </div>
+        {share && <ShareModal queryId={id} plate={summary.plate} onClose={() => setShare(false)} />}
+        {adCheck && <AdCheckModal queryId={id} onClose={() => setAdCheck(false)} />}
         {dispute && <DisputeModal queryId={id} onClose={() => setDispute(false)} />}
       </div>
     );

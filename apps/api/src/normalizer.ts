@@ -1,7 +1,7 @@
 import type { NormalizedVehicle } from './types.js';
 import { buildReportV2 } from './report/normalizeV2.js';
 import { adaptVehicleTotal, isVehicleTotal, vehicleTotalOutcome } from './report/vehicleTotal.js';
-import { formatDocument, maskDocument, maskName, ownerIdentityEnabled } from './report/mask.js';
+import { formatDocument } from './report/mask.js';
 
 const cents = (v: unknown) => {
   if (typeof v !== 'string' && typeof v !== 'number') return 0;
@@ -142,8 +142,8 @@ export function normalizeBdrp(original: any): NormalizedVehicle {
       status: text(valueOf(raw, ['SITUACAOVEICULO', 'situacaoVeiculo', 'status', 'vehicleStatus']))
     },
     owner: {
-      name: (ownerIdentityEnabled() ? text(valueOf(raw, ['PRONOME', 'nomeProprietario', 'ownerName'])) : maskName(text(valueOf(raw, ['PRONOME', 'nomeProprietario', 'ownerName'])))) || undefined,
-      document: (ownerIdentityEnabled() ? formatDocument(text(valueOf(raw, ['CPF_CNPJ_PROPRIETARIO', 'cpfCnpjProprietario', 'ownerDocument']))) : maskDocument(text(valueOf(raw, ['CPF_CNPJ_PROPRIETARIO', 'cpfCnpjProprietario', 'ownerDocument'])))) || undefined,
+      name: text(valueOf(raw, ['PRONOME', 'nomeProprietario', 'ownerName'])) || undefined,
+      document: formatDocument(text(valueOf(raw, ['CPF_CNPJ_PROPRIETARIO', 'cpfCnpjProprietario', 'ownerDocument']))) || undefined,
       documentType: text(valueOf(raw, ['TIPODOCUMENTOPROPRIETARIO', 'tipoDocumentoProprietario', 'ownerDocumentType']))
     },
     debts: legacyDebts(raw, original),

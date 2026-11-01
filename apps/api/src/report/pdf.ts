@@ -362,6 +362,46 @@ export async function qr(d: Doc, url: string, x: number, y: number, size: number
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (code.modules.get(r, c)) rect(p, { x: x + c * cell, y: y + size - (r + 1) * cell, width: cell + 0.2, height: cell + 0.2, color: C.ink });
 }
 
+const CHECK_TEXT: Record<string, string> = { OK: 'OK', ATTENTION: 'ATENÇÃO', ALERT: 'ALERTA', NOT_CHECKED: 'NÃO CONSULTADO' };
+
+/** Parecer de revenda/seguro e checklist "Antes de pagar" (cores neutras: o estado vai escrito). */
+function adviceBlock(d: Doc, report: ReportV2) {
+  const a = report.advice;
+  if (!a) return;
+  const bullet = (text: string, size = 8) => {
+    const lines = d.wrap(text, d.dm400, size, CW - 16);
+    d.ensure(lines.length * 10 + 6);
+    d.page.drawCircle({ x: M + 4, y: d.y - 5.5, size: 1.4, color: N.ink });
+    lines.forEach((l, i) => d.text(l, M + 12, d.y - 8 - i * 10, size, d.dm400, N.text));
+    d.y -= lines.length * 10 + 3;
+  };
+  if (a.resale) {
+    bandTitle(d, 'Revenda e seguro');
+    d.ensure(20);
+    d.text(a.resale.title, M + 6, d.y - 11, 9.5, d.jx800, N.ink, { maxWidth: CW - 12 });
+    d.y -= 18;
+    for (const r of a.resale.reasons) bullet(r);
+    noteLines(d, a.resale.note);
+  }
+  bandTitle(d, 'Antes de pagar');
+  for (const c of a.checks) {
+    const lines = d.wrap(c.detail, d.dm400, 7.5, CW - 16);
+    d.ensure(lines.length * 9.5 + 22);
+    d.text(c.label, M + 6, d.y - 11, 8.5, d.dm700, N.ink, { maxWidth: CW - 120 });
+    const tag = CHECK_TEXT[c.status] ?? c.status;
+    d.text(tag, W - M - 6 - d.dm700.widthOfTextAtSize(clean(tag), 7.5), d.y - 11, 7.5, d.dm700, c.status === 'OK' ? N.muted : N.ink);
+    lines.forEach((l, i) => d.text(l, M + 6, d.y - 22 - i * 9.5, 7.5, d.dm400, N.muted));
+    d.y -= lines.length * 9.5 + 24;
+    d.page.drawLine({ start: { x: M, y: d.y + 2 }, end: { x: W - M, y: d.y + 2 }, thickness: 0.4, color: N.hair });
+  }
+  d.y -= 4;
+  d.ensure(30);
+  d.text('Confira você mesmo', M + 6, d.y - 10, 8.5, d.jx800, N.ink);
+  d.y -= 16;
+  for (const t of a.toDo) bullet(t);
+  d.y -= 6;
+}
+
 const CONSIDERATIONS = [
   'Informações de multas, débitos e restrições vêm de bases de terceiros e podem divergir dos critérios de cada Detran e Secretaria da Fazenda. Confira sempre no site do órgão antes de fechar negócio.',
   'Indício de sinistro, leilão e roubo/furto indicam possibilidade, não certeza. Confirme com vistoria física e com os órgãos competentes.',
@@ -422,6 +462,7 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
     d.text(`Há ${report.lockedAlertCount} ponto(s) de atenção fora do plano contratado. Consulte um plano com mais detalhes para ver.`, M + 10, d.y - 19, 8.5, d.dm700, N.ink, { maxWidth: CW - 20 });
     d.y -= 42;
   }
+  adviceBlock(d, report);
   if (!meta.sample) considerations(d);
 
   // validação + avisos

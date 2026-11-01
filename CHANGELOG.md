@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.20.1 — Dados do veículo e do proprietário sempre completos
+
+- Fim de qualquer máscara nos dados do veículo e do proprietário: nome, CPF/CNPJ, placa, chassi, RENAVAM e motor aparecem inteiros na tela, no PDF, na impressão, na visão da equipe e no link enviado ao comprador.
+- O link "Enviar ao comprador" agora mostra o mesmo relatório do cliente, completo, inclusive proprietário e histórico de proprietários.
+- Removida a opção `REPORT_SHOW_OWNER_IDENTITY` (não é mais lida; pode apagar da configuração). Relatórios antigos que ainda estiverem mascarados são refeitos em claro ao abrir.
+- A lista "Antes de pagar" só cita as verificações que o pacote cobre; o que está fora do pacote não é nomeado.
+- Textos do site ajustados: a página inicial e a pergunta de privacidade das perguntas frequentes não prometem mais dados mascarados. Migração 056 troca o texto da pergunta só se ainda for o original (resposta editada no painel não é mexida).
+
+## 1.20.0 — Parecer de revenda, link para o comprador, conferência de anúncio e avisos da garagem
+
+- Parecer de revenda e seguro no relatório (tela, PDF e impressão): risco baixo, moderado ou alto de recusa por seguradoras e compradores, com os motivos. Só aparece quando o pacote traz leilão ou sinistro. É indicativo, calculado só com as informações da consulta.
+- "Antes de pagar": lista do que a consulta verificou (débitos, restrição judicial, gravame, administrativas, roubo e furto, leilão, sinistro, chassi, recall), cada item como OK, atenção, alerta ou não consultado, e seis confirmações que só a pessoa faz pessoalmente. O que não foi consultado no pacote nunca aparece como OK.
+- Enviar ao comprador: na consulta, o cliente cria um link temporário (1, 3, 7 ou 15 dias, até 100 acessos, até 5 ativos por consulta) e envia por WhatsApp ou copia. Quem recebe vê o relatório do pacote e baixa o PDF (na 1.20.1 passou a mostrar tudo, sem máscara). Dá para ver quantas vezes abriram e cancelar o link. A página pública fica em `/r/...`, não é indexada e não consulta o fornecedor nem cobra. Migração 054.
+- Conferir anúncio: o comprador informa preço, modelo, cor e ano do anúncio e o sistema compara com o registro e com a FIPE da consulta. Preço muito abaixo da FIPE e divergência de modelo, cor ou ano viram alerta. Sem FIPE ou sem dado no registro, avisa que não dá para comparar.
+- Garagem com avisos por e-mail: um e-mail quando um lembrete está a 7 dias (ou 500 km) de vencer e outro quando vence, em resumo único por pessoa, uma vez por etapa. Cada pessoa liga ou desliga na própria garagem. Se mudar o prazo, o aviso volta a valer. Migração 055. Desligar para todos: `GARAGE_ALERTS_ENABLED=false` (padrão: ligado).
+- Documento completo do sistema em `docs/SISTEMA.md`: missão, todas as telas e funções, como a consulta funciona, segurança, rotinas e o que ainda não existe.
+- `/r/` incluído nas rotas conhecidas e bloqueado para buscadores.
+- Nova variável: `GARAGE_ALERTS_ENABLED`.
+
 ## 1.19.8 — Gravame completo também na Completa, e fim dos alertas falsos de "não apresentado"
 
 - Completa e Premium: o `/gravame` agora é consultado sempre que a base principal não trouxe dados, não afirmou "sem gravame" ou indicou alienação sem banco, CNPJ, contrato e data de inclusão. Antes só consultava quando a base principal vinha vazia, e por isso a alienação aparecia sem o nome do banco.

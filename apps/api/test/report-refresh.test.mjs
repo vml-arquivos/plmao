@@ -3,13 +3,13 @@ import { after, before, describe, it } from 'node:test';
 import { integration, loadCore, uid, useTestEnv } from './helpers/db.mjs';
 import { hostRequest, startServer } from './helpers/server.mjs';
 
-// Relatório gravado com máscara (servidor em modo protegido) é refeito em claro a partir do bruto cifrado.
+// Relatório antigo gravado com máscara é refeito em claro a partir do bruto cifrado.
 describe('relatórios antigos mascarados são refeitos em claro', integration, () => {
   let pool; let server; let token; let queryId;
   before(async () => {
     useTestEnv();
     ({ pool } = await loadCore());
-    server = await startServer({ REPORT_SHOW_OWNER_IDENTITY: 'false' });
+    server = await startServer({});
     const reg = await hostRequest(server.base, '/api/auth/register', { method: 'POST', body: { name: 'Cliente Antigo', email: `${uid('rfr')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });
     token = reg.json.token;
     await pool.query('UPDATE wallets SET balance_cents=100000 WHERE user_id=$1', [reg.json.user.id]);
@@ -19,12 +19,12 @@ describe('relatórios antigos mascarados são refeitos em claro', integration, (
   });
   after(async () => { await server.stop(); await pool.end(); });
 
-  it('grava mascarado no modo protegido e, com o padrão em claro, a rotina refaz o relatório', async () => {
+  it('relatório antigo com campo mascarado é refeito em claro pela rotina', async () => {
     const stored = async () => (await pool.query('SELECT normalized::text AS n FROM vehicle_query_results WHERE query_id=$1', [queryId])).rows[0].n;
+    assert.doesNotMatch(await stored(), /"masked": ?true/, 'relatório novo já nasce em claro');
+    await pool.query("UPDATE vehicle_query_results SET normalized=jsonb_set(normalized,'{v2,sections,0,items,0,masked}','true'::jsonb) WHERE query_id=$1", [queryId]);
     assert.match(await stored(), /"masked": ?true/);
     const { refreshMaskedReports } = await import('../dist/lib/reportRefresh.js');
-    process.env.REPORT_SHOW_OWNER_IDENTITY = 'false';
-    try { await refreshMaskedReports(); assert.match(await stored(), /"masked": ?true/, 'protegido: o relatório continua protegido'); } finally { delete process.env.REPORT_SHOW_OWNER_IDENTITY; }
     const out = await refreshMaskedReports();
     assert.ok(out.refreshed >= 1 && out.failed === 0, JSON.stringify(out));
     const after = await stored();

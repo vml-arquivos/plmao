@@ -10,7 +10,7 @@ describe('consulta → relatório v2: LGPD, planos, PDF/HTML e revelação audit
   before(async () => {
     useTestEnv();
     ({ pool } = await loadCore());
-    server = await startServer({ ADMIN_HOSTS: 'admin.placanamao.test', REPORT_SHOW_OWNER_IDENTITY: 'false' });
+    server = await startServer({ ADMIN_HOSTS: 'admin.placanamao.test' });
     const reg = await call('/api/auth/register', { method: 'POST', token: undefined, body: { name: 'Cliente Relatório', email: `${uid('rel')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });
     assert.equal(reg.status, 201);
     clientToken = reg.json.token; clientId = reg.json.user.id;
@@ -20,27 +20,28 @@ describe('consulta → relatório v2: LGPD, planos, PDF/HTML e revelação audit
   });
   after(async () => { await server.stop(); await pool.end(); });
 
-  it('consulta Completa devolve relatório v2 sem dados do proprietário', async () => {
+  it('consulta Completa devolve relatório v2 com os dados do proprietário completos', async () => {
     const r = await call('/api/queries', { method: 'POST', body: { plate: 'DEV1B11', productId: 'COMPLETE' } });
     assert.equal(r.status, 201, r.text);
     premiumQuery = r.json.id;
     const v2 = r.json.result.v2;
     assert.equal(v2.schema, 'placanamao.vehicle.report.v2');
     assert.equal(r.json.result.owner, undefined);
-    assert.ok(!r.text.includes('PROPRIETARIO FICTICIO'));
+    assert.ok(r.text.includes('PROPRIETARIO FICTICIO'));
     assert.ok(!r.text.includes('9ZZSANDBOXDEV1B11'.slice(0, 12) + 'DEV1B11'));
     const keys = v2.sections.flatMap((s) => s.items.map((i) => i.key));
-    assert.ok(!keys.includes('PRONOME') && !keys.includes('CPF_CNPJ_PROPRIETARIO'));
+    assert.ok(keys.includes('PRONOME') && keys.includes('CPF_CNPJ_PROPRIETARIO'));
+    assert.ok(!v2.sections.flatMap((s) => s.items).some((i) => i.masked), 'nenhum dado mascarado');
     assert.equal(v2.debts.totalCents, 29347 + 16022);
     assert.equal(r.json.result.diagnostic.level, 'HIGH_RISK');
   });
 
-  it('banco: bruto do provedor só criptografado; normalizado só com dados mascarados', async () => {
+  it('banco: bruto do provedor só criptografado; normalizado com os dados completos', async () => {
     const row = (await pool.query('SELECT raw_response,raw_enc,normalized::text AS n,normalizer_version FROM vehicle_query_results WHERE query_id=$1', [premiumQuery])).rows[0];
     assert.ok(row.raw_enc && row.raw_enc.startsWith('v1.'));
     assert.ok(!row.raw_enc.includes('FICTICIO'));
     assert.deepEqual(row.raw_response, { stored: true, encrypted: true });
-    assert.ok(!row.n.includes('PROPRIETARIO FICTICIO'));
+    assert.ok(row.n.includes('PROPRIETARIO FICTICIO'));
     assert.equal(row.normalizer_version, 3);
     const { decryptRaw } = await import('../dist/lib/rawStore.js');
     assert.match(JSON.stringify(decryptRaw(row.raw_enc)), /PROPRIETARIO FICTICIO SANDBOX/);
@@ -73,7 +74,7 @@ describe('consulta → relatório v2: LGPD, planos, PDF/HTML e revelação audit
     assert.equal(html.status, 200);
     assert.match(html.text, /DEV1B11/);
     assert.match(html.text, /R\$ 453,69/);
-    assert.ok(!html.text.includes('PROPRIETARIO'));
+    assert.ok(html.text.includes('PROPRIETARIO FICTICIO'));
     assert.ok(!/<script>/.test(html.text)); // CSP: sem script inline
     const other = await hostRequest(server.base, `/api/queries/${premiumQuery}/report`, { token: 'invalido' });
     assert.equal(other.status, 401);
@@ -85,12 +86,12 @@ describe('consulta → relatório v2: LGPD, planos, PDF/HTML e revelação audit
     assert.match(r.json.plate, /^DEV\*\*\*11$/);
   });
 
-  it('equipe vê relatório mascarado; revelar exige permissão, motivo e fica auditado', async () => {
+  it('equipe vê o relatório completo; revelar o bruto exige permissão, motivo e fica auditado', async () => {
     const view = await sa.call(`/api/admin/queries/${premiumQuery}`);
     assert.equal(view.status, 200);
     const items = view.json.report.sections.flatMap((s) => s.items);
     const nome = items.find((i) => i.key === 'PRONOME');
-    assert.ok(nome && nome.masked && !nome.value.includes('FICTICIO'));
+    assert.ok(nome && !nome.masked && nome.value.includes('FICTICIO'));
     assert.ok(items.some((i) => i.key === 'CHAVERETORNO'));
     const noReason = await sa.call(`/api/admin/queries/${premiumQuery}/reveal`, { method: 'POST', body: { field: 'PRONOME', reason: 'curto' } });
     assert.equal(noReason.status, 400);

@@ -4,6 +4,8 @@ Plataforma brasileira de consulta veicular por placa: o cliente digita a placa, 
 
 > Domínios previstos (provisórios, configuráveis por variável): site `placanamao.com.br` e painel `admin.placanamao.com.br`.
 
+> **Documento completo do sistema (missão, todas as funções e como funcionam): [`docs/SISTEMA.md`](docs/SISTEMA.md).**
+
 ## O que existe
 
 | Superfície | Onde | Para quê |
@@ -17,7 +19,7 @@ Plataforma brasileira de consulta veicular por placa: o cliente digita a placa, 
 
 - **Só mostra o que o provedor entrega.** Um módulo sem retorno aparece como "em breve"/"não fornecido", nunca como "nada consta". Um produto só fica ativo se existir regra de fonte ativa (`query_source_rules`); o provedor real só funciona com credenciais no ambiente.
 - **Dinheiro em centavos inteiros** (percentuais em bps). Piso de preço calculado pelo pior meio de pagamento (trava de margem).
-- **LGPD por padrão:** CPF/CNPJ/nomes mascarados; JSON bruto do provedor cifrado (AES‑256‑GCM); revelação de dado pessoal exige motivo (≥ 10 caracteres), é auditada e nunca guarda o valor revelado.
+- **Dados completos, sem máscara:** nome e CPF/CNPJ do proprietário, placa, chassi, RENAVAM e motor aparecem inteiros (uso profissional: crédito, avaliação e comércio). JSON bruto do provedor cifrado (AES‑256‑GCM); revelação de dado pessoal exige motivo (≥ 10 caracteres), é auditada e nunca guarda o valor revelado.
 - **Independência total:** banco, segredos JWT/TOTP, chaves de pagamento, domínio e nomes de container são próprios deste produto.
 
 ## Stack

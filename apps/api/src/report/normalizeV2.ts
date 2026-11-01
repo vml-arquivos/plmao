@@ -13,8 +13,9 @@ import { applyLien, gravameExtras, seizureExtra } from './gravame.js';
 import { leilaoExtras } from './leilao.js';
 import { applyJudicial, judicialExtras } from './judicial.js';
 import { adaptVehicleTotal, isVehicleTotal, vehicleTotalExtras, vehicleTotalOutcome, type ReportTable } from './vehicleTotal.js';
-import { formatDocument, maskDocument, maskName, maskVehicleId, ownerIdentityEnabled } from './mask.js';
+import { formatDocument, ownerIdentityEnabled } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
+import { buildAdvice, type ReportAdvice } from './advice.js';
 
 export const NORMALIZER_VERSION = 3;
 export const REPORT_SCHEMA = 'placanamao.vehicle.report.v2';
@@ -67,6 +68,8 @@ export interface ReportV2 {
   debtsHidden?: boolean;
   /** preenchido por viewReport: o que o produto contratado cobre. "Fora do produto" é diferente de "não retornado pela fonte". */
   scope?: { mode: 'TEMPLATE' | 'SECTIONS' | 'TIER'; templateVersion?: number; notIncluded: Array<{ key: string; label: string }> };
+  /** preenchido por viewReport: parecer de revenda/seguro e checklist "Antes de pagar", só com o que o pacote consultou */
+  advice?: ReportAdvice;
 }
 
 const FINE_COMPONENTS = new Set(['DEBDETRAN', 'DEBDER', 'DEBDERSA', 'DEBPOLRODFED', 'DEBRENAINF']);
@@ -161,11 +164,8 @@ function buildItem(def: FieldDef, rawValue: unknown): ReportItem {
   const text = scalar(rawValue);
   if (!text) return base;
 
-  if (def.doc === 'CPF_CNPJ' && ownerIdentityEnabled()) { const v = formatDocument(text); return { ...base, state: 'INFO', value: v, display: v }; }
-  if (def.doc === 'NAME' && ownerIdentityEnabled()) { const v = text.replace(/\s+/g, ' ').trim(); return { ...base, state: 'INFO', value: v, display: v }; }
-  if (def.doc === 'CPF_CNPJ') { const v = maskDocument(text); return { ...base, state: 'INFO', value: v, display: v, masked: true }; }
-  if (def.doc === 'NAME') { const v = maskName(text); return { ...base, state: 'INFO', value: v, display: v, masked: true }; }
-  if (def.doc === 'VEHICLE_ID') { const v = maskVehicleId(text); return { ...base, state: 'INFO', value: v, display: v, masked: true }; }
+  if (def.doc === 'CPF_CNPJ') { const v = formatDocument(text); return { ...base, state: 'INFO', value: v, display: v }; }
+  if (def.doc === 'NAME') { const v = text.replace(/\s+/g, ' ').trim(); return { ...base, state: 'INFO', value: v, display: v }; }
 
   const folded = fold(text);
   switch (def.kind) {
@@ -421,7 +421,8 @@ export function viewReport(report: ReportV2, opts: { audience: Audience; tier: T
     const outside = scope.notIncluded.filter((n) => n.key === 'DEBITOS' || n.key === 'RESTRICOES' || n.key === 'GRAVAME').map((n) => n.label.toLowerCase());
     if (outside.length) verdict = { level: 'INCONCLUSIVE', title: 'Consulta parcial', reason: `Este produto não inclui: ${outside.join(', ')}. Não é possível afirmar que o veículo está sem pendências.`, alerts: [] };
   }
-  return { ...report, sections, verdict, debts, lockedAlertCount, debtsHidden, ...(scope ? { scope } : {}) };
+  const viewed: ReportV2 = { ...report, sections, verdict, debts, lockedAlertCount, debtsHidden, ...(scope ? { scope } : {}) };
+  return { ...viewed, advice: buildAdvice(viewed) };
 }
 
 export function tierForProductCode(code: string | null | undefined): Tier {

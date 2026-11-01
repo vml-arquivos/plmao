@@ -46,6 +46,25 @@ function AddVehicle({ onClose, onDone }: { onClose: () => void; onDone: (id: str
   );
 }
 
+function AlertsToggle() {
+  const toast = useToast();
+  const state = useAsync(() => api.get<{ emailAlerts: boolean; available: boolean }>('/garage/alerts'), []);
+  const [busy, setBusy] = useState(false);
+  if (!state.data?.available) return null;
+  const on = state.data.emailAlerts;
+  async function toggle() {
+    setBusy(true);
+    try { await api.put('/garage/alerts', { emailAlerts: !on }); toast.ok(on ? 'Avisos por e-mail desligados.' : 'Avisos por e-mail ligados.'); state.reload(); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  }
+  return (
+    <div className="card card-pad row-between">
+      <span><b>Avisos por e-mail.</b> <span className="muted">{on ? 'Você recebe um e-mail quando um lembrete está perto de vencer e quando vence.' : 'Desligados. Você não recebe e-mails dos lembretes.'}</span></span>
+      <Button size="sm" loading={busy} onClick={() => void toggle()}>{on ? 'Desligar' : 'Ligar'}</Button>
+    </div>
+  );
+}
+
 export default function Garage() {
   usePageTitle('Minha garagem');
   const nav = useNavigate();
@@ -64,6 +83,7 @@ export default function Garage() {
           <Button variant="primary" icon="plus" disabled={vehicles.length >= (list.data?.limit ?? 10)} onClick={() => setAdding(true)}>Adicionar veículo</Button>
         </div>
       </div>
+      {vehicles.length > 0 && <AlertsToggle />}
       {!vehicles.length ? (
         <EmptyState icon="car" title="Sua garagem está vazia" action={<Button variant="primary" icon="plus" onClick={() => setAdding(true)}>Adicionar veículo</Button>}>Guarde um veículo para acompanhar relatórios, lembretes de IPVA e revisão, e gastos.</EmptyState>
       ) : (

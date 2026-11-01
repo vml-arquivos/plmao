@@ -271,6 +271,8 @@ const envSchema = z.object({
   FIPE_SECONDARY_TOKEN: optionalString,
   /** Completa a Consulta Completa com o histórico mensal da FIPE (busca extra, falha sem derrubar a consulta). */
   ENRICH_FIPE_HISTORY: booleanFromEnv.default(true),
+  /** Avisa por e-mail quando um lembrete da garagem está perto de vencer ou venceu (cada pessoa pode desligar). */
+  GARAGE_ALERTS_ENABLED: booleanFromEnv.default(true),
   FIPE_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(10000),
   FIPE_GUEST_DAILY_LIMIT: z.coerce.number().int().positive().max(100).default(3),
   FIPE_AUTH_DAILY_LIMIT: z.coerce.number().int().positive().max(500).default(10),

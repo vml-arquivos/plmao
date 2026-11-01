@@ -23,7 +23,7 @@ Segredos existem **somente no ambiente de execução** (Coolify): nunca no repos
 
 ## LGPD
 
-- **Minimização:** CPF/CNPJ, nomes, chassi, RENAVAM e motor saem mascarados por padrão no cliente, na equipe, na impressão e no PDF.
+- **Dados do veículo e do proprietário:** saem completos (sem máscara) no cliente, na equipe, na impressão, no PDF e no link enviado ao comprador, por ser produto de uso profissional. A proteção está no acesso (login, links com validade e limite de uso), no dado bruto cifrado e na auditoria.
 - **Bruto cifrado:** o JSON do provedor é guardado com AES‑256‑GCM (`DATA_ENCRYPTION_KEY`, mínimo 32 caracteres; perder a chave torna o bruto ilegível). Não existe endpoint que o devolva.
 - **Revelação auditada:** só com `PII_REVEAL_ENABLED=true`, permissão `REVEAL_PII` e motivo ≥ 10 caracteres; fica registrada em `pii_reveals` e em auditoria **sem** gravar o valor revelado.
 - **Analytics:** eventos de funil não registram placa, e-mail, documento, senha ou token.

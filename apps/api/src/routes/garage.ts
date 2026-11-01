@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { auth } from '../auth.js';
 import { appError, asyncRoute } from '../lib/http.js';
+import { env } from '../config.js';
 
 /**
  * Minha garagem: a pessoa guarda seus veículos, vê os relatórios que já fez e registra lembretes,
@@ -210,6 +211,8 @@ garageRouter.patch('/garage/items/:id', asyncRoute(async (req, res) => {
   if (p.title !== undefined) add('title', p.title);
   if (p.dueDate !== undefined) add('due_date', p.dueDate);
   if (p.dueKm !== undefined) add('due_km', p.dueKm);
+  // Mudou o prazo: o aviso volta a valer para o novo prazo.
+  if (p.dueDate !== undefined || p.dueKm !== undefined || p.done === false) sets.push('alert_soon_at=NULL', 'alert_overdue_at=NULL');
   if (p.eventDate !== undefined) add('event_date', p.eventDate);
   if (p.km !== undefined) add('km', p.km);
   if (p.amountCents !== undefined) add('amount_cents', p.amountCents);
@@ -224,6 +227,18 @@ garageRouter.delete('/garage/items/:id', asyncRoute(async (req, res) => {
   const r = await pool.query('DELETE FROM garage_items WHERE id=$1 AND user_id=$2', [uuid(req.params.id), req.user!.id]);
   if (!r.rowCount) throw notFound();
   res.status(204).end();
+}));
+
+garageRouter.get('/garage/alerts', asyncRoute(async (req, res) => {
+  const r = await pool.query('SELECT garage_email_alerts FROM users WHERE id=$1', [req.user!.id]);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json({ emailAlerts: r.rows[0]?.garage_email_alerts !== false, available: env.GARAGE_ALERTS_ENABLED });
+}));
+garageRouter.put('/garage/alerts', asyncRoute(async (req, res) => {
+  const parsed = z.object({ emailAlerts: z.boolean() }).strict().safeParse(req.body);
+  if (!parsed.success) throw bad('Confira os dados.');
+  await pool.query('UPDATE users SET garage_email_alerts=$1 WHERE id=$2', [parsed.data.emailAlerts, req.user!.id]);
+  res.json({ emailAlerts: parsed.data.emailAlerts, available: env.GARAGE_ALERTS_ENABLED });
 }));
 
 garageRouter.get('/garage/export', asyncRoute(async (req, res) => {

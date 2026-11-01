@@ -24,7 +24,7 @@ const WHY: Array<{ icon: IconName; t: string; s: string }> = [
   { icon: 'file-text', t: 'Dados reunidos', s: 'Veículo, débitos, restrições e financiamento em um só relatório.' },
   { icon: 'zap', t: '100% online', s: 'Resultado em segundos, no celular ou no computador.' },
   { icon: 'shield-check', t: 'Transparência', s: 'Data e fonte registradas. O que a fonte não retornar aparece como “Não informado”.' },
-  { icon: 'lock', t: 'Privacidade', s: 'Dados pessoais protegidos conforme a LGPD, sempre mascarados.' }
+  { icon: 'lock', t: 'Privacidade', s: 'Acesso protegido por login e dados completos, sem máscara, para uso profissional.' }
 ];
 
 function SamplePhones() {

@@ -60,22 +60,6 @@ test('histórico de proprietários: por padrão o cliente vê nome e documento c
   assert.ok(!items.some((i) => i.key === 'VT_PROPRIETARIOS_LISTA' && i.state !== 'NOT_PROVIDED'));
 });
 
-test('histórico de proprietários (REPORT_SHOW_OWNER_IDENTITY=false): o cliente nunca vê nome ou documento; a equipe vê só mascarado', () => {
-  process.env.REPORT_SHOW_OWNER_IDENTITY = 'false';
-  try { ownersProtected(); } finally { delete process.env.REPORT_SHOW_OWNER_IDENTITY; }
-});
-function ownersProtected() {
-  const r = buildReportV2(ok);
-  const team = viewReport(r, { audience: 'team', tier: 3 });
-  const lista = team.sections.flatMap((s) => s.items).find((i) => i.key === 'VT_PROPRIETARIOS_LISTA');
-  assert.ok(lista.value.includes('JOAO'));
-  assert.ok(!lista.value.includes('SILVA') && !lista.value.includes('12345678900') && !lista.value.includes('98765432000110'));
-  const client = viewReport(r, { audience: 'client', tier: 3 });
-  const json = JSON.stringify(client);
-  assert.ok(!json.includes('VT_PROPRIETARIOS_LISTA') && !json.includes('JOAO') && !json.includes('SANTOS'));
-  assert.ok(json.includes('VT_PROPRIETARIOS_QTD'));
-}
-
 test('roubo/furto, leilão e sinistro encontrados viram alerta (roubo/furto = alto risco)', () => {
   const theft = buildReportV2(withBlock('HISTORICOROUBOFURTO', { DESCRICAORETORNO: 'VEICULO COM REGISTRO DE ROUBO' }, '1'));
   assert.equal(item(theft, 'VT_ROUBOFURTO').state, 'ALERT');
@@ -208,23 +192,15 @@ test('chassi, renavam e motor saem completos no relatório do Veículo Total', (
   assert.equal(all.find((i) => i.key === 'CHASSI').value, '9BWZZZ377VT004251');
 });
 
-test('histórico de proprietários: tudo completo por padrão; pessoa física protegida só com REPORT_SHOW_OWNER_IDENTITY=false', () => {
+test('histórico de proprietários: nome e documento completos, sempre', () => {
   const owners = [
     { ANO_EXERCICIO: '2015', NOME_PROPRIETARIO: 'AUTOMOVEIS BRASIL LTDA', CGC_CPF: '98765432000110', MUNICIPIO: 'NAO INFORMADO', UF_DUT: 'SP' },
     { ANO_EXERCICIO: '2024', NOME_PROPRIETARIO: 'JOAO SILVA SANTOS', CGC_CPF: '12345678900', MUNICIPIO: 'SAO PAULO', UF_DUT: 'SP' }
   ];
-  process.env.REPORT_SHOW_OWNER_IDENTITY = 'false';
-  const off = ownerHistory(owners);
-  const offLines = off.value.split('\n');
-  assert.equal(offLines.length, 2);
-  assert.match(offLines[0], /^1º · atual · 2024 · SAO PAULO\/SP · Pessoa física \(dados pessoais protegidos\)$/);
-  assert.match(offLines[1], /^2º · anterior · 2015 · SP · AUTOMOVEIS BRASIL LTDA · CNPJ 98\.765\.432\/0001-10$/);
-  assert.ok(!off.value.includes('JOAO') && !off.value.includes('123.456'));
-  delete process.env.REPORT_SHOW_OWNER_IDENTITY;
-  try {
-    const on = ownerHistory(owners);
-    assert.match(on.value.split('\n')[0], /JOAO SILVA SANTOS · CPF 123\.456\.789-00$/);
-  } finally { delete process.env.REPORT_SHOW_OWNER_IDENTITY; }
+  const lines = ownerHistory(owners).value.split('\n');
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /^1º · atual · 2024 · SAO PAULO\/SP · JOAO SILVA SANTOS · CPF 123\.456\.789-00$/);
+  assert.match(lines[1], /^2º · anterior · 2015 · SP · AUTOMOVEIS BRASIL LTDA · CNPJ 98\.765\.432\/0001-10$/);
   assert.equal(ownerHistory([]).state, 'NOT_PROVIDED');
 });
 

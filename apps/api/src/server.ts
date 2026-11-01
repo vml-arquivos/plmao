@@ -77,6 +77,7 @@ import { supportAdminRouter, supportClientRouter, supportPublicRouter } from './
 import { testimonialsAdminRouter, testimonialsRouter } from './routes/testimonials.js';
 import { adminIntegrationsRouter } from './routes/adminIntegrations.js';
 import { startEmailWorker } from './lib/emailOutbox.js';
+import { startGarageAlerts } from './lib/garageAlerts.js';
 import { apiKeyAuth, apiKeyRateLimit, apiKeysRouter, requirePublicApiEnabled } from './routes/apiKeys.js';
 import { simulatorRouter } from './routes/simulator.js';
 import { scoreModelMatch } from './lib/vehicleSpecs.js';
@@ -85,6 +86,8 @@ import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh
 import { scopeForProduct } from './lib/reportScope.js';
 import { ensureLienDetail } from './lib/lienRefresh.js';
 import { ensureFipeEnrichment } from './lib/fipeRefresh.js';
+import { checkAd } from './report/adCheck.js';
+import { consumeSecureLink, createSecureLink } from './lib/secureLinks.js';
 import { seoBodyHtml, seoFaqLd, seoRows } from './seoStore.js';
 import { isKnownPath, renderRobotsTxt, renderSeoHtml, renderSitemapXml, setGoogleTags, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
@@ -95,6 +98,7 @@ await ensureSchema();
 await refreshProductSections();
 startProductSectionsRefresh();
 startEmailWorker();
+startGarageAlerts(log);
 startFiscalWorker();
 startPaymentSyncWorker();
 
@@ -1778,6 +1782,97 @@ api.get('/queries/:id/report/print', auth, requirePermission('VIEW_HISTORY'), as
   const { report, meta } = await vehicleReportForQuery(String(req.params.id), req.user!.id);
   await audit(req.user!.id, 'PRINT_QUERY_REPORT', 'VEHICLE_QUERY', String(req.params.id), { requestId: requestId(req) });
   res.type('html').send(renderVehicleHtml(report, meta));
+}));
+
+/**
+ * Link do vendedor: quem fez a consulta gera um link para o comprador ver o relatório, sem criar conta.
+ * O link expira (até 15 dias), limita as visualizações (100) e pode ser revogado. O comprador não vê dados de pessoas.
+ */
+const SHARE_MAX_ACTIVE = 5;
+const shareBody = z.object({ days: z.coerce.number().int().min(1).max(15).default(7) }).strict();
+async function ownedSuccessfulQuery(queryId: string, userId: string) {
+  const r = await pool.query(`SELECT id FROM vehicle_queries WHERE id=$1 AND user_id=$2 AND status='SUCCESS'`, [queryId, userId]);
+  if (!r.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
+}
+api.post('/queries/:id/share', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const parsed = shareBody.safeParse(req.body ?? {});
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const queryId = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(queryId)) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
+  await ownedSuccessfulQuery(queryId, req.user!.id);
+  const active = await pool.query(`SELECT count(*)::int AS n FROM secure_links WHERE purpose='REPORT_SHARE' AND resource_type='VEHICLE_QUERY' AND resource_id=$1 AND revoked_at IS NULL AND expires_at > now() AND uses < max_uses`, [queryId]);
+  if (Number(active.rows[0].n) >= SHARE_MAX_ACTIVE) throw appError(`Você já tem ${SHARE_MAX_ACTIVE} links ativos para esta consulta. Revogue um para criar outro.`, { code: 'SHARE_LIMIT', http: 409, expose: true });
+  const link = await createSecureLink({ purpose: 'REPORT_SHARE', resourceType: 'VEHICLE_QUERY', resourceId: queryId, ttlHours: parsed.data.days * 24, maxUses: 100, createdBy: req.user!.id });
+  await audit(req.user!.id, 'REPORT_SHARE_CREATED', 'VEHICLE_QUERY', queryId, { linkId: link.id, days: parsed.data.days, requestId: requestId(req) });
+  await recordFunnelEvent(req.user!.id, req, 'REPORT_SHARED', { days: parsed.data.days });
+  const base = (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '');
+  res.status(201).json({ id: link.id, url: `${base}/r/${link.token}`, expiresAt: link.expiresAt, maxViews: 100 });
+}));
+api.get('/queries/:id/shares', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const queryId = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(queryId)) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
+  await ownedSuccessfulQuery(queryId, req.user!.id);
+  const r = await pool.query(`SELECT id,created_at,expires_at,uses,max_uses FROM secure_links WHERE purpose='REPORT_SHARE' AND resource_type='VEHICLE_QUERY' AND resource_id=$1 AND revoked_at IS NULL AND expires_at > now() AND uses < max_uses ORDER BY created_at DESC`, [queryId]);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json(r.rows.map((x) => ({ id: x.id, createdAt: x.created_at, expiresAt: x.expires_at, views: Number(x.uses), maxViews: Number(x.max_uses) })));
+}));
+api.delete('/queries/:id/shares/:linkId', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const queryId = String(req.params.id);
+  const linkId = String(req.params.linkId);
+  if (!/^[0-9a-f-]{36}$/i.test(queryId) || !/^[0-9a-f-]{36}$/i.test(linkId)) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
+  await ownedSuccessfulQuery(queryId, req.user!.id);
+  const r = await pool.query(`UPDATE secure_links SET revoked_at=now() WHERE id=$1 AND purpose='REPORT_SHARE' AND resource_type='VEHICLE_QUERY' AND resource_id=$2 AND revoked_at IS NULL`, [linkId, queryId]);
+  if (!r.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
+  await audit(req.user!.id, 'REPORT_SHARE_REVOKED', 'VEHICLE_QUERY', queryId, { linkId, requestId: requestId(req) });
+  res.json({ revoked: true });
+}));
+
+const adCheckBody = z.object({
+  priceCents: z.coerce.number().int().min(100).max(2_000_000_000).optional(),
+  model: z.string().trim().max(80).optional(),
+  color: z.string().trim().max(30).optional(),
+  year: z.coerce.number().int().min(1950).max(2100).optional()
+}).strict();
+/** Conferir anúncio: compara preço, modelo, cor e ano do anúncio com o registro e com a FIPE da consulta. */
+api.post('/queries/:id/ad-check', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
+  const parsed = adCheckBody.safeParse(req.body ?? {});
+  if (!parsed.success || !Object.values(parsed.data).some((v) => v !== undefined && v !== '')) throw appError('Informe o preço, o modelo, a cor ou o ano do anúncio.', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const { report } = await vehicleReportForQuery(String(req.params.id), req.user!.id);
+  await recordFunnelEvent(req.user!.id, req, 'AD_CHECKED', {});
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json(checkAd(report, parsed.data));
+}));
+
+const sharedReportLimit = rateLimit({ windowMs: 10 * 60_000, limit: 60, standardHeaders: true, legacyHeaders: false, skip: () => env.NODE_ENV === 'test' });
+/** Monta o relatório de uma consulta para o link compartilhado (sem cobrar nem consultar o provedor). */
+async function sharedReportFor(token: string) {
+  const link = await consumeSecureLink(token, ['REPORT_SHARE']);
+  if (!link) throw appError('Este link expirou ou foi cancelado. Peça um novo link a quem enviou.', { code: 'SHARE_LINK_INVALID', http: 404, expose: true });
+  const q = await pool.query(`SELECT q.id,q.product_id,q.created_at,q.completed_at,q.result_hash,p.name AS product_name,r.normalized
+    FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.id=$1 AND q.status='SUCCESS'`, [link.resource_id]);
+  if (!q.rowCount) throw appError('Este link expirou ou foi cancelado. Peça um novo link a quem enviou.', { code: 'SHARE_LINK_INVALID', http: 404, expose: true });
+  const row = q.rows[0] as Record<string, unknown>;
+  const vehicle = row.normalized as NormalizedVehicle | null;
+  if (!vehicle?.v2) throw appError('REPORT_UNAVAILABLE', { code: 'REPORT_UNAVAILABLE', http: 409, expose: true });
+  const scope = scopeForProduct(String(row.product_id), row.created_at as Date);
+  const report = viewReport(vehicle.v2, { audience: 'client', tier: tierForProductCode(String(row.product_id)), sections: scope.sections, template: scope.template });
+  const code = String(row.id).slice(0, 8).toUpperCase();
+  const base = (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '');
+  const meta: ReportMeta = { productName: String(row.product_name), verificationCode: code, verificationUrl: `${base}/validar/${code}`, consultedAt: new Date(String(row.completed_at ?? row.created_at)), resultHash: row.result_hash ? String(row.result_hash) : null, audience: 'client' };
+  return { report, meta, link };
+}
+api.get('/shared-report/:token', sharedReportLimit, asyncRoute(async (req, res) => {
+  const { report, meta, link } = await sharedReportFor(String(req.params.token));
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  res.json({ report, verificationCode: meta.verificationCode, verificationUrl: meta.verificationUrl, consultedAt: meta.consultedAt, productName: meta.productName, shared: { expiresAt: link.expires_at } });
+}));
+api.get('/shared-report/:token/pdf', sharedReportLimit, asyncRoute(async (req, res) => {
+  const { report, meta } = await sharedReportFor(String(req.params.token));
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  res.setHeader('Content-Disposition', `attachment; filename="placa-na-mao-${meta.verificationCode}.pdf"`);
+  res.type('application/pdf').send(await renderVehiclePdf(report, meta));
 }));
 
 const walletListSchema = z.object({ ...periodFields, limit: z.coerce.number().int().min(1).max(200).default(100), offset: z.coerce.number().int().min(0).max(100000).default(0) });
