@@ -141,3 +141,29 @@ export function gravameExtras(upper: Rec, raw: unknown, now = new Date()): Map<s
   if (hasData) out.set('GR_VALORES', info('As bases oficiais (Detran, Senatran e Credify) não informam saldo devedor, valor financiado, parcelas pagas ou a pagar. Para esses valores, peça ao vendedor o contrato e confirme a quitação com o banco acima.'));
   return out;
 }
+
+const SEIZURE = /BUSCA\s*(E|\/|-)?\s*APREENS/;
+/** Percorre o retorno inteiro da fonte (inclusive o /gravame) atrás de texto de busca e apreensão. */
+function seizureText(raw: unknown, depth = 0, seen = new Set<unknown>()): string | null {
+  if (depth > 9 || raw == null) return null;
+  if (typeof raw === 'string') return SEIZURE.test(fold(raw)) && !/^(SEM|NAO|NADA)\b|(SEM|NAO CONSTA|NAO HA|NAO POSSUI) BUSCA/.test(fold(raw)) ? raw.replace(/\s+/g, ' ').trim().slice(0, 240) : null;
+  if (typeof raw !== 'object' || seen.has(raw)) return null;
+  seen.add(raw);
+  for (const v of Array.isArray(raw) ? raw : Object.values(raw as Rec)) { const f = seizureText(v, depth + 1, seen); if (f) return f; }
+  return null;
+}
+
+/**
+ * Busca e apreensão: a fonte não tem campo próprio; a ocorrência vem escrita nas restrições (judicial, financeira, outras) ou no gravame.
+ * Procura esse texto no retorno. Sem texto e com restrições retornadas = nada consta; sem restrições retornadas = não informado.
+ */
+export function seizureExtra(upper: Rec, raw: unknown): VtValue {
+  const found = seizureText(raw) ?? seizureText(upper);
+  if (found) return { state: 'ALERT', value: found, display: `Consta: ${found}` };
+  const g = isRec(raw) ? raw.gravame : undefined;
+  const restrictionKeys = ['RESJUDICIAL', 'RESRENAJUD', 'RESADMINISTRATIVA', 'RESTRICAOFINAN', 'OUTRAS_RESTRICOES_01', 'OUTRAS_RESTRICOES_02', 'OUTRAS_RESTRICOES_03', 'OUTRAS_RESTRICOES_04'];
+  const j = isRec(raw) ? raw.renajud : undefined;
+  const provided = restrictionKeys.some((k) => str(upper[k]) !== '') || (isRec(g) && !g.unavailable && 'data' in g) || (isRec(j) && !j.unavailable && 'data' in j);
+  if (provided) return { state: 'CLEAR', value: 'Nada consta', display: 'Nada consta nas restrições retornadas pela fonte' };
+  return info('Não informado: a fonte não retornou restrições para esta consulta. Isso não equivale a “nada consta”.');
+}

@@ -187,6 +187,17 @@ export const VT_CATALOG: FieldDef[] = [
   f('VT_FIPE_CODIGO', 'Código FIPE', 'FIPE', 'text', 2),
   f('VT_FIPE_MODELO', 'Modelo na tabela FIPE', 'FIPE', 'text', 2),
   f('VT_FIPE_VIGENCIA', 'Vigência da tabela', 'FIPE', 'text', 2),
+  // Base nacional (Veículo Total): campos que o Detran informa e o BDRP não repete.
+  f('VN_RESTRICAO_1', 'Restrição 01 (base nacional)', 'RESTRICOES', 'flag', 2, { optional: true, high: true }),
+  f('VN_RESTRICAO_2', 'Restrição 02 (base nacional)', 'RESTRICOES', 'flag', 2, { optional: true, high: true }),
+  f('VN_RESTRICAO_3', 'Restrição 03 (base nacional)', 'RESTRICOES', 'flag', 2, { optional: true, high: true }),
+  f('VN_RESTRICAO_4', 'Restrição 04 (base nacional)', 'RESTRICOES', 'flag', 2, { optional: true, high: true }),
+  f('VN_DATA_LIMITE_RESTRICAO', 'Data limite da restrição', 'RESTRICOES', 'text', 2, { optional: true }),
+  f('VN_SITUACAO_CHASSI', 'Situação do chassi', 'IDENTIFICACAO', 'flag', 2, { optional: true, high: true }),
+  f('VN_TIPO_MONTAGEM', 'Tipo de montagem', 'CARACTERISTICAS', 'text', 2, { optional: true }),
+  f('VN_LUGARES', 'Número de lugares', 'CARACTERISTICAS', 'text', 2, { optional: true }),
+  f('VN_ULTIMA_ATUALIZACAO', 'Última atualização do cadastro', 'REGISTRO', 'text', 2, { optional: true }),
+  f('VN_IMPORTACAO', 'Importação: declaração (DI), data, unidade da Receita e importador', 'REGISTRO', 'text', 2, { optional: true }),
   f('VT_PROPRIETARIOS_LISTA', 'Histórico de proprietários (lista protegida)', 'PROPRIETARIO', 'text', 3, { sensitivity: 'OWNER', optional: true })
 ];
 
@@ -200,6 +211,8 @@ export const ENRICH_CATALOG: FieldDef[] = [
   f('GR_DETALHES', 'Gravames: banco, contrato e tempo', 'GRAVAME', 'text', 2, { optional: true }),
   f('GR_PRAZO', 'Prazo restante do contrato', 'GRAVAME', 'text', 2, { optional: true }),
   f('GR_VALORES', 'Saldo devedor, parcelas e valor financiado', 'GRAVAME', 'text', 2, { optional: true }),
+  f('RJ_DETALHES', 'Restrições judiciais (Renajud): tribunal, processo e data', 'RESTRICOES', 'flag', 2, { optional: true, high: true }),
+  f('RES_BUSCA_APREENSAO', 'Busca e apreensão', 'RESTRICOES', 'flag', 2, { high: true }),
   f('EN_FIPE_VAR_12M', 'Variação da FIPE em 12 meses', 'FIPE', 'text', 2, { optional: true }),
   f('EN_FIPE_VAR_24M', 'Variação da FIPE em 24 meses', 'FIPE', 'text', 2, { optional: true }),
   f('EN_FIPE_SERIE', 'Histórico mensal da FIPE (24 meses)', 'FIPE', 'text', 2, { optional: true }),

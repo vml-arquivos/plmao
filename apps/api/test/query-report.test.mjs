@@ -41,7 +41,7 @@ describe('consulta → relatório v2: LGPD, planos, PDF/HTML e revelação audit
     assert.ok(!row.raw_enc.includes('FICTICIO'));
     assert.deepEqual(row.raw_response, { stored: true, encrypted: true });
     assert.ok(!row.n.includes('PROPRIETARIO FICTICIO'));
-    assert.equal(row.normalizer_version, 2);
+    assert.equal(row.normalizer_version, 3);
     const { decryptRaw } = await import('../dist/lib/rawStore.js');
     assert.match(JSON.stringify(decryptRaw(row.raw_enc)), /PROPRIETARIO FICTICIO SANDBOX/);
   });

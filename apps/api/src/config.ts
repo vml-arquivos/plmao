@@ -44,7 +44,12 @@ export const CREDIFY_CONSULTA_CODES: Record<string, string> = {
   '/veiculototal': '467',
   '/debitosrestricoesproprietarios': '487',
   '/veicularbnacionalonline': '369',
-  '/renavam': '370',
+  '/renavamonline': '371',
+  '/renajud': '483',
+  '/historicoproprietario': '458',
+  '/historicoroubofurto': '456',
+  '/recall': '452',
+  '/precificadorfipe': '454',
   '/veiculosagregados': '486',
   '/flagcnh': '587',
   '/renainf': '536',
@@ -224,6 +229,7 @@ const envSchema = z.object({
   PII_REVEAL_ENABLED: booleanFromEnv.default(true),
   // Completa: quando a base de gravame do Veículo Total vem vazia, consulta o /gravame da Credify (uma chamada a mais) para trazer banco, contrato e datas.
   CREDIFY_GRAVAME_SUPPLEMENT: booleanFromEnv.default(true),
+  CREDIFY_JUDICIAL_SUPPLEMENT: booleanFromEnv.default(true),
   // API pública v1 para integradores (chaves pnm_live_…). Desligada por padrão: rotas respondem 404.
   // Cliente precisa do cadastro completo (telefone, CPF/CNPJ, endereço e aceite de responsabilidade) para consultar ou pagar. Vazio = ligado (desligado só nos testes automáticos).
   CUSTOMER_PROFILE_REQUIRED: z.preprocess((v) => (typeof v === 'string' && v.trim() !== '' ? ['1', 'true', 'yes', 'on', 'sim'].includes(v.trim().toLowerCase()) : undefined), z.boolean().optional()),

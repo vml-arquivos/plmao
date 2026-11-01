@@ -207,6 +207,18 @@ export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
   out.set('VT_PLACA_MERCOSUL', textItem(nat?.PLACA_MODELO_NOVO));
   out.set('VT_EMPLACAMENTO', textItem(brDate(nat?.DATA_EMPLACAMENTO)));
 
+  // Campos da base nacional que o BDRP não repete.
+  const flagged = (v: unknown): VtValue => { const t = str(v); if (!t || unknownText(t)) return NOT_PROVIDED; return /^(SEM |NADA|NAO |NORMAL|0+$)/.test(fold(t)) ? { state: 'CLEAR', value: t, display: sentenceCase(t) } : { state: 'ALERT', value: t, display: sentenceCase(t) }; };
+  for (let i = 1; i <= 4; i++) out.set(`VN_RESTRICAO_${i}`, flagged(nat?.[`RESTRICAO${i}`]));
+  out.set('VN_DATA_LIMITE_RESTRICAO', textItem(brDate(nat?.DATA_LIMITE_RESTRICAO) && !unknownText(str(nat?.DATA_LIMITE_RESTRICAO)) ? brDate(nat?.DATA_LIMITE_RESTRICAO) : ''));
+  out.set('VN_SITUACAO_CHASSI', flagged(nat?.SITUACAO_CHASSI));
+  out.set('VN_TIPO_MONTAGEM', textItem(unknownText(str(nat?.TIPO_MONTAGEM)) ? '' : nat?.TIPO_MONTAGEM));
+  out.set('VN_LUGARES', textItem(nz(nat?.NUMERO_LUGAR)));
+  out.set('VN_ULTIMA_ATUALIZACAO', textItem(str(nat?.ULTIMA_ATUALIZACAO) ? brDate(nat?.ULTIMA_ATUALIZACAO) : ''));
+  const di = str(nat?.NUMERO_DI);
+  const importer = digitsOnly(str(nat?.IDENTIFICACAO_IMPORTADORA));
+  out.set('VN_IMPORTACAO', di && !unknownText(di) && di !== '0' ? textItem([`DI nº ${di}`, str(nat?.DATA_REGISTRO_DI) ? `registrada em ${brDate(nat?.DATA_REGISTRO_DI)}` : '', str(nat?.UNIDADE_LOCAL_SRF) && !unknownText(str(nat?.UNIDADE_LOCAL_SRF)) ? `unidade da Receita ${str(nat?.UNIDADE_LOCAL_SRF)}` : '', importer && importer.length >= 11 ? `importador ${formatDocument(importer)}` : ''].filter(Boolean).join(' · ')) : NOT_PROVIDED);
+
   const sin = block(r, 'INDICIOSINISTROVEICULAR');
   const ind = str(sin?.INDICIODESINISTRO);
   out.set('VT_SINISTRO', !sin || blockCode(r, 'INDICIOSINISTROVEICULAR') === '3' || !ind

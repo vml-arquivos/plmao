@@ -9,12 +9,13 @@
  */
 import { CATALOG_BY_KEY, ENRICH_CATALOG, FIELD_CATALOG, SECTIONS, VT_CATALOG, type FieldDef, type SectionKey, type Tier } from './catalog.js';
 import { enrichmentExtras } from './enrichmentExtras.js';
-import { applyLien, gravameExtras } from './gravame.js';
+import { applyLien, gravameExtras, seizureExtra } from './gravame.js';
+import { applyJudicial, judicialExtras } from './judicial.js';
 import { adaptVehicleTotal, isVehicleTotal, vehicleTotalExtras, vehicleTotalOutcome } from './vehicleTotal.js';
 import { formatDocument, maskDocument, maskName, maskVehicleId, ownerIdentityEnabled } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
 
-export const NORMALIZER_VERSION = 2;
+export const NORMALIZER_VERSION = 3;
 export const REPORT_SCHEMA = 'placanamao.vehicle.report.v2';
 
 export type ItemState = 'NOT_PROVIDED' | 'CLEAR' | 'ALERT' | 'INFO';
@@ -204,6 +205,8 @@ export function buildReportV2(raw: unknown): ReportV2 {
 
   // Complemento do /gravame (quando a base de gravame do Veículo Total veio vazia): preenche banco, CNPJ, contrato e datas.
   applyLien(upper, raw);
+  // Complemento do /renajud (restrição judicial com tribunal, processo e data), só quando a consulta o trouxe.
+  applyJudicial(upper, raw);
 
   const plate = scalar(upper.PLACA).toUpperCase();
   if (!plate) throw new Error('Resposta do provedor inválida');
@@ -223,9 +226,11 @@ export function buildReportV2(raw: unknown): ReportV2 {
   // Análises do sistema (chassi, quilometragem de referência, histórico e projeção da FIPE).
   const enr = enrichmentExtras(upper, raw);
   for (const [k, v] of gravameExtras(upper, raw)) enr.set(k, v);
+  for (const [k, v] of judicialExtras(raw)) enr.set(k, v);
+  enr.set('RES_BUSCA_APREENSAO', seizureExtra(upper, raw));
   for (const def of ENRICH_CATALOG) {
     const x = enr.get(def.key) ?? { state: 'NOT_PROVIDED' as const, value: null };
-    items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, sensitivity: def.sensitivity, tier: def.tier });
+    items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, sensitivity: def.sensitivity, tier: def.tier, high: def.high && x.state === 'ALERT' ? true : undefined });
   }
   // Medidas zeradas (eixos, carga, CMT, PBT em carro de passeio) não informam nada: tratadas como ausentes.
   for (const k of ['EIXOS', 'CAPACIDADECARGA', 'CMT', 'PBT']) { const it = items.get(k); if (it && it.state !== 'NOT_PROVIDED' && /^0+([.,]0+)?$/.test(String(it.value ?? '').trim())) items.set(k, { ...it, state: 'NOT_PROVIDED', value: null, display: null }); }
@@ -259,7 +264,7 @@ export function buildReportV2(raw: unknown): ReportV2 {
   }).filter((s) => s.items.length > 0);
 
   const restrictionItems = [...items.values()].filter((i) => CATALOG_BY_KEY.get(i.key)!.section === 'RESTRICOES' || CATALOG_BY_KEY.get(i.key)!.section === 'GRAVAME');
-  const restrictionFlags = restrictionItems.filter((i) => i.kind === 'flag' && i.state !== 'NOT_PROVIDED');
+  const restrictionFlags = restrictionItems.filter((i) => i.kind === 'flag' && i.state !== 'NOT_PROVIDED' && i.key !== 'RES_BUSCA_APREENSAO' && !i.key.startsWith('VN_') && i.key !== 'RJ_DETALHES');
   const restrictionsProvided = restrictionFlags.length > 0;
 
   const alertItems = [...items.values()].filter((i) => i.state === 'ALERT' && !i.component && CATALOG_BY_KEY.get(i.key)!.section !== 'INTERNO' && (i.kind === 'flag' || i.kind === 'status') );

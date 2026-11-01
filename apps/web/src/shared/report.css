@@ -100,3 +100,25 @@
   .rv-verdict { border: 1px solid #ccc; }
   .rv-tiles { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* Padrão neutro do relatório: preto, cinza e branco, sem cores diferentes por status.
+   O estado aparece pelo ícone e pelo texto em negrito, não pela cor. */
+.rv { --bg-soft: #f2f2f2; --ok: var(--text); --ok-soft: var(--bg-soft); --ok-ink: var(--text); --warn: var(--text); --warn-soft: var(--bg-soft); --warn-ink: var(--text); --danger: var(--text); --danger-soft: var(--bg-soft); --danger-ink: var(--text); --info-soft: var(--bg-soft); --info-ink: var(--text); --primary-soft: var(--bg-soft); --primary-ink: var(--text); }
+.rv-verdict { border: 1px solid var(--border); border-left: 5px solid var(--muted); background: var(--bg-soft); color: var(--text); }
+.rv-verdict.warn, .rv-verdict.danger { border-left-color: var(--text); }
+.rv-verdict-ico, :root[data-theme='dark'] .rv-verdict-ico { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+.rv-tile.ok .rv-tile-ico, .rv-tile.warn .rv-tile-ico, .rv-tile.danger .rv-tile-ico { background: var(--text); color: var(--surface); }
+.rv-tile.danger { border-color: var(--text); }
+.rv-tile.danger .v, .rv-tile.warn .v { font-weight: 700; }
+.rv-sec-ico.ok, .rv-sec-ico.warn, .rv-sec-ico.violet { background: var(--bg-soft); color: var(--text); }
+.rv-sec-ico.warn { background: var(--text); color: var(--surface); }
+.rv-mark.ok { background: var(--text); color: var(--surface); }
+.rv-mark.warn { background: transparent; color: var(--text); border: 2px solid var(--text); }
+.rv-item.alert dd, .rv-item.alert dt { color: var(--text); }
+.rv-item.alert dd { font-weight: 700; }
+.rv-alerts li, .rv-alerts li.high { background: var(--bg-soft); color: var(--text); border-left: 4px solid var(--text); }
+.rv-upsell { border-color: var(--border); background: var(--bg-soft); color: var(--text); }
+.rv-debts tr.total td { color: var(--text); }
+
+:root[data-theme='dark'] .rv { --bg-soft: #1d1d1d; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .rv { --bg-soft: #1d1d1d; } }

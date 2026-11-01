@@ -1,6 +1,7 @@
 import { env, CREDIFY_CONSULTA_CODES, CREDIFY_DEFAULT_BODY, CREDIFY_DEFAULT_PATH, CREDIFY_PLATE_PATHS, CREDIFY_PRODUCT_PATHS } from '../config.js';
 import type { VehicleDataProvider } from '../types.js';
-import { providerOutcome } from '../report/normalizeV2.js';
+import { extractReturn, providerOutcome } from '../report/normalizeV2.js';
+import { judicialNeeded } from '../report/judicial.js';
 import { bdrpCode, describeShape, isVehicleTotal } from '../report/vehicleTotal.js';
 import { CallBudget } from '../lib/providerGuard.js';
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
@@ -219,7 +220,38 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
   async queryByPlate(plate: string, ctx?: { productId?: string }): Promise<{ providerQueryId?: string; raw: unknown }> {
     const startedAt = Date.now();
     const main = await this.run('PLATE', plate, ctx?.productId);
-    return this.withLien(main, plate, ctx?.productId, startedAt);
+    return this.withJudicial(await this.withLien(main, plate, ctx?.productId, startedAt), plate, ctx?.productId, startedAt);
+  }
+
+  /**
+   * Completa: quando o Veículo Total acusa restrição judicial/Renajud (ou veio sem a base de restrições), consulta o /renajud (483)
+   * para trazer tribunal, órgão, processo e data. Uma chamada a mais, só nesse caso; qualquer falha deixa o relatório como estava.
+   */
+  private async withJudicial(main: { providerQueryId?: string; raw: unknown }, plate: string, productId: string | undefined, startedAt: number): Promise<{ providerQueryId?: string; raw: unknown }> {
+    try {
+      if (!env.CREDIFY_JUDICIAL_SUPPLEMENT || this.o.path || env.CREDIFY_QUERY_PATH) return main;
+      if (!['COMPLETE', 'PREMIUM'].includes(String(productId ?? '').toUpperCase())) return main;
+      const data = (main.raw as { data?: unknown } | null)?.data;
+      if (!isVehicleTotal(data)) return main;
+      const ret = extractReturn(data);
+      const upper = Object.fromEntries(Object.entries(ret ?? {}).map(([k, v]) => [k.toUpperCase(), v]));
+      if (bdrpCode(data) === '1' && !judicialNeeded(upper)) return main;
+      const left = env.QUERY_REQUEST_TIMEOUT_MS - (Date.now() - startedAt) - 4000;
+      if (left < 8000) { log('warn', 'credify_renajud_skipped', { reason: 'sem_tempo', leftMs: left }); return main; }
+      const judicial = new CredifyVehicleProvider({ ...this.o, path: '/renajud', consultaId: CREDIFY_CONSULTA_CODES['/renajud'], bodyTemplate: CREDIFY_DEFAULT_BODY, timeoutMs: Math.min(25000, left) });
+      let renajud: Record<string, unknown>;
+      try {
+        const out = await judicial.run('PLATE', plate, undefined);
+        renajud = { data: (out.raw as { data?: unknown }).data };
+      } catch (e) {
+        renajud = (e as { code?: string }).code === 'NOT_FOUND' ? { notFound: true } : { unavailable: true };
+        if (renajud.unavailable) log('warn', 'credify_renajud_failed', { code: (e as { code?: string }).code ?? null });
+      }
+      return { ...main, raw: { ...(main.raw as Record<string, unknown>), renajud } };
+    } catch (e) {
+      log('warn', 'credify_renajud_error', { error: e instanceof Error ? e.message : 'unknown' });
+      return main;
+    }
   }
 
   /**

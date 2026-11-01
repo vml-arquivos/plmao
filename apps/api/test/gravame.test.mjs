@@ -15,6 +15,8 @@ const GRAV = (g) => ({ CONSULTA: { IDCONSULTA: '533' }, RESPOSTA: { CODIGO: '1',
 const lien = { NUMERO_RESTRICAO: '123456', DATA_RESTRICAO: '2023-03-15', ESTADO_RESTRICAO: 'SP', STATUS: 'ATIVO', CODIGO_AGENTE: '33', NOME_AGENTE: 'BANCO ITAU S.A.', DOCUMENTO_AGENTE: '60701190000104', DATA_CONTRATO: '2023-03-10', ESTADO_CONTRATO: 'SP', NUMERO_CONTRATO: 'CT-998877' };
 // Veículo Total com a base de gravame (BDRP) vazia, como na consulta que falhou em produção.
 const noBdrp = () => { const x = structuredClone(ok); x.RESPOSTA.CODIGO = ['2', '1', '1', '1', '1', '1', '2', '2']; x.RESPOSTA.VEICULOSBDRP = { DESCRICAORETORNO: 'NAO FOI POSSIVEL LOCALIZAR', RETORNO: {} }; return x; };
+const RENA = (rec) => ({ CONSULTA: { IDCONSULTA: '483' }, RESPOSTA: { CODIGO: '1', DESCRICAORETORNO: 'SUCESSO', RENAJUD: { CONSTARESTRICAORENAJUD: Object.keys(rec).length ? 'SIM' : 'NAO', PLACA: 'ABC1D34', QTDOCORRENCIAS: String(Object.keys(rec).length), ...rec } } });
+const judicialRec = { CHAVERETORNO: '1', OCORRENCIA: '1', TIPORESTRICJUDICIAL: 'BUSCA E APREENSAO', CODIGOTRIBUNAL: '10', NOMETRIBUNAL: 'TJSP', CODIGOORGAOJUDICIAL: '55', NOMEORGAOJUDICIAL: '2A VARA CIVEL SAO PAULO', NUMERODOPROCESSO: '1002345-67.2024.8.26.0100', DATADAINCLUSAO: '2024-05-20' };
 const rawWith = (g) => ({ placa: 'ABC1234', idConsulta: '467', data: noBdrp(), ...(g ? { gravame: g } : {}) });
 
 test('lista do /gravame: aceita objeto REGISTRO_n, lista, registro único e ignora vazios', () => {
@@ -83,10 +85,10 @@ const opts = (f) => ({ baseUrl: 'https://api.credify.test', clientId: 'cid-teste
 
 test('provedor: Completa com BDRP vazio chama o /gravame (533) uma vez e anexa a resposta', async () => {
   resetCredifyTokenCache();
-  const f = fakeFetch([login, { body: noBdrp() }, { body: GRAV({ REGISTRO_1: lien }) }]);
+  const f = fakeFetch([login, { body: noBdrp() }, { body: GRAV({ REGISTRO_1: lien }) }, { body: RENA({}) }]);
   const out = await new CredifyVehicleProvider(opts(f)).queryByPlate('ABC1D34', { productId: 'COMPLETE' });
   const paid = f.calls.filter((c) => !c.url.endsWith('/auth'));
-  assert.equal(paid.length, 2);
+  assert.equal(paid.length, 3, 'Total + /gravame + /renajud (base de restrições vazia)');
   assert.match(paid[0].url, /\/veiculototal$/); assert.match(paid[0].body, /"IdConsulta":"467"/);
   assert.match(paid[1].url, /\/gravame$/); assert.match(paid[1].body, /"IdConsulta":"533"/); assert.match(paid[1].body, /ABC1D34/);
   assert.ok(out.raw.gravame.data.RESPOSTA.GRAVAME);
@@ -111,4 +113,83 @@ test('provedor: com BDRP preenchido, ou em outro pacote, não faz a chamada extr
   const f4 = fakeFetch([login, { body: noBdrp() }, { body: { CONSULTA: {}, RESPOSTA: { CODIGO: '2', MSG: 'NAO ENCONTRADO' } } }]);
   const d = await new CredifyVehicleProvider(opts(f4)).queryByPlate('ABC1D34', { productId: 'COMPLETE' });
   assert.deepEqual(d.raw.gravame, { notFound: true });
+});
+
+test('busca e apreensão: texto nas restrições vira ocorrência; sem texto e com restrições = nada consta; sem restrições = não informado', () => {
+  const withText = structuredClone(ok);
+  withText.RESPOSTA.VEICULOSBDRP.RETORNO.RESJUDICIAL = 'BUSCA E APREENSAO - 2A VARA CIVEL';
+  const a = item(buildReportV2(withText), 'RES_BUSCA_APREENSAO');
+  assert.equal(a.state, 'ALERT');
+  assert.match(a.display, /BUSCA E APREENSAO/);
+  assert.equal(buildReportV2(withText).verdict.level, 'HIGH_RISK');
+
+  const clean = item(buildReportV2(ok), 'RES_BUSCA_APREENSAO');
+  assert.notEqual(clean.state, 'ALERT');
+
+  const negated = structuredClone(ok);
+  negated.RESPOSTA.VEICULOSBDRP.RETORNO.OUTRAS_RESTRICOES_01 = 'SEM BUSCA E APREENSAO';
+  assert.notEqual(item(buildReportV2(negated), 'RES_BUSCA_APREENSAO').state, 'ALERT');
+
+  const none = buildReportV2(rawWith(null));
+  const n = item(none, 'RES_BUSCA_APREENSAO');
+  assert.equal(n.state, 'INFO');
+  assert.match(n.display, /Não informado/);
+  assert.equal(none.coverage.restrictionsProvided, false, 'item informativo não conta como restrição retornada');
+});
+
+test('Renajud: restrição judicial no Total dispara o /renajud (483) e o relatório mostra tribunal, processo, data e busca e apreensão', async () => {
+  resetCredifyTokenCache();
+  const flagged = structuredClone(ok);
+  flagged.RESPOSTA.VEICULOSBDRP.RETORNO.RESJUDICIAL = 'EXISTE RESTRICAO JUDICIAL';
+  const f = fakeFetch([login, { body: flagged }, { body: RENA({ REGISTRO_1: judicialRec }) }]);
+  const out = await new CredifyVehicleProvider(opts(f)).queryByPlate('ABC1D34', { productId: 'COMPLETE' });
+  const paid = f.calls.filter((c) => !c.url.endsWith('/auth'));
+  assert.equal(paid.length, 2);
+  assert.match(paid[1].url, /\/renajud$/); assert.match(paid[1].body, /"IdConsulta":"483"/);
+  const r = buildReportV2(out.raw);
+  assert.equal(item(r, 'RJ_DETALHES').state, 'ALERT');
+  assert.match(item(r, 'RJ_DETALHES').value, /Tribunal: TJSP · Órgão: 2A VARA CIVEL SAO PAULO · Processo nº 1002345-67\.2024\.8\.26\.0100 · incluída em 20\/05\/2024/);
+  assert.equal(item(r, 'RES_BUSCA_APREENSAO').state, 'ALERT');
+  assert.match(item(r, 'RES_BUSCA_APREENSAO').value, /BUSCA E APREENSAO/);
+  assert.equal(item(r, 'RESRENAJUD').state, 'ALERT');
+});
+
+test('Renajud: sem restrição judicial no Total não há chamada extra; falha do /renajud não derruba a consulta; outro pacote não chama', async () => {
+  resetCredifyTokenCache();
+  const f1 = fakeFetch([login, { body: ok }]);
+  const a = await new CredifyVehicleProvider(opts(f1)).queryByPlate('ABC1D34', { productId: 'COMPLETE' });
+  assert.equal(f1.calls.filter((c) => !c.url.endsWith('/auth')).length, 1); assert.equal(a.raw.renajud, undefined);
+  resetCredifyTokenCache();
+  const flagged = structuredClone(ok); flagged.RESPOSTA.VEICULOSBDRP.RETORNO.RESRENAJUD = 'EXISTE RESTRICAO RENAJUD';
+  const f2 = fakeFetch([login, { body: flagged }, { status: 500, body: { Message: 'erro' } }]);
+  const b = await new CredifyVehicleProvider(opts(f2)).queryByPlate('ABC1D34', { productId: 'COMPLETE' });
+  assert.deepEqual(b.raw.renajud, { unavailable: true });
+  assert.ok(buildReportV2(b.raw), 'o relatório ainda sai');
+  resetCredifyTokenCache();
+  const f3 = fakeFetch([login, { body: flagged }]);
+  await new CredifyVehicleProvider(opts(f3)).queryByPlate('ABC1D34', { productId: 'AUCTION' });
+  assert.equal(f3.calls.filter((c) => !c.url.endsWith('/auth')).length, 1);
+});
+
+test('Renajud: base de restrições vazia e /renajud sem registro = nada consta judicial', () => {
+  const r = buildReportV2({ placa: 'ABC1234', idConsulta: '467', data: noBdrp(), renajud: { data: RENA({}) } });
+  assert.equal(item(r, 'RESRENAJUD').state, 'CLEAR');
+  assert.equal(item(r, 'RJ_DETALHES'), undefined);
+  assert.equal(item(r, 'RES_BUSCA_APREENSAO').state, 'CLEAR');
+});
+
+test('base nacional do Veículo Total: restrições 01–04, situação do chassi, limite, montagem, última atualização e importação', () => {
+  const x = structuredClone(ok);
+  Object.assign(x.RESPOSTA.VEICULARBNACIONAL.REGISTRO_1, { RESTRICAO1: 'SEM RESTRICAO', RESTRICAO2: 'BUSCA E APREENSAO', RESTRICAO3: '', RESTRICAO4: 'SEM RESTRICAO', DATA_LIMITE_RESTRICAO: '2027-01-10', SITUACAO_CHASSI: 'NORMAL', TIPO_MONTAGEM: 'COMPLETA', NUMERO_LUGAR: '5', ULTIMA_ATUALIZACAO: '2026-06-07', NUMERO_DI: '2612345678', DATA_REGISTRO_DI: '2015-02-01', UNIDADE_LOCAL_SRF: 'PORTO DE SANTOS', IDENTIFICACAO_IMPORTADORA: '12345678000195' });
+  const r = buildReportV2({ placa: 'ABC1234', idConsulta: '467', data: x });
+  assert.equal(item(r, 'VN_RESTRICAO_1').state, 'CLEAR');
+  assert.equal(item(r, 'VN_RESTRICAO_2').state, 'ALERT');
+  assert.equal(item(r, 'VN_RESTRICAO_3'), undefined, 'vazio some');
+  assert.equal(item(r, 'RES_BUSCA_APREENSAO').state, 'ALERT');
+  assert.equal(item(r, 'VN_SITUACAO_CHASSI').state, 'CLEAR');
+  assert.equal(item(r, 'VN_DATA_LIMITE_RESTRICAO').value, '10/01/2027');
+  assert.equal(item(r, 'VN_ULTIMA_ATUALIZACAO').value, '07/06/2026');
+  assert.match(item(r, 'VN_IMPORTACAO').value, /DI nº 2612345678 · registrada em 01\/02\/2015 · unidade da Receita PORTO DE SANTOS · importador 12\.345\.678\/0001-95/);
+  const plain = buildReportV2({ placa: 'ABC1234', idConsulta: '467', data: ok });
+  assert.equal(item(plain, 'VN_IMPORTACAO'), undefined);
 });
