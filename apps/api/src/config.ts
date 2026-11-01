@@ -229,6 +229,8 @@ const envSchema = z.object({
   PII_REVEAL_ENABLED: booleanFromEnv.default(true),
   // Completa: quando a base de gravame do Veículo Total vem vazia, consulta o /gravame da Credify (uma chamada a mais) para trazer banco, contrato e datas.
   CREDIFY_GRAVAME_SUPPLEMENT: booleanFromEnv.default(true),
+  // Consulta antiga com gravame sem banco/contrato/datas é completada (uma vez) com o /gravame na primeira vez que o relatório é aberto.
+  CREDIFY_GRAVAME_BACKFILL: booleanFromEnv.default(true),
   CREDIFY_JUDICIAL_SUPPLEMENT: booleanFromEnv.default(true),
   // API pública v1 para integradores (chaves pnm_live_…). Desligada por padrão: rotas respondem 404.
   // Cliente precisa do cadastro completo (telefone, CPF/CNPJ, endereço e aceite de responsabilidade) para consultar ou pagar. Vazio = ligado (desligado só nos testes automáticos).

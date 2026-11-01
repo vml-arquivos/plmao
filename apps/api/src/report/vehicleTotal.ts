@@ -152,6 +152,9 @@ function occurrence(r: Rec, name: BlockName, clearText: string, noneMeansClear: 
   if (c === '3') return NOT_PROVIDED;
   const saysNone = /NAO FOI APRESENTAD|NADA CONSTA|NAO CONSTA|NAO POSSUI|SEM RECALL|NAO HA /.test(f);
   const saysUnknown = /NAO FOI POSSIVEL|NAO LOCALIZAD|INDISPONIVEL|ERRO/.test(f);
+  // A própria fonte escreve que não há ocorrência ("veículo não apresentado na base de leilão", "não possui recall pendente"),
+  // mesmo com código 1 (consulta feita com sucesso): isso é "nada consta", nunca alerta.
+  if (saysNone && !records(b).length && c !== '3') return { state: 'CLEAR', value: desc || clearText, display: clearText };
   if (c === '2' || (c === undefined && saysNone)) return noneMeansClear ? { state: 'CLEAR', value: desc || clearText, display: clearText } : NOT_PROVIDED;
   if (c === undefined && (!desc || saysUnknown)) return NOT_PROVIDED;
   return { state: 'ALERT', value: desc || 'CONSTA', display: desc ? sentenceCase(desc) : 'Consta registro' };

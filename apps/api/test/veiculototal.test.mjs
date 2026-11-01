@@ -237,3 +237,14 @@ test('relatório do Veículo Total traz o histórico de proprietários e o PDF u
   assert.equal(doc.getTitle(), 'Relatório de consulta veicular - ABC1234');
   assert.ok(doc.getPageCount() >= 1);
 });
+
+test('fonte que escreve "não apresentado / não possui" com código 1 é nada consta, nunca alerta', () => {
+  const x = structuredClone(ok);
+  x.RESPOSTA.CODIGO = ['1', '1', '1', '1', '1', '1', '1', '1'];
+  x.RESPOSTA.HISTORICOROUBOFURTO = { DESCRICAORETORNO: 'O VEICULO NAO FOI APRESENTADO NA BASE DE ROUBO/FURTO.' };
+  x.RESPOSTA.LEILAOCONJUGADO = { DESCRICAORETORNO: 'O VEÍCULO NÃO FOI APRESENTADO NA BASE DE LEILÃO.' };
+  x.RESPOSTA.RECALL = { DESCRICAORETORNO: 'VEICULO NAO POSSUI RECALL PENDENTE' };
+  const r = buildReportV2(x);
+  for (const k of ['VT_ROUBOFURTO', 'VT_LEILAO', 'VT_RECALL']) assert.equal(item(r, k).state, 'CLEAR', k);
+  assert.notEqual(r.verdict.level, 'HIGH_RISK');
+});

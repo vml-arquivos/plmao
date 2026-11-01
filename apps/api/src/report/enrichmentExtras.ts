@@ -20,6 +20,14 @@ export function readFipeSeries(raw: unknown): PricePoint[] {
   return h.filter((p): p is PricePoint => Boolean(p) && typeof p.label === 'string' && Number.isFinite(p.time) && Number.isFinite(p.cents) && p.cents > 0).sort((a, b) => a.time - b.time);
 }
 
+export function readFipeMatch(raw: unknown): { fipeCode: string; brand: string; model: string; year: string; valueCents: number; referenceMonth: string } | undefined {
+  const m = (raw as { enrichment?: { fipeMatch?: Record<string, unknown> } } | null)?.enrichment?.fipeMatch;
+  if (!m || typeof m !== 'object') return undefined;
+  const cents = Number(m.valueCents);
+  if (!m.fipeCode || !Number.isFinite(cents) || cents <= 0) return undefined;
+  return { fipeCode: String(m.fipeCode), brand: String(m.brand ?? ''), model: String(m.model ?? ''), year: String(m.year ?? ''), valueCents: Math.round(cents), referenceMonth: String(m.referenceMonth ?? '') };
+}
+
 export function enrichmentExtras(upper: Record<string, unknown>, raw: unknown, now = new Date()): Map<string, VtValue> {
   const out = new Map<string, VtValue>();
   const years = [num(upper.VEIANOMODELO), num(upper.VEIANOFABR)].filter((n) => n > 1900);

@@ -2,6 +2,8 @@ import { pool } from '../db.js';
 import { normalizeBdrp } from '../normalizer.js';
 import { NORMALIZER_VERSION } from '../report/normalizeV2.js';
 import { audit, log } from './http.js';
+import { env } from '../config.js';
+import { runExclusive } from './providerGuard.js';
 import { decryptRaw, encryptRaw } from './rawStore.js';
 
 /** Provedor capaz de buscar uma base complementar avulsa (hoje, a Credify). */
@@ -44,4 +46,29 @@ export async function queriesMissingLien(max = 500): Promise<string[]> {
     try { if (!hasLienAnswer(decryptRaw(r.raw_enc) as Rec)) out.push(r.query_id); } catch (e) { log('warn', 'lien_missing_scan_failed', { queryId: r.query_id, error: e instanceof Error ? e.message : 'unknown' }); }
   }
   return out;
+}
+
+const retryAfter = new Map<string, number>();
+/**
+ * Ao abrir o relatório de uma consulta antiga (Completa, Premium ou Gravame) que acusa gravame mas não tem banco, contrato e datas,
+ * busca o /gravame uma única vez e refaz o relatório. Falha da fonte nunca impede a abertura: o relatório sai como estava e uma
+ * nova tentativa só acontece depois de 30 minutos. Desligue com CREDIFY_GRAVAME_BACKFILL=false.
+ */
+export async function ensureLienDetail(queryId: string, source: unknown, waitMs = 26_000): Promise<boolean> {
+  if (!env.CREDIFY_GRAVAME_BACKFILL || !canFetchSupplement(source)) return false;
+  if ((retryAfter.get(queryId) ?? 0) > Date.now()) return false;
+  try {
+    const eligible = await pool.query(`SELECT 1 FROM vehicle_queries q JOIN vehicle_query_results r ON r.query_id=q.id
+      WHERE q.id=$1 AND q.status='SUCCESS' AND q.product_id IN ('COMPLETE','PREMIUM','LIEN') AND r.raw_enc IS NOT NULL AND r.normalized ? 'v2'
+        AND jsonb_path_exists(r.normalized, '$.v2.sections[*].items[*] ? (@.key=="RESTRICAOFINAN" && @.state=="ALERT")')`, [queryId]);
+    if (!eligible.rowCount) return false;
+    const run = runExclusive(`lien-refresh:${queryId}`, () => refreshQueryGravame(queryId, source, null));
+    const out = await Promise.race([run, new Promise<'TIMEOUT'>((resolve) => setTimeout(() => resolve('TIMEOUT'), waitMs))]);
+    if (out === 'TIMEOUT') { retryAfter.set(queryId, Date.now() + 30 * 60_000); run.catch(() => undefined); return false; }
+    return out === 'UPDATED';
+  } catch (e) {
+    retryAfter.set(queryId, Date.now() + 30 * 60_000);
+    log('warn', 'lien_backfill_failed', { queryId, code: (e as { code?: string }).code ?? null });
+    return false;
+  }
 }

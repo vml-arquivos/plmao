@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.19.8 — Gravame completo também na Completa, e fim dos alertas falsos de "não apresentado"
+
+- Completa e Premium: o `/gravame` agora é consultado sempre que a base principal não trouxe dados, não afirmou "sem gravame" ou indicou alienação sem banco, CNPJ, contrato e data de inclusão. Antes só consultava quando a base principal vinha vazia, e por isso a alienação aparecia sem o nome do banco.
+- Consultas já feitas: ao abrir o relatório de uma consulta Completa, Premium ou Gravame que acusa alienação sem os detalhes, o sistema busca o `/gravame` uma única vez e refaz o relatório (banco, CNPJ, contrato, datas, UF e histórico). Se a fonte falhar, o relatório abre como estava e a nova tentativa só ocorre depois de 30 minutos. Desligar: `CREDIFY_GRAVAME_BACKFILL=false` (padrão: ligado). O botão "Atualizar gravames" do painel continua para fazer em lote.
+- Corrigido alerta falso: quando a fonte escreve "veículo não apresentado na base de leilão / roubo e furto" ou "não possui recall pendente" com código de sucesso, o relatório mostra nada consta, e não ocorrência. Isso derrubava o veredito para risco alto sem motivo.
+- "Sem informação" e "não informado" deixam de ser lidos como "nada consta".
+- FIPE automática na Completa e Premium: quando a base principal não traz o valor FIPE, o sistema localiza o veículo na Tabela FIPE pelo cadastro (marca, modelo, ano e motor) e preenche valor, código, modelo e mês de referência, com o aviso "localizado pelo modelo, ano e motor; confira a versão". Só usa quando a correspondência é única; se houver mais de uma versão possível, não mostra valor em vez de chutar. O valor que vem do provedor sempre tem prioridade.
+- Projeção da FIPE: com o código FIPE, o relatório mostra variação em 12 e 24 meses, a série dos últimos meses e a projeção de valor para os próximos 6 meses (estimativa, rotulada como tal). O tempo máximo da busca ao concluir a consulta subiu de 4 s para 12 s.
+- Consultas Completa/Premium antigas sem FIPE ganham valor e projeção ao serem abertas, uma única vez (Tabela FIPE pública, sem custo no provedor). Falha ou demora não impede a abertura; nova tentativa só depois de 30 minutos.
+
 ## 1.19.7 — Gravame e Leilão com consulta própria, tabelas claras e PDF na consulta interna
 
 - Consulta interna do painel: agora mostra o relatório do pacote (o mesmo que o cliente veria) e tem os botões Visualizar PDF e Baixar PDF. O JSON ficou recolhido em "Dados técnicos". O PDF sai da própria resposta, sem consultar a Credify de novo. Na página da consulta também há Visualizar PDF e Baixar PDF.

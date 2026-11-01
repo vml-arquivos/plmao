@@ -36,7 +36,7 @@ export async function executeVehicleLookup({ provider, plate, searchType = 'PLAT
     const t1 = Date.now();
     let raw = output.raw;
     if (enrich && raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      const extra = await Promise.race([enrich(raw).catch(() => undefined), new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 4000).unref())]);
+      const extra = await Promise.race([enrich(raw).catch(() => undefined), new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 12_000).unref())]);
       if (extra) raw = { ...(raw as Record<string, unknown>), enrichment: extra };
     }
     const t2 = Date.now();

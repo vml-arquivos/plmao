@@ -59,4 +59,19 @@ describe('relatórios antigos mascarados são refeitos em claro', integration, (
     await pool.query("UPDATE vehicle_query_results SET raw_enc=raw_enc WHERE query_id=$1", [queryId]);
     assert.equal(await refreshQueryGravame('00000000-0000-0000-0000-000000000000', failing, null), 'NOT_ELIGIBLE');
   });
+
+  it('ao abrir o relatório, a consulta antiga com alienação sem banco é completada sozinha, uma vez', async () => {
+    const { ensureLienDetail } = await import('../dist/lib/lienRefresh.js');
+    const q2 = await hostRequest(server.base, '/api/queries', { method: 'POST', token, body: { plate: 'DEV1B11', productId: 'COMPLETE' } });
+    assert.equal(q2.status, 201, q2.text);
+    const id2 = q2.json.id;
+    await pool.query(`UPDATE vehicle_query_results SET normalized=jsonb_set(normalized,'{v2,sections}','[{"key":"GRAVAME","label":"G","description":"","status":"ALERT","providedCount":1,"notProvidedCount":0,"items":[{"key":"RESTRICAOFINAN","label":"x","kind":"flag","state":"ALERT","value":"ALIENACAO FIDUCIARIA","sensitivity":"PUBLIC","tier":2}]}]'::jsonb) WHERE query_id=$1`, [id2]);
+    let calls = 0;
+    const source = { fetchSupplement: async () => { calls += 1; return { data: { CONSULTA: {}, RESPOSTA: { CODIGO: '1', GRAVAME: { GRAVAMES: { REGISTRO_1: { NUMERO_RESTRICAO: '5', DATA_RESTRICAO: '2022-02-02', NOME_AGENTE: 'BANCO DO BRASIL S.A.', DOCUMENTO_AGENTE: '00000000000191', NUMERO_CONTRATO: 'X9', STATUS: 'ATIVO' } } } } } }; } };
+    assert.equal(await ensureLienDetail(id2, source), true);
+    assert.equal(await ensureLienDetail(id2, source), false, 'segunda abertura não paga de novo');
+    assert.equal(calls, 1);
+    const n = (await pool.query('SELECT normalized::text AS n FROM vehicle_query_results WHERE query_id=$1', [id2])).rows[0].n;
+    assert.match(n, /BANCO DO BRASIL S\.A\./);
+  });
 });

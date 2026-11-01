@@ -8,7 +8,7 @@
  *  - o veredito só é "sem alertas" se as restrições foram de fato retornadas.
  */
 import { CATALOG_BY_KEY, ENRICH_CATALOG, FIELD_CATALOG, SECTIONS, VT_CATALOG, type FieldDef, type SectionKey, type Tier } from './catalog.js';
-import { enrichmentExtras } from './enrichmentExtras.js';
+import { enrichmentExtras, readFipeMatch } from './enrichmentExtras.js';
 import { applyLien, gravameExtras, seizureExtra } from './gravame.js';
 import { leilaoExtras } from './leilao.js';
 import { applyJudicial, judicialExtras } from './judicial.js';
@@ -82,7 +82,7 @@ const DEBT_SUMMANDS: Array<[string, string]> = [
 ];
 
 const fold = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
-const DEFAULT_CLEAR = /^(NADA CONSTA|NAO CONSTA|NAO POSSUI|NAO EXISTE|NAO HA|NAO TEM|SEM |INEXISTENTE|REGULAR$)|VEICULAR OK$|^OK$|^NORMAL$/;
+const DEFAULT_CLEAR = /^(NADA CONSTA|NAO CONSTA|NAO POSSUI|NAO EXISTE|NAO HA|NAO TEM|SEM (?!INFORMA)|INEXISTENTE|REGULAR$)|VEICULAR OK$|^OK$|^NORMAL$/;
 const SITUATION_ALERT = /BAIXAD|ROUBO|FURTO|SINISTRO|BLOQUEAD|APREENDID|LEILAO|INATIV|DESMONT/;
 
 export function isEmptyValue(value: unknown): boolean {
@@ -225,6 +225,15 @@ export function buildReportV2(raw: unknown): ReportV2 {
       const x = extras.get(def.key) ?? { state: 'NOT_PROVIDED' as const, value: null };
       items.set(def.key, { key: def.key, label: def.label, kind: def.kind, state: x.state, value: x.value, display: x.display ?? x.value, ...(x.masked ? { masked: true } : {}), ...(x.table ? { table: x.table } : {}), sensitivity: def.sensitivity, tier: def.tier, high: def.high && x.state === 'ALERT' ? true : undefined });
     }
+  }
+  // FIPE localizada pelo cadastro (modelo, ano e cilindrada) quando o provedor não trouxe o valor: preenche só o que está vazio.
+  const fm = readFipeMatch(raw);
+  if (vt && fm) {
+    const fill = (key: string, value: string, display: string) => { const cur = items.get(key); if (cur && cur.state === 'NOT_PROVIDED') items.set(key, { ...cur, state: 'INFO', value, display }); };
+    fill('VT_FIPE_PRECO', (fm.valueCents / 100).toFixed(2).replace('.', ','), brlFromCents(fm.valueCents));
+    fill('VT_FIPE_CODIGO', fm.fipeCode, fm.fipeCode);
+    fill('VT_FIPE_MODELO', `${fm.brand} ${fm.model}`, `${fm.brand} ${fm.model} (${fm.year}) — localizado pelo modelo, ano e motor; confira a versão`);
+    fill('VT_FIPE_VIGENCIA', fm.referenceMonth, fm.referenceMonth);
   }
   // Análises do sistema (chassi, quilometragem de referência, histórico e projeção da FIPE).
   const enr = enrichmentExtras(upper, raw);

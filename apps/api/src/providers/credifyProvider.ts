@@ -224,7 +224,18 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     const withLien = await this.supplement(main, plate, pid, startedAt, {
       key: 'gravame', path: '/gravame', label: 'gravame', enabled: env.CREDIFY_GRAVAME_SUPPLEMENT,
       products: ['COMPLETE', 'PREMIUM'], core: ['LIEN'],
-      needed: (data) => isVehicleTotal(data) && bdrpCode(data) !== '1'
+      // Gravame completo (banco, CNPJ, contrato, datas): busca sempre que a base principal não trouxe dados, não afirmou "sem gravame"
+      // ou indicou alienação sem o agente financeiro/contrato/data.
+      needed: (data) => {
+        if (!isVehicleTotal(data)) return false;
+        if (bdrpCode(data) !== '1') return true;
+        const upper = Object.fromEntries(Object.entries(extractReturn(data) ?? {}).map(([k, v]) => [k.toUpperCase(), String(Array.isArray(v) ? v[0] ?? '' : v ?? '').trim()]));
+        const flag = (upper.RESTRICAOFINAN ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+        if (!flag || /BAIX/.test(flag)) return true;
+        const clean = /^(NADA CONSTA|NAO CONSTA|NAO POSSUI)/.test(flag) || /SEM (RESTRICAO|GRAVAME)/.test(flag);
+        if (clean) return false;
+        return !upper.RESTRICAONOMEAGENTE || !upper.NUMEROCONTRATOFINANCEIRA || !upper.RESTRICAODATAINCLUSAO || !upper.CGCFINANCEIRA;
+      }
     });
     const withJudicial = await this.supplement(withLien, plate, pid, startedAt, {
       key: 'renajud', path: '/renajud', label: 'renajud', enabled: env.CREDIFY_JUDICIAL_SUPPLEMENT,

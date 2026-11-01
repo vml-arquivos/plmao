@@ -248,3 +248,22 @@ test('pacote Leilão: /leilaoconjugado fora do ar derruba a consulta (estorno); 
   const out = await new CredifyVehicleProvider(opts(f2)).queryByPlate('ABC1D34', { productId: 'AUCTION' });
   assert.equal(item(buildReportV2(out.raw), 'AU_LEILAO').state, 'CLEAR');
 });
+
+test('Completa com base preenchida que indica alienação sem banco/contrato/data: busca o /gravame e mostra tudo', async () => {
+  resetCredifyTokenCache();
+  const x = structuredClone(ok);
+  Object.assign(x.RESPOSTA.VEICULOSBDRP.RETORNO, { RESTRICAOFINAN: 'ALIENACAO FIDUCIARIA', RESTRICAONOMEAGENTE: '', NUMEROCONTRATOFINANCEIRA: '', RESTRICAODATAINCLUSAO: '', CGCFINANCEIRA: '' });
+  const f = fakeFetch([login, { body: x }, { body: GRAV({ REGISTRO_1: lien }) }, { body: RENA({}) }]);
+  const out = await new CredifyVehicleProvider(opts(f)).queryByPlate('ABC1D34', { productId: 'COMPLETE' });
+  assert.ok(f.calls.some((c) => /\/gravame$/.test(c.url)), 'chamou o /gravame');
+  const r = buildReportV2(out.raw);
+  assert.equal(item(r, 'RESTRICAONOMEAGENTE').value, 'BANCO ITAU S.A.');
+  assert.equal(item(r, 'NUMEROCONTRATOFINANCEIRA').value, 'CT-998877');
+  assert.ok(item(r, 'GR_DETALHES').table.rows.length === 1);
+  // base que afirma "sem gravame" não gasta a chamada extra
+  resetCredifyTokenCache();
+  const clean = structuredClone(ok); clean.RESPOSTA.VEICULOSBDRP.RETORNO.RESTRICAOFINAN = 'NADA CONSTA';
+  const f2 = fakeFetch([login, { body: clean }]);
+  await new CredifyVehicleProvider(opts(f2)).queryByPlate('ABC1D34', { productId: 'COMPLETE' });
+  assert.ok(!f2.calls.some((c) => /\/gravame$/.test(c.url)));
+});

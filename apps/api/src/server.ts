@@ -83,6 +83,8 @@ import { scoreModelMatch } from './lib/vehicleSpecs.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
 import { scopeForProduct } from './lib/reportScope.js';
+import { ensureLienDetail } from './lib/lienRefresh.js';
+import { ensureFipeEnrichment } from './lib/fipeRefresh.js';
 import { seoBodyHtml, seoFaqLd, seoRows } from './seoStore.js';
 import { isKnownPath, renderRobotsTxt, renderSeoHtml, renderSitemapXml, setGoogleTags, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
@@ -1722,10 +1724,15 @@ api.get('/queries/:id/export', auth, requirePermission('VIEW_HISTORY'), asyncRou
 }));
 
 async function vehicleReportForQuery(queryId: string, userId: string) {
-  const query = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.created_at,q.completed_at,q.result_hash,p.name AS product_name,r.normalized
+  const load = () => pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.created_at,q.completed_at,q.result_hash,p.name AS product_name,r.normalized
     FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id
     WHERE q.id=$1 AND q.user_id=$2 AND q.status='SUCCESS'`, [queryId, userId]);
+  let query = await load();
   if (!query.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
+  // Consulta antiga com gravame sem banco/contrato/datas: completa com o /gravame uma única vez (só depois de confirmar que a consulta é do usuário).
+  try { if (await ensureLienDetail(queryId, getProvider())) query = await load(); } catch { /* fonte não configurada: segue com o que já está guardado */ }
+  // Consulta Completa antiga sem FIPE: acrescenta valor e projeção (Tabela FIPE pública, sem custo no provedor).
+  try { if (['COMPLETE', 'PREMIUM'].includes(String((query.rows[0] as Record<string, unknown>).product_id)) && await ensureFipeEnrichment(queryId)) query = await load(); } catch { /* segue com o que já está guardado */ }
   const row = query.rows[0] as Record<string, unknown>;
   const vehicle = row.normalized as NormalizedVehicle | null;
   if (!vehicle?.v2) throw appError('REPORT_UNAVAILABLE', { code: 'REPORT_UNAVAILABLE', http: 409, expose: true });
