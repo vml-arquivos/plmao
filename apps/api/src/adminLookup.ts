@@ -18,6 +18,8 @@ export type AdminLookupResult = {
   providerQueryId?: string;
   consultedAt: string;
   result: NormalizedVehicle;
+  /** Resposta bruta da fonte: só para guardar cifrada junto da consulta; nunca vai para a resposta da API. */
+  raw?: unknown;
 };
 
 export async function performAdminLookup({ provider, plate, productId, productName, timeoutMs, normalize }: AdminLookupInput): Promise<AdminLookupResult> {
@@ -29,6 +31,7 @@ export async function performAdminLookup({ provider, plate, productId, productNa
     provider: provider.name,
     providerQueryId: output.providerQueryId,
     consultedAt: new Date().toISOString(),
-    result: output.normalized
+    result: output.normalized,
+    raw: output.raw
   };
 }

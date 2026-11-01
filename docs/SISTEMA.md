@@ -1,6 +1,6 @@
 # Placa na Mão — o sistema por inteiro
 
-Documento de referência da versão 1.21.0. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
+Documento de referência da versão 1.22.0. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
 
 Documentos de apoio: `ARCHITECTURE.md` (módulos), `DATABASE.md`, `SECURITY.md`, `DEPLOY-COOLIFY.md`, `TESTING.md`, `PRODUCT.md`, `docs/COMPARATIVO-CONCORRENTES.md` e `CHANGELOG.md`.
 
@@ -186,7 +186,7 @@ Acesso em host próprio, com senha e TOTP, e opcionalmente restrição por IP. T
 | Área | Para que serve |
 | --- | --- |
 | Dashboard | Números do dia, funil e pendências |
-| Consultas | Todas as consultas, relatório do pacote, PDF, atualização de gravame e FIPE, estorno, cancelamento |
+| Consultas | Todas as consultas (dos clientes e as internas), com filtro de origem, relatório do pacote, PDF, atualização de gravame e FIPE, estorno, cancelamento, envio ao cliente e link de visualização |
 | Clientes e Empresas | Cadastro, saldo, histórico, bloqueio |
 | Cobranças, Pagamentos, Financeiro | Pedidos, conciliação, ajustes, estornos, receitas e despesas |
 | Preços, Catálogo, Escopo do relatório | Preço, margem, produtos, pacotes, matriz de recursos e quais seções cada produto mostra |
@@ -201,6 +201,18 @@ Acesso em host próprio, com senha e TOTP, e opcionalmente restrição por IP. T
 | Equipe | Usuários da equipe e papéis |
 | Auditoria | Registro de quem fez o quê |
 | Sistema | Checklist de configuração e estado geral |
+
+### Consulta interna do painel (novo na 1.22)
+
+A consulta feita pela equipe em Consultas → "Consulta interna" é uma consulta de verdade, com a mesma documentação de uma consulta de cliente:
+
+- Fica **salva** na lista de Consultas com a origem "Interna" (filtro "Origem" na lista), sem valor e sem cobrança de ninguém. O dado bruto da fonte é guardado cifrado, como nas demais.
+- Tem **relatório do pacote**, **PDF** (visualizar e baixar), impressão e **código de validação** (8 primeiros caracteres do identificador), que confere em `/validar`.
+- A auditoria `ADMIN_LOOKUP` aponta para a consulta salva.
+- **Enviar ao cliente**: informa o e-mail de um cliente ativo; a consulta ganha uma cópia na conta dele (histórico, relatório e PDF, sem cobrança e sem nova chamada ao fornecedor) e ele recebe um aviso por e-mail com a mensagem opcional da equipe. Reenviar não duplica a cópia. Auditoria `ADMIN_QUERY_SENT`.
+- **Gerar link**: link de visualização para quem não tem conta (1, 3, 7 ou 15 dias, até 100 acessos, até 10 ativos por consulta), com cópia, WhatsApp, lista dos links ativos e revogação. Auditoria `REPORT_SHARE_CREATED` e `REPORT_SHARE_REVOKED`.
+- Se o banco falhar ao salvar, a tela avisa e ainda entrega o resultado e o PDF: a chamada paga nunca se perde.
+- Permissão: as mesmas da consulta interna (`VIEW_SENSITIVE_DATA`). Quem só visualiza consultas vê a lista e o relatório, mas não envia nem gera link.
 
 ---
 

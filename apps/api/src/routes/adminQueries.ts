@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { pool } from '../db.js';
+import { pool, tx } from '../db.js';
 import { adminAuth } from '../auth.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import { hashIp } from '../lib/totpFlow.js';
@@ -13,6 +13,9 @@ import { env } from '../config.js';
 import { getProvider } from '../providers/index.js';
 import { canFetchSupplement, queriesMissingLien, refreshQueryGravame } from '../lib/lienRefresh.js';
 import { runExclusive } from '../lib/providerGuard.js';
+import { createSecureLink } from '../lib/secureLinks.js';
+import { enqueueEmail } from '../lib/emailOutbox.js';
+import { publicAppUrl } from '../config.js';
 
 /**
  * Consultas vistas pela equipe (LGPD): relatório com dados pessoais mascarados e revelação
@@ -95,6 +98,88 @@ adminQueriesRouter.get('/:id/report/pdf', requirePermission('VIEW_QUERIES'), asy
   await audit(req.user!.id, 'EXPORT_QUERY_REPORT_PDF', 'VEHICLE_QUERY', String(req.params.id), { requestId: requestId(req), area: 'admin' });
   res.setHeader('Content-Disposition', `attachment; filename="placa-na-mao-${code}.pdf"`);
   res.type('application/pdf').send(await renderVehiclePdf(report, meta));
+}));
+
+/**
+ * Consulta interna (feita pelo painel) pronta para entregar: enviar para a conta do cliente (aparece no histórico dele, com aviso por e-mail)
+ * ou gerar um link de visualização. Nada disso chama o provedor de novo nem cobra o cliente.
+ */
+const UUID = /^[0-9a-f-]{36}$/i;
+async function deliverableQuery(id: string) {
+  if (!UUID.test(id)) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
+  const r = await pool.query(`SELECT q.id,q.user_id,q.plate,q.product_id,q.provider,q.provider_query_id,q.result_hash,q.completed_at,q.request_metadata,p.name AS product_name,
+      r.normalized,r.raw_response,r.raw_enc,r.normalizer_version
+    FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id JOIN vehicle_query_results r ON r.query_id=q.id WHERE q.id=$1 AND q.status='SUCCESS'`, [id]);
+  if (!r.rowCount) throw appError('REPORT_NOT_FOUND', { code: 'REPORT_NOT_FOUND', http: 404, expose: true });
+  const row = r.rows[0] as Record<string, unknown>;
+  if (!(row.normalized as NormalizedVehicle | null)?.v2) throw appError('REPORT_UNAVAILABLE', { code: 'REPORT_UNAVAILABLE', http: 409, expose: true });
+  return row;
+}
+
+const sendBody = z.object({ email: z.string().trim().toLowerCase().email().max(254), note: z.string().trim().max(500).optional() }).strict();
+adminQueriesRouter.post('/:id/send', requirePermission('VIEW_SENSITIVE_DATA'), asyncRoute(async (req, res) => {
+  const parsed = sendBody.safeParse(req.body ?? {});
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const src = await deliverableQuery(String(req.params.id));
+  const customer = await pool.query(`SELECT id,name,email FROM users WHERE lower(email)=$1 AND role='CLIENTE' AND active=true`, [parsed.data.email]);
+  if (!customer.rowCount) throw appError('Não há cliente ativo com esse e-mail. Confira o endereço ou peça para a pessoa criar a conta.', { code: 'CUSTOMER_NOT_FOUND', http: 404, expose: true, showMessage: true });
+  const target = customer.rows[0] as { id: string; name: string; email: string };
+  let copyId = String(src.id);
+  let alreadyThere = true;
+  if (src.user_id !== target.id) {
+    // Uma cópia por cliente: reenviar não duplica a consulta no histórico dele.
+    const existing = await pool.query(`SELECT id FROM vehicle_queries WHERE user_id=$1 AND request_metadata->>'sentFrom'=$2 LIMIT 1`, [target.id, String(src.id)]);
+    if (existing.rowCount) copyId = String(existing.rows[0].id);
+    else {
+      alreadyThere = false;
+      copyId = await tx(async (client) => {
+        const c = await client.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider,provider_query_id,result_hash,request_metadata,source,search_type,completed_at)
+          VALUES($1,$2,$3,'SUCCESS',0,0,'ADMIN_INTERNAL',$4,$5,$6,$7::jsonb,'ADMIN','PLATE',$8) RETURNING id`,
+        [target.id, src.plate, src.product_id, src.provider, src.provider_query_id, src.result_hash, JSON.stringify({ sentFrom: String(src.id), sentBy: req.user!.id, requestId: requestId(req) }), src.completed_at]);
+        const id = c.rows[0].id as string;
+        await client.query('INSERT INTO vehicle_query_results(query_id,normalized,raw_response,raw_enc,normalizer_version) VALUES($1,$2::jsonb,$3::jsonb,$4,$5)', [id, JSON.stringify(src.normalized), JSON.stringify(src.raw_response ?? {}), src.raw_enc ?? null, src.normalizer_version ?? null]);
+        return id;
+      });
+    }
+  }
+  const day = new Date().toISOString().slice(0, 10);
+  const note = parsed.data.note ? `\n\nMensagem da equipe: ${parsed.data.note}` : '';
+  await enqueueEmail({
+    idempotencyKey: `admin-send:${copyId}:${day}`, template: 'GENERIC_NOTICE', toEmail: target.email, toName: target.name,
+    data: { name: target.name, documentTitle: `Seu relatório do veículo ${String(src.plate)} está pronto`, message: `A equipe do Placa na Mão preparou o relatório do veículo ${String(src.plate)} (${String(src.product_name)}) para você. Ele já está no seu histórico de consultas, sem nenhuma cobrança: ${publicAppUrl()}/app/consulta/${copyId}${note}` },
+    relatedType: 'ADMIN_QUERY_SEND', relatedId: copyId
+  });
+  await audit(req.user!.id, 'ADMIN_QUERY_SENT', 'VEHICLE_QUERY', String(src.id), { copyId, customerId: target.id, alreadyThere, requestId: requestId(req) });
+  res.status(201).json({ queryId: copyId, customer: { name: target.name, email: target.email }, url: `${publicAppUrl()}/app/consulta/${copyId}` });
+}));
+
+const SHARE_MAX_ACTIVE = 10;
+adminQueriesRouter.post('/:id/share', requirePermission('VIEW_SENSITIVE_DATA'), asyncRoute(async (req, res) => {
+  const parsed = z.object({ days: z.coerce.number().int().min(1).max(15).default(7) }).strict().safeParse(req.body ?? {});
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const src = await deliverableQuery(String(req.params.id));
+  const active = await pool.query(`SELECT count(*)::int AS n FROM secure_links WHERE purpose='REPORT_SHARE' AND resource_type='VEHICLE_QUERY' AND resource_id=$1 AND revoked_at IS NULL AND expires_at > now() AND uses < max_uses`, [String(src.id)]);
+  if (Number(active.rows[0].n) >= SHARE_MAX_ACTIVE) throw appError(`Esta consulta já tem ${SHARE_MAX_ACTIVE} links ativos. Revogue um para criar outro.`, { code: 'SHARE_LIMIT', http: 409, expose: true, showMessage: true });
+  const link = await createSecureLink({ purpose: 'REPORT_SHARE', resourceType: 'VEHICLE_QUERY', resourceId: String(src.id), ttlHours: parsed.data.days * 24, maxUses: 100, createdBy: req.user!.id });
+  await audit(req.user!.id, 'REPORT_SHARE_CREATED', 'VEHICLE_QUERY', String(src.id), { linkId: link.id, days: parsed.data.days, area: 'admin', requestId: requestId(req) });
+  res.status(201).json({ id: link.id, url: `${publicAppUrl()}/r/${link.token}`, expiresAt: link.expiresAt, maxViews: 100 });
+}));
+
+adminQueriesRouter.get('/:id/shares', requirePermission('VIEW_QUERIES'), asyncRoute(async (req, res) => {
+  const id = String(req.params.id);
+  if (!UUID.test(id)) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
+  const r = await pool.query(`SELECT id,created_at,expires_at,uses,max_uses FROM secure_links WHERE purpose='REPORT_SHARE' AND resource_type='VEHICLE_QUERY' AND resource_id=$1 AND revoked_at IS NULL AND expires_at > now() AND uses < max_uses ORDER BY created_at DESC`, [id]);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json(r.rows.map((x) => ({ id: x.id, createdAt: x.created_at, expiresAt: x.expires_at, views: Number(x.uses), maxViews: Number(x.max_uses) })));
+}));
+
+adminQueriesRouter.delete('/:id/shares/:linkId', requirePermission('VIEW_SENSITIVE_DATA'), asyncRoute(async (req, res) => {
+  const id = String(req.params.id); const linkId = String(req.params.linkId);
+  if (!UUID.test(id) || !UUID.test(linkId)) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
+  const r = await pool.query(`UPDATE secure_links SET revoked_at=now() WHERE id=$1 AND purpose='REPORT_SHARE' AND resource_type='VEHICLE_QUERY' AND resource_id=$2 AND revoked_at IS NULL`, [linkId, id]);
+  if (!r.rowCount) throw appError('QUERY_NOT_FOUND', { code: 'QUERY_NOT_FOUND', http: 404, expose: true });
+  await audit(req.user!.id, 'REPORT_SHARE_REVOKED', 'VEHICLE_QUERY', id, { linkId, area: 'admin', requestId: requestId(req) });
+  res.json({ revoked: true });
 }));
 
 const revealSchema = z.object({ field: z.enum(REVEALABLE_FIELDS), reason: z.string().trim().min(10).max(280) });

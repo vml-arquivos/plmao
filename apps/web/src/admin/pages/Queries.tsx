@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, CUSTOMER_TYPE, QUERY_STATUS } from '../api';
 import { useAdminSession } from '../session';
-import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, Modal, PageLoading, PlateBadge, Select, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { Alert, Badge, Button, CopyField, EmptyState, ErrorState, Field, Input, Modal, PageLoading, PlateBadge, Select, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { dateTime, formatPlate, isValidPlate, money, normalizePlate } from '../../shared/format';
 import ReportView from '../../shared/ReportView';
@@ -10,7 +10,7 @@ import type { ReportV2 } from '../../shared/reportTypes';
 import { Card, PageHead, QueryStatusBadge } from '../parts';
 import { TypeBadge } from '../people';
 
-interface Row { id: string; plate: string; status: string; priceCents: number; chargeSource: string; provider: string; productName: string; createdAt: string; completedAt: string | null; errorCode: string | null; errorMessage?: string | null; customerType?: string; customer: { name: string; email: string } }
+interface Row { id: string; plate: string; status: string; priceCents: number; chargeSource: string; source?: string; sentToCustomer?: boolean; provider: string; productName: string; createdAt: string; completedAt: string | null; errorCode: string | null; errorMessage?: string | null; customerType?: string; customer: { name: string; email: string } }
 
 export function QueriesList() {
   usePageTitle('Consultas');
@@ -20,16 +20,18 @@ export function QueriesList() {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [type, setType] = useState('');
+  const [origin, setOrigin] = useState('');
   const [lookup, setLookup] = useState(false);
   const [lien, setLien] = useState(false);
-  const rows = useMemo(() => (list.data ?? []).filter((r) => (!status || r.status === status) && (!type || r.customerType === type) && (!q || `${r.plate} ${r.customer.email} ${r.customer.name}`.toLowerCase().includes(q.toLowerCase()))), [list.data, q, status]);
+  const rows = useMemo(() => (list.data ?? []).filter((r) => (!status || r.status === status) && (!type || r.customerType === type) && (!origin || (origin === 'ADMIN' ? r.source === 'ADMIN' : r.source !== 'ADMIN')) && (!q || `${r.plate} ${r.customer.email} ${r.customer.name}`.toLowerCase().includes(q.toLowerCase()))), [list.data, q, status, type, origin]);
   return (
     <>
-      <PageHead title="Consultas" sub="Últimas 300 consultas. Relatórios completos, sem máscara; a abertura do dado bruto é motivada e auditada." actions={can('VIEW_SENSITIVE_DATA') && <><Button icon="refresh" onClick={() => setLien(true)}>Atualizar gravames</Button><Button variant="primary" icon="search" onClick={() => setLookup(true)}>Consulta interna</Button></>} />
+      <PageHead title="Consultas" sub="Últimas 300 consultas, inclusive as internas feitas aqui no painel. Relatórios completos; a abertura do dado bruto é motivada e auditada." actions={can('VIEW_SENSITIVE_DATA') && <><Button icon="refresh" onClick={() => setLien(true)}>Atualizar gravames</Button><Button variant="primary" icon="search" onClick={() => setLookup(true)}>Consulta interna</Button></>} />
       <div className="toolbar">
         <div className="grow"><Input icon="search" placeholder="Buscar por placa, nome ou e-mail" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar" /></div>
         <Select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">Todos os status</option>{Object.entries(QUERY_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select>
         <Select value={type} onChange={(e) => setType(e.target.value)} aria-label="Tipo de cliente"><option value="">Todos os tipos de cliente</option>{Object.entries(CUSTOMER_TYPE).map(([k, v]) => <option key={k} value={k}>{v.plural}</option>)}</Select>
+        <Select value={origin} onChange={(e) => setOrigin(e.target.value)} aria-label="Origem"><option value="">Todas as origens</option><option value="ADMIN">Consultas internas</option><option value="WEB">Feitas pelos clientes</option></Select>
         <Button variant="ghost" icon="refresh" onClick={list.reload}>Atualizar</Button>
       </div>
       {list.loading && !list.data ? <PageLoading /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : !rows.length ? <EmptyState title="Nenhuma consulta encontrada" /> : (
@@ -39,12 +41,12 @@ export function QueriesList() {
               <td><b className="mono">{formatPlate(r.plate)}</b></td><td>{r.productName}</td>
               <td>{r.customer.name} <TypeBadge type={r.customerType} /><div className="muted" style={{ fontSize: 12.5 }}>{r.customer.email}</div></td>
               <td><QueryStatusBadge status={r.status} />{r.errorCode && <div className="muted" style={{ fontSize: 12 }} title={r.errorMessage ?? undefined}>{r.errorCode}</div>}</td>
-              <td className="r num">{money(r.priceCents)}</td><td><Badge>{r.chargeSource}</Badge></td><td>{dateTime(r.createdAt)}</td>
+              <td className="r num">{r.source === 'ADMIN' ? '—' : money(r.priceCents)}</td><td>{r.source === 'ADMIN' ? <Badge tone="info">{r.sentToCustomer ? 'Enviada ao cliente' : 'Interna'}</Badge> : <Badge>{r.chargeSource}</Badge>}</td><td>{dateTime(r.createdAt)}</td>
             </tr>
           ))}
         </tbody></table></div>
       )}
-      {lookup && <LookupModal onClose={() => setLookup(false)} />}
+      {lookup && <LookupModal onClose={() => { setLookup(false); list.reload(); }} />}
       {lien && <LienRefreshModal onClose={() => { setLien(false); list.reload(); }} />}
     </>
   );
@@ -77,7 +79,7 @@ function LienRefreshModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-interface LookupOutput { plate: string; productName: string; consultedAt: string; report: ReportV2 | null; pdfBase64: string | null; pdfName: string | null; result: unknown }
+interface LookupOutput { queryId: string | null; verificationCode: string | null; saved: boolean; plate: string; productName: string; consultedAt: string; report: ReportV2 | null; pdfBase64: string | null; pdfName: string | null; result: unknown }
 
 function pdfBlobUrl(base64: string): string {
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -91,6 +93,7 @@ function LookupModal({ onClose }: { onClose: () => void }) {
   const [productId, setProductId] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<LookupOutput | null>(null);
+  const [deliver, setDeliver] = useState<'send' | 'link' | null>(null);
   const usable = (products.data ?? []).filter((p) => p.active);
   async function run() {
     setBusy(true); setResult(null);
@@ -122,15 +125,77 @@ function LookupModal({ onClose }: { onClose: () => void }) {
               <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
                 <Button variant="primary" icon="file-text" onClick={viewPdf}>Visualizar PDF</Button>
                 <Button icon="download" onClick={downloadPdf}>Baixar PDF</Button>
+                {result.queryId && <Button icon="send" onClick={() => setDeliver('send')}>Enviar ao cliente</Button>}
+                {result.queryId && <Button icon="link" onClick={() => setDeliver('link')}>Gerar link</Button>}
               </div>
             )}
+            {result.saved && result.queryId
+              ? <Alert tone="info" title="Consulta salva">Ela já está na lista de consultas (origem "Interna"), com o código de validação <b className="mono">{result.verificationCode}</b>. <Link to={`/consultas/${result.queryId}`} onClick={onClose}>Abrir a consulta salva</Link></Alert>
+              : <Alert tone="warn" title="Não foi possível salvar">O resultado está na tela e no PDF, mas não ficou salvo na lista. Baixe o PDF agora e avise o suporte técnico.</Alert>}
             {result.report
-              ? <ReportView report={result.report} consultedAt={result.consultedAt} productName={`${result.productName} (consulta interna)`} audience="client" />
+              ? <ReportView report={result.report} consultedAt={result.consultedAt} productName={result.productName} audience="client" />
               : <Alert tone="info">Esta consulta não gerou relatório estruturado; os dados técnicos estão abaixo.</Alert>}
             <details>
               <summary className="muted" style={{ cursor: 'pointer' }}>Dados técnicos (JSON)</summary>
               <pre className="code-box" style={{ maxHeight: 360, overflow: 'auto' }}>{JSON.stringify(result.result, null, 2)}</pre>
             </details>
+          </>
+        )}
+      </div>
+      {deliver && result?.queryId && <DeliverModal queryId={result.queryId} plate={result.plate} mode={deliver} onClose={() => setDeliver(null)} />}
+    </Modal>
+  );
+}
+
+/** Entrega de uma consulta pronta: coloca na conta do cliente (com aviso por e-mail) ou gera um link de visualização. Não consulta o provedor e não cobra. */
+export function DeliverModal({ queryId, plate, mode, onClose }: { queryId: string; plate: string; mode: 'send' | 'link'; onClose: () => void }) {
+  const toast = useToast();
+  const [tab, setTab] = useState<'send' | 'link'>(mode);
+  const [email, setEmail] = useState('');
+  const [note, setNote] = useState('');
+  const [days, setDays] = useState('7');
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState<{ name: string; email: string } | null>(null);
+  const [link, setLink] = useState<{ url: string; expiresAt: string } | null>(null);
+  const shares = useAsync(() => api.get<Array<{ id: string; createdAt: string; expiresAt: string; views: number; maxViews: number }>>(`/admin/queries/${queryId}/shares`), [queryId, link]);
+  async function send() {
+    setBusy(true);
+    try { const r = await api.post<{ customer: { name: string; email: string } }>(`/admin/queries/${queryId}/send`, { email: email.trim(), ...(note.trim() ? { note: note.trim() } : {}) }); setSent(r.customer); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  }
+  async function makeLink() {
+    setBusy(true);
+    try { setLink(await api.post<{ url: string; expiresAt: string }>(`/admin/queries/${queryId}/share`, { days: Number(days) })); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  }
+  async function revoke(id: string) {
+    try { await api.del(`/admin/queries/${queryId}/shares/${id}`); toast.ok('Link revogado.'); shares.reload(); } catch (e) { toast.error(errorMessage(e)); }
+  }
+  const wa = link ? `https://wa.me/?text=${encodeURIComponent(`Relatório do veículo ${formatPlate(plate)}: ${link.url}`)}` : '';
+  return (
+    <Modal title={`Entregar consulta ${formatPlate(plate)}`} onClose={onClose}
+      footer={<Button variant="primary" onClick={onClose}>Fechar</Button>}>
+      <div className="stack">
+        <div className="row" style={{ gap: 8 }}>
+          <Button variant={tab === 'send' ? 'primary' : 'ghost'} onClick={() => setTab('send')}>Enviar ao cliente</Button>
+          <Button variant={tab === 'link' ? 'primary' : 'ghost'} onClick={() => setTab('link')}>Gerar link</Button>
+        </div>
+        {tab === 'send' ? (
+          sent ? <Alert tone="info" title="Enviado">A consulta já está no histórico de {sent.name} ({sent.email}) e um aviso foi enviado por e-mail. Sem cobrança.</Alert> : (
+            <>
+              <p className="muted">A consulta passa a aparecer no histórico do cliente, com o relatório e o PDF, sem cobrar nada e sem consultar o provedor de novo.</p>
+              <Field label="E-mail do cliente (conta já criada)"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="cliente@exemplo.com" /></Field>
+              <Field label="Mensagem para o cliente (opcional)"><Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} maxLength={500} /></Field>
+              <div><Button variant="primary" icon="send" loading={busy} disabled={!/^\S+@\S+\.\S+$/.test(email.trim())} onClick={() => void send()}>Enviar</Button></div>
+            </>
+          )
+        ) : (
+          <>
+            <p className="muted">Qualquer pessoa com o link vê o relatório, sem criar conta. O link expira e pode ser revogado.</p>
+            <div className="row" style={{ gap: 8, alignItems: 'end' }}>
+              <Field label="Validade"><Select value={days} onChange={(e) => setDays(e.target.value)}><option value="1">1 dia</option><option value="3">3 dias</option><option value="7">7 dias</option><option value="15">15 dias</option></Select></Field>
+              <Button variant="primary" icon="link" loading={busy} onClick={() => void makeLink()}>Gerar link</Button>
+            </div>
+            {link && <><CopyField value={link.url} label="Link do relatório" /><a className="btn" href={wa} target="_blank" rel="noopener noreferrer">Enviar por WhatsApp</a><p className="muted" style={{ fontSize: 13 }}>Vale até {dateTime(link.expiresAt)}. Guarde agora: o link completo não é mostrado de novo.</p></>}
+            {shares.data?.length ? <div className="stack-sm"><b>Links ativos</b>{shares.data.map((x) => <div key={x.id} className="row" style={{ justifyContent: 'space-between' }}><span className="muted">até {dateTime(x.expiresAt)} · {x.views}/{x.maxViews} acessos</span><Button variant="ghost" onClick={() => void revoke(x.id)}>Revogar</Button></div>)}</div> : null}
           </>
         )}
       </div>
@@ -149,6 +214,7 @@ export function QueryDetailPage() {
   const d = useAsync(() => api.get<Detail>(`/admin/queries/${id}`), [id]);
   const reveals = useAsync(() => api.get<Reveal[]>(`/admin/queries/${id}/reveals`), [id]);
   const [reveal, setReveal] = useState(false);
+  const [deliver, setDeliver] = useState<'send' | 'link' | null>(null);
   const toast = useToast();
   async function openPdf(qid: string) {
     const tab = window.open('about:blank', '_blank');
@@ -169,13 +235,13 @@ export function QueryDetailPage() {
   const x = d.data;
   return (
     <>
-      <PageHead title={`Consulta ${formatPlate(x.plate)}`} sub={<Link to="/consultas">← Voltar às consultas</Link>} actions={<>{x.report && <Button icon="file-text" onClick={() => void openPdf(x.id)}>Visualizar PDF</Button>}{x.report && <Button icon="download" onClick={() => void savePdf(x.id)}>Baixar PDF</Button>}{x.report && x.hasRaw && can('VIEW_SENSITIVE_DATA') && <Button icon="refresh" onClick={() => void refreshLien(x.id)}>Atualizar gravame</Button>}{can('REVEAL_PII') && x.hasRaw && <Button icon="eye" onClick={() => setReveal(true)}>Revelar dado protegido</Button>}</>} />
+      <PageHead title={`Consulta ${formatPlate(x.plate)}`} sub={<Link to="/consultas">← Voltar às consultas</Link>} actions={<>{x.report && <Button icon="file-text" onClick={() => void openPdf(x.id)}>Visualizar PDF</Button>}{x.report && <Button icon="download" onClick={() => void savePdf(x.id)}>Baixar PDF</Button>}{x.report && x.hasRaw && can('VIEW_SENSITIVE_DATA') && <Button icon="refresh" onClick={() => void refreshLien(x.id)}>Atualizar gravame</Button>}{x.report && can('VIEW_SENSITIVE_DATA') && <Button icon="send" onClick={() => setDeliver('send')}>Enviar ao cliente</Button>}{x.report && can('VIEW_SENSITIVE_DATA') && <Button icon="link" onClick={() => setDeliver('link')}>Gerar link</Button>}{can('REVEAL_PII') && x.hasRaw && <Button icon="eye" onClick={() => setReveal(true)}>Revelar dado protegido</Button>}</>} />
       <div className="adm-split">
         <Card title="Detalhes">
           <div className="row"><PlateBadge plate={x.plate} size="sm" /><QueryStatusBadge status={x.status} /></div>
           <dl className="kv">
             <dt>Produto</dt><dd>{x.productName}</dd><dt>Valor</dt><dd className="num">{money(x.priceCents)} ({x.chargeSource})</dd>
-            <dt>Cliente</dt><dd>{x.customer.name}<br /><span className="muted">{x.customer.email}</span></dd><dt>Provedor</dt><dd>{x.provider} · {x.source}</dd>
+            <dt>Cliente</dt><dd>{x.customer.name}<br /><span className="muted">{x.customer.email}</span></dd><dt>Provedor</dt><dd>{x.provider} · {x.source === 'ADMIN' ? 'Consulta interna (painel)' : x.source}</dd>
             <dt>Criada</dt><dd>{dateTime(x.createdAt)}</dd><dt>Concluída</dt><dd>{dateTime(x.completedAt)}</dd>
             {x.errorCode && <><dt>Erro</dt><dd>{x.errorCode}</dd></>}
             {x.errorMessage && x.errorCode && <><dt>Motivo</dt><dd style={{ overflowWrap: 'anywhere' }}>{x.errorMessage}</dd></>}
@@ -186,6 +252,7 @@ export function QueryDetailPage() {
         </Card>
       </div>
       {x.report ? <ReportView report={x.report} consultedAt={x.createdAt} productName={x.productName} audience="team" /> : <Alert tone="info">Esta consulta não possui relatório (status {x.status}).</Alert>}
+      {deliver && <DeliverModal queryId={x.id} plate={x.plate} mode={deliver} onClose={() => setDeliver(null)} />}
       {reveal && <RevealModal id={x.id} fields={x.revealableFields} onClose={() => { setReveal(false); reveals.reload(); }} />}
     </>
   );

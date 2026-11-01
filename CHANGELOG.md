@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.22.0 — Consulta interna salva, visível e pronta para entregar ao cliente
+
+- Correção: a consulta feita pelo painel (Consultas → Consulta interna) não ficava guardada; só aparecia na tela naquele momento. Agora é salva como consulta de verdade, com origem "Interna", sem valor e sem cobrança.
+- Cada consulta interna tem relatório do pacote, PDF, impressão e código de validação (o PDF antes saía com o código "INTERNA"; agora traz o código real, que confere em `/validar`). O dado bruto fica cifrado, como nas demais.
+- Lista de Consultas: nova coluna de origem ("Interna" ou "Enviada ao cliente") e filtro de origem (internas ou feitas pelos clientes). O filtro de tipo de cliente também passou a funcionar junto com os outros.
+- Enviar ao cliente: informa o e-mail de um cliente; a consulta entra no histórico dele, com relatório e PDF, sem cobrança e sem nova chamada ao fornecedor, e ele recebe um aviso por e-mail (com mensagem opcional). Reenviar não duplica.
+- Gerar link: link de visualização para quem não tem conta (1 a 15 dias, até 100 acessos, até 10 ativos), com copiar, WhatsApp, lista e revogação. Disponível na consulta salva e logo após a consulta interna.
+- Se o salvamento falhar, a tela avisa e ainda entrega o resultado e o PDF.
+- Auditoria: `ADMIN_LOOKUP` aponta para a consulta salva; `ADMIN_QUERY_SENT` registra o envio.
+- Sem migração nova e sem variável nova.
+
 ## 1.21.0 — Consulta em lote e comparação de consultas
 
 - Consulta em lote (`/app/lote`): cola até 30 placas, escolhe o tipo de consulta e roda tudo com o saldo da conta. Cada placa é uma consulta normal, com a mesma cobrança, estorno e relatório, e chave de idempotência (repetir não cobra de novo). Mostra o total antes, ignora repetidas, marca inválidas e para sozinha se o saldo acabar. Resultado em tabela (veredito, débitos, gravame, leilão) e planilha CSV pronta para Excel.
