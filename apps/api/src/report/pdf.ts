@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import type { ReportItem, ReportV2 } from './normalizeV2.js';
 import { brlFromCents } from './format.js';
 import { ownerIdentityEnabled } from './mask.js';
+import { sheetBlocks } from './sheetItems.js';
 
 export interface ReportMeta {
   productName: string;
@@ -453,6 +454,10 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
     bandTitle(d, s.label, `${shown.length} informações`);
     if (grid.length) itemsGrid(d, grid);
     if (series) priceSeries(d, series);
+  }
+  for (const block of sheetBlocks(report.sheet)) {
+    bandTitle(d, block.title, `${block.items.length} informações`);
+    itemsGrid(d, block.items);
   }
   if (empty.length || omitted) noteLines(d, [empty.length ? `Sem dados retornados pela fonte nesta consulta: ${empty.join(', ')}.` : '', omitted ? 'Itens que a fonte não retornou foram omitidos.' : ''].filter(Boolean).join(' '));
   if (report.scope?.notIncluded.length) noteLines(d, `Não incluído neste produto: ${report.scope.notIncluded.map((n) => n.label).join(', ')}. Isso não significa ausência de ocorrências.`);

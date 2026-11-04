@@ -1,6 +1,6 @@
 # Placa na Mão — o sistema por inteiro
 
-Documento de referência da versão 1.25.0. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
+Documento de referência da versão 1.26.0. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
 
 Documentos de apoio: `ARCHITECTURE.md` (módulos), `DATABASE.md`, `SECURITY.md`, `DEPLOY-COOLIFY.md`, `TESTING.md`, `PRODUCT.md`, `docs/COMPARATIVO-CONCORRENTES.md` e `CHANGELOG.md`.
 
@@ -62,7 +62,7 @@ SEO por rota é montado no servidor (`seo.ts`): título, descrição, canonical,
 
 | Produto | Para que serve |
 | --- | --- |
-| FIPE por placa (grátis) | Valor de referência e dados básicos; não consome o fornecedor pago |
+| FIPE por placa (grátis) | Identificação e características completas (chassi e motor sem máscara) e a ficha gratuita: decodificador do chassi, FIPE por ano e 24 meses, financiamento estimado e ficha técnica do guia. A consulta por placa usa a mesma consulta Básica do fornecedor; a ficha em si é calculada pelo sistema |
 | Cadastral | Identificação, características e registro do veículo |
 | Débitos | IPVA, licenciamento e multas |
 | Restrições | Restrições judiciais, administrativas, roubo e furto |
@@ -87,10 +87,11 @@ Pacotes de saldo (Inicial, Plus, Pro) e cupons também são configuráveis no pa
    - Básica, Débitos, Restrições, Cadastral, Leilão e Gravame: consulta de débitos e restrições, mais os complementos do produto.
    - Complementos: gravame detalhado, restrição judicial (RENAJUD) e leilão conjugado, conforme o pacote.
 4. A resposta é normalizada para o **relatório v2** (`report/normalizeV2.ts`): cada campo vira um item com estado, rótulo, valor, sensibilidade e nível. O dado bruto fica cifrado (`raw_enc`) e é apagado conforme a política de retenção.
-5. Enriquecimento sem custo no fornecedor: valor FIPE localizado pelo cadastro quando o fornecedor não traz, variação em 12 e 24 meses e projeção dos próximos 6 meses. Falha ou demora do enriquecimento nunca derruba a consulta.
-6. `viewReport` filtra por público (cliente ou equipe) e pelo escopo do produto. Só o que o pacote entrega sai do servidor.
-7. O relatório é gerado na tela, em impressão e em PDF a partir do mesmo dado. Nada de PDF guardado: ele é renderizado na hora.
-8. Se a fonte falha ou a consulta fica presa, o estorno é automático.
+5. Ficha gratuita (decodificador do chassi, FIPE por ano e mês, financiamento, ficha técnica do guia) em Básica, Cadastral, Completa e Premium, guardada com a consulta (`report.sheet`).
+6. Enriquecimento sem custo no fornecedor: valor FIPE localizado pelo cadastro quando o fornecedor não traz, variação em 12 e 24 meses e projeção dos próximos 6 meses. Falha ou demora do enriquecimento nunca derruba a consulta.
+7. `viewReport` filtra por público (cliente ou equipe) e pelo escopo do produto. Só o que o pacote entrega sai do servidor.
+8. O relatório é gerado na tela, em impressão e em PDF a partir do mesmo dado. Nada de PDF guardado: ele é renderizado na hora.
+9. Se a fonte falha ou a consulta fica presa, o estorno é automático.
 
 Relatório de consultas antigas: ao abrir, o sistema completa uma única vez o gravame detalhado e a FIPE quando faltam, com intervalo mínimo de 30 minutos entre tentativas. Isso pode ser desligado por variável de ambiente.
 

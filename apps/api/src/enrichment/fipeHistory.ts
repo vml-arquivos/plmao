@@ -1,5 +1,7 @@
 import { env } from '../config.js';
 import type { PricePoint } from './estimates.js';
+import { annualPoints, type AnnualPoint } from './annual.js';
+export { annualPoints, type AnnualPoint };
 
 /**
  * Histórico de preços da FIPE por código FIPE e ano (fipe.parallelum.com.br/api/v2):
@@ -9,7 +11,7 @@ import type { PricePoint } from './estimates.js';
  * Qualquer falha devolve undefined: o relatório sai sem a seção, sem derrubar a consulta.
  */
 export type FipeType = 'cars' | 'motorcycles' | 'trucks';
-export interface FipeHistory { fipeCode: string; yearId: string; series: PricePoint[] }
+export interface FipeHistory { fipeCode: string; yearId: string; series: PricePoint[]; annual?: AnnualPoint[] }
 
 const MONTHS: Record<string, number> = { janeiro: 1, jan: 1, january: 1, fevereiro: 2, fev: 2, february: 2, feb: 2, marco: 3, mar: 3, march: 3, abril: 4, abr: 4, april: 4, apr: 4, maio: 5, mai: 5, may: 5, junho: 6, jun: 6, june: 6, julho: 7, jul: 7, july: 7, agosto: 8, ago: 8, august: 8, aug: 8, setembro: 9, set: 9, september: 9, sep: 9, outubro: 10, out: 10, october: 10, oct: 10, novembro: 11, nov: 11, november: 11, dezembro: 12, dez: 12, december: 12, dec: 12 };
 const PT_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -79,7 +81,9 @@ export async function fetchFipeHistory(input: { fipeCode: string; modelYear: num
       const cents = parsePriceCents(p?.price);
       if (month && cents > 0) series.push({ label: month.label, time: month.time, cents });
     }
-    const value = series.length >= 2 ? { fipeCode: code, yearId, series: series.sort((a, b) => a.time - b.time).slice(-24) } : null;
+    const ordered = series.sort((a, b) => a.time - b.time);
+    const annual = annualPoints(ordered);
+    const value = ordered.length >= 2 ? { fipeCode: code, yearId, series: ordered.slice(-24), ...(annual.length ? { annual } : {}) } : null;
     cache.set(key, { at: now, value });
     return value ?? undefined;
   } catch {

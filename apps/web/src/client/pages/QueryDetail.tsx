@@ -6,12 +6,13 @@ import { Alert, Badge, Button, ErrorState, Field, Input, LinkButton, Modal, Page
 import { ApiError, errorMessage } from '../../shared/api';
 import { dateTime, money } from '../../shared/format';
 import ReportView from '../../shared/ReportView';
-import type { ReportEnvelope } from '../../shared/reportTypes';
+import type { ReportEnvelope, VehicleSheet } from '../../shared/reportTypes';
+import SheetView, { FreeIdentity, type FreeDetails } from '../../shared/SheetView';
 import { api } from '../api';
 import { AdCheckModal, ShareModal } from '../components/ReportTools';
 import { STATUS, type QuerySummary } from '../components/QueryRow';
 
-interface FipeQuote { documentCode: string; consultedAt: string; referenceMonth: string; brand: { name: string }; model: { name: string }; year: { name: string }; fuel?: string; fipeCode: string; valueLabel: string; blocks: Array<{ key: string; label: string; message: string }> }
+interface FipeQuote { documentCode: string; consultedAt: string; referenceMonth: string; brand: { name: string }; model: { name: string }; year: { name: string }; fuel?: string; fipeCode: string; valueLabel: string; blocks: Array<{ key: string; label: string; message: string }>; sheet?: VehicleSheet; vehicleDetails?: FreeDetails }
 type Detail = QuerySummary & { result?: QuerySummary['result'] & { fipe?: FipeQuote } };
 
 function DisputeModal({ queryId, onClose }: { queryId: string; onClose: () => void }) {
@@ -148,6 +149,8 @@ export default function QueryDetail() {
           <ul className="stack-sm" style={{ listStyle: 'none', margin: 0, padding: 0 }}>{fipe.blocks.map((b) => <li key={b.key} className="alert"><Icon name="info" /><div><b>{b.label}.</b> {b.message}</div></li>)}</ul>
           <div className="row"><Button variant="primary" icon="download" loading={pdfBusy} onClick={() => pdf(`/fipe/reports/${fipe.documentCode}/pdf`, `placa-na-mao-fipe-${fipe.documentCode}.pdf`)}>Baixar PDF</Button><LinkButton to={`/app/consultar?placa=${summary.plate}&produto=COMPLETE`} iconRight="arrow-right">Fazer consulta completa</LinkButton></div>
         </section>
+        {fipe.vehicleDetails && <FreeIdentity details={fipe.vehicleDetails} />}
+        {fipe.sheet && <SheetView sheet={fipe.sheet} />}
       </div>
     );
   }

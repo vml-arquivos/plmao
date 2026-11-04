@@ -2,7 +2,7 @@
  * Decodificador básico de chassi (VIN, ISO 3779): fabricante, país e ano do modelo calculados a partir do próprio número.
  * Só afirma o que o número permite; o que não conhece fica em branco (nunca inventa).
  */
-export interface ChassisInfo { valid: boolean; format: 'PADRAO_17' | 'FORA_DO_PADRAO'; manufacturer?: string; country?: string; modelYear?: number; wmi?: string }
+export interface ChassisInfo { valid: boolean; format: 'PADRAO_17' | 'FORA_DO_PADRAO'; manufacturer?: string; country?: string; modelYear?: number; wmi?: string; region?: string; key?: string }
 
 /** Prefixos (3 primeiros caracteres) de fabricantes com presença no Brasil. Conferidos; os demais caem só no país. */
 const WMI: Record<string, string> = {
@@ -34,10 +34,21 @@ export function modelYearFromChar(ch: string, hints: number[]): number | undefin
   return candidates.sort((a, b) => Math.min(...ref.map((r) => Math.abs(a - r))) - Math.min(...ref.map((r) => Math.abs(b - r))))[0];
 }
 
+/** Continente do país de fabricação (para o decodificador). */
+export function regionOfCountry(country: string | undefined): string | undefined {
+  if (!country) return undefined;
+  if (['Brasil', 'Argentina'].includes(country)) return 'América do Sul';
+  if (['Estados Unidos', 'Canadá', 'México'].includes(country)) return 'América do Norte';
+  if (['Japão', 'Coreia do Sul', 'China', 'Índia'].includes(country)) return 'Ásia';
+  if (['Nova Zelândia', 'Austrália'].includes(country)) return 'Oceania';
+  return 'Europa';
+}
+
 export function decodeChassis(chassis: string, yearHints: number[] = []): ChassisInfo {
   const vin = chassis.toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) return { valid: false, format: 'FORA_DO_PADRAO' };
   const wmi = vin.slice(0, 3);
   const country = COUNTRY_BY_FIRST.find(([re]) => re.test(wmi))?.[1];
-  return { valid: true, format: 'PADRAO_17', wmi, manufacturer: WMI[wmi], country, modelYear: modelYearFromChar(vin[9]!, yearHints) };
+  // Chave do chassi: os 11 primeiros caracteres (fabricante, descrição do modelo, ano e fábrica). Não inclui o número de série.
+  return { valid: true, format: 'PADRAO_17', wmi, manufacturer: WMI[wmi], country, region: regionOfCountry(country), key: vin.slice(0, 11), modelYear: modelYearFromChar(vin[9]!, yearHints) };
 }

@@ -8,10 +8,12 @@ import { api } from '../api';
 import { useSession } from '../session';
 import { trackFunnel } from '../funnel';
 import { SeoH1 } from '../components/SeoContent';
+import SheetView, { FreeIdentity, type FreeDetails } from '../../shared/SheetView';
+import type { VehicleSheet } from '../../shared/reportTypes';
 
 type Item = { code: string; name: string };
 type VType = 'cars' | 'motorcycles' | 'trucks';
-interface Quote { documentCode: string; consultedAt: string; referenceMonth: string; vehicleType: VType; brand: Item; model: Item; year: Item; fuel?: string; fipeCode: string; valueCents: number; valueLabel: string; estimatedNegotiation?: { minCents: number; maxCents: number; disclaimer: string }; blocks: Array<{ key: string; label: string; message: string }>; plate?: string }
+interface Quote { documentCode: string; consultedAt: string; referenceMonth: string; vehicleType: VType; brand: Item; model: Item; year: Item; fuel?: string; fipeCode: string; valueCents: number; valueLabel: string; estimatedNegotiation?: { minCents: number; maxCents: number; disclaimer: string }; blocks: Array<{ key: string; label: string; message: string }>; plate?: string; sheet?: VehicleSheet; vehicleDetails?: FreeDetails }
 
 export default function Fipe() {
   usePageTitle('Consulta FIPE grátis');
@@ -118,6 +120,7 @@ export default function Fipe() {
               </div>
             </div>
           )}
+          {quote && (quote.vehicleDetails || quote.sheet) && <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>{quote.vehicleDetails && <FreeIdentity details={quote.vehicleDetails} />}{quote.sheet && <SheetView sheet={quote.sheet} />}</div>}
           <p className="muted" style={{ fontSize: 13, marginTop: 20 }}>A Tabela FIPE é uma referência de preço médio de mercado e não considera estado de conservação, quilometragem nem situação documental.</p>
         </div>
       </section>

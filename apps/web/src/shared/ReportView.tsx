@@ -3,6 +3,7 @@ import { Icon, type IconName } from './icons';
 import { Badge, PlateBadge, Tabs } from './ui';
 import { dateTime, money, vehicleStatusLabel } from './format';
 import type { CheckStatus, ItemState, ReportItem, ReportSection, ReportV2, Verdict } from './reportTypes';
+import SheetView from './SheetView';
 import './report.css';
 
 const VERDICT: Record<Verdict, { tone: string; icon: IconName; label: string }> = {
@@ -229,6 +230,8 @@ export default function ReportView({ report, consultedAt, productName, verificat
       <div className={`rv-panel rv-sections ${tab === 'details' || tab === 'full' ? '' : 'rv-hide-screen'}`}>
         {visibleSections.map((s) => <Section key={s.key} section={s} defaultOpen={s.status === 'ALERT'} forceOpen={tab === 'full'} />)}
       </div>
+
+      {report.sheet && <div className="rv-panel"><SheetView sheet={report.sheet} /></div>}
 
       <footer className="rv-foot">
         <p><Icon name="info" size={16} /> {report.coverage.provided} de {report.coverage.total} campos foram informados pela fonte contratada. Campos <b>não informados</b> não significam “nada consta”: apenas não vieram nesta consulta.</p>

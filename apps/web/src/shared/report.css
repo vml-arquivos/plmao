@@ -152,3 +152,12 @@
 .rv-before h4 { margin: 4px 0 8px; font-size: 15px; }
 .rv-todo { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14.5px; }
 @media (max-width: 520px) { .rv-checks li { flex-direction: column; gap: 6px; } .rv-check-tag { text-align: left; min-width: 0; } }
+
+/* Ficha gratuita (decodificador, FIPE por ano e mês, financiamento, ficha técnica) */
+.rv-sheet { display: grid; gap: 14px; }
+.rv-sheet details { margin-top: 10px; }
+.rv-sheet summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
+.rv-up { color: var(--ok, #0f7b4f); font-weight: 600; }
+.rv-down { color: var(--danger, #b42318); font-weight: 600; }
+.rv-fipe-now b, .rv-fin b { font-size: 22px; }
+.rv-fin { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin: 0 0 4px; }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.26.0 — Ficha gratuita do veículo (chassi, FIPE por ano e mês, financiamento, ficha técnica)
+
+- A consulta gratuita por placa agora mostra identificação e características completas, com chassi e número do motor sem máscara, e uma ficha com: decodificador do chassi (fabricante, chave do chassi, ano pelo chassi, região, país, motor, portas, câmbio), Tabela FIPE com valor atual, valor por ano (variação real sobre o ano anterior) e histórico dos últimos 24 meses (% sobre o mês anterior e no período), "Financie" (entrada de 20% + 48 parcelas, simulação estimada com as taxas do painel) e ficha técnica do nosso guia de veículos.
+- Ficha técnica só aparece quando o modelo existe no guia (com a versão do mesmo ano ou o modelo aproximado, indicado); nunca é gerada por palpite. Campos sem fonte ficam de fora.
+- A mesma ficha vem em todas as consultas pagas de placa (Básica, Cadastral, Completa e Premium), na tela, no PDF e na API (`report.sheet`). Gravame e Leilão seguem enxutos. A ficha é montada na hora da consulta, sem nenhuma chamada paga extra ao fornecedor de dados, e fica guardada com a consulta.
+- Consultas antigas desses produtos recebem a ficha uma vez ao serem abertas (usa só dados públicos e o dado já guardado).
+- PDF da consulta gratuita agora tem várias páginas quando precisa; corrigido o valor máximo da faixa de negociação na versão para impressão, que saía sem formatação em reais.
+- Sem migração e sem variável nova.
+
 ## 1.25.0 — Perfis de uso: cliente, lojista e afiliado
 
 - Cada conta tem perfil de uso: Cliente (todos), Lojista (quem participa de uma loja ativa) e Afiliado (quem ativou o Indique e ganhe). Troca pelo seletor no menu lateral ou em Minha conta.

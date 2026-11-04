@@ -16,6 +16,7 @@ import { adaptVehicleTotal, isVehicleTotal, vehicleTotalExtras, vehicleTotalOutc
 import { formatDocument, ownerIdentityEnabled } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
 import { buildAdvice, type ReportAdvice } from './advice.js';
+import { readSheet, type VehicleSheet } from '../enrichment/sheet.js';
 
 export const NORMALIZER_VERSION = 3;
 export const REPORT_SCHEMA = 'placanamao.vehicle.report.v2';
@@ -70,6 +71,8 @@ export interface ReportV2 {
   scope?: { mode: 'TEMPLATE' | 'SECTIONS' | 'TIER'; templateVersion?: number; notIncluded: Array<{ key: string; label: string }> };
   /** preenchido por viewReport: parecer de revenda/seguro e checklist "Antes de pagar", só com o que o pacote consultou */
   advice?: ReportAdvice;
+  /** ficha gratuita (decodificador de chassi, tabela FIPE, financiamento, ficha técnica do guia); presente nas consultas que a incluem */
+  sheet?: VehicleSheet;
 }
 
 const FINE_COMPONENTS = new Set(['DEBDETRAN', 'DEBDER', 'DEBDERSA', 'DEBPOLRODFED', 'DEBRENAINF']);
@@ -324,7 +327,8 @@ export function buildReportV2(raw: unknown): ReportV2 {
     },
     sections,
     coverage: { provided: visibleKeys.length - notProvidedKeys.length, total: visibleKeys.length, notProvidedKeys, restrictionsProvided, debtsProvided },
-    unknownFieldCount
+    unknownFieldCount,
+    ...(readSheet((raw as { enrichment?: { sheet?: unknown } } | null)?.enrichment?.sheet) ? { sheet: readSheet((raw as { enrichment?: { sheet?: unknown } }).enrichment?.sheet) } : {})
   });
 }
 

@@ -39,6 +39,9 @@ export type FipeVehicleDetails = {
   state?: string;
   licensingYear?: string;
   status?: string;
+  /** chassi e motor completos (sem máscara), como a fonte informou */
+  chassis?: string;
+  engine?: string;
 };
 
 export type FipeQuote = {
@@ -62,6 +65,8 @@ export type FipeQuote = {
   blocks: Array<{ key: string; label: string; state: InformationState; message: string }>;
   plate?: string;
   vehicleDetails?: FipeVehicleDetails;
+  /** ficha gratuita: decodificador, tabela FIPE por ano e mês, financiamento e ficha técnica do guia */
+  sheet?: import('./enrichment/sheet.js').VehicleSheet;
 };
 
 export type FipeProviderResult = Omit<FipeQuote, 'documentCode' | 'reportHash' | 'blocks' | 'estimatedNegotiation' | 'plate'> & {

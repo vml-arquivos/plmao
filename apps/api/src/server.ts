@@ -34,7 +34,11 @@ import { getPaymentProvider, getPaymentProviderFor, type PaymentProviderName } f
 import { ensureSchema } from './schema.js';
 import { performAdminLookup } from './adminLookup.js';
 import { executeVehicleLookup, providerSupports } from './vehicleLookup.js';
-import { enrichVehicle } from './enrichment/index.js';
+import { enrichWithSheet } from './lib/sheetEnrich.js';
+import { fetchFipeHistory } from './enrichment/fipeHistory.js';
+import { buildVehicleSheet, type VehicleSheet } from './enrichment/sheet.js';
+import { catalogSpecsFor } from './lib/sheetSpecs.js';
+import { financingTeaser } from './lib/sheetFinancing.js';
 import { isPrelaunch, siteOpenFor } from './siteAccess.js';
 import { legalAcceptanceStatus, requireLegalAcceptanceForQuery } from './legalAcceptance.js';
 import { acceptContractAtCheckout, claimContractForOrder, previewPurchaseContract, sendPurchaseReceipt, confirmPurchaseContract, draftPurchaseContract, getUserContract, linkContractToOrder, listUserContracts, reopenContractForOrder, resendPurchaseOtp } from './purchaseContract.js';
@@ -91,7 +95,7 @@ import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSl
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
 import { scopeForProduct } from './lib/reportScope.js';
 import { ensureLienDetail } from './lib/lienRefresh.js';
-import { ensureFipeEnrichment } from './lib/fipeRefresh.js';
+import { ensureFipeEnrichment, SHEET_PRODUCTS } from './lib/fipeRefresh.js';
 import { checkAd } from './report/adCheck.js';
 import { consumeSecureLink, createSecureLink } from './lib/secureLinks.js';
 import { seoBodyHtml, seoFaqLd, seoRows } from './seoStore.js';
@@ -1075,7 +1079,9 @@ function fipeVehicleDetails(vehicle: NormalizedVehicle): FipeVehicleDetails {
     city: vehicle.registration.city,
     state: vehicle.registration.state,
     licensingYear: vehicle.registration.licensingYear,
-    status: vehicle.registration.status
+    status: vehicle.registration.status,
+    chassis: vehicle.identification.chassis,
+    engine: vehicle.identification.engine
   };
 }
 
@@ -1096,6 +1102,25 @@ function inferFipeVehicleType(vehicle: NormalizedVehicle): FipeVehicleType {
   if (/moto|motocic|ciclomotor|scooter/.test(text)) return 'motorcycles';
   if (/caminhao|caminh|onibus|trator|reboque|semirreboque/.test(text)) return 'trucks';
   return 'cars';
+}
+
+/** Ficha gratuita da consulta FIPE: tabela por ano e por mês, financiamento, decodificador do chassi (só na busca por placa) e ficha técnica do guia. Falhas só tiram a parte afetada. */
+async function freeVehicleSheet(result: { fipeCode: string; valueCents: number; fuel?: string; modelYear?: number; year: FipeSelectionItem; brand: FipeSelectionItem; model: FipeSelectionItem; vehicleType: FipeVehicleType }, details?: FipeVehicleDetails): Promise<VehicleSheet | undefined> {
+  try {
+    const modelYear = result.modelYear ?? (Number(String(result.year.name).match(/\d{4}/)?.[0]) || undefined);
+    const history = modelYear ? await fetchFipeHistory({ fipeCode: result.fipeCode, modelYear, fuel: result.fuel, type: result.vehicleType }).catch(() => undefined) : undefined;
+    const [financing, specs] = await Promise.all([
+      financingTeaser(result.valueCents),
+      catalogSpecsFor({ brand: details?.brand ?? result.brand.name, model: details?.model ?? result.model.name, fullModel: details?.fullModel ?? result.model.name, year: modelYear ?? null })
+    ]);
+    return buildVehicleSheet({
+      chassis: details?.chassis, engine: details?.engine, brand: details?.brand ?? result.brand.name, fullModel: details?.fullModel ?? details?.model, fuel: details?.fuel ?? result.fuel,
+      modelYear: details?.modelYear ?? modelYear, manufactureYear: details?.manufactureYear, fipeCode: result.fipeCode, fipeModel: `${result.brand.name} ${result.model.name}`.replace(/\s+/g, ' ').trim(),
+      fipeCurrentCents: result.valueCents, history: history ?? null, financing, specs
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 async function resolveFipeSelectionFromPlate(plate: string): Promise<{ provider: 'parallelum' | 'brasilapi'; vehicleType: FipeVehicleType; brand: FipeSelectionItem; model: FipeSelectionItem; year: FipeSelectionItem; vehicleDetails: FipeVehicleDetails }> {
@@ -1255,6 +1280,7 @@ api.post('/fipe/quote', optionalAuth, asyncRoute(async (req, res) => {
     const result = cached ?? await quoteWithFallback({ ...input, provider: preferredProvider });
     if (!cached) await cacheFipeResult(result);
     const quote = makeFipeQuote(result, plate, vehicleDetails);
+    quote.sheet = await freeVehicleSheet(result, vehicleDetails);
     await recordProviderHealth(quote.provider, 'SUCCESS', Date.now() - providerStartedAt);
     await saveFipeDocument(quote, req.user?.id ?? null);
     await recordFunnelEvent(null, req, 'FREE_QUERY_COMPLETED', { provider: quote.provider, documentCode: quote.documentCode, cached: Boolean(cached), plateLookup: Boolean(plate) });
@@ -1438,7 +1464,8 @@ type RunQueryInput = { userId: string; plate: string; searchType: SearchType; pr
 
 /** Executa uma consulta de ponta a ponta (cobrança, provedor, armazenamento, estorno em falha). Usada pelo web e pela API pública. */
 /** Pacotes cujo relatório mostra histórico da FIPE (busca extra além da Credify). */
-const ENRICHED_PRODUCTS = new Set(['COMPLETE', 'PREMIUM']);
+/** Consultas que recebem a ficha gratuita (decodificador de chassi, tabela FIPE, financiamento, ficha técnica). Gravame/Leilão seguem enxutos. */
+const ENRICHED_PRODUCTS = new Set(SHEET_PRODUCTS);
 
 async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; body: Record<string, unknown> }> {
   const { userId, idempotencyKey } = input;
@@ -1522,7 +1549,7 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
   const finish = async (): Promise<{ status: number; body: Record<string, unknown> }> => {
   const startedAt = Date.now();
   try {
-    const output = await executeVehicleLookup({ provider, plate: input.plate, searchType: input.searchType, productId: input.productId, enrich: ENRICHED_PRODUCTS.has(String(input.productId).toUpperCase()) && env.ENRICH_FIPE_HISTORY && input.searchType === 'PLATE' ? (raw) => enrichVehicle(raw) : undefined, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
+    const output = await executeVehicleLookup({ provider, plate: input.plate, searchType: input.searchType, productId: input.productId, enrich: ENRICHED_PRODUCTS.has(String(input.productId).toUpperCase()) && input.searchType === 'PLATE' ? (raw) => enrichWithSheet(raw, { fipeHistory: env.ENRICH_FIPE_HISTORY }) : undefined, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
     const normalized = output.normalized;
     const resultHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
     await tx(async (client) => {
@@ -1759,7 +1786,7 @@ async function vehicleReportForQuery(queryId: string, userId: string) {
   // Consulta antiga com gravame sem banco/contrato/datas: completa com o /gravame uma única vez (só depois de confirmar que a consulta é do usuário).
   try { if (await ensureLienDetail(queryId, getProvider())) query = await load(); } catch { /* fonte não configurada: segue com o que já está guardado */ }
   // Consulta Completa antiga sem FIPE: acrescenta valor e projeção (Tabela FIPE pública, sem custo no provedor).
-  try { if (['COMPLETE', 'PREMIUM'].includes(String((query.rows[0] as Record<string, unknown>).product_id)) && await ensureFipeEnrichment(queryId)) query = await load(); } catch { /* segue com o que já está guardado */ }
+  try { if (SHEET_PRODUCTS.includes(String((query.rows[0] as Record<string, unknown>).product_id)) && await ensureFipeEnrichment(queryId)) query = await load(); } catch { /* segue com o que já está guardado */ }
   const row = query.rows[0] as Record<string, unknown>;
   const vehicle = row.normalized as NormalizedVehicle | null;
   if (!vehicle?.v2) throw appError('REPORT_UNAVAILABLE', { code: 'REPORT_UNAVAILABLE', http: 409, expose: true });
