@@ -1,6 +1,6 @@
 # Placa na Mão — o sistema por inteiro
 
-Documento de referência da versão 1.26.0. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
+Documento de referência da versão 1.29.1. Explica a missão, tudo o que o sistema faz, como cada parte funciona e quais regras não podem ser quebradas. Foi escrito a partir das telas e rotas que existem no código. Onde algo depende de configuração ou de confirmação em produção, isso está dito.
 
 Documentos de apoio: `ARCHITECTURE.md` (módulos), `DATABASE.md`, `SECURITY.md`, `DEPLOY-COOLIFY.md`, `TESTING.md`, `PRODUCT.md`, `docs/COMPARATIVO-CONCORRENTES.md` e `CHANGELOG.md`.
 
@@ -62,7 +62,7 @@ SEO por rota é montado no servidor (`seo.ts`): título, descrição, canonical,
 
 | Produto | Para que serve |
 | --- | --- |
-| FIPE por placa (grátis) | Identificação e características completas (chassi e motor sem máscara) e a ficha gratuita: decodificador do chassi, FIPE por ano e 24 meses, financiamento estimado e ficha técnica do guia. A consulta por placa usa a mesma consulta Básica do fornecedor; a ficha em si é calculada pelo sistema |
+| FIPE por placa (grátis) | Identificação e características, com chassi e motor mascarados (o completo só nas consultas pagas), e a ficha gratuita: decodificador do chassi, FIPE por ano e 24 meses, financiamento estimado e ficha técnica do guia. A consulta por placa usa a mesma consulta Básica do fornecedor; a ficha em si é calculada pelo sistema |
 | Cadastral | Identificação, características e registro do veículo |
 | Débitos | IPVA, licenciamento e multas |
 | Restrições | Restrições judiciais, administrativas, roubo e furto |
@@ -272,7 +272,7 @@ A consulta é um **serviço**, então a nota é de serviço (NFS-e), no padrão 
 Como funciona:
 1. O cliente paga. O robô (a cada 2 minutos) cria o documento fiscal do pagamento confirmado e coloca na fila de emissão.
 2. A fila envia ao emissor (referência única por nota, então reenviar nunca duplica), acompanha até autorizar e grava número, código, chave, XML e PDF.
-3. Nota emitida: o cliente recebe o e-mail com link seguro. Falha de rede tenta de novo com atraso; recusa do emissor mostra o motivo e não repete; nota sem os dados do cliente (CPF/CNPJ e endereço) fica pendente no painel para ajuste.
+3. Nota emitida: o cliente recebe o e-mail com link seguro. Falha de rede tenta de novo com atraso; recusa do emissor mostra o motivo e não repete; nota sem o CPF ou CNPJ do cliente fica pendente no painel para ajuste.
 
 Garantias: só pagamentos dos últimos 3 dias entram sozinhos (ligar o recurso nunca emite nota de venda antiga); documentos criados ou editados por uma pessoa não são emitidos sozinhos; a emissão automática só roda com “Dados do emissor” completos; homologação e produção usam tokens diferentes, conforme o ambiente escolhido na tela Fiscal.
 
@@ -373,3 +373,13 @@ Para não prometer mais do que o sistema faz:
 - Não há envio de relatório por WhatsApp automático: o botão abre o WhatsApp com a mensagem pronta; quem envia é a pessoa.
 - O parecer de revenda é indicativo. Cada seguradora e comprador tem critério próprio.
 - Não existe API para terceiros integrarem o produto.
+
+
+## Consulta Completa em camadas (1.29.0)
+
+- A Completa monta o relatório com consultas separadas ao fornecedor: base (débitos, restrições, proprietários), indício de sinistro e base nacional sempre; roubo/furto e recall em detalhe só se o cadastro indicar ocorrência; leilão em detalhe só se o Farol Leilão não for verde (ou se o Farol não estiver configurado).
+- O resultado é convertido para o mesmo formato do pacote Veículo Total, então telas, PDF, API e avisos de mudança não mudam. Histórico de proprietários e FIPE do fornecedor não entram na Completa (a FIPE do site é pública); a Premium continua usando o pacote completo.
+- Gravame completo (banco, CNPJ, contrato, datas): consultado quando o cadastro indica alienação sem esses dados (`CREDIFY_COMPLETE_GRAVAME=always` consulta sempre).
+- Teto de custo (`CREDIFY_COST_BUDGET_CENTS` com `CREDIFY_COST_CENTS`) impede itens opcionais acima do limite; o relatório mostra "detalhes do leilão não incluídos".
+- Cache criptografado em `provider_cache`, por placa e pacote, com prazo `PLATE_CACHE_HOURS` (0 desliga). Respostas parciais não são guardadas.
+- Reversão: `CREDIFY_COMPLETE_MODE=total` volta a comprar o pacote completo.

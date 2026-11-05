@@ -62,7 +62,7 @@ export const CREDIFY_CONSULTA_CODES: Record<string, string> = {
 };
 export const CREDIFY_DEFAULT_BODY = '{"Consulta":{"IdConsulta":"{{queryId}}","Placa":"{{plate}}"}}';
 /** Consultas da Credify que recebem só a placa (corpo padrão). As demais pedem CPF/CNPJ, Renavam etc. e precisam de modelo próprio. */
-export const CREDIFY_PLATE_PATHS: readonly string[] = ['/veiculototal', '/debitosrestricoesproprietarios', '/veicularbnacionalonline', '/indiciosinistro', '/leilaoconjugado', '/gravame', '/veiculoproprietarioplaca'];
+export const CREDIFY_PLATE_PATHS: readonly string[] = ['/veiculototal', '/debitosrestricoesproprietarios', '/veicularbnacionalonline', '/indiciosinistro', '/leilaoconjugado', '/gravame', '/veiculoproprietarioplaca', '/recall', '/historicoroubofurto', '/farolleilao'];
 /**
  * Qual consulta da Credify atende cada pacote. Completa e Premium usam o Veículo Total (467: sinistro, recall, roubo/furto, leilão,
  * proprietários, FIPE e o cadastro com débitos e restrições numa chamada só). Básica, Gravame e Cadastral usam Débitos,
@@ -233,8 +233,26 @@ const envSchema = z.object({
   // Consulta antiga com gravame sem banco/contrato/datas é completada (uma vez) com o /gravame na primeira vez que o relatório é aberto.
   CREDIFY_GRAVAME_BACKFILL: booleanFromEnv.default(true),
   CREDIFY_JUDICIAL_SUPPLEMENT: booleanFromEnv.default(true),
+  // Completa em camadas: 'layered' monta o relatório com a consulta base + sinistro + cadastro nacional + leilão (extras só quando a base acusa); 'total' volta ao pacote Veículo Total.
+  CREDIFY_COMPLETE_MODE: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.enum(['layered', 'total']).default('layered')),
+  // Código (IdConsulta) do Farol Leilão. Preenchido = o leilão passa pelo Farol primeiro e o leilão conjugado só entra quando ele acusa.
+  CREDIFY_FAROL_QUERY_ID: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().trim().regex(/^\d{1,12}$/).optional()),
+  // Cadastro nacional na Completa (restrições 01 a 04, situação do chassi, montagem, importação).
+  CREDIFY_COMPLETE_NATIONAL: booleanFromEnv.default(true),
+  // Roubo e furto na Completa: 'flag' usa o marcador do cadastro e só consulta o histórico quando ele acusa; 'always' consulta sempre.
+  // Gravame na Completa: 'flag' consulta o gravame completo quando o cadastro indica alienação sem os dados do banco; 'always' consulta sempre.
+  CREDIFY_COMPLETE_GRAVAME: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.enum(['flag', 'always']).default('flag')),
+  CREDIFY_COMPLETE_THEFT: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.enum(['flag', 'always']).default('flag')),
+  // Teto de custo por consulta (centavos) e custo de cada consulta da Credify (JSON {"/caminho": centavos}), preenchidos no painel de variáveis. Sem teto, nada é limitado.
+  CREDIFY_COST_BUDGET_CENTS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.coerce.number().int().min(0).max(1000000).optional()),
+  CREDIFY_COST_CENTS: z.preprocess((v) => {
+    if (typeof v !== 'string' || !v.trim()) return undefined;
+    try { return JSON.parse(v); } catch { return undefined; }
+  }, z.record(z.string().regex(/^\/[a-z0-9]+$/i), z.number().int().min(0).max(1000000)).optional()),
+  // Reaproveita a resposta paga da mesma placa e do mesmo pacote por este número de horas (0 desliga). A data da consulta continua visível no relatório.
+  PLATE_CACHE_HOURS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.coerce.number().int().min(0).max(720).default(24)),
   // API pública v1 para integradores (chaves pnm_live_…). Desligada por padrão: rotas respondem 404.
-  // Cliente precisa do cadastro completo (telefone, CPF/CNPJ, endereço e aceite de responsabilidade) para consultar ou pagar. Vazio = ligado (desligado só nos testes automáticos).
+  // Cliente precisa do cadastro completo (WhatsApp, CPF, cidade, estado e aceite dos termos) para consultar ou pagar. Vazio = ligado (desligado só nos testes automáticos).
   CUSTOMER_PROFILE_REQUIRED: z.preprocess((v) => (typeof v === 'string' && v.trim() !== '' ? ['1', 'true', 'yes', 'on', 'sim'].includes(v.trim().toLowerCase()) : undefined), z.boolean().optional()),
   PUBLIC_API_ENABLED: booleanFromEnv.default(false),
   PUBLIC_API_RATE_LIMIT_MAX: z.coerce.number().int().positive().max(10000).default(60),

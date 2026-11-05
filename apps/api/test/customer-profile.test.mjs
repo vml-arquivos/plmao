@@ -3,7 +3,7 @@ import { after, before, describe, it } from 'node:test';
 import { integration, loadCore, uid, useTestEnv } from './helpers/db.mjs';
 import { hostRequest, startServer } from './helpers/server.mjs';
 
-const address = { phone: '(11) 99999-0000', cpfCnpj: '529.982.247-25', zip: '01310-100', street: 'Avenida Paulista', streetNumber: '1000', district: 'Bela Vista', city: 'São Paulo', state: 'SP' };
+const address = { phone: '(11) 99999-0000', cpfCnpj: '529.982.247-25', city: 'São Paulo', state: 'SP' };
 const base = { name: 'Cliente Completo', password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true };
 
 describe('cadastro completo do cliente', integration, () => {
@@ -23,32 +23,39 @@ describe('cadastro completo do cliente', integration, () => {
     assert.equal(noAccept.json.error, 'RESPONSIBILITY_REQUIRED');
     assert.equal((await register({ ...address, acceptResponsibility: true, cpfCnpj: '111.111.111-11' })).json.error, 'INVALID_OWNER_DOC');
     assert.equal((await register({ ...address, acceptResponsibility: true, phone: '123' })).json.error, 'INVALID_PHONE');
-    assert.equal((await register({ ...address, acceptResponsibility: true, zip: '123' })).json.error, 'INVALID_ZIP');
-    assert.equal((await register({ ...address, acceptResponsibility: true, street: '' })).json.error, 'PROFILE_INCOMPLETE');
-    assert.equal((await register({ ...address, acceptResponsibility: true, accountType: 'EMPRESA' })).json.error, 'PROFILE_INCOMPLETE', 'empresa exige nome e CNPJ');
+    assert.equal((await register({ ...address, acceptResponsibility: true, city: '' })).json.error, 'PROFILE_INCOMPLETE');
+    assert.equal((await register({ ...address, acceptResponsibility: true, state: undefined })).json.error, 'PROFILE_INCOMPLETE');
   });
 
-  it('conta completa grava endereço e aceite, e o perfil volta completo', async () => {
+  it('cadastro enxuto: sem endereço, CEP nem documento anexado, a conta nasce completa', async () => {
     const r = await register({ ...address, acceptResponsibility: true });
     assert.equal(r.status, 201, r.text);
     const me = await hostRequest(server.base, '/api/me', { token: r.json.token });
     assert.equal(me.json.profile.profileComplete, true);
     assert.equal(me.json.profile.responsibilityAccepted, true);
-    assert.equal(me.json.profile.zip, '01310100');
+    assert.equal(me.json.profile.zip, '');
+    assert.equal(me.json.profile.street, '');
     assert.equal(me.json.profile.city, 'São Paulo');
     const row = (await pool.query('SELECT responsibility_accepted_at,responsibility_version FROM user_profiles WHERE user_id=$1', [r.json.user.id])).rows[0];
     assert.ok(row.responsibility_accepted_at && row.responsibility_version);
   });
 
-  it('empresa com CNPJ e nome é aceita', async () => {
-    const r = await register({ ...address, accountType: 'EMPRESA', cpfCnpj: '11.222.333/0001-81', companyName: 'Loja Teste LTDA', acceptResponsibility: true });
+  it('formulário antigo, que ainda manda endereço, continua funcionando', async () => {
+    const r = await register({ ...address, zip: '01310-100', street: 'Avenida Paulista', streetNumber: '1000', district: 'Bela Vista', acceptResponsibility: true });
+    assert.equal(r.status, 201, r.text);
+    const me = await hostRequest(server.base, '/api/me', { token: r.json.token });
+    assert.equal(me.json.profile.zip, '01310100');
+  });
+
+  it('conta de loja/empresa também nasce só com os dados básicos (CNPJ vem depois, no portal do lojista)', async () => {
+    const r = await register({ ...address, accountType: 'EMPRESA', acceptResponsibility: true });
     assert.equal(r.status, 201, r.text);
   });
 
   it('cliente com cadastro incompleto não consulta nem paga, até completar', async () => {
     const reg = await register({ ...address, acceptResponsibility: true });
     // usa a sessão de uma conta nova, esvaziando o perfil para simular cadastro antigo
-    await pool.query('UPDATE user_profiles SET phone=NULL,street=NULL,responsibility_accepted_at=NULL WHERE user_id=$1', [reg.json.user.id]);
+    await pool.query('UPDATE user_profiles SET phone=NULL,city=NULL,responsibility_accepted_at=NULL WHERE user_id=$1', [reg.json.user.id]);
     await pool.query('UPDATE wallets SET balance_cents=100000 WHERE user_id=$1', [reg.json.user.id]);
     const blocked = await hostRequest(server.base, '/api/queries', { method: 'POST', token: reg.json.token, body: { plate: 'SLW0E00', productId: 'LIEN', acceptContract: true, acceptPrivacy: true } });
     assert.equal(blocked.status, 409, blocked.text);
@@ -61,9 +68,9 @@ describe('cadastro completo do cliente', integration, () => {
 
     const me = await hostRequest(server.base, '/api/me', { token: reg.json.token });
     assert.equal(me.json.profile.profileComplete, false);
-    assert.deepEqual(me.json.profile.profileMissing.sort(), ['rua', 'telefone', 'termo de responsabilidade'].sort());
+    assert.deepEqual(me.json.profile.profileMissing.sort(), ['aceite dos termos', 'cidade', 'telefone'].sort());
 
-    const saved = await hostRequest(server.base, '/api/profile', { method: 'PUT', token: reg.json.token, body: { name: 'Cliente Completo', cpfCnpj: address.cpfCnpj, phone: address.phone, city: address.city, state: address.state, zip: address.zip, street: address.street, streetNumber: address.streetNumber, district: address.district, acceptResponsibility: true } });
+    const saved = await hostRequest(server.base, '/api/profile', { method: 'PUT', token: reg.json.token, body: { name: 'Cliente Completo', cpfCnpj: address.cpfCnpj, phone: address.phone, city: address.city, state: address.state, acceptResponsibility: true } });
     assert.equal(saved.status, 200, saved.text);
     assert.equal(saved.json.profile.profileComplete, true);
     const ok = await hostRequest(server.base, '/api/queries', { method: 'POST', token: reg.json.token, body: { plate: 'SLW0E00', productId: 'LIEN', acceptContract: true, acceptPrivacy: true } });

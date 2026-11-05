@@ -28,6 +28,8 @@ export interface VehicleSheet {
 
 export interface SheetInput {
   chassis?: string | null;
+  /** Consulta grátis: decodifica o chassi, mas não mostra a chave (11 dos 17 caracteres). */
+  hideKey?: boolean;
   engine?: string | null;
   gearbox?: string | null;
   brand?: string | null;
@@ -80,7 +82,7 @@ export function buildVehicleSheet(input: SheetInput): VehicleSheet {
   add('Fabricante', vin.manufacturer ?? (input.brand ? String(input.brand) : undefined));
   add('Modelo', input.fipeModel || input.fullModel || undefined);
   if (vin.valid) {
-    add('Chave do chassi', vin.key);
+    if (!input.hideKey) add('Chave do chassi', vin.key);
     if (vin.modelYear) add('Ano pelo chassi', `${vin.modelYear}${hints.includes(vin.modelYear) ? '' : ' (difere do ano do registro; pode ocorrer conforme o critério do fabricante)'}`);
     add('Região', vin.region);
     add('País de fabricação', vin.country);

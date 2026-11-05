@@ -302,7 +302,7 @@ describe('painel: equipe, clientes, empresas, cobranças e notas fiscais', integ
     const cust = await adm.call('/api/admin/customers', { method: 'POST', body: { name: 'Sem Endereço', email: `${uid('n')}@cli.local`, type: 'PARTICULAR' } });
     const created = await fin.call('/api/admin/fiscal/documents', { method: 'POST', body: { customerId: cust.json.customer.id, description: 'Consulta veicular', amountCents: 6160 } });
     assert.equal(created.status, 201, created.text);
-    assert.ok(created.json.missing.includes('CPF/CNPJ') && created.json.missing.includes('Endereço'));
+    assert.ok(created.json.missing.includes('CPF/CNPJ') && !created.json.missing.includes('Endereço'));
     // corrige o cadastro e atualiza os dados da nota
     await adm.call(`/api/admin/customers/${cust.json.customer.id}`, { method: 'PATCH', body: { cpfCnpj: CPF, street: 'Rua C', zip: '01001000', city: 'São Paulo', state: 'SP' } });
     const refreshed = await fin.call(`/api/admin/fiscal/documents/${created.json.id}/refresh-customer`, { method: 'POST', body: {} });

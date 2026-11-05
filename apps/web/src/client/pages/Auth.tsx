@@ -7,7 +7,7 @@ import { HeroArt } from '../art';
 import { api } from '../api';
 import { useSession } from '../session';
 import { storedReferral, trackFunnel } from '../funnel';
-import { CustomerFields, ResponsibilityCheck, customerProblem, emptyCustomer, type CustomerData } from '../components/CustomerFields';
+import { CustomerFields, customerProblem, emptyCustomer, type CustomerData } from '../components/CustomerFields';
 
 type Mode = 'login' | 'register' | 'forgot' | 'reset';
 type Provider = { id: 'google' | 'microsoft' | 'apple'; label: string; enabled: boolean };
@@ -72,7 +72,7 @@ export default function Auth({ initial }: { initial: Mode }) {
       if (f.password !== f.confirm) return setError('As senhas não conferem.');
     }
     if (mode === 'register' && f.name.trim().split(/\s+/).length < 2) return setError('Informe seu nome completo (nome e sobrenome).');
-    if (mode === 'register') { const problem = customerProblem(cust, f.accountType, { needResponsibility: true }); if (problem) return setError(problem); }
+    if (mode === 'register') { const problem = customerProblem(cust, f.accountType, { needResponsibility: false }); if (problem) return setError(problem); }
     if (mode === 'register' && !f.terms) return setError('Para criar sua conta, aceite os Termos de Uso e a Política de Privacidade.');
     setBusy(true);
     trackFunnel('AUTH_SUBMITTED', { mode });
@@ -88,7 +88,7 @@ export default function Auth({ initial }: { initial: Mode }) {
         setMode('login');
       } else if (mode === 'register') {
         const ref = storedReferral();
-        const r = await api.post<{ token: string }>('/auth/register', { name: f.name.trim(), email: f.email.trim(), password: f.password, acceptTerms: true, acceptPrivacy: true, marketingOptIn: f.marketing, accountType: f.accountType, phone: cust.phone.trim(), cpfCnpj: cust.cpfCnpj.trim(), companyName: cust.companyName.trim() || undefined, zip: cust.zip.trim(), street: cust.street.trim(), streetNumber: cust.streetNumber.trim(), complement: cust.complement.trim() || undefined, district: cust.district.trim(), city: cust.city.trim(), state: cust.state, acceptResponsibility: true, ...(ref ? { affiliateCode: ref } : {}) });
+        const r = await api.post<{ token: string }>('/auth/register', { name: f.name.trim(), email: f.email.trim(), password: f.password, acceptTerms: true, acceptPrivacy: true, marketingOptIn: f.marketing, accountType: f.accountType, phone: cust.phone.trim(), cpfCnpj: cust.cpfCnpj.trim(), city: cust.city.trim(), state: cust.state, acceptResponsibility: true, ...(ref ? { affiliateCode: ref } : {}) });
         trackFunnel('ACCOUNT_CREATED', {});
         await login(r.token);
       } else {
@@ -141,8 +141,7 @@ export default function Auth({ initial }: { initial: Mode }) {
             {mode === 'register' && <CustomerFields value={cust} onChange={setCust} accountType={f.accountType} />}
             {mode === 'register' && (
               <div className="stack-sm">
-                <ResponsibilityCheck checked={cust.responsibility} onChange={(v) => setCust((c) => ({ ...c, responsibility: v }))} />
-                <Check checked={f.terms} onChange={(e) => set('terms')(e.target.checked)} required>Li e aceito os <Link to="/termos" target="_blank">Termos de Uso</Link> e a <Link to="/privacidade" target="_blank">Política de Privacidade</Link>.</Check>
+                <Check checked={f.terms} onChange={(e) => set('terms')(e.target.checked)} required>Li e aceito os <Link to="/termos" target="_blank">Termos de Uso</Link> e a <Link to="/privacidade" target="_blank">Política de Privacidade</Link>, e sou responsável pelo uso das informações que consultar.</Check>
                 <Check checked={f.marketing} onChange={(e) => set('marketing')(e.target.checked)}>Quero receber novidades e ofertas por e-mail (opcional).</Check>
               </div>
             )}

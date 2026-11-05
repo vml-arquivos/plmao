@@ -3,11 +3,12 @@ import { MockVehicleProvider } from './mockProvider.js';
 import { CredifyVehicleProvider } from './credifyProvider.js';
 import { ConsultarPlacaVehicleProvider } from './consultarPlacaProvider.js';
 import { ContractedVehicleProvider } from './contractedVehicleProvider.js';
+import { withPlateCache } from './cachedProvider.js';
 import type { VehicleDataProvider } from '../types.js';
 
 export function getProvider(): VehicleDataProvider {
   if (env.DATA_PROVIDER === 'real') {
-    if (env.VEHICLE_API_PROVIDER === 'credify') return new CredifyVehicleProvider();
+    if (env.VEHICLE_API_PROVIDER === 'credify') return withPlateCache(new CredifyVehicleProvider());
     if (env.VEHICLE_API_PROVIDER === 'consultarplaca') return new ConsultarPlacaVehicleProvider();
     return new ContractedVehicleProvider();
   }

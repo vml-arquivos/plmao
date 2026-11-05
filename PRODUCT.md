@@ -5,11 +5,11 @@ Preços iniciais **provisórios** (ajustáveis no painel, sempre em centavos; o 
 | Produto | Preço inicial | Conteúdo (seções do relatório) |
 | --- | --- | --- |
 | FIPE por placa (grátis) | R$ 0 | Valor FIPE e dados básicos; consome o provedor, por isso tem limite diário (`FIPE_GUEST_DAILY_LIMIT`, `FIPE_AUTH_DAILY_LIMIT`) |
-| Completa | R$ 61,60 | Identificação, débitos e multas, restrições, financiamento/gravame, recall e inspeção |
-| Básica | R$ 43,60 | Identificação, débitos e multas, restrições |
-| Leilão | R$ 33,10 | Histórico de leilão ("em breve" até existir fonte) |
-| Gravame | R$ 14,10 | Identificação e financiamento/gravame |
-| Cadastral | R$ 13,20 | Identificação, características e registro |
+| Completa | R$ 31,99 | Identificação, débitos e multas, restrições, financiamento/gravame, recall e inspeção |
+| Básica | R$ 29,90 | Identificação, débitos e multas, restrições |
+| Leilão | R$ 27,90 | Histórico de leilão ("em breve" até existir fonte) |
+| Gravame | R$ 11,90 | Identificação e financiamento/gravame |
+| Cadastral | R$ 9,90 | Identificação, características e registro |
 
 Pacotes de saldo: Inicial (R$ 60 por R$ 60), Plus (R$ 130 por R$ 120) e Pro (R$ 350 por R$ 300). Tudo isso é **ponto de partida**: preço, preço "de", desconto, selo, descrição, o que cada consulta inclui, ordem e presença na home são editados em *Painel → Catálogo* (migration 016 grava os valores uma única vez; reinícios nunca sobrescrevem edições). Os preços de referência de mercado são manuais, internos e jamais aparecem no site.
 

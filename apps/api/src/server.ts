@@ -42,6 +42,7 @@ import { financingTeaser } from './lib/sheetFinancing.js';
 import { isPrelaunch, siteOpenFor } from './siteAccess.js';
 import { legalAcceptanceStatus, requireLegalAcceptanceForQuery } from './legalAcceptance.js';
 import { acceptContractAtCheckout, claimContractForOrder, previewPurchaseContract, sendPurchaseReceipt, confirmPurchaseContract, draftPurchaseContract, getUserContract, linkContractToOrder, listUserContracts, reopenContractForOrder, resendPurchaseOtp } from './purchaseContract.js';
+import { maskFreeChassis, maskFreeEngine } from './report/mask.js';
 import { INVALID_CODE, SEARCH_LABELS, SEARCH_TYPES, maskSearchValue, resolveSearchInput, type SearchType } from './searchKey.js';
 import { calculateAffiliateCommission, calculateCouponDiscount, couponHasCapacity, couponWindowIsOpen, effectiveQueryPriceCents, queryAmountAfterCoupon } from './commercial.js';
 import { publicVehicleResult, sanitizeAuditMetadata } from './privacy.js';
@@ -1114,7 +1115,7 @@ async function freeVehicleSheet(result: { fipeCode: string; valueCents: number; 
       catalogSpecsFor({ brand: details?.brand ?? result.brand.name, model: details?.model ?? result.model.name, fullModel: details?.fullModel ?? result.model.name, year: modelYear ?? null })
     ]);
     return buildVehicleSheet({
-      chassis: details?.chassis, engine: details?.engine, brand: details?.brand ?? result.brand.name, fullModel: details?.fullModel ?? details?.model, fuel: details?.fuel ?? result.fuel,
+      chassis: details?.chassis, hideKey: true, engine: details?.engine, brand: details?.brand ?? result.brand.name, fullModel: details?.fullModel ?? details?.model, fuel: details?.fuel ?? result.fuel,
       modelYear: details?.modelYear ?? modelYear, manufactureYear: details?.manufactureYear, fipeCode: result.fipeCode, fipeModel: `${result.brand.name} ${result.model.name}`.replace(/\s+/g, ' ').trim(),
       fipeCurrentCents: result.valueCents, history: history ?? null, financing, specs
     });
@@ -1279,7 +1280,9 @@ api.post('/fipe/quote', optionalAuth, asyncRoute(async (req, res) => {
     const cached = preferredProvider === 'parallelum' ? await findCachedFipeResult(input) : null;
     const result = cached ?? await quoteWithFallback({ ...input, provider: preferredProvider });
     if (!cached) await cacheFipeResult(result);
-    const quote = makeFipeQuote(result, plate, vehicleDetails);
+    // Consulta grátis: o chassi real só alimenta o decodificador; o que aparece (tela, PDF, impressão) vai mascarado.
+    const shownDetails = vehicleDetails ? { ...vehicleDetails, chassis: maskFreeChassis(vehicleDetails.chassis), engine: maskFreeEngine(vehicleDetails.engine) } : undefined;
+    const quote = makeFipeQuote(result, plate, shownDetails);
     quote.sheet = await freeVehicleSheet(result, vehicleDetails);
     await recordProviderHealth(quote.provider, 'SUCCESS', Date.now() - providerStartedAt);
     await saveFipeDocument(quote, req.user?.id ?? null);
@@ -3165,7 +3168,7 @@ function humanMessage(code: string): string {
     PAYLOAD_TOO_LARGE: 'O conteúdo enviado é grande demais.',
     FISCAL_PROVIDER_NOT_CONFIGURED: 'A emissão automática não está configurada. Emita a nota no sistema da contabilidade e registre aqui.',
     FISCAL_PAYMENT_NOT_CONFIRMED: 'O pagamento deste documento ainda não está confirmado.',
-    FISCAL_CUSTOMER_INCOMPLETE: 'Faltam dados do cliente (documento e endereço) para emitir.',
+    FISCAL_CUSTOMER_INCOMPLETE: 'Falta o CPF ou CNPJ do cliente para emitir.',
     FISCAL_DOCUMENT_NOT_ISSUED: 'Só notas já emitidas podem ser enviadas ao cliente.',
     FISCAL_CUSTOMER_EMAIL_MISSING: 'O cliente não tem e-mail cadastrado para receber a nota.',
     FISCAL_DELIVERY_LIMIT: 'Limite de envios deste documento atingido.',
@@ -3225,10 +3228,10 @@ function humanMessage(code: string): string {
     INVALID_CHASSIS: 'Informe um chassi válido (8 a 17 letras e números).',
     INVALID_RENAVAM: 'Informe um Renavam válido (9 a 11 dígitos).',
     INVALID_OWNER_DOC: 'Informe um CPF ou CNPJ válido.',
-    INVALID_PHONE: 'Informe um telefone válido, com DDD.',
+    INVALID_PHONE: 'Informe um WhatsApp válido, com DDD.',
     INVALID_ZIP: 'Informe um CEP válido, com 8 números.',
-    RESPONSIBILITY_REQUIRED: 'Para criar a conta, aceite o termo de responsabilidade pelas informações consultadas.',
-    PROFILE_INCOMPLETE: 'Preencha todos os dados do cadastro (nome, telefone, CPF ou CNPJ e endereço completo).',
+    RESPONSIBILITY_REQUIRED: 'Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.',
+    PROFILE_INCOMPLETE: 'Preencha os dados do cadastro (nome, WhatsApp, CPF, cidade e estado).',
     SEARCH_TYPE_NOT_SUPPORTED: 'Este tipo de busca ainda não está disponível na fonte de dados atual. Nada foi cobrado.',
     INVALID_CREDENTIALS: 'E-mail ou senha inválidos.',
     EMAIL_ALREADY_EXISTS: 'Já existe uma conta para este e-mail.',

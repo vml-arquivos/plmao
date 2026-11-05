@@ -19,7 +19,7 @@ export const CONTRACT_VARIABLE_DOCS: Array<{ key: string; label: string; example
   { key: 'contratante.email', label: 'E-mail do signatário', example: 'contato@exemplo.com.br', group: 'Partes' },
   { key: 'signatario.nome', label: 'Nome do signatário', example: 'Maria Exemplo', group: 'Partes' },
   { key: 'signatario.email', label: 'E-mail do signatário', example: 'maria@exemplo.com.br', group: 'Partes' },
-  { key: 'condicoes_comerciais', label: 'Lista de itens, preços e descontos (calculada)', example: '1) Consulta "Completa": R$ 39,90 por consulta ...', group: 'Valores e cálculos' },
+  { key: 'condicoes_comerciais', label: 'Lista de itens, preços e descontos (calculada)', example: '1) Consulta "Completa": R$ 0,00 por consulta ...', group: 'Valores e cálculos' },
   { key: 'valor.total', label: 'Soma dos pacotes personalizados (quantidade × preço já com desconto)', example: 'R$ 1.800,00', group: 'Valores e cálculos' },
   { key: 'valor.total_extenso', label: 'Valor total por extenso', example: 'mil e oitocentos reais', group: 'Valores e cálculos' },
   { key: 'desconto.total', label: 'Desconto total concedido nos pacotes personalizados', example: 'R$ 200,00', group: 'Valores e cálculos' },

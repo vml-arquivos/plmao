@@ -25,7 +25,8 @@ describe('catálogo, FAQ e artigos editáveis no painel', integration, () => {
     for (const id of ['COMPLETE', 'BASIC', 'AUCTION', 'LIEN', 'CADASTRAL']) assert.ok(ids.includes(id), id);
     assert.ok(!ids.includes('PREMIUM'));
     const complete = r.json.products.find((p) => p.id === 'COMPLETE');
-    assert.equal(complete.priceCents, 6160);
+    assert.equal(complete.priceCents, 3199);
+    assert.equal(r.json.products.find((p) => p.id === 'BASIC').priceCents, 2990);
     assert.equal(complete.badge, 'Mais completa');
     assert.ok(complete.tagline.length > 5 && complete.features.length >= 3);
     assert.equal(r.json.products.find((p) => p.id === 'AUCTION').commercialStatus, 'SOON');
@@ -45,7 +46,7 @@ describe('catálogo, FAQ e artigos editáveis no painel', integration, () => {
     const row = (await pool.query(`SELECT name,price_cents FROM query_products WHERE id='BASIC'`)).rows[0];
     assert.equal(row.name, 'Consulta Básica (editada)');
     assert.equal(row.price_cents, 4399);
-    await pool.query(`UPDATE query_products SET name='Consulta Básica', price_cents=4360 WHERE id='BASIC'`);
+    await pool.query(`UPDATE query_products SET name='Consulta Básica', price_cents=2990 WHERE id='BASIC'`);
   });
 
   it('painel: produto aceita conteúdo, desconto e selo; exige permissão e sessão de admin', async () => {

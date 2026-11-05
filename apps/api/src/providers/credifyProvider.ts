@@ -4,6 +4,7 @@ import { extractReturn, providerOutcome } from '../report/normalizeV2.js';
 import { judicialNeeded } from '../report/judicial.js';
 import { bdrpCode, describeShape, isVehicleTotal } from '../report/vehicleTotal.js';
 import { CallBudget } from '../lib/providerGuard.js';
+import { Spend, bdrpReturn, buildLayeredEnvelope, flagIsClear, flagText, parseFarol, respostaOf, type Farol, type Piece } from '../report/layers.js';
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
 import { log } from '../lib/http.js';
 
@@ -64,6 +65,9 @@ let authStyle: 'bearer' | 'raw' = 'bearer';
 let inflight: Promise<string> | null = null;
 /** Consultas pagas já enviadas à Credify nesta execução (teto de segurança por hora e por dia). */
 const budget = new CallBudget();
+/** Consultas avulsas em que só o CODIGO decide (1 dados, 2 não encontrado, 3 erro); o texto de DESCRICAORETORNO varia. */
+const LENIENT_PATHS = new Set(['/leilaoconjugado', '/indiciosinistro', '/recall', '/historicoroubofurto', '/farolleilao']);
+const BASE_PATH = '/debitosrestricoesproprietarios';
 export function credifyBudgetUsage(): { lastHour: number; lastDay: number } { return budget.usage(); }
 export function resetCredifyTokenCache(): void { shared = null; inflight = null; authStyle = 'bearer'; lastLogin = null; budget.reset(); }
 
@@ -219,15 +223,17 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
 
   async queryByPlate(plate: string, ctx?: { productId?: string }): Promise<{ providerQueryId?: string; raw: unknown }> {
     const startedAt = Date.now();
-    const main = await this.run('PLATE', plate, ctx?.productId);
     const pid = ctx?.productId;
+    const spend = new Spend(this.layered(pid) ? env.CREDIFY_COST_BUDGET_CENTS : undefined, env.CREDIFY_COST_CENTS);
+    const main = this.layered(pid) ? await this.queryLayers(plate, startedAt, spend) : await this.run('PLATE', plate, pid);
     const withLien = await this.supplement(main, plate, pid, startedAt, {
-      key: 'gravame', path: '/gravame', label: 'gravame', enabled: env.CREDIFY_GRAVAME_SUPPLEMENT,
+      key: 'gravame', path: '/gravame', label: 'gravame', enabled: env.CREDIFY_GRAVAME_SUPPLEMENT, spend,
       products: ['COMPLETE', 'PREMIUM'], core: ['LIEN'],
       // Gravame completo (banco, CNPJ, contrato, datas): busca sempre que a base principal não trouxe dados, não afirmou "sem gravame"
       // ou indicou alienação sem o agente financeiro/contrato/data.
       needed: (data) => {
         if (!isVehicleTotal(data)) return false;
+        if (this.layered(pid) && env.CREDIFY_COMPLETE_GRAVAME === 'always') return true;
         if (bdrpCode(data) !== '1') return true;
         const upper = Object.fromEntries(Object.entries(extractReturn(data) ?? {}).map(([k, v]) => [k.toUpperCase(), String(Array.isArray(v) ? v[0] ?? '' : v ?? '').trim()]));
         const flag = (upper.RESTRICAOFINAN ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
@@ -238,7 +244,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       }
     });
     const withJudicial = await this.supplement(withLien, plate, pid, startedAt, {
-      key: 'renajud', path: '/renajud', label: 'renajud', enabled: env.CREDIFY_JUDICIAL_SUPPLEMENT,
+      key: 'renajud', path: '/renajud', label: 'renajud', enabled: env.CREDIFY_JUDICIAL_SUPPLEMENT, spend,
       products: ['COMPLETE', 'PREMIUM'], core: [],
       needed: (data) => {
         if (!isVehicleTotal(data)) return false;
@@ -252,6 +258,70 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     });
   }
 
+  /** Completa em camadas vale só no roteamento por pacote (sem caminho global) e com o modo ligado. */
+  private layered(productId?: string): boolean {
+    return String(productId ?? '').toUpperCase() === 'COMPLETE' && env.CREDIFY_COMPLETE_MODE === 'layered' && !this.o.path && !env.CREDIFY_QUERY_PATH;
+  }
+
+  /** Uma consulta avulsa de camada: dados, "não encontrado" ou nada (falha ou sem tempo). Nunca derruba o relatório. */
+  private async piece(path: string, plate: string, startedAt: number, spend: Spend, consultaId?: string): Promise<Piece> {
+    const left = env.QUERY_REQUEST_TIMEOUT_MS - (Date.now() - startedAt) - 4000;
+    if (left < 8000) { log('warn', 'credify_layer_skipped', { path, reason: 'sem_tempo' }); return { kind: 'none' }; }
+    const extra = new CredifyVehicleProvider({ ...this.o, path, consultaId: consultaId ?? CREDIFY_CONSULTA_CODES[path], bodyTemplate: CREDIFY_DEFAULT_BODY, timeoutMs: Math.min(25000, left) });
+    spend.record(path);
+    try {
+      const out = await extra.run('PLATE', plate, undefined);
+      const resposta = respostaOf((out.raw as { data?: unknown }).data);
+      return resposta ? { kind: 'data', resposta } : { kind: 'none' };
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === 'NOT_FOUND') return { kind: 'notFound' };
+      log('warn', 'credify_layer_failed', { path, code: code ?? null });
+      return { kind: 'none' };
+    }
+  }
+
+  /**
+   * Completa em camadas: consulta base (cadastro, débitos, restrições, alienação) + sinistro + cadastro nacional + leilão.
+   * Recall e roubo/furto saem do marcador do cadastro e só viram consulta própria quando o marcador acusa (ou não responde).
+   * O leilão passa pelo Farol (se configurado) e o leilão conjugado só entra quando ele acusa. Tudo volta no formato do
+   * Veículo Total, então o relatório não muda.
+   */
+  private async queryLayers(plate: string, startedAt: number, spend: Spend): Promise<{ providerQueryId?: string; raw: unknown }> {
+    const baseProvider = new CredifyVehicleProvider({ ...this.o, path: BASE_PATH, consultaId: CREDIFY_CONSULTA_CODES[BASE_PATH], bodyTemplate: CREDIFY_DEFAULT_BODY });
+    const base = await baseProvider.run('PLATE', plate, undefined);
+    spend.record(BASE_PATH);
+    const flags = bdrpReturn((base.raw as { data?: unknown }).data);
+    const none: Piece = { kind: 'none' };
+    const farolId = env.CREDIFY_FAROL_QUERY_ID;
+
+    const recallFlag = flagIsClear(flags.RECALL) ? flagText(flags.RECALL) : undefined;
+    const theftFlag = env.CREDIFY_COMPLETE_THEFT === 'flag' && flagIsClear(flags.RESFURTO) ? flagText(flags.RESFURTO) : undefined;
+    const optional = (path: string, flag: string | undefined): Promise<Piece> => (flag !== undefined || !spend.allow(path) ? Promise.resolve(none) : this.piece(path, plate, startedAt, spend));
+
+    const [sinistro, national, farolPiece, recall, theft] = await Promise.all([
+      this.piece('/indiciosinistro', plate, startedAt, spend),
+      env.CREDIFY_COMPLETE_NATIONAL ? this.piece('/veicularbnacionalonline', plate, startedAt, spend) : Promise.resolve(none),
+      farolId ? this.piece('/farolleilao', plate, startedAt, spend, farolId) : Promise.resolve(none),
+      optional('/recall', recallFlag),
+      optional('/historicoroubofurto', theftFlag)
+    ]);
+
+    const farol: Farol | undefined = farolPiece.kind === 'data' ? parseFarol(farolPiece.resposta) : undefined;
+    if (farolId && !farol) log('warn', 'credify_farol_sem_semaforo', { kind: farolPiece.kind });
+    // Verde dispensa o detalhe. Amarelo, vermelho ou Farol sem resposta pedem o leilão conjugado (se couber no teto de custo).
+    let leilao: Piece = none;
+    if (!(farol?.level === 'GREEN') && (!farolId || spend.allow('/leilaoconjugado'))) leilao = await this.piece('/leilaoconjugado', plate, startedAt, spend);
+
+    const consulta = (base.raw as { data?: { CONSULTA?: unknown } }).data?.CONSULTA;
+    const envelope = buildLayeredEnvelope({ consulta, baseRaw: base.raw, sinistro, recall, recallFromFlag: recallFlag, theft, theftFromFlag: theftFlag, leilao, farol, national });
+    log('info', 'credify_layers_done', { calls: spend.paths.length, paths: spend.paths.join(',') });
+    // Peça que era para vir e não veio (falha ou sem tempo): o resultado vale para esta consulta, mas não entra no cache.
+    const attempted: Array<[boolean, Piece]> = [[true, sinistro], [env.CREDIFY_COMPLETE_NATIONAL, national], [Boolean(farolId), farolPiece], [recallFlag === undefined, recall], [env.CREDIFY_COMPLETE_THEFT === 'always' || theftFlag === undefined, theft]];
+    const parcial = attempted.some(([wanted, piece]) => wanted && piece.kind === 'none');
+    return { providerQueryId: base.providerQueryId, raw: { ...(base.raw as Record<string, unknown>), data: envelope, camadas: [...spend.paths], ...(parcial ? { parcial: true } : {}) } };
+  }
+
   /**
    * Consulta complementar da Credify junto da principal.
    *  - "products": pacotes em que a chamada é opcional e só acontece quando `needed` pede (falha só deixa o dado como "não informado");
@@ -259,7 +329,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
    *    sempre chamada, e se a fonte ficar indisponível a consulta falha (e o cliente é estornado) em vez de entregar relatório sem o dado contratado.
    * Prazo curto para nunca estourar o tempo da consulta. Resposta "não encontrado" é resultado válido ("nada consta").
    */
-  private async supplement(main: { providerQueryId?: string; raw: unknown }, plate: string, productId: string | undefined, startedAt: number, spec: { key: string; path: string; label: string; enabled: boolean; products: string[]; core: string[]; needed: (data: unknown) => boolean }): Promise<{ providerQueryId?: string; raw: unknown }> {
+  private async supplement(main: { providerQueryId?: string; raw: unknown }, plate: string, productId: string | undefined, startedAt: number, spec: { key: string; path: string; label: string; enabled: boolean; products: string[]; core: string[]; needed: (data: unknown) => boolean; spend?: Spend }): Promise<{ providerQueryId?: string; raw: unknown }> {
     const pid = String(productId ?? '').toUpperCase();
     const core = spec.core.includes(pid);
     try {
@@ -267,6 +337,8 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       if (!core) {
         if (!spec.enabled || !spec.products.includes(pid)) return main;
         if (!spec.needed((main.raw as { data?: unknown } | null)?.data)) return main;
+        // Teto de custo por consulta: o extra opcional que não cabe fica de fora (o relatório mostra "não consultado").
+        if (spec.spend && !spec.spend.allow(spec.path)) { log('info', `credify_${spec.key}_skipped`, { reason: 'teto_de_custo' }); return main; }
       }
     } catch (e) {
       log('warn', `credify_${spec.key}_error`, { error: e instanceof Error ? e.message : 'unknown' });
@@ -279,6 +351,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       return main;
     }
     const extra = new CredifyVehicleProvider({ ...this.o, path: spec.path, consultaId: CREDIFY_CONSULTA_CODES[spec.path], bodyTemplate: CREDIFY_DEFAULT_BODY, timeoutMs: Math.min(25000, left) });
+    spec.spend?.record(spec.path);
     let value: Record<string, unknown>;
     try {
       const out = await extra.run('PLATE', plate, undefined);
@@ -387,7 +460,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       throw fail(logonCode === '14' ? 'DATA_PROVIDER_RATE_LIMITED' : logonCode === '19' ? 'DATA_PROVIDER_INVALID_RESPONSE' : 'DATA_PROVIDER_QUOTA_EXHAUSTED', detail);
     }
     // /leilaoconjugado devolve texto livre ("veículo não apresentado na base de leilão") em DESCRICAORETORNO: só o CODIGO decide.
-    const lenientCode = this.o.path === '/leilaoconjugado' ? String(Array.isArray(raw?.RESPOSTA?.CODIGO) ? raw.RESPOSTA.CODIGO[0] : raw?.RESPOSTA?.CODIGO ?? '').trim() : undefined;
+    const lenientCode = this.o.path && LENIENT_PATHS.has(this.o.path.toLowerCase()) ? String(Array.isArray(raw?.RESPOSTA?.CODIGO) ? raw.RESPOSTA.CODIGO[0] : raw?.RESPOSTA?.CODIGO ?? '').trim() : undefined;
     const outcome = lenientCode !== undefined ? (lenientCode === '2' ? { ok: false, notFound: true, reason: 'CODIGO=2' } : lenientCode === '3' ? { ok: false, reason: 'CODIGO=3' } : { ok: true }) : providerOutcome(raw);
     if (outcome.notFound) throw fail('NOT_FOUND', 'Placa não encontrada na Credify.');
     if (!outcome.ok) throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Credify respondeu com erro (${outcome.reason ?? 'sem motivo'}): CODIGO ${JSON.stringify(raw?.RESPOSTA?.CODIGO ?? null)}${raw?.RESPOSTA?.DADOS?.MSG ? `; ${String(raw.RESPOSTA.DADOS.MSG)}` : ''}. Estrutura: ${describeShape(raw)}.`);

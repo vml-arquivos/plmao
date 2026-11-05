@@ -35,6 +35,14 @@ export function maskVehicleId(raw: string | null | undefined, head = 3, tail = 4
   return `${value.slice(0, head)}${'*'.repeat(value.length - head - tail)}${value.slice(-tail)}`;
 }
 
+/** Consulta grátis por placa: chassi com 3 primeiros e 4 últimos; motor com 3 primeiros e 5 últimos (mesmo estilo das consultas gratuitas do mercado). */
+export function maskFreeChassis(raw: string | null | undefined): string | undefined {
+  return maskVehicleId(raw, 3, 4) ?? undefined;
+}
+export function maskFreeEngine(raw: string | null | undefined): string | undefined {
+  return maskVehicleId(raw, 3, 5) ?? undefined;
+}
+
 /** CPF ou CNPJ com pontuação (11 ou 14 dígitos); outros formatos voltam como vieram. */
 export function formatDocument(raw: string | null | undefined): string {
   const value = String(raw ?? '').trim();

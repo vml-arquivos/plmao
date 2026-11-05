@@ -35,7 +35,7 @@ describe('fila fiscal (integração)', integration, () => {
   it('recusa documento com pagamento não confirmado, cliente incompleto ou sem provedor', async () => {
     const p = prov('t1', []);
     await assert.rejects(async () => F.enqueueFiscalEmission(await mkDoc({ paid: false }), null, p), (e) => e.code === 'FISCAL_PAYMENT_NOT_CONFIRMED');
-    await assert.rejects(async () => F.enqueueFiscalEmission(await mkDoc({ customer: snap({ street: null }) }), null, p), (e) => e.code === 'FISCAL_CUSTOMER_INCOMPLETE');
+    await assert.rejects(async () => F.enqueueFiscalEmission(await mkDoc({ customer: snap({ document: null }) }), null, p), (e) => e.code === 'FISCAL_CUSTOMER_INCOMPLETE');
     await assert.rejects(async () => F.enqueueFiscalEmission(await mkDoc(), null, null), (e) => e.code === 'FISCAL_PROVIDER_NOT_CONFIGURED');
     await assert.rejects(async () => F.enqueueFiscalEmission(await mkDoc({ status: 'ISSUED' }), null, p), (e) => e.code === 'FISCAL_DOCUMENT_NOT_PENDING');
   });

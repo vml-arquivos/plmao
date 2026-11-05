@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import { useTestEnv } from './helpers/db.mjs';
 
-useTestEnv();
+useTestEnv({ CREDIFY_COMPLETE_MODE: 'total' }); // estes testes cobrem os complementos sobre o pacote Veículo Total; a Completa em camadas tem testes próprios
 const { CredifyVehicleProvider, resetCredifyTokenCache } = await import('../dist/providers/credifyProvider.js');
 const { buildReportV2 } = await import('../dist/report/normalizeV2.js');
 const { lienRecords, distance, parseDate } = await import('../dist/report/gravame.js');

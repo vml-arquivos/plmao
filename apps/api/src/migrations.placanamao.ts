@@ -324,11 +324,11 @@ export const placaMigrations: Migration[] = [
       type P = { id: string; name: string; tagline: string; description: string; long: string; price: number; ref: number; order: number; featured: boolean; badge: string | null; features: string[]; sections: string[] | null; coverage: string; rule: string | null };
       const ident = ['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO'];
       const products: P[] = [
-        { id: 'COMPLETE', name: 'Consulta Completa', tagline: 'A checagem inteira, em um só relatório.', description: 'Identificação, débitos, multas, restrições, gravame, recall e inspeção em um único relatório.', long: 'A checagem mais completa antes de comprar, vender ou financiar. Reúne tudo da Básica e acrescenta financiamento (gravame), recall e inspeção, e costuma sair mais barata do que somar consultas avulsas.', price: 6160, ref: 6490, order: 10, featured: true, badge: 'Mais completa', features: ['Tudo da Consulta Básica', 'Financiamento e gravame', 'Recall e inspeção veicular', 'Relatório em PDF com código de validação'], sections: [...ident, 'DEBITOS', 'RESTRICOES', 'GRAVAME', 'INSPECAO_RECALL'], coverage: 'Identificação, débitos, restrições, gravame, recall e inspeção', rule: 'Identificação, débitos, restrições, gravame, recall e inspeção (fonte contratada)' },
-        { id: 'BASIC', name: 'Consulta Básica', tagline: 'Cadastro, débitos, multas e restrições.', description: 'Dados do veículo, débitos, multas e restrições para uma compra com mais segurança.', long: 'O essencial para fechar uma compra com tranquilidade: confere se o veículo é o do anúncio e se há débitos, multas ou restrições registradas.', price: 4360, ref: 4590, order: 20, featured: false, badge: 'Custo-benefício', features: ['Dados do veículo e situação', 'Débitos e multas', 'Restrições (furto/roubo, judicial e outras)', 'Relatório em PDF'], sections: [...ident, 'DEBITOS', 'RESTRICOES'], coverage: 'Identificação, débitos e restrições', rule: 'Identificação, débitos e restrições (fonte contratada)' },
-        { id: 'AUCTION', name: 'Consulta Leilão', tagline: 'Passagem do veículo por leilão.', description: 'Histórico de passagem por leilão. Disponível assim que a fonte de dados for ativada.', long: 'Saiba se o veículo já passou por leilão, informação importante para avaliação, seguro e revenda. Ainda não está disponível: não vendemos o que não podemos entregar.', price: 3310, ref: 3490, order: 30, featured: false, badge: null, features: ['Histórico de passagem por leilão', 'Relatório em PDF'], sections: null, coverage: 'Histórico de leilão (em breve)', rule: null },
-        { id: 'LIEN', name: 'Consulta Gravame', tagline: 'Financiamento e restrição financeira.', description: 'Veja se o veículo tem gravame ou restrição financeira antes da transferência.', long: 'Verifica sinais de financiamento ativo: gravame e intenção de gravame informados pela fonte. Ideal para quem já conferiu o resto e quer fechar essa dúvida.', price: 1410, ref: 1490, order: 40, featured: false, badge: null, features: ['Gravame e restrição financeira', 'Intenção de gravame', 'Relatório em PDF'], sections: ['IDENTIFICACAO', 'GRAVAME'], coverage: 'Gravame e restrição financeira', rule: 'Gravame e restrição financeira (fonte contratada)' },
-        { id: 'CADASTRAL', name: 'Consulta Cadastral', tagline: 'Confirme se o veículo é o do anúncio.', description: 'Marca, modelo, ano, cor, combustível, município e situação do veículo pela placa.', long: 'A forma mais rápida e barata de conferir se o veículo corresponde ao anúncio e ao documento: identificação, características e situação cadastral.', price: 1320, ref: 1390, order: 50, featured: false, badge: null, features: ['Marca, modelo, ano e cor', 'Combustível e categoria', 'Município, UF e situação', 'Relatório em PDF'], sections: ident, coverage: 'Identificação, características e situação cadastral', rule: 'Identificação e características (fonte contratada)' }
+        { id: 'COMPLETE', name: 'Consulta Completa', tagline: 'A checagem inteira, em um só relatório.', description: 'Identificação, débitos, multas, restrições, gravame, recall e inspeção em um único relatório.', long: 'A checagem mais completa antes de comprar, vender ou financiar. Reúne tudo da Básica e acrescenta financiamento (gravame), recall e inspeção, e costuma sair mais barata do que somar consultas avulsas.', price: 5490, ref: 5790, order: 10, featured: true, badge: 'Mais completa', features: ['Tudo da Consulta Básica', 'Financiamento e gravame', 'Recall e inspeção veicular', 'Relatório em PDF com código de validação'], sections: [...ident, 'DEBITOS', 'RESTRICOES', 'GRAVAME', 'INSPECAO_RECALL'], coverage: 'Identificação, débitos, restrições, gravame, recall e inspeção', rule: 'Identificação, débitos, restrições, gravame, recall e inspeção (fonte contratada)' },
+        { id: 'BASIC', name: 'Consulta Básica', tagline: 'Cadastro, débitos, multas e restrições.', description: 'Dados do veículo, débitos, multas e restrições para uma compra com mais segurança.', long: 'O essencial para fechar uma compra com tranquilidade: confere se o veículo é o do anúncio e se há débitos, multas ou restrições registradas.', price: 2990, ref: 3150, order: 20, featured: false, badge: 'Custo-benefício', features: ['Dados do veículo e situação', 'Débitos e multas', 'Restrições (furto/roubo, judicial e outras)', 'Relatório em PDF'], sections: [...ident, 'DEBITOS', 'RESTRICOES'], coverage: 'Identificação, débitos e restrições', rule: 'Identificação, débitos e restrições (fonte contratada)' },
+        { id: 'AUCTION', name: 'Consulta Leilão', tagline: 'Passagem do veículo por leilão.', description: 'Histórico de passagem por leilão. Disponível assim que a fonte de dados for ativada.', long: 'Saiba se o veículo já passou por leilão, informação importante para avaliação, seguro e revenda. Ainda não está disponível: não vendemos o que não podemos entregar.', price: 2790, ref: 2950, order: 30, featured: false, badge: null, features: ['Histórico de passagem por leilão', 'Relatório em PDF'], sections: null, coverage: 'Histórico de leilão (em breve)', rule: null },
+        { id: 'LIEN', name: 'Consulta Gravame', tagline: 'Financiamento e restrição financeira.', description: 'Veja se o veículo tem gravame ou restrição financeira antes da transferência.', long: 'Verifica sinais de financiamento ativo: gravame e intenção de gravame informados pela fonte. Ideal para quem já conferiu o resto e quer fechar essa dúvida.', price: 1190, ref: 1250, order: 40, featured: false, badge: null, features: ['Gravame e restrição financeira', 'Intenção de gravame', 'Relatório em PDF'], sections: ['IDENTIFICACAO', 'GRAVAME'], coverage: 'Gravame e restrição financeira', rule: 'Gravame e restrição financeira (fonte contratada)' },
+        { id: 'CADASTRAL', name: 'Consulta Cadastral', tagline: 'Confirme se o veículo é o do anúncio.', description: 'Marca, modelo, ano, cor, combustível, município e situação do veículo pela placa.', long: 'A forma mais rápida e barata de conferir se o veículo corresponde ao anúncio e ao documento: identificação, características e situação cadastral.', price: 990, ref: 1050, order: 50, featured: false, badge: null, features: ['Marca, modelo, ano e cor', 'Combustível e categoria', 'Município, UF e situação', 'Relatório em PDF'], sections: ident, coverage: 'Identificação, características e situação cadastral', rule: 'Identificação e características (fonte contratada)' }
       ];
       for (const p of products) {
         await client.query(
@@ -1960,6 +1960,78 @@ export const placaMigrations: Migration[] = [
         ALTER TABLE users DROP CONSTRAINT IF EXISTS users_active_profile_check;
         ALTER TABLE users DROP COLUMN IF EXISTS active_profile;
       `);
+    }
+  },
+  {
+    id: '059_preco_competitivo',
+    name: 'Preços mais baixos nas consultas (Básica R$ 29,90). Só muda quem ainda está no preço inicial e respeita o piso de margem',
+    up: async (client) => {
+      const novos: Array<[string, number, number, number]> = [
+        ['COMPLETE', 6160, 5490, 5790],
+        ['BASIC', 4360, 2990, 3150],
+        ['AUCTION', 3310, 2790, 2950],
+        ['LIEN', 1410, 1190, 1250],
+        ['CADASTRAL', 1320, 990, 1050]
+      ];
+      for (const [id, antigo, novo, referencia] of novos) {
+        const r = await client.query(
+          `UPDATE query_products SET price_cents=$3::int, reference_price_cents=$4::int, credit_cost=GREATEST(1, CEIL($3::numeric/100))::int, price_version=price_version+1, price_updated_at=now(), updated_at=now()
+            WHERE id=$1 AND price_cents=$2 AND (floor_price_cents IS NULL OR floor_price_cents <= $3::int)
+            RETURNING price_version, floor_price_cents, margin_locked`,
+          [id, antigo, novo, referencia]
+        );
+        if (r.rows[0]) {
+          await client.query(
+            `INSERT INTO product_price_history(product_id,version,old_price_cents,new_price_cents,reference_price_cents,floor_price_cents,margin_locked,reason) VALUES($1,$2,$3,$4,$5,$6,$7,'Revisão de preços do catálogo')`,
+            [id, r.rows[0].price_version, antigo, novo, referencia, r.rows[0].floor_price_cents, Boolean(r.rows[0].margin_locked)]
+          );
+        }
+      }
+    },
+    down: async (client) => {
+      const antigos: Array<[string, number, number, number]> = [
+        ['COMPLETE', 5490, 6160, 6490],
+        ['BASIC', 2990, 4360, 4590],
+        ['AUCTION', 2790, 3310, 3490],
+        ['LIEN', 1190, 1410, 1490],
+        ['CADASTRAL', 990, 1320, 1390]
+      ];
+      for (const [id, atual, antigo, referencia] of antigos) {
+        await client.query(`UPDATE query_products SET price_cents=$3::int, reference_price_cents=$4::int, credit_cost=GREATEST(1, CEIL($3::numeric/100))::int, updated_at=now() WHERE id=$1 AND price_cents=$2`, [id, atual, antigo, referencia]);
+      }
+    }
+  },
+  {
+    id: '060_cache_placa_preco_completa',
+    name: 'Cache criptografado de respostas por placa e pacote; Completa a R$ 31,99 (só se ainda estiver no preço da revisão anterior e respeitando o piso de margem)',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS provider_cache (
+          plate text NOT NULL,
+          product_id text NOT NULL,
+          provider text NOT NULL,
+          payload text NOT NULL,
+          provider_query_id text,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY (plate, product_id, provider)
+        );
+        CREATE INDEX IF NOT EXISTS idx_provider_cache_created ON provider_cache(created_at);
+      `);
+      const r = await client.query(
+        `UPDATE query_products SET price_cents=3199, reference_price_cents=3399, credit_cost=32, price_version=price_version+1, price_updated_at=now(), updated_at=now()
+          WHERE id='COMPLETE' AND price_cents=5490 AND (floor_price_cents IS NULL OR floor_price_cents <= 3199)
+          RETURNING price_version, floor_price_cents, margin_locked`
+      );
+      if (r.rows[0]) {
+        await client.query(
+          `INSERT INTO product_price_history(product_id,version,old_price_cents,new_price_cents,reference_price_cents,floor_price_cents,margin_locked,reason) VALUES('COMPLETE',$1,5490,3199,3399,$2,$3,'Completa em camadas: novo preço do catálogo')`,
+          [r.rows[0].price_version, r.rows[0].floor_price_cents, Boolean(r.rows[0].margin_locked)]
+        );
+      }
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET price_cents=5490, reference_price_cents=5790, credit_cost=55, updated_at=now() WHERE id='COMPLETE' AND price_cents=3199`);
+      await client.query(`DROP TABLE IF EXISTS provider_cache`);
     }
   }
 ];

@@ -63,7 +63,8 @@ export async function enqueueFiscalEmission(documentId: string, actor: string | 
   const paid = row.payment_id ? row.payment_status === 'PAID' : row.installment_id ? row.installment_status === 'PAID' : false;
   if (!paid) throw err('FISCAL_PAYMENT_NOT_CONFIRMED');
   const snap = row.customer_snapshot as { document?: string | null; street?: string | null; city?: string | null; state?: string | null; zip?: string | null };
-  if (!snap.document || !snap.street || !snap.city || !snap.state || !snap.zip) throw err('FISCAL_CUSTOMER_INCOMPLETE', 422);
+  // Padrão nacional da NFS-e: o tomador (CPF/CNPJ) basta; endereço é opcional e o cadastro do cliente não o pede mais.
+  if (!snap.document) throw err('FISCAL_CUSTOMER_INCOMPLETE', 422);
   const key = `fiscal-emit:${documentId}`;
   const ins = await pool.query(`INSERT INTO fiscal_jobs(document_id,idempotency_key,provider,created_by) VALUES($1,$2,$3,$4) ON CONFLICT(idempotency_key) DO NOTHING RETURNING id`, [documentId, key, provider.name, actor]);
   if (ins.rowCount) { await event(ins.rows[0].id, 'ENFILEIRADO'); return { id: ins.rows[0].id, duplicate: false }; }

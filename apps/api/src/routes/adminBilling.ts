@@ -315,10 +315,6 @@ interface Snapshot { name: string; document: string | null; documentKind: string
 export function missingFiscalFields(s: Pick<Snapshot, 'document' | 'documentKind' | 'street' | 'city' | 'state' | 'zip' | 'email'>): string[] {
   const missing: string[] = [];
   if (!s.document || !s.documentKind) missing.push('CPF/CNPJ');
-  if (!s.street) missing.push('Endereço');
-  if (!s.zip) missing.push('CEP');
-  if (!s.city) missing.push('Cidade');
-  if (!s.state) missing.push('UF');
   if (!s.email) missing.push('E-mail');
   return missing;
 }

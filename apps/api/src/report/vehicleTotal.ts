@@ -12,6 +12,7 @@
 import { formatDocument } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
 import { auctionRecords, auctionTable } from './leilao.js';
+import { FAROL_TEXT, parseFarol } from './layers.js';
 
 export const VT_BLOCKS = ['INDICIOSINISTROVEICULAR', 'RECALL', 'HISTORICOROUBOFURTO', 'LEILAOCONJUGADO', 'HISTORICOPROPRIETARIO', 'VEICULARBNACIONAL', 'PRECIFICADORFIPE', 'VEICULOSBDRP'] as const;
 type BlockName = (typeof VT_BLOCKS)[number];
@@ -208,6 +209,19 @@ export function ownerHistory(owners: Rec[]): VtValue {
   return { state: 'INFO', value: text, display: text };
 }
 
+/**
+ * Leilão com o semáforo do Farol (Completa em camadas). O detalhe do leilão conjugado, quando existe, manda;
+ * sem ele, verde = sem restrição e amarelo/vermelho = ponto de atenção com o parecer da fonte. Nunca afirma "nada consta" sem resposta.
+ */
+function auctionWithFarol(r: Rec, conjugated: VtValue): VtValue {
+  const farol = parseFarol(r.FAROLLEILAO);
+  if (!farol) return conjugated;
+  if (conjugated.state === 'ALERT') return conjugated;
+  if (farol.level === 'GREEN') return conjugated.state === 'CLEAR' ? conjugated : { state: 'CLEAR', value: 'VERDE', display: 'Sem restrição de leilão (Farol verde)' };
+  const text = `Farol de leilão ${farol.semaforo.toLowerCase()}: ${FAROL_TEXT[farol.level]}`;
+  return { state: 'ALERT', value: farol.semaforo, display: conjugated.state === 'CLEAR' ? `${text}; sem registro detalhado de leilão` : `${text}; detalhes do leilão não incluídos` };
+}
+
 /** Campos extras do relatório a partir dos blocos do Veículo Total. */
 export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
   const out = new Map<string, VtValue>();
@@ -233,8 +247,10 @@ export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
   out.set('VT_SINISTRO', !sin || blockCode(r, 'INDICIOSINISTROVEICULAR') === '3' || !ind
     ? NOT_PROVIDED
     : ind === '0' ? { state: 'CLEAR', value: 'SEM INDICIO', display: 'Sem indício de sinistro' } : { state: 'ALERT', value: str(sin.DESCRICAORETORNO) || 'INDICIO DE SINISTRO', display: 'Há indício de sinistro' });
-  const theft = occurrence(r, 'HISTORICOROUBOFURTO', 'Não consta no histórico de roubo ou furto', true);
-  const auction = occurrence(r, 'LEILAOCONJUGADO', 'Não consta em base de leilão', true);
+  const origem = isRec(r.ORIGEM) ? upperKeys(r.ORIGEM as Rec) : {};
+  // Roubo/furto lido só do marcador do cadastro (Completa em camadas): a frase diz exatamente isso.
+  const theft = occurrence(r, 'HISTORICOROUBOFURTO', origem.ROUBOFURTO === 'CADASTRO' ? 'Sem restrição de roubo ou furto no cadastro do veículo' : 'Não consta no histórico de roubo ou furto', true);
+  const auction = auctionWithFarol(r, occurrence(r, 'LEILAOCONJUGADO', 'Não consta em base de leilão', true));
   const recall = occurrence(r, 'RECALL', 'Sem recall pendente', false);
   out.set('VT_ROUBOFURTO', theft); out.set('VT_ROUBOFURTO_DETALHES', occurrenceDetails(r, 'HISTORICOROUBOFURTO', theft));
   out.set('VT_LEILAO', auction); out.set('VT_LEILAO_DETALHES', occurrenceDetails(r, 'LEILAOCONJUGADO', auction));

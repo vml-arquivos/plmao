@@ -13,7 +13,7 @@ function Rows({ rows }: { rows: Array<{ label: string; value: string }> }) {
 export interface FreeDetails { plate?: string; brand?: string; model?: string; fullModel?: string; manufactureYear?: string; modelYear?: string; color?: string; fuel?: string; power?: string; displacement?: string; type?: string; species?: string; category?: string; body?: string; passengers?: string; loadCapacity?: string; origin?: string; city?: string; state?: string; chassis?: string; engine?: string }
 const clean = (v: string | undefined) => (v && v.trim() && !/^(n[ãa]o informado|0)$/i.test(v.trim()) ? v.trim() : '');
 
-/** Identificação e características do veículo na consulta gratuita por placa (chassi e motor completos, sem máscara). */
+/** Identificação e características do veículo na consulta gratuita por placa (chassi e motor mascarados; o número completo vem nas consultas pagas). */
 export function FreeIdentity({ details }: { details: FreeDetails }) {
   const ident = [['Placa', details.plate], ['Marca', details.brand], ['Modelo', details.fullModel || details.model], ['Ano de fabricação', details.manufactureYear], ['Ano do modelo', details.modelYear], ['Cor', details.color], ['Chassi', details.chassis], ['Motor (número)', details.engine], ['Município/UF', [details.city, details.state].filter(Boolean).join('/')]] as Array<[string, string | undefined]>;
   const chars = [['Combustível', details.fuel], ['Tipo', details.type], ['Espécie', details.species], ['Categoria', details.category], ['Carroceria', details.body], ['Passageiros', details.passengers], ['Cilindradas', details.displacement], ['Potência', details.power], ['Capacidade de carga', details.loadCapacity], ['Procedência', details.origin]] as Array<[string, string | undefined]>;

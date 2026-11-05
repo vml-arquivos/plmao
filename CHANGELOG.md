@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.29.1 — Completa em camadas lê as respostas no formato da documentação
+
+- O indício de sinistro (e as demais consultas avulsas) agora é lido tanto com os campos direto na resposta quanto dentro do bloco de mesmo nome, como mostra a documentação. Antes, no segundo formato, o alerta podia não aparecer.
+- Sem migração e sem variável nova.
+
+## 1.29.0 — Consulta Completa em camadas, preço menor e controle de custo
+
+- A Completa agora é montada por camadas: o sistema faz a consulta base (débitos, restrições e proprietários), o indício de sinistro e a base nacional, e só busca roubo/furto, recall e leilão em detalhe quando o cadastro ou o semáforo indicam ocorrência. O relatório, o PDF, a API e os avisos de mudança continuam exatamente iguais.
+- Gravame completo na Completa, igual ao padrão do mercado: banco, CNPJ, contrato, datas e tempo de gravame. É buscado quando o cadastro indica alienação; com `CREDIFY_COMPLETE_GRAVAME=always` é buscado em toda consulta.
+- Leilão pelo Farol: quando o código da consulta do Farol Leilão está configurado, o semáforo verde dispensa a consulta detalhada. Amarelo ou vermelho busca o detalhe. Se o Farol não achar o veículo, usa a consulta de leilão como antes.
+- Teto de custo por consulta: itens opcionais deixam de ser buscados quando passariam do teto configurado. Nesse caso o relatório avisa que o detalhe não foi incluído.
+- Cache criptografado por placa e pacote (padrão 24 horas): repetir a mesma consulta não gera nova compra. Resposta incompleta nunca é guardada.
+- Preço da Completa: R$ 31,99 (migração 060, só se o preço ainda estiver no valor inicial e sem passar do piso de margem).
+- Volta ao modelo anterior a qualquer momento com `CREDIFY_COMPLETE_MODE=total`. A Premium segue como estava.
+- Variáveis novas (todas opcionais): `CREDIFY_COMPLETE_MODE`, `CREDIFY_FAROL_QUERY_ID`, `CREDIFY_COMPLETE_NATIONAL`, `CREDIFY_COMPLETE_THEFT`, `CREDIFY_COMPLETE_GRAVAME`, `CREDIFY_COST_BUDGET_CENTS`, `CREDIFY_COST_CENTS`, `PLATE_CACHE_HOURS`.
+- Migração 060.
+
+## 1.28.0 — Consulta grátis com chassi mascarado e preços mais baixos
+
+- A consulta grátis por placa mostra só os dados simples (identificação, características, FIPE por ano e 24 meses, financiamento e ficha técnica) com **chassi e número do motor mascarados** (chassi: 3 primeiros e 4 últimos; motor: 3 primeiros e 5 últimos), na tela, no PDF e na impressão. A "chave do chassi" também não aparece no grátis. O decodificador (fabricante, país, ano) continua funcionando por dentro.
+- Para ver os números completos e os débitos, multas e restrições, o cliente faz a consulta Básica ou Completa. Nas consultas pagas nada é mascarado, como antes.
+- Preços novos: Básica R$ 29,90, Completa R$ 54,90, Gravame R$ 11,90, Cadastral R$ 9,90 e Leilão R$ 27,90 (quando ativar).
+- Migração 059: baixa os preços só de quem ainda está no preço inicial; produto cujo preço já foi mudado no painel não é tocado, e nenhum preço novo fica abaixo do piso de margem configurado. Cada mudança entra no histórico de preços.
+- Sem variável nova.
+
+## 1.27.0 — Cadastro simples
+
+- Criar conta pede só: como vai usar (uso pessoal, autônomo/despachante ou loja/empresa), nome completo, e-mail, senha e confirmação, WhatsApp, CPF, cidade e estado, e um único aceite dos Termos de Uso e da Política de Privacidade (que já inclui a responsabilidade pelas informações consultadas). Sem endereço, CEP nem envio de documento.
+- Minha conta segue a mesma regra; o bloco de endereço foi trocado por cidade e estado. Quem já tinha endereço guardado não perde nada.
+- Quem tinha cadastro "incompleto" só por falta de endereço passa a ficar completo e pode consultar normalmente.
+- Conta de loja/empresa não exige mais CNPJ nem nome da empresa no cadastro (isso fica para o portal do lojista).
+- Nota fiscal: para o cliente, só o CPF ou CNPJ é obrigatório (o padrão nacional não exige endereço do tomador). Cliente sem CPF/CNPJ continua pendente.
+- O servidor ainda aceita o formulário antigo com endereço (nada quebra para quem estiver com a tela em cache).
+- Sem migração e sem variável nova.
+
 ## 1.26.0 — Ficha gratuita do veículo (chassi, FIPE por ano e mês, financiamento, ficha técnica)
 
 - A consulta gratuita por placa agora mostra identificação e características completas, com chassi e número do motor sem máscara, e uma ficha com: decodificador do chassi (fabricante, chave do chassi, ano pelo chassi, região, país, motor, portas, câmbio), Tabela FIPE com valor atual, valor por ano (variação real sobre o ano anterior) e histórico dos últimos 24 meses (% sobre o mês anterior e no período), "Financie" (entrada de 20% + 48 parcelas, simulação estimada com as taxas do painel) e ficha técnica do nosso guia de veículos.

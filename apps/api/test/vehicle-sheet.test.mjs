@@ -8,6 +8,7 @@ const { decodeChassis } = await import('../dist/enrichment/chassis.js');
 const { annualPoints } = await import('../dist/enrichment/fipeHistory.js');
 const { buildVehicleSheet, parseModelName, buildFipeTables } = await import('../dist/enrichment/sheet.js');
 const { makeFipeQuote, fipePdf, fipePrintHtml } = await import('../dist/fipeReport.js');
+const { maskFreeChassis, maskFreeEngine } = await import('../dist/report/mask.js');
 const { sheetBlocks } = await import('../dist/report/sheetItems.js');
 
 const point = (y, m, cents) => ({ label: `${m}/${y}`, time: y * 12 + (m - 1), cents });
@@ -119,4 +120,20 @@ test('consulta paga com ficha: enrichWithSheet monta a ficha, o relatório a exp
   assert.equal(offline.sheet.fipe?.monthly?.length ?? 0, 0);
   // consulta antiga (sem ficha guardada): o relatório continua igual, sem a chave sheet
   assert.equal(buildReportV2(ok).sheet, undefined);
+});
+
+test('consulta grátis por placa: chassi (3+4) e motor (3+5) mascarados; ficha não mostra a chave do chassi', () => {
+  assert.equal(maskFreeChassis('9362ABCDEXB051028'), '936**********1028');
+  assert.equal(maskFreeEngine('10DXXXXXX08185'), '10D******08185');
+  assert.equal(maskFreeChassis(''), undefined);
+  assert.equal(maskFreeChassis(undefined), undefined);
+  const sheet = buildVehicleSheet({ chassis: '9362ABCDEXB051028', hideKey: true, brand: 'PEUGEOT', fullModel: '207 PASSION XR 1.4 FLEX 4P', modelYear: 2011 });
+  const labels = sheet.decoder.map((r) => r.label);
+  assert.ok(!labels.includes('Chave do chassi'), 'chave não aparece no grátis');
+  assert.ok(labels.includes('País de fabricação') && labels.includes('Fabricante'), 'decodificador continua');
+  assert.ok(!JSON.stringify(sheet).includes('9362ABCDEXB'), 'chassi real não vaza na ficha');
+  const quote = makeFipeQuote({ provider: 'parallelum', source: 'x', referenceMonth: 'novembro de 2026', vehicleType: 'cars', brand: { code: '1', name: 'Peugeot' }, model: { code: '2', name: '207' }, year: { code: '2011-1', name: '2011 Flex' }, fuel: 'Flex', fipeCode: '024155-5', valueCents: 1_962_800, valueLabel: 'R$ 19.628,00', cacheKey: 'k' }, 'JIJ8343', { plate: 'JIJ8343', chassis: maskFreeChassis('9362ABCDEXB051028'), engine: maskFreeEngine('10DXXXXXX08185'), brand: 'PEUGEOT' });
+  const html = fipePrintHtml({ ...quote, sheet });
+  assert.ok(html.includes('936**********1028') && html.includes('10D******08185'));
+  assert.ok(!html.includes('9362ABCDEXB') && !html.includes('XXXXXX0'));
 });

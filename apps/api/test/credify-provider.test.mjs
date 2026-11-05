@@ -259,7 +259,7 @@ test('IdConsulta é o código fixo de cada consulta da Credify; CREDIFY_QUERY_ID
   assert.equal(f.calls.length, 0);
 });
 
-test('cada pacote usa a consulta certa da Credify: Completa = Veículo Total (467); Básica/Gravame/Cadastral = Débitos e Restrições (487); CREDIFY_QUERY_PATH global vale para todos', async () => {
+test('cada pacote usa a consulta certa da Credify: Premium = Veículo Total (467); Completa começa na consulta base em camadas (487); Básica/Gravame/Cadastral = Débitos e Restrições (487); CREDIFY_QUERY_PATH global vale para todos', async () => {
   const now = Date.parse('2026-10-21T12:00:00Z');
   const tok = jwt(Math.floor(now / 1000) + 24 * 3600);
   const run = async (productId, opts = {}) => {
@@ -270,7 +270,8 @@ test('cada pacote usa a consulta certa da Credify: Completa = Veículo Total (46
     const c = f.calls.find((x) => !x.url.endsWith('/auth'));
     return { url: c.url.replace('https://api.credify.test', ''), body: JSON.parse(c.init.body) };
   };
-  assert.deepEqual(await run('COMPLETE'), { url: '/veiculototal', body: { Consulta: { IdConsulta: '467', Placa: 'AAA0000' } } });
+  assert.deepEqual(await run('PREMIUM'), { url: '/veiculototal', body: { Consulta: { IdConsulta: '467', Placa: 'AAA0000' } } });
+  assert.deepEqual(await run('COMPLETE'), { url: '/debitosrestricoesproprietarios', body: { Consulta: { IdConsulta: '487', Placa: 'AAA0000' } } }); // Completa em camadas
   for (const id of ['BASIC', 'LIEN', 'CADASTRAL', 'AUCTION']) assert.deepEqual(await run(id), { url: '/debitosrestricoesproprietarios', body: { Consulta: { IdConsulta: '487', Placa: 'AAA0000' } } });
   assert.equal((await run(undefined)).url, '/veiculototal'); // sem pacote: consulta padrão
   assert.equal((await run('COMPLETE', { path: '/debitosrestricoesproprietarios' })).body.Consulta.IdConsulta, '487'); // caminho global ganha
