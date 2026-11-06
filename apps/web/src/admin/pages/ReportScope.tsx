@@ -7,7 +7,7 @@ interface CatField { key: string; label: string; kind: string; tier: number; sen
 interface CatSection { key: string; label: string; description: string; fields: CatField[] }
 interface Cfg { model: 'CATALOG_V1'; sections: Array<{ key: string; label?: string; visible?: boolean; fields: Array<{ key: string; label?: string; visible?: boolean }> }> }
 interface Version { id: string; version: number; name: string; status: string; config: Cfg; createdAt: string; lastPublishedAt: string | null }
-interface ScopeRes { productName: string; currentVersion: number | null; suggested: Cfg; versions: Version[]; legacySections: string[] | null }
+interface ScopeRes { dataSources?: string[] | null; fieldsOutsideSources?: string[]; productName: string; currentVersion: number | null; suggested: Cfg; versions: Version[]; legacySections: string[] | null }
 interface Preview { note: string; report: { sections: Array<{ key: string; label: string; items: Array<{ key: string; label: string; display?: string | null; value: string | null; state: string }> }>; scope?: { notIncluded: Array<{ key: string; label: string }> } } }
 
 const toSet = (cfg: Cfg): Set<string> => new Set(cfg.sections.flatMap((s) => (s.visible === false ? [] : s.fields.filter((f) => f.visible !== false).map((f) => f.key))));
@@ -53,6 +53,12 @@ export function ReportScopeEditor({ productId, onClose }: { productId: string; o
           {scope.data.currentVersion ? <>Em uso: versão <b>{scope.data.currentVersion}</b>. </> : <>Nenhuma versão publicada: vale a regra padrão do produto. </>}
           O cliente só vê o que a fonte retornar. Consultas já feitas mantêm os campos da época. Dados de proprietário e controle interno nunca entram.
         </Alert>
+        {!!scope.data.fieldsOutsideSources?.length && (
+          <Alert tone="info">
+            Esta consulta tem fontes de dados escolhidas. Campos de fontes que ela não compra ficam “não consultado” no relatório.{' '}
+            <Button size="sm" onClick={() => { const drop = new Set(scope.data!.fieldsOutsideSources); const next = new Set([...set].filter((k) => !drop.has(k))); setPicked(next); setPreview(null); }}>Desmarcar campos de fontes não usadas</Button>
+          </Alert>
+        )}
         {catalog.data.sections.map((s) => {
           const all = s.fields.every((f) => set.has(f.key));
           const some = s.fields.some((f) => set.has(f.key));

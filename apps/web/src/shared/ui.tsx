@@ -136,17 +136,25 @@ export function Tabs<T extends string>({ value, onChange, items, label }: { valu
 }
 
 /* ---------- Modal ---------- */
+const openModals: object[] = [];
 export function Modal({ title, onClose, children, footer, wide }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // onClose costuma ser uma função nova a cada renderização do formulário que abre o modal. Guardada em ref,
+  // o efeito abaixo roda só ao abrir: antes, cada letra digitada refazia o efeito e devolvia o cursor ao primeiro campo.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const me = {};
+    openModals.push(me);
+    // Com um modal dentro de outro, o Esc fecha só o de cima.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && openModals[openModals.length - 1] === me) closeRef.current(); };
     document.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
     ref.current?.querySelector<HTMLElement>('input,select,textarea,button:not(.icon-btn)')?.focus();
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; prev?.focus?.(); };
-  }, [onClose]);
+    return () => { document.removeEventListener('keydown', onKey); const i = openModals.indexOf(me); if (i >= 0) openModals.splice(i, 1); if (!openModals.length) document.body.style.overflow = ''; prev?.focus?.(); };
+  }, []);
   return (
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} ref={ref}>

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.30.0 — Fontes de dados por consulta, leilão simples (AnyCar) e correção da edição no painel
+
+- **Edição no painel:** corrigido o cursor que pulava para o primeiro campo a cada letra digitada ao editar produtos da vitrine, pacotes, recursos e demais janelas. A janela refazia o foco a cada tecla; agora foca só ao abrir. Também: com uma janela dentro de outra, o Esc fecha só a de cima.
+- **Fontes de dados (APIs) por consulta:** em Produtos do site → Editar → "Fontes de dados", escolha o que a consulta COMPRA: indício de sinistro, base nacional, roubo/furto, recall, leilão (completo ou simples), gravame completo, Renajud ou o pacote Veículo Total. A base de cadastro sempre entra. Sem escolha, tudo continua como antes (padrão do sistema, nada muda). A escolha também vale para consultas internas e para o teste do painel.
+- **Relatório só com o que é da consulta:** em "Campos do relatório" há o botão "Desmarcar campos de fontes não usadas", que tira do relatório o que a consulta não compra. O que o cliente vê continua definido em "Campos do relatório".
+- **Leilão simples (AnyCar):** nova fonte opcional que só informa o histórico de leilão (data, leiloeiro, lote, condição, comitente, cidade/UF e valor de arremate), pago por consulta e bem mais barato que o leilão completo. Entra no relatório, PDF e API no mesmo bloco de leilão de antes. Precisa de `ANYCAR_API_KEY`; sem ela a opção aparece desativada. Em produto que só compra o leilão simples, falha da AnyCar estorna o cliente; em produto com outras fontes, o leilão fica "não informado" e o resultado não vai para o cache.
+- O cache por placa agora considera as fontes escolhidas: mudar a configuração de um produto nunca devolve resposta de outra configuração.
+- Variáveis novas (todas opcionais): `ANYCAR_API_KEY`, `ANYCAR_BASE_URL`, `ANYCAR_AUCTION_TYPE`, `ANYCAR_TIMEOUT_MS`. Migração 061 (coluna `data_sources`, só soma).
+
 ## 1.29.1 — Completa em camadas lê as respostas no formato da documentação
 
 - O indício de sinistro (e as demais consultas avulsas) agora é lido tanto com os campos direto na resposta quanto dentro do bloco de mesmo nome, como mostra a documentação. Antes, no segundo formato, o alerta podia não aparecer.

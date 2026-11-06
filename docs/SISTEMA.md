@@ -383,3 +383,11 @@ Para não prometer mais do que o sistema faz:
 - Teto de custo (`CREDIFY_COST_BUDGET_CENTS` com `CREDIFY_COST_CENTS`) impede itens opcionais acima do limite; o relatório mostra "detalhes do leilão não incluídos".
 - Cache criptografado em `provider_cache`, por placa e pacote, com prazo `PLATE_CACHE_HOURS` (0 desliga). Respostas parciais não são guardadas.
 - Reversão: `CREDIFY_COMPLETE_MODE=total` volta a comprar o pacote completo.
+
+## Fontes de dados por consulta e leilão simples (1.30.0)
+
+- Cada produto pode ter as fontes de dados escolhidas no painel (Produtos do site → Editar → Fontes de dados), gravadas em `query_products.data_sources`. Vazio = padrão do sistema (comportamento de antes). Valores: `SINISTRO`, `NATIONAL`, `THEFT`, `RECALL`, `AUCTION`, `AUCTION_SIMPLE`, `GRAVAME`, `RENAJUD`, `TOTAL` e `BASE` (só a base de cadastro).
+- Com escolha, o produto compra a base de cadastro (Credify 487) mais as fontes marcadas, montadas no mesmo formato do Veículo Total. `TOTAL` compra o pacote Veículo Total e ignora as demais. `AUCTION` (Credify) e `AUCTION_SIMPLE` (AnyCar) não podem ser marcadas juntas.
+- Gravame e Renajud, quando marcados, seguem a regra de sempre (buscam quando o cadastro indica); a regra `CREDIFY_COMPLETE_GRAVAME=always` continua valendo.
+- Leilão simples (AnyCar): `POST {ANYCAR_BASE_URL}/api/consultar` com `x-api-key` e `{ "tipo": "veicular-leilao-1", "placa": "…" }`. O endereço base e o tipo vêm da documentação comercial da AnyCar e devem ser confirmados com eles (`ANYCAR_BASE_URL`, `ANYCAR_AUCTION_TYPE`). O resultado vira o bloco de leilão do relatório.
+- O cache por placa inclui as fontes escolhidas na chave.

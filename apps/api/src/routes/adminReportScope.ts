@@ -7,6 +7,7 @@ import { normalizeBdrp } from '../normalizer.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import { defaultScopeForTier, refreshScopes, scopeCatalog, scopeForProduct, validateScopeConfig } from '../lib/reportScope.js';
 import { requirePermission } from '../permissions.js';
+import { fieldsOutsideSources, parseStoredSources } from '../lib/dataSources.js';
 import { tierForProductCode, viewReport } from '../report/normalizeV2.js';
 
 /**
@@ -20,9 +21,9 @@ const guard = requirePermission('MANAGE_PRICING'); // por rota: um guard no rout
 const createBody = z.object({ name: z.string().trim().min(2).max(120), config: z.unknown(), publish: z.boolean().default(false) }).strict();
 
 async function productOr404(id: string) {
-  const r = await pool.query('SELECT id,name,report_sections FROM query_products WHERE id=$1', [id]);
+  const r = await pool.query('SELECT id,name,report_sections,data_sources FROM query_products WHERE id=$1', [id]);
   if (!r.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
-  return r.rows[0] as { id: string; name: string; report_sections: string[] | null };
+  return r.rows[0] as { id: string; name: string; report_sections: string[] | null; data_sources: string[] | null };
 }
 
 async function publishTemplate(client: PoolClient, templateId: string, productId: string, userId: string) {
@@ -43,7 +44,7 @@ adminReportScopeRouter.get('/products/:id/report-scope', guard, asyncRoute(async
     FROM report_templates t WHERE t.product_id=$1 AND t.config->>'model'='CATALOG_V1' ORDER BY t.version DESC`, [product.id]);
   const current = scopeForProduct(product.id);
   res.json({
-    productId: product.id, productName: product.name, legacySections: product.report_sections, tier: tierForProductCode(product.id),
+    productId: product.id, productName: product.name, legacySections: product.report_sections, dataSources: parseStoredSources(product.data_sources), fieldsOutsideSources: fieldsOutsideSources(parseStoredSources(product.data_sources)), tier: tierForProductCode(product.id),
     currentTemplateId: current.template?.id ?? null, currentVersion: current.template?.version ?? null,
     suggested: defaultScopeForTier(tierForProductCode(product.id)),
     versions: versions.rows.map((v) => ({ id: v.id, version: Number(v.version), name: v.name, status: v.status, config: v.config, createdAt: v.created_at, lastPublishedAt: v.last_published_at }))

@@ -94,6 +94,8 @@ import { simulatorRouter } from './routes/simulator.js';
 import { scoreModelMatch } from './lib/vehicleSpecs.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
+import { DATA_SOURCES, anycarConfigured, sourcesForProduct, validateDataSources } from './lib/dataSources.js';
+import { defaultSourcesFor } from './lib/dataSourceDefaults.js';
 import { scopeForProduct } from './lib/reportScope.js';
 import { ensureLienDetail } from './lib/lienRefresh.js';
 import { ensureFipeEnrichment, SHEET_PRODUCTS } from './lib/fipeRefresh.js';
@@ -243,6 +245,7 @@ const forgotPasswordSchema = z.object({ email: z.string().trim().email().max(254
     listPriceCents: z.number().int().min(0).max(100000000).nullable().optional(),
     showOnHome: z.boolean().optional(),
     reportSections: z.array(z.string()).max(12).nullable().optional(),
+    dataSources: z.array(z.string().max(30)).max(12).nullable().optional(),
     featured: z.boolean().optional(),
     displayOrder: z.number().int().min(-10000).max(10000).optional(),
     isFree: z.boolean().optional(),
@@ -1552,7 +1555,7 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
   const finish = async (): Promise<{ status: number; body: Record<string, unknown> }> => {
   const startedAt = Date.now();
   try {
-    const output = await executeVehicleLookup({ provider, plate: input.plate, searchType: input.searchType, productId: input.productId, enrich: ENRICHED_PRODUCTS.has(String(input.productId).toUpperCase()) && input.searchType === 'PLATE' ? (raw) => enrichWithSheet(raw, { fipeHistory: env.ENRICH_FIPE_HISTORY }) : undefined, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
+    const output = await executeVehicleLookup({ provider, plate: input.plate, searchType: input.searchType, productId: input.productId, sources: sourcesForProduct(input.productId), enrich: ENRICHED_PRODUCTS.has(String(input.productId).toUpperCase()) && input.searchType === 'PLATE' ? (raw) => enrichWithSheet(raw, { fipeHistory: env.ENRICH_FIPE_HISTORY }) : undefined, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp });
     const normalized = output.normalized;
     const resultHash = crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
     await tx(async (client) => {
@@ -2805,7 +2808,7 @@ api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), 
   }
 }));
 
-const ADMIN_PRODUCT_COLS = 'p.archived_at,p.id,p.name,p.description,p.price_cents,p.reference_price_cents,p.active,p.slug,p.features,p.is_free,p.commercial_status,p.featured,p.display_order,p.source,p.coverage,p.tagline,p.long_description,p.badge,p.list_price_cents,p.show_on_home,p.report_sections,EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) AS has_source';
+const ADMIN_PRODUCT_COLS = 'p.archived_at,p.id,p.name,p.description,p.price_cents,p.reference_price_cents,p.active,p.slug,p.features,p.is_free,p.commercial_status,p.featured,p.display_order,p.source,p.coverage,p.tagline,p.long_description,p.badge,p.list_price_cents,p.show_on_home,p.report_sections,p.data_sources,EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true) AS has_source';
 const SELLABLE_REPORT_SECTIONS = new Set(['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO', 'DEBITOS', 'RESTRICOES', 'HISTORICO', 'GRAVAME', 'INSPECAO_RECALL', 'FIPE', 'ANALISES']);
 /** O que o público realmente vê: "à venda" só vale com fonte de dados ativa e provedor/gateway configurados. */
 function productAvailability(row: Record<string, unknown>) {
@@ -2826,12 +2829,21 @@ function presentAdminProduct(row: Record<string, unknown>) {
     id: row.id, name: row.name, description: row.description, priceCents: Number(row.price_cents ?? 0), referencePriceCents: row.reference_price_cents == null ? null : Number(row.reference_price_cents),
     active: Boolean(row.active), slug: row.slug, features: row.features ?? [], isFree: Boolean(row.is_free), commercialStatus: row.commercial_status, featured: Boolean(row.featured),
     displayOrder: Number(row.display_order ?? 100), source: row.source, coverage: row.coverage, tagline: row.tagline ?? '', longDescription: row.long_description ?? '', badge: row.badge ?? null,
-    listPriceCents: row.list_price_cents == null ? null : Number(row.list_price_cents), showOnHome: Boolean(row.show_on_home), reportSections: Array.isArray(row.report_sections) ? row.report_sections : null, archivedAt: row.archived_at ?? null
+    listPriceCents: row.list_price_cents == null ? null : Number(row.list_price_cents), showOnHome: Boolean(row.show_on_home), reportSections: Array.isArray(row.report_sections) ? row.report_sections : null, dataSources: Array.isArray(row.data_sources) && row.data_sources.length ? row.data_sources : null, archivedAt: row.archived_at ?? null
   };
 }
 function checkReportSections(sections: string[] | null | undefined): void {
   if (sections && !sections.every((k) => SELLABLE_REPORT_SECTIONS.has(k))) throw appError('INVALID_REPORT_SECTIONS', { code: 'INVALID_REPORT_SECTIONS', http: 400, expose: true });
 }
+
+/** Fontes de dados (APIs) que cada consulta pode comprar, com o padrão atual de cada produto e se a fonte está configurada. */
+api.get('/admin/data-sources', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (_req, res) => {
+  const products = await pool.query(`SELECT id FROM query_products WHERE is_free=false ORDER BY display_order, id`);
+  res.json({
+    sources: DATA_SOURCES.map((d) => ({ ...d, configured: d.provider === 'anycar' ? anycarConfigured() : true, note: d.provider === 'anycar' && !anycarConfigured() ? 'Falta ANYCAR_API_KEY nas variáveis do Coolify.' : null })),
+    defaults: Object.fromEntries(products.rows.map((p: { id: string }) => [p.id, defaultSourcesFor(String(p.id))]))
+  });
+}));
 
 api.get('/admin/products', adminAuth, requirePermission('MANAGE_PRICING'), asyncRoute(async (_req, res) => {
   const products = await pool.query(`SELECT ${ADMIN_PRODUCT_COLS},
@@ -2898,14 +2910,19 @@ api.patch('/admin/products/:id', adminAuth, requirePermission('MANAGE_PRICING'),
   if (parsed.data.listPriceCents !== undefined) { values.push(parsed.data.listPriceCents); assignments.push(`list_price_cents=$${values.length}`); }
   if (parsed.data.showOnHome !== undefined) { values.push(parsed.data.showOnHome); assignments.push(`show_on_home=$${values.length}`); }
   if (parsed.data.reportSections !== undefined) { checkReportSections(parsed.data.reportSections); values.push(parsed.data.reportSections && parsed.data.reportSections.length ? parsed.data.reportSections : null); assignments.push(`report_sections=$${values.length}::text[]`); }
+  if (parsed.data.dataSources !== undefined) {
+    const checked = validateDataSources(parsed.data.dataSources);
+    if (!checked.ok) throw appError('INVALID_DATA_SOURCES', { code: checked.error, http: 400, expose: true });
+    values.push(checked.sources); assignments.push(`data_sources=$${values.length}::text[]`);
+  }
   if (parsed.data.isFree !== undefined) { values.push(parsed.data.isFree); assignments.push(`is_free=$${values.length}`); }
   if (parsed.data.active !== undefined) { values.push(parsed.data.active); assignments.push(`active=$${values.length}`); }
   assignments.push('updated_at=now()');
   values.push(req.params.id);
-  const product = await pool.query(`UPDATE query_products SET ${assignments.join(', ')} WHERE id=$${values.length} RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,tagline,long_description,badge,list_price_cents,show_on_home,report_sections,EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=query_products.id AND rule.active=true) AS has_source`, values);
+  const product = await pool.query(`UPDATE query_products SET ${assignments.join(', ')} WHERE id=$${values.length} RETURNING id,name,description,price_cents,reference_price_cents,active,slug,features,display_order,source,coverage,commercial_status,featured,is_free,tagline,long_description,badge,list_price_cents,show_on_home,report_sections,data_sources,EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=query_products.id AND rule.active=true) AS has_source`, values);
   if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
   await audit(req.user!.id, 'UPDATE_QUERY_PRODUCT', 'QUERY_PRODUCT', String(req.params.id), { fields: Object.keys(parsed.data), requestId: requestId(req) });
-  if (parsed.data.reportSections !== undefined) await refreshProductSections();
+  if (parsed.data.reportSections !== undefined || parsed.data.dataSources !== undefined) await refreshProductSections();
   res.json(presentAdminProduct(product.rows[0]));
 }));
 

@@ -80,7 +80,7 @@ export interface VehicleDataProvider {
   /** Valida a autenticação da fonte antes de debitar uma consulta, quando o provedor oferece esse preflight. */
   validateForQuery?(): Promise<{ expiresInMinutes?: number }>;
   /** `ctx.productId` deixa a fonte escolher a consulta certa para o pacote vendido (Credify); as demais ignoram. */
-  queryByPlate(plate: string, ctx?: { productId?: string }): Promise<{ providerQueryId?: string; raw: unknown }>;
+  queryByPlate(plate: string, ctx?: { productId?: string; sources?: readonly string[] | null }): Promise<{ providerQueryId?: string; raw: unknown }>;
   /** Busca por chassi, Renavam ou documento do proprietário. Só existe se a fonte atende o tipo. */
   queryBy?(type: SearchType, value: string): Promise<{ providerQueryId?: string; raw: unknown }>;
 }

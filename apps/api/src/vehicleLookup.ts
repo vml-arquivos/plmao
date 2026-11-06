@@ -14,13 +14,15 @@ type LookupInput = {
   plate: string;
   searchType?: SearchType;
   productId?: string;
+  /** Fontes de dados escolhidas no painel para o produto (null = padrão do sistema). */
+  sources?: readonly string[] | null;
   /** Completa a resposta do provedor (ex.: histórico da FIPE). Nunca deve lançar; se lançar, a consulta segue sem o complemento. */
   enrich?: (raw: unknown) => Promise<unknown>;
   timeoutMs: number;
   normalize: (raw: unknown) => NormalizedVehicle;
 };
 
-export async function executeVehicleLookup({ provider, plate, searchType = 'PLATE', productId, enrich, timeoutMs, normalize }: LookupInput): Promise<{ providerQueryId?: string; raw: unknown; normalized: NormalizedVehicle; timing: { providerMs: number; enrichMs: number; normalizeMs: number } }> {
+export async function executeVehicleLookup({ provider, plate, searchType = 'PLATE', productId, sources, enrich, timeoutMs, normalize }: LookupInput): Promise<{ providerQueryId?: string; raw: unknown; normalized: NormalizedVehicle; timing: { providerMs: number; enrichMs: number; normalizeMs: number } }> {
   const t0 = Date.now();
   let timeout: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -31,7 +33,7 @@ export async function executeVehicleLookup({ provider, plate, searchType = 'PLAT
     }, timeoutMs);
   });
   try {
-    const call = searchType === 'PLATE' ? provider.queryByPlate(plate, { productId }) : provider.queryBy!(searchType, plate);
+    const call = searchType === 'PLATE' ? provider.queryByPlate(plate, { productId, sources }) : provider.queryBy!(searchType, plate);
     const output = await Promise.race([call as Promise<LookupOutput>, timeoutPromise]);
     const t1 = Date.now();
     let raw = output.raw;

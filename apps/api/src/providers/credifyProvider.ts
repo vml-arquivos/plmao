@@ -7,6 +7,7 @@ import { CallBudget } from '../lib/providerGuard.js';
 import { Spend, bdrpReturn, buildLayeredEnvelope, flagIsClear, flagText, parseFarol, respostaOf, type Farol, type Piece } from '../report/layers.js';
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
 import { log } from '../lib/http.js';
+import { queryAnycarAuction } from './anycarProvider.js';
 
 /**
  * Adaptador da Credify, baseado na documentação pública (docs.credify.com.br):
@@ -221,19 +222,23 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     return JSON.stringify(fill(parsed));
   }
 
-  async queryByPlate(plate: string, ctx?: { productId?: string }): Promise<{ providerQueryId?: string; raw: unknown }> {
+  async queryByPlate(plate: string, ctx?: { productId?: string; sources?: readonly string[] | null }): Promise<{ providerQueryId?: string; raw: unknown }> {
     const startedAt = Date.now();
     const pid = ctx?.productId;
-    const spend = new Spend(this.layered(pid) ? env.CREDIFY_COST_BUDGET_CENTS : undefined, env.CREDIFY_COST_CENTS);
-    const main = this.layered(pid) ? await this.queryLayers(plate, startedAt, spend) : await this.run('PLATE', plate, pid);
+    // Fontes escolhidas no painel para este produto (null = comportamento padrão do sistema). Não vale com caminho global configurado.
+    const sel: Set<string> | null = ctx?.sources && ctx.sources.length && !this.o.path && !env.CREDIFY_QUERY_PATH ? new Set(ctx.sources) : null;
+    const layeredMode = sel ? !sel.has('TOTAL') : this.layered(pid);
+    const pidKey = String(pid ?? '').toUpperCase();
+    const spend = new Spend(layeredMode ? env.CREDIFY_COST_BUDGET_CENTS : undefined, env.CREDIFY_COST_CENTS);
+    const main = layeredMode ? await this.queryLayers(plate, startedAt, spend, sel) : await this.run('PLATE', plate, sel ? 'COMPLETE' : pid);
     const withLien = await this.supplement(main, plate, pid, startedAt, {
-      key: 'gravame', path: '/gravame', label: 'gravame', enabled: env.CREDIFY_GRAVAME_SUPPLEMENT, spend,
-      products: ['COMPLETE', 'PREMIUM'], core: ['LIEN'],
+      key: 'gravame', path: '/gravame', label: 'gravame', enabled: sel ? sel.has('GRAVAME') : env.CREDIFY_GRAVAME_SUPPLEMENT, spend,
+      products: sel ? [pidKey] : ['COMPLETE', 'PREMIUM'], core: sel ? [] : ['LIEN'],
       // Gravame completo (banco, CNPJ, contrato, datas): busca sempre que a base principal não trouxe dados, não afirmou "sem gravame"
       // ou indicou alienação sem o agente financeiro/contrato/data.
       needed: (data) => {
         if (!isVehicleTotal(data)) return false;
-        if (this.layered(pid) && env.CREDIFY_COMPLETE_GRAVAME === 'always') return true;
+        if (layeredMode && env.CREDIFY_COMPLETE_GRAVAME === 'always') return true;
         if (bdrpCode(data) !== '1') return true;
         const upper = Object.fromEntries(Object.entries(extractReturn(data) ?? {}).map(([k, v]) => [k.toUpperCase(), String(Array.isArray(v) ? v[0] ?? '' : v ?? '').trim()]));
         const flag = (upper.RESTRICAOFINAN ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
@@ -244,8 +249,8 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       }
     });
     const withJudicial = await this.supplement(withLien, plate, pid, startedAt, {
-      key: 'renajud', path: '/renajud', label: 'renajud', enabled: env.CREDIFY_JUDICIAL_SUPPLEMENT, spend,
-      products: ['COMPLETE', 'PREMIUM'], core: [],
+      key: 'renajud', path: '/renajud', label: 'renajud', enabled: sel ? sel.has('RENAJUD') : env.CREDIFY_JUDICIAL_SUPPLEMENT, spend,
+      products: sel ? [pidKey] : ['COMPLETE', 'PREMIUM'], core: [],
       needed: (data) => {
         if (!isVehicleTotal(data)) return false;
         const upper = Object.fromEntries(Object.entries(extractReturn(data) ?? {}).map(([k, v]) => [k.toUpperCase(), v]));
@@ -254,7 +259,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     });
     return this.supplement(withJudicial, plate, pid, startedAt, {
       key: 'leilao', path: '/leilaoconjugado', label: 'leilão', enabled: true,
-      products: [], core: ['AUCTION'], needed: () => true
+      products: [], core: sel ? [] : ['AUCTION'], needed: () => true
     });
   }
 
@@ -282,12 +287,28 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
   }
 
   /**
+   * Leilão simples (AnyCar): só o histórico de leilão. Falha vira "não informado" (o resultado não entra no cache),
+   * exceto no produto que só compra o leilão: ali a falha derruba a consulta para estornar o cliente.
+   */
+  private async simpleAuction(plate: string, strict: boolean): Promise<Piece> {
+    try {
+      return await queryAnycarAuction(plate);
+    } catch (e) {
+      log('warn', 'anycar_auction_failed', { code: (e as { code?: string }).code ?? 'ERRO', strict });
+      if (strict) throw e;
+      return { kind: 'none' };
+    }
+  }
+
+  /**
    * Completa em camadas: consulta base (cadastro, débitos, restrições, alienação) + sinistro + cadastro nacional + leilão.
    * Recall e roubo/furto saem do marcador do cadastro e só viram consulta própria quando o marcador acusa (ou não responde).
    * O leilão passa pelo Farol (se configurado) e o leilão conjugado só entra quando ele acusa. Tudo volta no formato do
    * Veículo Total, então o relatório não muda.
    */
-  private async queryLayers(plate: string, startedAt: number, spend: Spend): Promise<{ providerQueryId?: string; raw: unknown }> {
+  private async queryLayers(plate: string, startedAt: number, spend: Spend, sel: Set<string> | null = null): Promise<{ providerQueryId?: string; raw: unknown }> {
+    // Sem escolha no painel vale o padrão da Completa (variáveis de ambiente); com escolha, só o que foi marcado.
+    const want = (key: string, fallback: boolean): boolean => (sel ? sel.has(key) : fallback);
     const baseProvider = new CredifyVehicleProvider({ ...this.o, path: BASE_PATH, consultaId: CREDIFY_CONSULTA_CODES[BASE_PATH], bodyTemplate: CREDIFY_DEFAULT_BODY });
     const base = await baseProvider.run('PLATE', plate, undefined);
     spend.record(BASE_PATH);
@@ -299,25 +320,32 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     const theftFlag = env.CREDIFY_COMPLETE_THEFT === 'flag' && flagIsClear(flags.RESFURTO) ? flagText(flags.RESFURTO) : undefined;
     const optional = (path: string, flag: string | undefined): Promise<Piece> => (flag !== undefined || !spend.allow(path) ? Promise.resolve(none) : this.piece(path, plate, startedAt, spend));
 
-    const [sinistro, national, farolPiece, recall, theft] = await Promise.all([
-      this.piece('/indiciosinistro', plate, startedAt, spend),
-      env.CREDIFY_COMPLETE_NATIONAL ? this.piece('/veicularbnacionalonline', plate, startedAt, spend) : Promise.resolve(none),
-      farolId ? this.piece('/farolleilao', plate, startedAt, spend, farolId) : Promise.resolve(none),
-      optional('/recall', recallFlag),
-      optional('/historicoroubofurto', theftFlag)
+    const useCredifyAuction = want('AUCTION', true);
+    const useSimpleAuction = sel?.has('AUCTION_SIMPLE') === true;
+    const wantNational = want('NATIONAL', env.CREDIFY_COMPLETE_NATIONAL);
+    const wantSinistro = want('SINISTRO', true);
+    const wantRecall = want('RECALL', true);
+    const wantTheft = want('THEFT', true);
+    const [sinistro, national, farolPiece, recall, theft, simpleAuction] = await Promise.all([
+      wantSinistro ? this.piece('/indiciosinistro', plate, startedAt, spend) : Promise.resolve(none),
+      wantNational ? this.piece('/veicularbnacionalonline', plate, startedAt, spend) : Promise.resolve(none),
+      farolId && useCredifyAuction ? this.piece('/farolleilao', plate, startedAt, spend, farolId) : Promise.resolve(none),
+      wantRecall ? optional('/recall', recallFlag) : Promise.resolve(none),
+      wantTheft ? optional('/historicoroubofurto', theftFlag) : Promise.resolve(none),
+      useSimpleAuction ? this.simpleAuction(plate, !(sel && ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD'].some((k) => sel.has(k)))) : Promise.resolve(none)
     ]);
 
     const farol: Farol | undefined = farolPiece.kind === 'data' ? parseFarol(farolPiece.resposta) : undefined;
     if (farolId && !farol) log('warn', 'credify_farol_sem_semaforo', { kind: farolPiece.kind });
     // Verde dispensa o detalhe. Amarelo, vermelho ou Farol sem resposta pedem o leilão conjugado (se couber no teto de custo).
-    let leilao: Piece = none;
-    if (!(farol?.level === 'GREEN') && (!farolId || spend.allow('/leilaoconjugado'))) leilao = await this.piece('/leilaoconjugado', plate, startedAt, spend);
+    let leilao: Piece = useSimpleAuction ? simpleAuction : none;
+    if (useCredifyAuction && !(farol?.level === 'GREEN') && (!farolId || spend.allow('/leilaoconjugado'))) leilao = await this.piece('/leilaoconjugado', plate, startedAt, spend);
 
     const consulta = (base.raw as { data?: { CONSULTA?: unknown } }).data?.CONSULTA;
     const envelope = buildLayeredEnvelope({ consulta, baseRaw: base.raw, sinistro, recall, recallFromFlag: recallFlag, theft, theftFromFlag: theftFlag, leilao, farol, national });
     log('info', 'credify_layers_done', { calls: spend.paths.length, paths: spend.paths.join(',') });
     // Peça que era para vir e não veio (falha ou sem tempo): o resultado vale para esta consulta, mas não entra no cache.
-    const attempted: Array<[boolean, Piece]> = [[true, sinistro], [env.CREDIFY_COMPLETE_NATIONAL, national], [Boolean(farolId), farolPiece], [recallFlag === undefined, recall], [env.CREDIFY_COMPLETE_THEFT === 'always' || theftFlag === undefined, theft]];
+    const attempted: Array<[boolean, Piece]> = [[wantSinistro, sinistro], [wantNational, national], [Boolean(farolId) && useCredifyAuction, farolPiece], [wantRecall && recallFlag === undefined, recall], [wantTheft && (env.CREDIFY_COMPLETE_THEFT === 'always' || theftFlag === undefined), theft], [useSimpleAuction, simpleAuction]];
     const parcial = attempted.some(([wanted, piece]) => wanted && piece.kind === 'none');
     return { providerQueryId: base.providerQueryId, raw: { ...(base.raw as Record<string, unknown>), data: envelope, camadas: [...spend.paths], ...(parcial ? { parcial: true } : {}) } };
   }

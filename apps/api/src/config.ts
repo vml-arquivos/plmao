@@ -167,6 +167,7 @@ function validateProductionConfig(value: ParsedEnv): void {
     value.VEHICLE_API_DEVICE_TOKEN,
     value.CREDIFY_CLIENT_SECRET,
     value.CONSULTARPLACA_API_KEY,
+    value.ANYCAR_API_KEY,
     value.ESIGN_WEBHOOK_SECRET,
     value.EMAIL_WEBHOOK_SECRET,
     value.PAYMENT_API_KEY,
@@ -249,6 +250,11 @@ const envSchema = z.object({
     if (typeof v !== 'string' || !v.trim()) return undefined;
     try { return JSON.parse(v); } catch { return undefined; }
   }, z.record(z.string().regex(/^\/[a-z0-9]+$/i), z.number().int().min(0).max(1000000)).optional()),
+  // AnyCar: consulta simples de histórico de leilão (POST /api/consultar, chave no cabeçalho x-api-key). Sem a chave, a fonte "Leilão simples" fica indisponível.
+  ANYCAR_API_KEY: optionalString,
+  ANYCAR_BASE_URL: optionalUrl,
+  ANYCAR_AUCTION_TYPE: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().trim().regex(/^[a-z0-9-]{3,60}$/i).default('veicular-leilao-1')),
+  ANYCAR_TIMEOUT_MS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.coerce.number().int().min(3000).max(60000).default(20000)),
   // Reaproveita a resposta paga da mesma placa e do mesmo pacote por este número de horas (0 desliga). A data da consulta continua visível no relatório.
   PLATE_CACHE_HOURS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.coerce.number().int().min(0).max(720).default(24)),
   // API pública v1 para integradores (chaves pnm_live_…). Desligada por padrão: rotas respondem 404.

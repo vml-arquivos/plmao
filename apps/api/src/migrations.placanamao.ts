@@ -2033,5 +2033,15 @@ export const placaMigrations: Migration[] = [
       await client.query(`UPDATE query_products SET price_cents=5490, reference_price_cents=5790, credit_cost=55, updated_at=now() WHERE id='COMPLETE' AND price_cents=3199`);
       await client.query(`DROP TABLE IF EXISTS provider_cache`);
     }
+  },
+  {
+    id: '061_fontes_de_dados_por_produto',
+    name: 'Fontes de dados (APIs) escolhidas por produto; vazio mantém o comportamento padrão',
+    up: async (client) => {
+      await client.query(`ALTER TABLE query_products ADD COLUMN IF NOT EXISTS data_sources text[]`);
+    },
+    down: async (client) => {
+      await client.query(`ALTER TABLE query_products DROP COLUMN IF EXISTS data_sources`);
+    }
   }
 ];

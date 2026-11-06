@@ -3,6 +3,7 @@ import { pool } from '../db.js';
 import { env } from '../config.js';
 import { encryptRaw, decryptRaw } from '../lib/rawStore.js';
 import { log } from '../lib/http.js';
+import { sourcesSignature } from '../lib/dataSources.js';
 
 const CONTEXT = 'plate-cache';
 type Output = { providerQueryId?: string; raw: unknown };
@@ -22,8 +23,10 @@ export function isPartialResult(raw: unknown): boolean {
  */
 export function withPlateCache(provider: VehicleDataProvider, hours = env.PLATE_CACHE_HOURS): VehicleDataProvider {
   if (!(hours > 0)) return provider;
-  const cached = async (plate: string, ctx?: { productId?: string }): Promise<Output> => {
-    const product = String(ctx?.productId ?? 'DEFAULT').toUpperCase();
+  const cached = async (plate: string, ctx?: { productId?: string; sources?: readonly string[] | null }): Promise<Output> => {
+    // Fontes diferentes geram respostas diferentes: a assinatura entra na chave para não misturar configurações.
+    const signature = sourcesSignature(ctx?.sources);
+    const product = `${String(ctx?.productId ?? 'DEFAULT').toUpperCase()}${signature ? `#${signature}` : ''}`;
     const key = plate.toUpperCase();
     try {
       const hit = await pool.query<{ payload: string; provider_query_id: string | null }>(

@@ -9,13 +9,15 @@ import { ReportScopeEditor } from './ReportScope';
 interface AdminProduct {
   id: string; name: string; slug: string; description: string; tagline: string; longDescription: string; features: string[]; badge: string | null;
   priceCents: number; listPriceCents: number | null; referencePriceCents: number | null; isFree: boolean; active: boolean; commercialStatus: string; featured: boolean;
-  showOnHome: boolean; displayOrder: number; reportSections: string[] | null; archivedAt: string | null;
+  showOnHome: boolean; displayOrder: number; reportSections: string[] | null; dataSources?: string[] | null; archivedAt: string | null;
   effectiveStatus: string; sellableNow: boolean; blockers: string[];
 }
 interface Feature { id: string; key: string; label: string; description: string; displayOrder: number; active: boolean }
 interface MatrixRes { features: Feature[]; products: Array<{ id: string; name: string; cells: Record<string, { status: string; note: string | null }> }> }
 interface Pack { slug: string; name: string; description: string; tagline: string; badge: string | null; highlights: string[]; credits: number; priceCents: number; displayOrder: number; active: boolean }
 interface Section { key: string; label: string; description: string }
+interface DataSource { key: string; label: string; description: string; provider: string; configured: boolean; note: string | null }
+interface DataSourcesRes { sources: DataSource[]; defaults: Record<string, string[]> }
 
 const STATUS: Record<string, { l: string; t: 'ok' | 'info' | 'neutral' | 'warn' }> = { ACTIVE: { l: 'À venda', t: 'ok' }, FREE: { l: 'Grátis', t: 'info' }, SOON: { l: 'Em breve', t: 'warn' }, HIDDEN: { l: 'Oculto', t: 'neutral' } };
 const slugify = (v: string) => v.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
@@ -85,6 +87,10 @@ function ProductsTab() {
 function ProductModal({ p, onClose }: { p: AdminProduct; onClose: (changed: boolean) => void }) {
   const toast = useToast();
   const sections = useAsync(() => api.get<Section[]>('/admin/content/sections'), []);
+  const sourceList = useAsync(() => api.get<DataSourcesRes>('/admin/data-sources'), []);
+  // Fontes de dados (APIs): sem escolha vale o padrão do sistema; com escolha, a consulta compra só o que estiver marcado.
+  const [customSources, setCustomSources] = useState(Boolean(p.dataSources?.length));
+  const [pickedSources, setPickedSources] = useState<string[]>((p.dataSources ?? []).filter((k) => k !== 'BASE'));
   const [name, setName] = useState(p.name);
   const [tagline, setTagline] = useState(p.tagline);
   const [description, setDescription] = useState(p.description);
@@ -114,7 +120,8 @@ function ProductModal({ p, onClose }: { p: AdminProduct; onClose: (changed: bool
       await api.patch(`/admin/products/${p.id}`, {
         name: name.trim(), tagline: tagline.trim(), description: description.trim(), longDescription: longDescription.trim(),
         features: features.split('\n').map((l) => l.trim()).filter(Boolean), badge: badge.trim() || null, listPriceCents: listCents,
-        displayOrder: Number(order) || 0, featured, showOnHome, commercialStatus: status, active, reportSections: picked.length ? picked : null
+        displayOrder: Number(order) || 0, featured, showOnHome, commercialStatus: status, active, reportSections: picked.length ? picked : null,
+        dataSources: customSources ? (pickedSources.length ? pickedSources : ['BASE']) : null
       });
       toast.ok('Produto salvo. O site já mostra a alteração.');
       onClose(true);
@@ -153,6 +160,29 @@ function ProductModal({ p, onClose }: { p: AdminProduct; onClose: (changed: bool
             {(sections.data ?? []).map((s) => (
               <Check key={s.key} checked={picked.includes(s.key)} onChange={(e) => setPicked((cur) => (e.target.checked ? [...cur, s.key] : cur.filter((k) => k !== s.key)))}>{s.label}<span className="muted" style={{ display: 'block', fontSize: 12 }}>{s.description}</span></Check>
             ))}
+          </div>
+        </Field>
+        <Field label="Fontes de dados (APIs) desta consulta" hint="Define o que esta consulta COMPRA do fornecedor (e, portanto, o custo). O que o cliente vê continua em “Campos do relatório”. A base de cadastro (identificação, débitos e restrições) sempre entra.">
+          <div className="stack-sm">
+            <Switch checked={!customSources} onChange={(e) => { setCustomSources(!e.target.checked); if (!e.target.checked && !pickedSources.length) setPickedSources(sourceList.data?.defaults[p.id]?.filter((k) => k !== 'TOTAL') ?? []); }} label={customSources ? 'Escolhendo as fontes manualmente' : 'Usar o padrão do sistema (não muda nada)'} />
+            {!customSources && sourceList.data && <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>Padrão atual: {(sourceList.data.defaults[p.id] ?? []).map((k) => sourceList.data!.sources.find((x) => x.key === k)?.label ?? k).join(', ') || 'só a base de cadastro'}.</p>}
+            {customSources && (
+              <div className="form-grid cols-2">
+                {(sourceList.data?.sources ?? []).map((src) => {
+                  const on = pickedSources.includes(src.key);
+                  const total = pickedSources.includes('TOTAL');
+                  return (
+                    <Check key={src.key} checked={on} disabled={(!src.configured && !on) || (total && src.key !== 'TOTAL')} onChange={(e) => setPickedSources((cur) => {
+                      if (!e.target.checked) return cur.filter((k) => k !== src.key);
+                      if (src.key === 'TOTAL') return ['TOTAL'];
+                      const next = cur.filter((k) => k !== 'TOTAL' && !(src.key === 'AUCTION' && k === 'AUCTION_SIMPLE') && !(src.key === 'AUCTION_SIMPLE' && k === 'AUCTION'));
+                      return [...next, src.key];
+                    })}>{src.label}<span className="muted" style={{ display: 'block', fontSize: 12 }}>{src.note ?? src.description}</span></Check>
+                  );
+                })}
+              </div>
+            )}
+            {customSources && !pickedSources.length && <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>Nenhuma fonte marcada: a consulta usa só a base de cadastro.</p>}
           </div>
         </Field>
         <Field label="Campos do relatório" hint="Escolha campo a campo o que esta consulta entrega, com prévia, versões e volta. Quando há uma versão publicada, ela vale no lugar das seções acima.">

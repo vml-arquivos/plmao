@@ -1,3 +1,4 @@
+import { sourcesForProduct } from '../lib/dataSources.js';
 import { pool } from '../db.js';
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
@@ -43,6 +44,7 @@ export function integrationStatus() {
     item('email', apiMode ? 'E-mail (API do Brevo)' : 'E-mail (SMTP / Brevo)', mailVars, smtpOn, { canTest: true, workerOn: env.EMAIL_OUTBOX_WORKER }),
     item('email-webhook', 'Retorno de entrega de e-mail (Brevo)', hookVars, Boolean(env.EMAIL_WEBHOOK_SECRET), { webhookUrl: `${base}/api/webhooks/email/brevo`, webhookNote: 'No Brevo, em Webhooks transacionais, use esta URL, escolha autenticação por token do portador (Bearer) com o mesmo valor de EMAIL_WEBHOOK_SECRET (ou o cabeçalho x-webhook-token) e marque só entregue, bounce (hard/soft), bloqueado, reclamação e inválido.' }),
     item('vehicle', 'Consulta veicular (Credify)', credVars, env.VEHICLE_API_PROVIDER === 'credify', { canTest: true, webhookNote: 'Consulta Veículo Total (POST /veiculototal). O teste só faz o login na Credify (não gasta consulta) e mostra o IP de saída deste servidor, que precisa estar em "IPs Autorizados" na Credify. Depois, faça uma consulta real de baixo valor para validar.' }),
+    item('anycar', 'Leilão simples (AnyCar)', [v('ANYCAR_API_KEY', env.ANYCAR_API_KEY, true, 'chave da API, gerada no painel da AnyCar')], Boolean(env.ANYCAR_API_KEY), { webhookNote: 'Fonte opcional que só informa o histórico de leilão (data, leiloeiro, lote, condição e valor). Fica disponível em Produtos do site → Editar → Fontes de dados. Pago por consulta; nenhuma consulta é feita sem um produto configurado para usá-la.' }),
     item('site-access', 'Site fechado ao público (pré-lançamento)', [v('SITE_MODE', env.SITE_MODE === 'prelaunch', true, 'prelaunch = fechado ao público e sem indexação; public = aberto'), v('PRELAUNCH_ALLOWED_EMAILS', env.PRELAUNCH_ALLOWED_EMAILS, true, 'e-mails ou @domínios que podem criar conta, pagar e consultar')], env.SITE_MODE === 'prelaunch'),
     item('vehicle-test', 'Consulta veicular (ConsultarPlaca, teste)', cpVars, env.VEHICLE_API_PROVIDER === 'consultarplaca', { webhookNote: 'Use a placa AAA0000 (dados fictícios, não gasta crédito). Traz só dados do veículo; débitos e restrições aparecem como não fornecidos.' }),
     item('cnpj', 'Consulta de CNPJ', cnpjVars, env.CNPJ_PROVIDER !== 'disabled'),
@@ -123,7 +125,7 @@ adminIntegrationsRouter.post('/integrations/vehicle/test', adminAuth, guard, asy
     result = { ok: true, expiresInMinutes: r.expiresInMinutes, tokenStatus: credifyTokenStatus(), serverIp, queryEnabled: env.DATA_PROVIDER === 'real' };
     if (plate) {
       const t0 = Date.now();
-      const out = await provider.queryByPlate(plate, { productId: productId || undefined });
+      const out = await provider.queryByPlate(plate, { productId: productId || undefined, sources: sourcesForProduct(productId) });
       const queryMs = Date.now() - t0;
       const raw = (out.raw ?? {}) as Record<string, unknown>;
       const route = provider.routeFor(productId || undefined);

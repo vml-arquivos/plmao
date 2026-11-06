@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { CATALOG_BY_KEY, SECTIONS, type SectionKey } from '../report/catalog.js';
 import { ownerIdentityEnabled } from '../report/mask.js';
+import { parseStoredSources, setProductSources, type DataSourceKey } from './dataSources.js';
 
 /**
  * Escopo de relatório por produto: quais seções e campos do catálogo o cliente recebe.
@@ -82,12 +83,15 @@ let legacySections = new Map<string, string[] | null>();
 
 export async function refreshScopes(): Promise<void> {
   const [products, rows] = await Promise.all([
-    pool.query('SELECT id, report_sections FROM query_products'),
+    pool.query('SELECT id, report_sections, data_sources FROM query_products'),
     pool.query(`SELECT t.id, t.version, t.config, p.product_id, p.published_at, p.superseded_at
       FROM report_template_publications p JOIN report_templates t ON t.id=p.template_id
       WHERE t.config->>'model'=$1 ORDER BY p.product_id, p.published_at`, [SCOPE_MODEL])
   ]);
   const nextSections = new Map<string, string[] | null>();
+  const nextSources = new Map<string, DataSourceKey[] | null>();
+  for (const r of products.rows) nextSources.set(String(r.id), parseStoredSources(r.data_sources));
+  setProductSources(nextSources);
   for (const r of products.rows) nextSections.set(String(r.id), Array.isArray(r.report_sections) && r.report_sections.length ? (r.report_sections as string[]) : null);
   const nextTemplates = new Map<string, Entry[]>();
   for (const r of rows.rows) {
