@@ -265,7 +265,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
 
   /** Completa em camadas vale só no roteamento por pacote (sem caminho global) e com o modo ligado. */
   private layered(productId?: string): boolean {
-    return String(productId ?? '').toUpperCase() === 'COMPLETE' && env.CREDIFY_COMPLETE_MODE === 'layered' && !this.o.path && !env.CREDIFY_QUERY_PATH;
+    return ['COMPLETE', 'PREMIUM'].includes(String(productId ?? '').toUpperCase()) && env.CREDIFY_COMPLETE_MODE === 'layered' && !this.o.path && !env.CREDIFY_QUERY_PATH;
   }
 
   /** Uma consulta avulsa de camada: dados, "não encontrado" ou nada (falha ou sem tempo). Nunca derruba o relatório. */

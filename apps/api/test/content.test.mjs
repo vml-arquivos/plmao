@@ -23,11 +23,12 @@ describe('catálogo, FAQ e artigos editáveis no painel', integration, () => {
     assert.equal(r.status, 200);
     const ids = r.json.products.map((p) => p.id);
     for (const id of ['COMPLETE', 'BASIC', 'AUCTION', 'LIEN', 'CADASTRAL']) assert.ok(ids.includes(id), id);
-    assert.ok(!ids.includes('PREMIUM'));
+    assert.ok(ids.includes('PREMIUM'));
     const complete = r.json.products.find((p) => p.id === 'COMPLETE');
-    assert.equal(complete.priceCents, 3199);
+    assert.equal(complete.priceCents, 3299);
+    assert.ok(r.json.products.find((p) => p.id === 'PREMIUM').priceCents > complete.priceCents);
     assert.equal(r.json.products.find((p) => p.id === 'BASIC').priceCents, 2990);
-    assert.equal(complete.badge, 'Mais completa');
+    assert.equal(complete.badge, 'Mais vendida');
     assert.ok(complete.tagline.length > 5 && complete.features.length >= 3);
     assert.equal(r.json.products.find((p) => p.id === 'AUCTION').commercialStatus, 'SOON');
     assert.ok(r.json.features.length >= 8);

@@ -88,11 +88,11 @@ test('placa que a base principal não encontra falha como na Básica (sem gastar
   assert.deepEqual(f.paid(), ['/debitosrestricoesproprietarios']);
 });
 
-test('Premium segue no pacote Veículo Total e a Básica na consulta base', async () => {
+test('Completa com fonte Veículo Total compra o pacote inteiro e a Básica fica na consulta base', async () => {
   resetCredifyTokenCache();
   const vt = JSON.parse(fs.readFileSync(new URL('./fixtures/veiculototal-sucesso.json', import.meta.url), 'utf8'));
   const fp = fakeFetch({ '/veiculototal': vt });
-  await new CredifyVehicleProvider(opts(fp)).queryByPlate('AAA0000', { productId: 'PREMIUM' });
+  await new CredifyVehicleProvider(opts(fp)).queryByPlate('AAA0000', { productId: 'COMPLETE', sources: ['TOTAL'] });
   assert.deepEqual(fp.paid(), ['/veiculototal']);
   const fb = fakeFetch({ '/debitosrestricoesproprietarios': sample });
   await new CredifyVehicleProvider(opts(fb)).queryByPlate('AAA0000', { productId: 'BASIC' });

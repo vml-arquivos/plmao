@@ -2043,5 +2043,123 @@ export const placaMigrations: Migration[] = [
     down: async (client) => {
       await client.query(`ALTER TABLE query_products DROP COLUMN IF EXISTS data_sources`);
     }
+  },
+  {
+    id: '062_linha_completa_e_premium',
+    name: 'Nova linha: Consulta Completa (relatório no padrão MTix, Veículo Total, R$ 32,99), Consulta Premium (camadas + gravame e Renajud detalhados). Preço só muda se ainda estiver no valor anterior e respeita o piso de margem',
+    up: async (client) => {
+      const features = (list: string[]) => JSON.stringify(list);
+      // ── Consulta Completa (id COMPLETE): passa a comprar o pacote Veículo Total inteiro (sinistro, roubo/furto, leilão, recall, proprietários, base nacional e FIPE).
+      const renamed = await client.query(
+        `UPDATE query_products SET
+            tagline=$1, description=$2, long_description=$3, coverage=$4, features=$5::jsonb, badge='Mais vendida', featured=true, display_order=10,
+            data_sources = COALESCE(data_sources, ARRAY['TOTAL']::text[]), updated_at=now()
+          WHERE id='COMPLETE' AND name='Consulta Completa' RETURNING id`,
+        [
+          'O relatório completo do veículo, pronto para decidir.',
+          'Cadastro, débitos, multas, restrições, financiamento, indício de sinistro, roubo/furto, leilão, recall, proprietários e FIPE em um só relatório.',
+          'A checagem completa antes de comprar, vender ou financiar. Reúne cadastro, débitos, multas e restrições e acrescenta indício de sinistro, histórico de roubo e furto, passagem por leilão, recall, histórico de proprietários, base nacional e valor FIPE com histórico, com resumo em semáforo e PDF com código de validação.',
+          'Cadastro, débitos, restrições, financiamento, sinistro, roubo/furto, leilão, recall, proprietários e FIPE',
+          features([
+            'Resumo da checagem em semáforo: débitos, restrições, alienação, sinistro, roubo/furto e leilão',
+            'Dados do veículo, chassi, motor e características',
+            'Débitos: IPVA, licenciamento, multas e DPVAT',
+            'Restrições: furto/roubo, judicial, administrativa, tributária e base nacional',
+            'Indício de sinistro e histórico de roubo/furto',
+            'Passagem por leilão',
+            'Alienação fiduciária (financiamento)',
+            'Recall e inspeção veicular',
+            'Quantidade de proprietários anteriores',
+            'Valor FIPE, preço médio, variação em 12 e 24 meses e projeção',
+            'Decodificador de chassi e quilometragem de referência (estimativa)',
+            'Relatório em PDF com código de validação'
+          ])
+        ]
+      );
+      const priceRow = async (id: string, from: number | null, to: number, ref: number, reason: string) => {
+        const before = Number((await client.query('SELECT price_cents FROM query_products WHERE id=$1', [id])).rows[0]?.price_cents ?? to);
+        const r = await client.query(
+          `UPDATE query_products SET price_cents=GREATEST($3::int, COALESCE(floor_price_cents,0)), reference_price_cents=$4::int,
+              credit_cost=GREATEST(1, CEIL(GREATEST($3::int, COALESCE(floor_price_cents,0))::numeric/100))::int, price_version=price_version+1, price_updated_at=now(), updated_at=now()
+            WHERE id=$1 AND ($2::int IS NULL OR price_cents=$2::int)
+            RETURNING price_version, price_cents, floor_price_cents, margin_locked`,
+          [id, from, to, ref]
+        );
+        const row = r.rows[0];
+        if (row) {
+          await client.query(
+            `INSERT INTO product_price_history(product_id,version,old_price_cents,new_price_cents,reference_price_cents,floor_price_cents,margin_locked,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+            [id, row.price_version, before, row.price_cents, ref, row.floor_price_cents, Boolean(row.margin_locked), reason]
+          );
+        }
+      };
+      if (renamed.rowCount) await priceRow('COMPLETE', 3199, 3299, 3499, 'Nova Consulta Completa (padrão MTix): R$ 32,99');
+
+      // ── Consulta Premium (id PREMIUM): o que era a Completa em camadas, com gravame e Renajud detalhados.
+      const premium = await client.query(
+        `UPDATE query_products SET
+            name='Consulta Premium', tagline=$1, description=$2, long_description=$3, coverage=$4, features=$5::jsonb, badge='Cobertura máxima', featured=false,
+            display_order=15, active=true, is_free=false, commercial_status='ACTIVE', show_on_home=true, pricing_mode='MANUAL', data_sources=NULL,
+            report_sections=ARRAY['IDENTIFICACAO','CARACTERISTICAS','REGISTRO','DEBITOS','RESTRICOES','HISTORICO','GRAVAME','INSPECAO_RECALL','FIPE','ANALISES','PROPRIETARIO'],
+            updated_at=now()
+          WHERE id='PREMIUM' RETURNING id`,
+        [
+          'Tudo da Completa, com financiamento e restrições judiciais em detalhe.',
+          'Relatório máximo: tudo da Consulta Completa, com gravame detalhado (banco, contrato e datas), restrições judiciais (Renajud) e leilão passagem a passagem.',
+          'Para negócios de valor alto ou veículo financiado. Reúne tudo da Consulta Completa e acrescenta o gravame detalhado (banco, contrato, prazo e valores), as restrições judiciais com tribunal, processo e data (Renajud), a base nacional completa e o leilão com o detalhe de cada passagem.',
+          'Tudo da Completa, gravame detalhado, restrições judiciais e leilão detalhado',
+          features([
+            'Tudo da Consulta Completa',
+            'Gravame detalhado: banco, contrato, datas, prazo e valores',
+            'Restrições judiciais (Renajud): tribunal, processo e data',
+            'Leilão com o detalhe de cada passagem',
+            'Base nacional completa: restrições 01 a 04, situação do chassi e importação',
+            'Relatório em PDF com código de validação'
+          ])
+        ]
+      );
+      if (premium.rowCount) {
+        await priceRow('PREMIUM', null, 4490, 4790, 'Nova Consulta Premium: R$ 44,90');
+        await client.query(`DELETE FROM query_source_rules WHERE product_id='PREMIUM'`);
+        await client.query(`INSERT INTO query_source_rules(product_id,source_type,provider,active,priority,coverage) VALUES('PREMIUM','IDENTITY','contracted',true,10,'Cadastro, débitos, restrições, histórico, gravame e restrições judiciais detalhados, recall e FIPE (fonte contratada)')`);
+      }
+
+      // A Básica (BASIC) continua ativa: clientes da API pública e links antigos ainda compram por esse id. Para tirá-la da vitrine, desative no painel.
+
+      // ── Comparação: recursos novos e leilão incluso na Completa e na Premium.
+      const novos: Array<[string, string, string, number]> = [
+        ['renajud', 'Restrições judiciais detalhadas (Renajud)', 'Tribunal, processo e data da restrição judicial.', 52],
+        ['gravame-detalhado', 'Gravame detalhado', 'Banco, contrato, datas, prazo e valores do financiamento.', 62],
+        ['historico-ocorrencias', 'Sinistro, roubo e furto', 'Indício de sinistro e histórico de roubo ou furto.', 72],
+        ['fipe', 'Valor FIPE e histórico', 'Preço FIPE, preço médio de mercado, variação e projeção.', 74],
+        ['proprietarios', 'Histórico de proprietários', 'Quantidade de proprietários anteriores.', 76]
+      ];
+      for (const [key, label, description, order] of novos) {
+        await client.query(`INSERT INTO catalog_features(key,label,description,display_order) VALUES($1,$2,$3,$4) ON CONFLICT (key) DO NOTHING`, [key, label, description, order]);
+      }
+      const matrix: Record<string, Record<string, 'INCLUDED' | 'NOT_INCLUDED'>> = {
+        COMPLETE: { 'dados-veiculo': 'INCLUDED', registro: 'INCLUDED', identificadores: 'INCLUDED', debitos: 'INCLUDED', restricoes: 'INCLUDED', gravame: 'INCLUDED', 'recall-inspecao': 'INCLUDED', leilao: 'INCLUDED', 'historico-ocorrencias': 'INCLUDED', fipe: 'INCLUDED', proprietarios: 'INCLUDED', 'gravame-detalhado': 'NOT_INCLUDED', renajud: 'NOT_INCLUDED', pdf: 'INCLUDED' },
+        PREMIUM: { 'dados-veiculo': 'INCLUDED', registro: 'INCLUDED', identificadores: 'INCLUDED', debitos: 'INCLUDED', restricoes: 'INCLUDED', gravame: 'INCLUDED', 'recall-inspecao': 'INCLUDED', leilao: 'INCLUDED', 'historico-ocorrencias': 'INCLUDED', fipe: 'INCLUDED', proprietarios: 'INCLUDED', 'gravame-detalhado': 'INCLUDED', renajud: 'INCLUDED', pdf: 'INCLUDED' }
+      };
+      for (const [productId, map] of Object.entries(matrix)) {
+        for (const [key, status] of Object.entries(map)) {
+          await client.query(`INSERT INTO product_catalog_features(product_id,feature_id,status) SELECT $1,id,$3 FROM catalog_features WHERE key=$2 ON CONFLICT DO NOTHING`, [productId, key, status]);
+        }
+        await client.query(`UPDATE product_catalog_features SET status='INCLUDED' WHERE product_id=$1 AND status='SOON' AND feature_id=(SELECT id FROM catalog_features WHERE key='leilao')`, [productId]);
+      }
+
+      // ── Perguntas frequentes que citavam a Básica e o leilão "em breve" (só se ainda estiverem como no texto original).
+      const faq = (question: string) => SEED_FAQS.find((f) => f.question === question)?.answer;
+      const choose = faq('Qual consulta devo escolher?');
+      if (choose) await client.query(`UPDATE faqs SET answer=$2, updated_at=now() WHERE question='Qual consulta devo escolher?' AND answer=$1`, [choose, 'Para conferir se o veículo é o que o anúncio diz, a Cadastral resolve. Se você vai comprar, a Completa reúne débitos, multas, restrições, financiamento, indício de sinistro, roubo/furto, leilão, recall e FIPE em um só relatório. Se o negócio é de valor alto ou o veículo está financiado, a Premium acrescenta o gravame detalhado (banco, contrato e datas) e as restrições judiciais. Na página de planos há um comparador que monta a combinação mais barata para o que você precisa.']);
+      const auction = faq('A consulta de leilão já está disponível?');
+      if (auction) await client.query(`UPDATE faqs SET answer=$2, updated_at=now() WHERE question='A consulta de leilão já está disponível?' AND answer=$1`, [auction, 'Sim. A passagem por leilão já vem dentro das consultas Completa e Premium. A consulta avulsa de leilão ainda aparece como “em breve”. Nada é cobrado por informação que não possa ser entregue.']);
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET price_cents=3199, reference_price_cents=3399, credit_cost=32, data_sources=NULL, badge='Mais completa', updated_at=now() WHERE id='COMPLETE' AND price_cents=3299`);
+      await client.query(`UPDATE query_products SET data_sources=NULL WHERE id='COMPLETE' AND data_sources=ARRAY['TOTAL']::text[]`);
+      await client.query(`UPDATE query_products SET active=false, featured=false, show_on_home=false, updated_at=now() WHERE id='PREMIUM'`);
+      await client.query(`DELETE FROM query_source_rules WHERE product_id='PREMIUM'`);
+    }
   }
 ];

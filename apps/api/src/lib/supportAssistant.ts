@@ -107,7 +107,7 @@ const RE = {
 };
 
 function productByWords(n: string, products: Product[]): Product | null {
-  const map: Array<[RegExp, string]> = [[/completa|veiculo total/, 'COMPLETE'], [/basica/, 'BASIC'], [/gravame|financi|alienac/, 'LIEN'], [/cadastral/, 'CADASTRAL'], [/leilao/, 'AUCTION']];
+  const map: Array<[RegExp, string]> = [[/premium|\bpro\b/, 'PREMIUM'], [/completa|veiculo total/, 'COMPLETE'], [/basica/, 'BASIC'], [/gravame|financi|alienac/, 'LIEN'], [/cadastral/, 'CADASTRAL'], [/leilao/, 'AUCTION']];
   for (const [re, id] of map) if (re.test(n)) { const hit = products.find((p) => p.id === id); if (hit) return hit; }
   return null;
 }

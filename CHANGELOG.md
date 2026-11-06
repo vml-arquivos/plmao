@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.31.0 — Nova linha: Consulta Completa (padrão MTix) e Consulta Premium
+
+- **Consulta Completa (R$ 32,99):** passa a comprar o pacote Veículo Total inteiro numa chamada só (indício de sinistro, roubo/furto, leilão, recall, proprietários, base nacional, FIPE e a base de débitos e restrições). O relatório já traz o resumo em semáforo, débitos, multas, restrições, alienação, FIPE com histórico e as análises do sistema. Mantém o mesmo identificador (`COMPLETE`), então links e histórico continuam valendo.
+- **Consulta Premium (R$ 44,90):** o que era a Completa em camadas, agora acima dela: gravame detalhado (banco, contrato, datas, prazo e valores), restrições judiciais (Renajud), base nacional completa e leilão passagem a passagem. Usa o produto `PREMIUM`, que já existia escondido e agora fica à venda.
+- **Básica (`BASIC`) não foi mexida:** continua ativa a R$ 29,90 para não quebrar quem compra pela API ou por link antigo. Para tirá-la da vitrine, desative em Produtos do site.
+- A comparação do site ganhou os recursos Sinistro/roubo/furto, FIPE, Proprietários, Gravame detalhado e Renajud; o leilão deixou de aparecer como "em breve" nas duas consultas. Perguntas frequentes atualizadas.
+- Preços só mudam se ainda estiverem no valor anterior e nunca ficam abaixo do piso de margem; cada mudança entra no histórico de preços. As fontes de cada consulta continuam editáveis em Produtos do site → Editar → Fontes de dados.
+- Migração 062 (só soma e atualiza textos/preços; sem variável nova).
+
 ## 1.30.0 — Fontes de dados por consulta, leilão simples (AnyCar) e correção da edição no painel
 
 - **Edição no painel:** corrigido o cursor que pulava para o primeiro campo a cada letra digitada ao editar produtos da vitrine, pacotes, recursos e demais janelas. A janela refazia o foco a cada tecla; agora foca só ao abrir. Também: com uma janela dentro de outra, o Esc fecha só a de cima.
