@@ -6,6 +6,8 @@ import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import { formatBRL, formatBps } from '../lib/money.js';
 import { hasPermission, requirePermission } from '../permissions.js';
 import { loadPaymentSettings, maskTail } from '../pricing/settings.js';
+import { randomBytes } from 'node:crypto';
+import { publicAppUrl } from '../config.js';
 
 export const partnersRouter = Router();
 partnersRouter.use(adminAuth);
@@ -198,4 +200,57 @@ partnersRouter.get('/commissions/export.csv', requirePermission('MANAGE_BILLING'
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="comissoes.csv"');
   res.send(`﻿${lines.join('\r\n')}`);
+}));
+
+
+// ── Convites de parceiro: link enviado pelo painel; quem recebe cria a conta e aceita, e a comissão já vem definida.
+const inviteCreate = z.object({
+  name: z.string().trim().max(120).optional(),
+  email: z.string().trim().email().max(254).optional().or(z.literal('')),
+  code: code.optional().or(z.literal('')),
+  partnerType: z.enum(['AFFILIATE', 'INFLUENCER', 'SELLER', 'ORGANIZATION']).default('AFFILIATE'),
+  commissionBps: z.number().int().min(0).max(5000),
+  commissionBase: z.enum(['GROSS', 'NET', 'MARGIN']).nullable().optional(),
+  note: z.string().trim().max(280).nullable().optional(),
+  expiresInDays: z.number().int().min(1).max(90).default(14)
+}).strict();
+
+const inviteLink = (token: string) => new URL(`/parceiro/convite/${encodeURIComponent(token)}`, publicAppUrl()).toString();
+type InviteRow = Record<string, unknown>;
+const inviteStatus = (r: InviteRow): 'USED' | 'REVOKED' | 'EXPIRED' | 'PENDING' => r.used_at ? 'USED' : r.revoked_at ? 'REVOKED' : new Date(String(r.expires_at)).getTime() < Date.now() ? 'EXPIRED' : 'PENDING';
+const presentInvite = (r: InviteRow) => ({
+  id: r.id, name: r.name ?? null, email: r.email ?? null, code: r.code ?? null, partnerType: r.partner_type, commissionBps: Number(r.commission_bps), commissionBase: r.commission_base ?? null, note: r.note ?? null,
+  status: inviteStatus(r), expiresAt: r.expires_at, createdAt: r.created_at, usedAt: r.used_at ?? null, usedByName: r.used_by_name ?? null, partnerId: r.affiliate_id ?? null,
+  link: inviteStatus(r) === 'PENDING' ? inviteLink(String(r.token)) : null
+});
+
+partnersRouter.get('/partner-invites', requirePermission('MANAGE_BILLING'), asyncRoute(async (_req, res) => {
+  const r = await pool.query(`SELECT i.*, u.name AS used_by_name FROM partner_invites i LEFT JOIN users u ON u.id=i.used_by ORDER BY i.created_at DESC LIMIT 200`);
+  res.json(r.rows.map(presentInvite));
+}));
+
+partnersRouter.post('/partner-invites', requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
+  const parsed = inviteCreate.safeParse(req.body);
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const v = parsed.data;
+  const wanted = v.code ? v.code.toUpperCase() : null;
+  if (wanted) {
+    const taken = await pool.query(`SELECT 1 FROM affiliates WHERE code=$1 UNION ALL SELECT 1 FROM partner_invites WHERE code=$1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > now()`, [wanted]);
+    if (taken.rowCount) throw appError('PARTNER_CODE_EXISTS', { code: 'PARTNER_CODE_EXISTS', http: 409, expose: true });
+  }
+  const token = randomBytes(24).toString('base64url');
+  const r = await pool.query(
+    `INSERT INTO partner_invites(token,name,email,code,partner_type,commission_bps,commission_base,note,expires_at,created_by)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,now() + make_interval(days => $9),$10) RETURNING *`,
+    [token, v.name || null, v.email ? v.email.toLowerCase() : null, wanted, v.partnerType, v.commissionBps, v.commissionBase ?? null, v.note ?? null, v.expiresInDays, req.user!.id]
+  );
+  await audit(req.user!.id, 'CREATE_PARTNER_INVITE', 'PARTNER_INVITE', String(r.rows[0].id), { requestId: requestId(req), partnerType: v.partnerType, commissionBps: v.commissionBps });
+  res.status(201).json(presentInvite(r.rows[0]));
+}));
+
+partnersRouter.delete('/partner-invites/:id', requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
+  const r = await pool.query(`UPDATE partner_invites SET revoked_at=now() WHERE id=$1 AND used_at IS NULL AND revoked_at IS NULL RETURNING id`, [req.params.id]);
+  if (!r.rowCount) throw appError('INVITE_NOT_FOUND', { code: 'INVITE_NOT_FOUND', http: 404, expose: true });
+  await audit(req.user!.id, 'REVOKE_PARTNER_INVITE', 'PARTNER_INVITE', String(req.params.id), { requestId: requestId(req) });
+  res.status(204).end();
 }));

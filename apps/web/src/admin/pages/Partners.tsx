@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api';
 import { useAdminSession } from '../session';
-import { Alert, Badge, Button, ConfirmDialog, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Select, Switch, Tabs, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { Alert, Badge, Button, ConfirmDialog, CopyField, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Select, Switch, Tabs, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { bpsToPercent, dateOnly, dateTime, money, num, percentToBps } from '../../shared/format';
 import { Kpi, PageHead } from '../parts';
@@ -17,12 +17,13 @@ const BASES: Record<string, string> = { GROSS: 'Valor bruto', NET: 'Valor líqui
 
 export default function Partners() {
   usePageTitle('Parceiros e repasses');
-  const [tab, setTab] = useState<'partners' | 'commissions' | 'payouts'>('partners');
+  const [tab, setTab] = useState<'partners' | 'invites' | 'commissions' | 'payouts'>('partners');
   return (
     <>
       <PageHead title="Parceiros e repasses" sub="Comissões nascem de vendas pagas, ficam em carência (proteção contra chargeback) e são repassadas com recibo." />
-      <Tabs label="Seções" value={tab} onChange={setTab} items={[{ id: 'partners', label: 'Parceiros' }, { id: 'commissions', label: 'Comissões' }, { id: 'payouts', label: 'Repasses' }]} />
+      <Tabs label="Seções" value={tab} onChange={setTab} items={[{ id: 'partners', label: 'Parceiros' }, { id: 'invites', label: 'Convites' }, { id: 'commissions', label: 'Comissões' }, { id: 'payouts', label: 'Repasses' }]} />
       {tab === 'partners' && <PartnersTab />}
+      {tab === 'invites' && <InvitesTab />}
       {tab === 'commissions' && <CommissionsTab />}
       {tab === 'payouts' && <PayoutsTab />}
     </>
@@ -35,6 +36,7 @@ function PartnersTab() {
   const list = useAsync(() => api.get<Partner[]>('/admin/finance/partners'));
   const [edit, setEdit] = useState<Partner | 'new' | null>(null);
   const [pay, setPay] = useState<Partner | null>(null);
+  const [invite, setInvite] = useState(false);
   const rows = list.data ?? [];
   return (
     <>
@@ -44,7 +46,7 @@ function PartnersTab() {
         <Kpi label="Em repasse" value={money(rows.reduce((a, p) => a + p.inPayoutCents, 0))} />
         <Kpi label="Já pago" value={money(rows.reduce((a, p) => a + p.paidCents, 0))} />
       </div>
-      <div className="toolbar"><span className="grow" /><Button variant="primary" icon="plus" onClick={() => setEdit('new')}>Novo parceiro</Button></div>
+      <div className="toolbar"><span className="grow" /><Button icon="link" onClick={() => setInvite(true)}>Convidar por link</Button><Button variant="primary" icon="plus" onClick={() => setEdit('new')}>Novo parceiro</Button></div>
       {list.loading && !list.data ? <PageLoading /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : !rows.length ? <EmptyState icon="users" title="Nenhum parceiro cadastrado" /> : (
         <div className="table-wrap"><table className="table"><thead><tr><th>Parceiro</th><th>Código</th><th className="r">Comissão</th><th className="r">Carência</th><th className="r">Disponível</th><th className="r">Pago</th><th>Status</th><th /></tr></thead><tbody>
           {rows.map((p) => (
@@ -56,6 +58,7 @@ function PartnersTab() {
           ))}
         </tbody></table></div>
       )}
+      {invite && <InviteModal onClose={() => { setInvite(false); list.reload(); }} />}
       {edit && <PartnerModal partner={edit === 'new' ? null : edit} canSecrets={can('ADMIN_SYSTEM')} onClose={() => { setEdit(null); list.reload(); }} />}
       {pay && <ConfirmDialog title="Gerar repasse" confirmLabel="Gerar repasse" message={<><p>Gerar repasse de <b>{money(pay.availableCents)}</b> para <b>{pay.name}</b>?</p><p className="muted" style={{ fontSize: 13 }}>Estornos/chargebacks pendentes são descontados. O pagamento só é registrado depois, ao marcar como pago.</p></>} onConfirm={async () => { try { await api.post('/admin/finance/payouts', { partnerId: pay.id }); toast.ok('Repasse criado. Acompanhe na aba Repasses.'); list.reload(); } catch (e) { toast.error(errorMessage(e)); throw e; } }} onClose={() => setPay(null)} />}
     </>
@@ -171,6 +174,87 @@ function PaidModal({ p, onClose, onDone }: { p: Payout; onClose: () => void; onD
     <Modal title="Registrar pagamento do repasse" onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={busy} onClick={async () => { setBusy(true); try { await onDone(ref.trim()); } catch (e) { toast.error(errorMessage(e)); setBusy(false); } }}>Confirmar pagamento</Button></>}>
       <div className="stack"><Alert tone="warn">Confirme apenas depois de ter feito o Pix de <b>{money(p.amountCents)}</b> para <b>{p.partner.name}</b>. Esta ação não envia dinheiro: apenas registra.</Alert>
         <Field label="Identificador do comprovante (opcional)"><Input value={ref} onChange={(e) => setRef(e.target.value)} maxLength={120} /></Field></div>
+    </Modal>
+  );
+}
+
+
+interface Invite { id: string; name: string | null; email: string | null; code: string | null; partnerType: string; commissionBps: number; commissionBase: string | null; note: string | null; status: 'PENDING' | 'USED' | 'REVOKED' | 'EXPIRED'; expiresAt: string; createdAt: string; usedAt: string | null; usedByName: string | null; link: string | null }
+const I_STATUS: Record<string, { l: string; t: 'ok' | 'warn' | 'danger' | 'info' | 'neutral' }> = { PENDING: { l: 'Aguardando', t: 'warn' }, USED: { l: 'Aceito', t: 'ok' }, REVOKED: { l: 'Cancelado', t: 'neutral' }, EXPIRED: { l: 'Expirado', t: 'neutral' } };
+
+function InvitesTab() {
+  const toast = useToast();
+  const list = useAsync(() => api.get<Invite[]>('/admin/finance/partner-invites'));
+  const [open, setOpen] = useState(false);
+  const [cancel, setCancel] = useState<Invite | null>(null);
+  const rows = list.data ?? [];
+  return (
+    <>
+      <div className="toolbar"><span className="grow" /><Button variant="primary" icon="plus" onClick={() => setOpen(true)}>Novo convite</Button></div>
+      {list.loading && !list.data ? <PageLoading /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : !rows.length ? <EmptyState icon="link" title="Nenhum convite enviado">Gere um link, envie para quem vai ser parceiro e acompanhe aqui quando ele aceitar.</EmptyState> : (
+        <div className="table-wrap"><table className="table"><thead><tr><th>Convidado</th><th>Tipo</th><th className="r">Comissão</th><th>Situação</th><th>Validade</th><th /></tr></thead><tbody>
+          {rows.map((i) => (
+            <tr key={i.id}><td><b>{i.usedByName ?? i.name ?? 'Sem nome'}</b><div className="muted" style={{ fontSize: 12.5 }}>{i.email ?? 'qualquer e-mail'}{i.code ? ` · código ${i.code}` : ''}</div></td>
+              <td>{TYPES[i.partnerType] ?? i.partnerType}</td><td className="r num">{bpsToPercent(i.commissionBps)}</td>
+              <td><Badge tone={I_STATUS[i.status]?.t ?? 'neutral'} dot>{I_STATUS[i.status]?.l ?? i.status}</Badge>{i.usedAt && <div className="muted" style={{ fontSize: 12 }}>em {dateOnly(i.usedAt)}</div>}</td>
+              <td>{i.status === 'PENDING' ? dateOnly(i.expiresAt) : '—'}</td>
+              <td className="actions">{i.link && <Button size="sm" variant="ghost" onClick={() => { void navigator.clipboard?.writeText(i.link!).then(() => toast.ok('Link copiado.'), () => toast.error('Não foi possível copiar. Selecione o link e copie manualmente.')); }}>Copiar link</Button>}{i.status === 'PENDING' && <Button size="sm" variant="ghost" onClick={() => setCancel(i)}>Cancelar</Button>}</td></tr>
+          ))}
+        </tbody></table></div>
+      )}
+      {open && <InviteModal onClose={() => { setOpen(false); list.reload(); }} />}
+      {cancel && <ConfirmDialog title="Cancelar convite" confirmLabel="Cancelar convite" message={<p>O link deste convite deixa de funcionar. Quem ainda não aceitou não conseguirá entrar como parceiro por ele.</p>} onClose={() => setCancel(null)} onConfirm={async () => { try { await api.del(`/admin/finance/partner-invites/${cancel.id}`); toast.ok('Convite cancelado.'); } catch (e) { toast.error(errorMessage(e)); } list.reload(); }} />}
+    </>
+  );
+}
+
+function InviteModal({ onClose }: { onClose: () => void }) {
+  const toast = useToast();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [type, setType] = useState('AFFILIATE');
+  const [rate, setRate] = useState('10');
+  const [base, setBase] = useState('');
+  const [days, setDays] = useState('14');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState<Invite | null>(null);
+  async function create() {
+    setBusy(true);
+    try {
+      const body: Record<string, unknown> = { name: name.trim() || undefined, email: email.trim() || undefined, code: code.trim() || undefined, partnerType: type, commissionBps: percentToBps(rate), commissionBase: base || null, note: note.trim() || null, expiresInDays: Math.max(1, Math.min(90, Number(days) || 14)) };
+      setCreated(await api.post<Invite>('/admin/finance/partner-invites', body));
+    } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  }
+  if (created?.link) {
+    const text = `Convite para ser parceiro da Placa na Mão: ${created.link}`;
+    return (
+      <Modal title="Convite criado" onClose={onClose} footer={<Button variant="primary" onClick={onClose}>Concluir</Button>}>
+        <div className="stack">
+          <Alert tone="ok">Envie este link para {created.name ?? 'o convidado'}. Ele cria a conta (ou entra) e aceita; o painel de parceiro abre sozinho.</Alert>
+          <CopyField value={created.link} label="Link do convite" />
+          <div><a className="btn" href={`https://wa.me/?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer">Enviar pelo WhatsApp</a></div>
+          <p className="muted" style={{ fontSize: 13 }}>Vale por {days || 14} dias e só pode ser usado uma vez. Depois que ele aceitar, você ajusta a comissão, a chave Pix e o documento em Parceiros.</p>
+        </div>
+      </Modal>
+    );
+  }
+  return (
+    <Modal title="Convidar parceiro por link" wide onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={busy} onClick={() => void create()}>Gerar link</Button></>}>
+      <div className="stack">
+        <div className="form-grid">
+          <Field label="Nome do convidado (opcional)"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <Field label="E-mail (opcional)" hint="Se preencher, só esse e-mail consegue aceitar."><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+          <Field label="Tipo"><Select value={type} onChange={(e) => setType(e.target.value)}>{Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
+          <Field label="Comissão (%)"><Input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
+          <Field label="Base de cálculo" hint="Vazio = padrão do financeiro"><Select value={base} onChange={(e) => setBase(e.target.value)}><option value="">Padrão</option>{Object.entries(BASES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
+          <Field label="Código do link (opcional)" hint="Se vazio, o sistema gera um."><Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))} /></Field>
+          <Field label="Validade (dias)"><Input inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value.replace(/\D/g, ''))} /></Field>
+        </div>
+        <Field label="Anotação interna (opcional)"><Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={280} /></Field>
+        <Alert tone="info">A comissão e o tipo já vão definidos no convite. Chave Pix e documento você preenche depois, em Parceiros.</Alert>
+      </div>
     </Modal>
   );
 }

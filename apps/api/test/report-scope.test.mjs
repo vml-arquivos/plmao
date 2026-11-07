@@ -145,8 +145,10 @@ describe('escopo por produto ponta a ponta: relatório, API pública, HTML, PDF,
   });
 
   it('produto sem fonte ativa ou "em breve" não é cobrado: 409 e saldo intacto', async () => {
+    await pool.query(`UPDATE query_products SET commercial_status='SOON' WHERE id='AUCTION'`);
     const before = Number((await pool.query('SELECT balance_cents FROM wallets WHERE user_id=$1', [userId])).rows[0].balance_cents);
     const r = await call('/api/queries', { method: 'POST', body: { plate: 'DEV1B11', productId: 'AUCTION' } });
+    await pool.query(`UPDATE query_products SET commercial_status='ACTIVE' WHERE id='AUCTION'`);
     assert.equal(r.status, 409, r.text); assert.equal(r.json.error, 'PRODUCT_NOT_AVAILABLE');
     assert.equal(Number((await pool.query('SELECT balance_cents FROM wallets WHERE user_id=$1', [userId])).rows[0].balance_cents), before);
   });

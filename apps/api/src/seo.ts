@@ -58,7 +58,7 @@ const NAV: Array<[string, string]> = [['/fipe', 'Consulta FIPE grátis'], ['/con
 export function renderRobotsTxt(appUrl: string, adminHost: boolean): string {
   if (adminHost) return 'User-agent: *\nDisallow: /\n';
   const base = appUrl.replace(/\/$/, '');
-  return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\nDisallow: /r/\nDisallow: /contrato/\nDisallow: /documento-fiscal/\nDisallow: /comparar?\n\nSitemap: ${base}/sitemap.xml\n`;
+  return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\nDisallow: /r/\nDisallow: /contrato/\nDisallow: /parceiro/\nDisallow: /documento-fiscal/\nDisallow: /comparar?\n\nSitemap: ${base}/sitemap.xml\n`;
 }
 
 export function renderSitemapXml(appUrl: string, extra: Array<{ path: string; lastmod?: Date }> = [], pages: Map<string, { noindex: boolean; updatedAt: Date }> = new Map()): string {

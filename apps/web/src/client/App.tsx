@@ -41,6 +41,7 @@ const Watches = lazy(() => import('./pages/Watches'));
 const QueryDetail = lazy(() => import('./pages/QueryDetail'));
 const Wallet = lazy(() => import('./pages/Wallet'));
 const Partner = lazy(() => import('./pages/Partner'));
+const PartnerInvite = lazy(() => import('./pages/PartnerInvite'));
 const Garage = lazy(() => import('./pages/Garage'));
 const GarageVehicle = lazy(() => import('./pages/Garage').then((m) => ({ default: m.GarageVehicle })));
 const FaqPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.FaqPage })));
@@ -130,6 +131,7 @@ export default function App() {
             <Route path="/contato" element={<Contact />} />
             <Route path="/termos" element={<Legal kind="terms" />} />
             <Route path="/privacidade" element={<Legal kind="privacy" />} />
+            <Route path="/parceiro/convite/:token" element={<PartnerInvite />} />
             <Route path="/contrato/assinar/:token" element={<ContractSign />} />
             <Route path="/contrato/:token" element={<ContractCopy />} />
             <Route path="/documento-fiscal/:token" element={<FiscalDocumentPage />} />

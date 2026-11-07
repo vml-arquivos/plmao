@@ -3,6 +3,7 @@ import { SEED_SOURCE, VEHICLE_SEED } from './data/vehicleSeed.js';
 import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL, CIVIC_SUMMARY, INMETRO_NAME, INMETRO_PBEV_2024_URL, COLLECTED_AT, type ConsumptionSeed } from './data/consumptionSeed.js';
 import { VEHICLE_PHOTOS, photoPage, photoUrl } from './data/vehiclePhotos.js';
 import { readBundledSnapshot, upsertCatalog, rematchCatalog } from './lib/catalog.js';
+import { FIELD_CATALOG } from './report/catalog.js';
 import { FINANCING_FAQS, SEED_ARTICLES, SUPPORT_FAQS, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
 
 /**
@@ -2341,5 +2342,122 @@ export const placaMigrations: Migration[] = [
       await client.query(`UPDATE query_products SET featured=false, badge='Cobertura máxima', display_order=15, updated_at=now() WHERE id='PREMIUM'`);
       await client.query(`UPDATE query_products SET featured=true, updated_at=now() WHERE id='COMPLETE'`);
     }
+  },
+  {
+    id: '069_basica_com_gravame_e_leilao_ativo',
+    name: 'Básica passa a incluir o gravame (banco, contrato e datas), sem leilão e sem proprietários; consulta Leilão passa a ficar ativa à venda. Só muda onde ainda está como antes',
+    up: async (client) => {
+      // ── Básica: base de cadastro/débitos/restrições + gravame completo (buscado quando o cadastro indica alienação).
+      const basica = await client.query(
+        `UPDATE query_products SET data_sources=ARRAY['GRAVAME']::text[],
+            report_sections=CASE WHEN report_sections IS NULL THEN NULL WHEN 'GRAVAME'=ANY(report_sections) THEN report_sections ELSE array_append(report_sections,'GRAVAME') END,
+            updated_at=now()
+          WHERE id='BASIC' AND data_sources IS NULL RETURNING id`
+      );
+      if (basica.rowCount) {
+        await client.query(`UPDATE query_products SET tagline='Cadastro, débitos, restrições e financiamento.' WHERE id='BASIC' AND tagline='Cadastro, débitos e restrições.'`);
+        await client.query(`UPDATE query_products SET description='Dados do veículo, débitos, multas, restrições e financiamento (gravame) para comprar com mais segurança.' WHERE id='BASIC' AND description='Dados do veículo, débitos, multas e restrições para comprar com mais segurança.'`);
+        await client.query(`UPDATE query_products SET coverage='Cadastro, débitos, restrições e gravame' WHERE id='BASIC' AND coverage='Cadastro, débitos e restrições'`);
+        await client.query(
+          `UPDATE query_products SET long_description='O essencial para fechar uma compra com tranquilidade: confere se o veículo é o do anúncio e se há débitos, multas, restrições ou financiamento ativo. Quando o veículo é financiado, mostra o banco, o contrato e as datas do gravame.'
+            WHERE id='BASIC' AND long_description='O essencial para fechar uma compra com tranquilidade: confere se o veículo é o do anúncio e se há débitos, multas ou restrições registradas.'`
+        );
+        const pdf = '"Relatório em PDF com código de validação"';
+        await client.query(
+          `UPDATE query_products SET features=replace(features::text, $1, to_jsonb($2::text)::text || ',' || $1)::jsonb
+            WHERE id='BASIC' AND features::text NOT LIKE '%Financiamento%' AND features::text LIKE '%' || $1 || '%'`,
+          [pdf, 'Financiamento: gravame com banco, contrato e datas, quando houver']
+        );
+        for (const key of ['gravame', 'gravame-detalhado']) {
+          await client.query(`INSERT INTO product_catalog_features(product_id,feature_id,status) SELECT 'BASIC',id,'INCLUDED' FROM catalog_features WHERE key=$1 ON CONFLICT (product_id,feature_id) DO UPDATE SET status='INCLUDED'`, [key]);
+        }
+      }
+
+      // ── Leilão: sai de "em breve" e passa a ser vendido (base de cadastro + leilão conjugado). Preço não muda.
+      const leilao = await client.query(`UPDATE query_products SET active=true, commercial_status='ACTIVE', updated_at=now() WHERE id='AUCTION' AND commercial_status='SOON' RETURNING id`);
+      if (leilao.rowCount) {
+        await client.query(`UPDATE query_products SET description='Veja se o veículo já passou por leilão: registros com data, leiloeiro, lote e condição, quando houver.' WHERE id='AUCTION' AND description LIKE 'Histórico de passagem por leilão.%'`);
+        await client.query(`UPDATE query_products SET long_description='Saiba se o veículo já passou por leilão, informação importante para avaliação, seguro e revenda. O relatório traz os dados do veículo e cada registro de leilão encontrado.' WHERE id='AUCTION' AND long_description LIKE 'Saiba se o veículo já passou por leilão%Ainda não está disponível%'`);
+        await client.query(`UPDATE query_products SET coverage='Dados do veículo e histórico de leilão' WHERE id='AUCTION' AND coverage='Histórico de leilão (em breve)'`);
+        await client.query(`UPDATE query_products SET report_sections=ARRAY['IDENTIFICACAO','CARACTERISTICAS','HISTORICO']::text[] WHERE id='AUCTION' AND report_sections IS NULL`);
+        const regra = await client.query(`SELECT 1 FROM query_source_rules WHERE product_id='AUCTION'`);
+        if (!regra.rowCount) {
+          await client.query(`INSERT INTO query_source_rules(product_id,source_type,provider,active,priority,coverage) VALUES('AUCTION','IDENTITY','contracted',true,10,'Dados do veículo e histórico de leilão (fonte contratada)')`);
+        } else {
+          await client.query(`UPDATE query_source_rules SET active=true WHERE product_id='AUCTION'`);
+        }
+        // Modelo de campos publicado: o relatório de leilão mostra só a identificação, as características e o que vem da consulta de leilão
+        // (sem sinistro, roubo/furto ou recall, que esta consulta não compra).
+        const existente = await client.query(`SELECT 1 FROM report_templates WHERE product_id='AUCTION' AND config->>'model'='CATALOG_V1'`);
+        if (!existente.rowCount) {
+          const campos = (section: string, tier: number) => FIELD_CATALOG.filter((f) => f.section === section && f.tier <= tier && f.sensitivity === 'PUBLIC').map((f) => ({ key: f.key, visible: true }));
+          const config = {
+            model: 'CATALOG_V1',
+            sections: [
+              { key: 'IDENTIFICACAO', order: 10, visible: true, fields: campos('IDENTIFICACAO', 2) },
+              { key: 'CARACTERISTICAS', order: 20, visible: true, fields: campos('CARACTERISTICAS', 2) },
+              { key: 'HISTORICO', order: 55, visible: true, fields: ['VT_LEILAO', 'VT_LEILAO_DETALHES', 'AU_LEILAO', 'AU_LEILAO_DETALHES'].map((key) => ({ key, visible: true })) }
+            ]
+          };
+          const versao = Number((await client.query(`SELECT COALESCE(MAX(version),0)+1 AS v FROM report_templates WHERE product_id='AUCTION'`)).rows[0].v);
+          const tpl = await client.query(`INSERT INTO report_templates(product_id,version,name,status,config) VALUES('AUCTION',$1,'Consulta Leilão — dados do veículo e leilão','DRAFT',$2::jsonb) RETURNING id`, [versao, JSON.stringify(config)]);
+          const id = String(tpl.rows[0].id);
+          await client.query(`UPDATE report_template_publications SET superseded_at=now() WHERE product_id='AUCTION' AND superseded_at IS NULL`);
+          await client.query(`UPDATE report_templates SET status='DRAFT' WHERE product_id='AUCTION' AND status='PUBLISHED'`);
+          await client.query(`UPDATE report_templates SET status='PUBLISHED' WHERE id=$1`, [id]);
+          await client.query(`INSERT INTO report_template_publications(product_id,template_id) VALUES('AUCTION',$1)`, [id]);
+          await client.query(`INSERT INTO product_report_configs(product_id,template_id,mode,formats) VALUES('AUCTION',$1,'SNAPSHOT',ARRAY['JSON','HTML','PDF']) ON CONFLICT(product_id) DO UPDATE SET template_id=EXCLUDED.template_id, updated_at=now()`, [id]);
+        }
+        for (const key of ['leilao', 'dados-veiculo']) {
+          await client.query(`INSERT INTO product_catalog_features(product_id,feature_id,status) SELECT 'AUCTION',id,'INCLUDED' FROM catalog_features WHERE key=$1 ON CONFLICT (product_id,feature_id) DO UPDATE SET status='INCLUDED'`, [key]);
+        }
+        await client.query(`UPDATE catalog_features SET description='Passagem por leilão, com data, leiloeiro, lote e condição quando houver.' WHERE key='leilao' AND description='Passagem por leilão. Disponível assim que a fonte for ativada.'`);
+        await client.query(
+          `UPDATE faqs SET answer='Sim. A consulta de leilão está ativa e a passagem por leilão também vem dentro das consultas Completa e Premium. Nada é cobrado por informação que não possa ser entregue.', updated_at=now()
+            WHERE question='A consulta de leilão já está disponível?' AND answer LIKE 'Sim. A passagem por leilão já vem dentro das consultas Completa e Premium.%'`
+        );
+      }
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET data_sources=NULL, report_sections=array_remove(report_sections,'GRAVAME'), updated_at=now() WHERE id='BASIC' AND data_sources=ARRAY['GRAVAME']::text[]`);
+      await client.query(`UPDATE query_products SET commercial_status='SOON', updated_at=now() WHERE id='AUCTION' AND commercial_status='ACTIVE'`);
+      // O modelo publicado fica no histórico (consultas já feitas apontam para ele); só deixa de valer.
+      const nome = 'Consulta Leilão — dados do veículo e leilão';
+      await client.query(`UPDATE report_template_publications SET superseded_at=now() WHERE product_id='AUCTION' AND superseded_at IS NULL AND template_id IN (SELECT id FROM report_templates WHERE product_id='AUCTION' AND name=$1)`, [nome]);
+      await client.query(`UPDATE report_templates SET status='DRAFT' WHERE product_id='AUCTION' AND name=$1`, [nome]);
+      await client.query(`UPDATE report_templates SET status='PUBLISHED' WHERE id=(SELECT id FROM report_templates WHERE product_id='AUCTION' AND name<>$1 ORDER BY version LIMIT 1)`, [nome]);
+      await client.query(`UPDATE product_report_configs SET template_id=(SELECT id FROM report_templates WHERE product_id='AUCTION' AND name<>$1 ORDER BY version LIMIT 1), updated_at=now() WHERE product_id='AUCTION' AND template_id IN (SELECT id FROM report_templates WHERE product_id='AUCTION' AND name=$1) AND EXISTS (SELECT 1 FROM report_templates WHERE product_id='AUCTION' AND name<>$1)`, [nome]);
+    }
   }
+  ,{
+    id: '070_convites_de_parceiro',
+    name: 'Convites de parceiro: link de cadastro enviado pelo painel, com comissão pré-definida, validade e uso único',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS partner_invites (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          token text NOT NULL UNIQUE,
+          name text,
+          email text,
+          code text,
+          partner_type text NOT NULL DEFAULT 'AFFILIATE' CHECK (partner_type IN ('AFFILIATE','INFLUENCER','SELLER','ORGANIZATION')),
+          commission_bps integer NOT NULL DEFAULT 1000 CHECK (commission_bps >= 0 AND commission_bps <= 5000),
+          commission_base text CHECK (commission_base IS NULL OR commission_base IN ('GROSS','NET','MARGIN')),
+          note text,
+          expires_at timestamptz NOT NULL,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          used_at timestamptz,
+          used_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          affiliate_id uuid REFERENCES affiliates(id) ON DELETE SET NULL,
+          revoked_at timestamptz
+        );
+        CREATE INDEX IF NOT EXISTS idx_partner_invites_created ON partner_invites(created_at DESC);
+      `);
+    },
+    down: async (client) => {
+      await client.query(`DROP TABLE IF EXISTS partner_invites`);
+    }
+  }
+
 ];

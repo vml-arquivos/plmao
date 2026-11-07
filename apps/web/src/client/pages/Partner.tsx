@@ -1,12 +1,55 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../../shared/icons';
-import { Alert, Button, CopyField, ErrorState, Field, Input, PageLoading, Stat, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { Alert, Badge, Button, CopyField, EmptyState, ErrorState, Field, Input, PageLoading, Stat, Tabs, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
-import { bpsToPercent, money } from '../../shared/format';
+import { bpsToPercent, dateOnly, money } from '../../shared/format';
 import { api } from '../api';
 
 interface Affiliate { id: string; name: string; email: string; code: string; commissionBps: number; active: boolean }
 interface Stats { monthly?: Array<{ month: string; payments: number; cents: number }>; affiliate: { id: string; code: string } | null; shareUrl?: string; links?: Array<{ key: string; label: string; url: string }>; performance?: { clicks30d: number; paidPayments: number; reversedCommissions: number }; totals: { commissions: number; pendingCents: number; paidCents: number; referredUsers?: number } }
+
+interface Panel {
+  affiliate: { code: string; commissionBps: number; partnerType: string; active: boolean } | null;
+  totals: { revenueCents: number; salesCount: number; clientsCount: number; queriesCount: number; earnedCents: number; pendingCents: number; availableCents: number; inPayoutCents: number; paidCents: number; clawbackDueCents: number; reversedCount: number };
+  clients: Array<{ id: string; name: string; email: string; joinedAt: string; queries: number; spentCents: number }>;
+  queries: Array<{ id: string; date: string; product: string; plate: string; status: string; customer: string }>;
+  sales: Array<{ id: string; date: string; product: string; customer: string; orderCents: number | null; commissionCents: number; rateBps: number; status: string; availableAt: string | null; paidAt: string | null }>;
+  payouts: Array<{ id: string; amountCents: number; status: string; requestedAt: string; paidAt: string | null }>;
+}
+const C_STATUS: Record<string, { l: string; t: 'ok' | 'warn' | 'danger' | 'info' | 'neutral' }> = { PENDING: { l: 'Em liberação', t: 'warn' }, AVAILABLE: { l: 'Disponível', t: 'ok' }, PAID: { l: 'Paga', t: 'info' }, REVERSED: { l: 'Estornada', t: 'neutral' }, CANCELLED: { l: 'Cancelada', t: 'neutral' }, CLAWBACK_DUE: { l: 'A devolver', t: 'danger' } };
+const P_STATUS: Record<string, { l: string; t: 'ok' | 'warn' | 'danger' | 'info' | 'neutral' }> = { REQUESTED: { l: 'Solicitado', t: 'warn' }, APPROVED: { l: 'Aprovado', t: 'info' }, PAID: { l: 'Pago', t: 'ok' }, REJECTED: { l: 'Rejeitado', t: 'danger' }, CANCELLED: { l: 'Cancelado', t: 'neutral' } };
+const Q_STATUS: Record<string, string> = { SUCCESS: 'Concluída', PROCESSING: 'Em andamento', FAILED: 'Não concluída', REFUNDED: 'Estornada' };
+
+function PartnerPanel({ panel }: { panel: Panel }) {
+  const [tab, setTab] = useState<'sales' | 'clients' | 'queries' | 'payouts'>('sales');
+  const t = panel.totals;
+  return (
+    <section className="stack">
+      <div className="stat-grid">
+        <Stat highlight label="Receita gerada" value={money(t.revenueCents)} sub={`${t.salesCount} ${t.salesCount === 1 ? 'venda paga' : 'vendas pagas'} dos seus indicados`} />
+        <Stat label="Comissão total" value={money(t.earnedCents)} sub="pendente, disponível e paga" />
+        <Stat label="Disponível" value={money(t.availableCents)} sub="pronta para repasse" />
+        <Stat label="Em liberação" value={money(t.pendingCents)} sub="aguardando a carência" />
+        <Stat label="Já pago" value={money(t.paidCents)} sub="repassado a você" />
+        <Stat label="Clientes" value={t.clientsCount} sub={`${t.queriesCount} consultas feitas`} />
+      </div>
+      <Tabs label="Detalhes" value={tab} onChange={setTab} items={[{ id: 'sales', label: 'Vendas e comissões' }, { id: 'clients', label: 'Clientes' }, { id: 'queries', label: 'Consultas' }, { id: 'payouts', label: 'Repasses' }]} />
+      {tab === 'sales' && (panel.sales.length ? <div className="table-wrap"><table className="table"><thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th className="r">Venda</th><th className="r">Comissão</th><th>Situação</th></tr></thead><tbody>
+        {panel.sales.map((r) => <tr key={r.id}><td>{dateOnly(r.date)}</td><td>{r.customer || '—'}</td><td>{r.product}</td><td className="r num">{r.orderCents == null ? '—' : money(r.orderCents)}</td><td className="r num"><b>{money(r.commissionCents)}</b><div className="muted" style={{ fontSize: 12 }}>{bpsToPercent(r.rateBps)}</div></td><td><Badge tone={(C_STATUS[r.status] ?? { t: 'neutral' }).t}>{(C_STATUS[r.status] ?? { l: r.status }).l}</Badge>{r.status === 'PENDING' && r.availableAt && <div className="muted" style={{ fontSize: 12 }}>libera em {dateOnly(r.availableAt)}</div>}</td></tr>)}
+      </tbody></table></div> : <EmptyState icon="dollar" title="Ainda não há vendas">Quando alguém que você indicou pagar, a venda e a comissão aparecem aqui.</EmptyState>)}
+      {tab === 'clients' && (panel.clients.length ? <div className="table-wrap"><table className="table"><thead><tr><th>Cliente</th><th>E-mail</th><th>Cadastro</th><th className="r">Consultas</th><th className="r">Já comprou</th></tr></thead><tbody>
+        {panel.clients.map((r) => <tr key={r.id}><td>{r.name || '—'}</td><td className="mono">{r.email}</td><td>{dateOnly(r.joinedAt)}</td><td className="r num">{r.queries}</td><td className="r num">{money(r.spentCents)}</td></tr>)}
+      </tbody></table></div> : <EmptyState icon="users" title="Nenhum cliente ainda">Quem criar conta pelo seu link ou código aparece aqui.</EmptyState>)}
+      {tab === 'queries' && (panel.queries.length ? <div className="table-wrap"><table className="table"><thead><tr><th>Data</th><th>Cliente</th><th>Consulta</th><th>Placa</th><th>Situação</th></tr></thead><tbody>
+        {panel.queries.map((r) => <tr key={r.id}><td>{dateOnly(r.date)}</td><td>{r.customer || '—'}</td><td>{r.product}</td><td className="mono">{r.plate}</td><td>{Q_STATUS[r.status] ?? r.status}</td></tr>)}
+      </tbody></table></div> : <EmptyState icon="search" title="Nenhuma consulta ainda">As consultas feitas pelos seus clientes aparecem aqui, com a placa parcialmente oculta.</EmptyState>)}
+      {tab === 'payouts' && (panel.payouts.length ? <div className="table-wrap"><table className="table"><thead><tr><th>Solicitado em</th><th className="r">Valor</th><th>Situação</th><th>Pago em</th></tr></thead><tbody>
+        {panel.payouts.map((r) => <tr key={r.id}><td>{dateOnly(r.requestedAt)}</td><td className="r num"><b>{money(r.amountCents)}</b></td><td><Badge tone={(P_STATUS[r.status] ?? { t: 'neutral' }).t}>{(P_STATUS[r.status] ?? { l: r.status }).l}</Badge></td><td>{r.paidAt ? dateOnly(r.paidAt) : '—'}</td></tr>)}
+      </tbody></table></div> : <EmptyState icon="wallet" title="Nenhum repasse ainda">Os repasses feitos pela equipe aparecem aqui, com a data do pagamento.</EmptyState>)}
+      <p className="muted" style={{ fontSize: 13 }}>Para proteger a privacidade dos clientes, o painel mostra só o primeiro nome, o e-mail e a placa parcialmente ocultos.</p>
+    </section>
+  );
+}
 
 function LinkQr({ url, name }: { url: string; name: string }) {
   const [src, setSrc] = useState('');
@@ -25,6 +68,7 @@ export default function Partner() {
   const toast = useToast();
   const me = useAsync(() => api.get<{ affiliate: Affiliate | null }>('/affiliate/me'), []);
   const stats = useAsync(() => api.get<Stats>('/affiliate/stats'), []);
+  const panel = useAsync(() => api.get<Panel>('/affiliate/panel'), []);
   const [code, setCode] = useState('');
   const [linkKey, setLinkKey] = useState('home');
   const [busy, setBusy] = useState(false);
@@ -35,7 +79,7 @@ export default function Partner() {
 
   async function activate() {
     setBusy(true); setError('');
-    try { await api.post('/affiliate/activate', code.trim() ? { code: code.trim() } : {}); toast.ok('Indique e ganhe ativado!'); me.reload(); stats.reload(); }
+    try { await api.post('/affiliate/activate', code.trim() ? { code: code.trim() } : {}); toast.ok('Indique e ganhe ativado!'); me.reload(); stats.reload(); panel.reload(); }
     catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   }
 
@@ -62,11 +106,9 @@ export default function Partner() {
       {!aff.active && <Alert tone="warn" title="Seu cadastro no Indique e ganhe está inativo.">Fale com o suporte para reativar.</Alert>}
       <div className="stat-grid">
         <Stat label="Visitas (30 dias)" value={stats.data?.performance?.clicks30d ?? 0} sub="pessoas que chegaram pelo seu link" />
-        <Stat label="Indicados" value={t?.referredUsers ?? 0} sub="cadastros pelo seu link" />
-        <Stat label="Pagamentos" value={stats.data?.performance?.paidPayments ?? 0} sub={(stats.data?.performance?.reversedCommissions ?? 0) > 0 ? `${stats.data?.performance?.reversedCommissions} estornado(s) ou cancelado(s)` : 'confirmados'} />
-        <Stat label="A receber" value={money(t?.pendingCents ?? 0)} sub="em liberação ou liberadas" />
-        <Stat highlight label="Já pago" value={money(t?.paidCents ?? 0)} sub="repassado a você" />
+        <Stat label="Cadastros" value={t?.referredUsers ?? 0} sub="pessoas que criaram conta pelo seu link" />
       </div>
+      {panel.data?.affiliate && <PartnerPanel panel={panel.data} />}
       <section className="card card-pad stack">
         <h2 style={{ fontSize: 18 }}>Seu código</h2>
         {!stats.data?.links?.length && <CopyField value={stats.data?.shareUrl ?? `${window.location.origin}/?ref=${aff.code}`} label="Link de indicação" />}

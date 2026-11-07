@@ -18,6 +18,7 @@ import { adminAuthRouter } from './routes/adminAuth.js';
 import { financeRouter } from './routes/finance.js';
 import { enforceMarginFloor } from './pricing/guard.js';
 import { partnersRouter, releaseCommissions } from './routes/partners.js';
+import { partnerPortalRouter } from './routes/partnerPortal.js';
 import { adminQueriesRouter } from './routes/adminQueries.js';
 import { completeAuthorization, consumeLoginTicket, createAuthorizationRequest, oauthErrorUrl, oauthSuccessUrl, socialProviderStatus, type OAuthProvider } from './oauth.js';
 import { adminHosts, env, publicAppUrl } from './config.js';
@@ -96,7 +97,7 @@ import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSl
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
 import { DATA_SOURCES, anycarConfigured, sourcesForProduct, validateDataSources } from './lib/dataSources.js';
 import { defaultSourcesFor } from './lib/dataSourceDefaults.js';
-import { scopeForProduct } from './lib/reportScope.js';
+import { scopeForProduct, sectionSellable } from './lib/reportScope.js';
 import { ensureLienDetail } from './lib/lienRefresh.js';
 import { ensureFipeEnrichment, SHEET_PRODUCTS } from './lib/fipeRefresh.js';
 import { checkAd } from './report/adCheck.js';
@@ -124,6 +125,7 @@ api.use((req, res, next) => (req.path.startsWith('/admin') ? adminEdgeGuard(req,
 api.use('/admin/auth', adminAuthRouter);
 api.use('/admin/finance', financeRouter);
 api.use('/admin/finance', partnersRouter);
+api.use(partnerPortalRouter);
 api.use('/admin/queries', adminQueriesRouter);
 api.use('/admin/content', adminContentRouter);
 api.use('/admin/vehicles', adminVehiclesRouter);
@@ -2833,7 +2835,8 @@ function presentAdminProduct(row: Record<string, unknown>) {
   };
 }
 function checkReportSections(sections: string[] | null | undefined): void {
-  if (sections && !sections.every((k) => SELLABLE_REPORT_SECTIONS.has(k))) throw appError('INVALID_REPORT_SECTIONS', { code: 'INVALID_REPORT_SECTIONS', http: 400, expose: true });
+  // O painel lista a seção Proprietário (quando liberada) e a Completa/Premium já a trazem salva: aceitar o que o próprio painel envia.
+  if (sections && !sections.every((k) => SELLABLE_REPORT_SECTIONS.has(k) || (k === 'PROPRIETARIO' && sectionSellable(k)))) throw appError('INVALID_REPORT_SECTIONS', { code: 'INVALID_REPORT_SECTIONS', http: 400, expose: true });
 }
 
 /** Fontes de dados (APIs) que cada consulta pode comprar, com o padrão atual de cada produto e se a fonte está configurada. */
@@ -3331,7 +3334,18 @@ function humanMessage(code: string): string {
     FIPE_SELECTION_REQUIRED: 'Informe a placa ou selecione o veículo para consultar a FIPE.',
     FIPE_DAILY_LIMIT: 'O limite diário de consultas FIPE foi atingido. Tente novamente amanhã.',
     REPORT_NOT_FOUND: 'O relatório solicitado não foi encontrado ou não está disponível.',
-    FIPE_INVALID_REPORT: 'O relatório FIPE não pôde ser validado.'
+    FIPE_INVALID_REPORT: 'O relatório FIPE não pôde ser validado.',
+    PARTNER_CODE_EXISTS: 'Já existe um parceiro ou convite com esse código. Escolha outro.',
+    INVITE_NOT_FOUND: 'Este convite não existe. Peça um novo link à equipe da Placa na Mão.',
+    INVITE_USED: 'Este convite já foi utilizado.',
+    INVITE_REVOKED: 'Este convite foi cancelado. Peça um novo link à equipe da Placa na Mão.',
+    INVITE_EXPIRED: 'Este convite expirou. Peça um novo link à equipe da Placa na Mão.',
+    INVITE_EMAIL_MISMATCH: 'Este convite foi enviado para outro e-mail. Entre com o e-mail que recebeu o convite.',
+    INVALID_REPORT_SECTIONS: 'Uma das seções marcadas não pode ser entregue ao cliente. Desmarque e salve novamente.',
+    INVALID_DATA_SOURCES: 'A combinação de fontes de dados escolhida não é válida.',
+    DATA_SOURCES_AUCTION_CONFLICT: 'Escolha só um tipo de leilão: completo (Credify) ou simples (AnyCar).',
+    DATA_SOURCE_ANYCAR_NOT_CONFIGURED: 'O leilão simples precisa da chave ANYCAR_API_KEY nas variáveis do Coolify.',
+    MARGIN_LOCK: 'O preço está abaixo do piso de margem calculado com os custos cadastrados. Atualize o custo do provedor em Financeiro → Produtos ou aumente o preço.'
   };
   return messages[code] ?? 'Não foi possível concluir esta operação agora. Tente novamente.';
 }

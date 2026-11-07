@@ -30,7 +30,7 @@ describe('catálogo, FAQ e artigos editáveis no painel', integration, () => {
     assert.equal(r.json.products.find((p) => p.id === 'BASIC').priceCents, 2990);
     assert.equal(complete.badge, 'Mais vendida');
     assert.ok(complete.tagline.length > 5 && complete.features.length >= 3);
-    assert.equal(r.json.products.find((p) => p.id === 'AUCTION').commercialStatus, 'SOON');
+    assert.equal(r.json.products.find((p) => p.id === 'AUCTION').commercialStatus, 'ACTIVE');
     assert.ok(r.json.features.length >= 8);
     const lien = r.json.features.find((f) => f.key === 'gravame');
     assert.equal(complete.matrix[lien.id], 'INCLUDED');
@@ -62,7 +62,7 @@ describe('catálogo, FAQ e artigos editáveis no painel', integration, () => {
     assert.equal(basic.discountPercent, Math.round(((4999 - basic.priceCents) / 4999) * 100));
     assert.equal(basic.tagline, 'Resumo editado');
     assert.deepEqual(basic.features, ['Item A', 'Item B']);
-    const badSections = await sa.call('/api/admin/products/BASIC', { method: 'PATCH', body: { reportSections: ['PROPRIETARIO'] } });
+    const badSections = await sa.call('/api/admin/products/BASIC', { method: 'PATCH', body: { reportSections: ['INTERNO'] } });
     assert.equal(badSections.status, 400);
     await sa.call('/api/admin/products/BASIC', { method: 'PATCH', body: { badge: 'Custo-benefício', listPriceCents: null, tagline: 'Cadastro, débitos, multas e restrições.' } });
   });

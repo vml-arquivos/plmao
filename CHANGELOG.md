@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.35.0 — Convite de parceiro, painel do parceiro, Básica com gravame e Leilão ativo
+
+- **Convite de parceiro por link:** em Parceiros e repasses → Convites (ou "Convidar por link"), o painel gera um link com comissão, tipo e base já definidos, validade e uso único (pode prender a um e-mail). Quem recebe cria a conta (ou entra) e aceita; vira parceiro e abre direto no painel dele. Chave Pix e documento você preenche depois, em Parceiros. Dá para cancelar o convite. Migração 070.
+- **Painel do parceiro** (área do cliente, perfil Afiliado): receita gerada, vendas, comissão total, disponível, em liberação e já paga, clientes que ele trouxe, consultas feitas por eles e repasses. Tudo mascarado: só o primeiro nome, e-mail parcial e placa parcial. A página do convite não aparece em buscadores.
+- **Erro ao salvar a Completa/Premium no painel corrigido:** a seção "Proprietário" já vinha marcada nesses produtos e o servidor a recusava, devolvendo a mensagem genérica. Agora é aceita, e erros de seção, fonte e margem passam a mostrar mensagem clara.
+- **Básica com gravame (migração 069):** passa a comprar a base de cadastro/débitos/restrições e o gravame completo (banco, contrato e datas), só quando o cadastro indica financiamento. Sem leilão e sem proprietários. Custo: R$ 2,15 sem financiamento e até R$ 3,52 com financiamento (tabela da Credify). O texto da vitrine e a comparação foram atualizados.
+- **Consulta Leilão ativa (migração 069):** sai de "em breve" e passa a ser vendida (base de cadastro + leilão conjugado, custo ≈ R$ 18,91). O relatório mostra só identificação, características e o histórico de leilão. O preço continua o que você definiu.
+- Sem variável de ambiente nova.
+
 ## 1.34.0 — Preços e posição da Premium e da Completa
 
 - **Premium** (equivalente ao Veículo Completo+ do Olho no Carro): **R$ 62,90**. Passa a ser a "Mais completa" na página de planos e vem primeiro na vitrine.
