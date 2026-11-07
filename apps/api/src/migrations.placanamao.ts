@@ -4,6 +4,8 @@ import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL,
 import { VEHICLE_PHOTOS, photoPage, photoUrl } from './data/vehiclePhotos.js';
 import { readBundledSnapshot, upsertCatalog, rematchCatalog } from './lib/catalog.js';
 import { FIELD_CATALOG } from './report/catalog.js';
+import { loadPaymentSettings } from './pricing/settings.js';
+import { floorPriceFor } from './pricing/productPricing.js';
 import { FINANCING_FAQS, SEED_ARTICLES, SUPPORT_FAQS, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
 
 /**
@@ -2457,6 +2459,44 @@ export const placaMigrations: Migration[] = [
     },
     down: async (client) => {
       await client.query(`DROP TABLE IF EXISTS partner_invites`);
+    }
+  }
+
+  ,{
+    id: '071_custos_por_consulta',
+    name: 'Custo de cada consulta na Credify (tabela do contrato) e preço mínimo calculado com as taxas e impostos configurados. Só preenche o que está vazio; não mexe em preço de venda',
+    up: async (client) => {
+      // Custo unitário (centavos) = soma das chamadas pagas que cada consulta faz em condição normal.
+      //   Cadastral  = base 487 (2,15)
+      //   Financ.    = base + gravame 533 (1,37)
+      //   Básica     = base + gravame (o gravame só é comprado quando o cadastro indica alienação; aqui o pior caso)
+      //   Leilão     = base + leilão conjugado 448 (16,76)
+      //   Completa   = base + sinistro 450 (1,33) + nacional 369 (1,17) + leilão (16,76) + FIPE 454 (0,11)
+      //   Premium    = Completa + gravame (1,37) + RENAJUD (1,60) + proprietários 458 (8,00) + Renainf 536 (0,64)
+      // Roubo/furto (7,31) e recall (1,97) só são comprados quando a base não traz o sinal limpo; ficam FORA do custo normal
+      // e são tratados como reserva no controle financeiro (docs/SISTEMA.md).
+      const custos: Array<[string, number]> = [['CADASTRAL', 215], ['LIEN', 352], ['BASIC', 352], ['AUCTION', 1891], ['COMPLETE', 2152], ['PREMIUM', 3313]];
+      const preenchidos: string[] = [];
+      for (const [id, custo] of custos) {
+        const u = await client.query(`UPDATE query_products SET provider_cost_cents=$2, updated_at=now() WHERE id=$1 AND COALESCE(provider_cost_cents,0)=0 RETURNING id`, [id, custo]);
+        if (u.rowCount) preenchidos.push(id);
+      }
+      const cfg = await client.query('SELECT 1 FROM payment_settings WHERE id=1');
+      if (!cfg.rowCount) return;
+      const settings = await loadPaymentSettings(client);
+      const rows = await client.query(`SELECT id,name,price_cents,provider_cost_cents,supplier_cost_cents FROM query_products WHERE id = ANY($1::text[]) AND (floor_price_cents IS NULL OR id = ANY($2::text[])) AND COALESCE(provider_cost_cents,0) > 0`, [custos.map(([id]) => id), preenchidos]);
+      for (const r of rows.rows) {
+        const { floorCents } = floorPriceFor(settings, { id: String(r.id), name: String(r.name), providerCostCents: Number(r.provider_cost_cents), supplierCostCents: Number(r.supplier_cost_cents ?? 0) });
+        // Piso acima do preço de venda atual não é gravado: bloquearia o salvamento no painel. O alerta aparece em Financeiro → Produtos.
+        // Piso antigo de produto cujo custo acabou de ser preenchido vinha de outro custo: é substituído (ou limpo, se passar do preço).
+        await client.query(`UPDATE query_products SET floor_price_cents=$2 WHERE id=$1`, [r.id, floorCents > 0 && floorCents <= Number(r.price_cents) ? floorCents : null]);
+      }
+    },
+    down: async (client) => {
+      const custos: Array<[string, number]> = [['CADASTRAL', 215], ['LIEN', 352], ['BASIC', 352], ['AUCTION', 1891], ['COMPLETE', 2152], ['PREMIUM', 3313]];
+      for (const [id, custo] of custos) {
+        await client.query(`UPDATE query_products SET provider_cost_cents=NULL, floor_price_cents=NULL WHERE id=$1 AND provider_cost_cents=$2`, [id, custo]);
+      }
     }
   }
 

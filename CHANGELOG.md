@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.36.0 — Custo de cada consulta e controle de margem
+
+- **Custo de cada consulta gravado (migração 071):** Cadastral R$ 2,15 · Financiamento R$ 3,52 · Básica R$ 3,52 · Leilão R$ 18,91 · Completa R$ 21,52 · Premium R$ 33,13. É a soma das chamadas pagas de cada consulta, pela tabela da Credify. Só preenche onde o custo está vazio: valor que você já salvou em Financeiro → Produtos não é alterado.
+- **Preço mínimo (piso) calculado** com os impostos e taxas configurados, garantindo a margem mínima em todas as formas de pagamento habilitadas. Se o piso ficar acima do preço atual, ele não é gravado (não trava o salvamento) e o alerta aparece em Financeiro → Produtos.
+- **Preços de venda não mudam.** Reserva de custo extra: roubo/furto (R$ 7,31) e recall (R$ 1,97) só são comprados quando a base não traz o sinal limpo, por isso ficam fora do custo normal. Detalhes e margens por forma de pagamento em docs/SISTEMA.md.
+- Sem variável de ambiente nova.
+
 ## 1.35.0 — Convite de parceiro, painel do parceiro, Básica com gravame e Leilão ativo
 
 - **Convite de parceiro por link:** em Parceiros e repasses → Convites (ou "Convidar por link"), o painel gera um link com comissão, tipo e base já definidos, validade e uso único (pode prender a um e-mail). Quem recebe cria a conta (ou entra) e aceita; vira parceiro e abre direto no painel dele. Chave Pix e documento você preenche depois, em Parceiros. Dá para cancelar o convite. Migração 070.
