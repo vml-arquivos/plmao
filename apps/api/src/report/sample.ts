@@ -2,6 +2,8 @@
 import { buildReportV2, tierForProductCode, viewReport, type ReportV2 } from './normalizeV2.js';
 import { renderVehiclePdf, type ReportMeta } from './pdf.js';
 import { scopeForProduct } from '../lib/reportScope.js';
+import { sourcesForProduct } from '../lib/dataSources.js';
+import { env } from '../config.js';
 
 export const SAMPLE_RAW: Record<string, unknown> = {
  "CONSULTA": {
@@ -277,11 +279,24 @@ function withoutLien(): Record<string, unknown> {
 }
 
 const cache = new Map<string, ReportV2>();
-export function sampleReport(withLien = false): ReportV2 {
-  const key = withLien ? 'lien' : 'clean';
+/** O histórico de proprietários vem do pacote fechado (Veículo Total) ou da fonte própria de proprietários; a montagem em camadas padrão não compra essa base. */
+function ownersIncluded(productId: string): boolean {
+  const sources = sourcesForProduct(productId);
+  if (sources) return sources.includes('TOTAL') || sources.includes('OWNERS');
+  return !(['COMPLETE', 'PREMIUM'].includes(productId) && env.CREDIFY_COMPLETE_MODE === 'layered');
+}
+function withoutOwners(raw: Record<string, unknown>): Record<string, unknown> {
+  const copy = structuredClone(raw) as { RESPOSTA?: Record<string, unknown> };
+  if (copy.RESPOSTA) delete copy.RESPOSTA.HISTORICOPROPRIETARIO;
+  return copy as Record<string, unknown>;
+}
+
+export function sampleReport(withLien = false, owners = true): ReportV2 {
+  const key = `${withLien ? 'lien' : 'clean'}${owners ? '' : '-noowners'}`;
   let hit = cache.get(key);
   if (!hit) {
-    hit = buildReportV2({ ...(withLien ? SAMPLE_RAW : withoutLien()), enrichment: { fipeHistory: { series: sampleSeries() }, generatedAt: new Date().toISOString() } });
+    const base = withLien ? SAMPLE_RAW : withoutLien();
+    hit = buildReportV2({ ...(owners ? base : withoutOwners(base)), enrichment: { fipeHistory: { series: sampleSeries() }, generatedAt: new Date().toISOString() } });
     cache.set(key, hit);
   }
   return hit;
@@ -290,7 +305,7 @@ export function sampleReport(withLien = false): ReportV2 {
 /** O relatório de exemplo exatamente como o cliente receberia neste produto (mesmas seções, mesmas regras de privacidade). */
 export function sampleViewFor(productId: string): ReportV2 {
   const scope = scopeForProduct(productId, new Date());
-  return viewReport(sampleReport(productId === 'LIEN'), { audience: 'client', tier: tierForProductCode(productId), sections: scope.sections, template: scope.template });
+  return viewReport(sampleReport(productId === 'LIEN', ownersIncluded(productId)), { audience: 'client', tier: tierForProductCode(productId), sections: scope.sections, template: scope.template });
 }
 
 export function sampleSections(productId: string): Array<{ key: string; label: string; items: string[] }> {

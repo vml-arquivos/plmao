@@ -85,7 +85,7 @@ describe('migração 062: Completa e Premium', integration, () => {
     assert.equal(by.PREMIUM.name, 'Consulta Premium');
     assert.equal(by.PREMIUM.active, true);
     assert.ok(by.PREMIUM.price_cents > by.COMPLETE.price_cents);
-    assert.equal(by.PREMIUM.data_sources, null, 'Premium segue o padrão em camadas');
+    assert.deepEqual(by.PREMIUM.data_sources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'OWNERS'], 'Premium: camadas + gravame, Renajud e proprietários fixos');
     assert.equal(by.BASIC.active, true, 'Básica segue ativa para a API e links antigos');
     const hist = await pool.query(`SELECT product_id FROM product_price_history WHERE reason LIKE 'Nova Consulta%'`);
     assert.deepEqual(hist.rows.map((r) => r.product_id).sort(), ['COMPLETE', 'PREMIUM']);
@@ -105,5 +105,52 @@ describe('migração 062: Completa e Premium', integration, () => {
     assert.equal(premium.matrix[feat('renajud')], 'INCLUDED');
     assert.equal(premium.matrix[feat('gravame-detalhado')], 'INCLUDED');
     assert.equal(complete.priceCents, 3299);
+    // A vitrine só promete o que o modo em camadas entrega: nada de histórico de proprietários.
+    assert.doesNotMatch(JSON.stringify([complete.description, complete.longDescription, complete.features, complete.coverage]), /propriet/i);
+    assert.match(JSON.stringify(premium.features), /propriet/i);
+    assert.equal(complete.matrix[feat('proprietarios')], 'NOT_INCLUDED');
+    assert.equal(premium.matrix[feat('proprietarios')], 'INCLUDED');
+    const details = await (await fetch(`${server.base}/api/catalog/details`)).json();
+    for (const id of ['COMPLETE', 'PREMIUM']) {
+      const items = details.products.find((p) => p.id === id).sections.flatMap((s) => s.items);
+      assert.equal(items.includes('Histórico de proprietários'), id === 'PREMIUM', `${id}: histórico de proprietários só na Premium`);
+      assert.ok(items.includes('Indício de sinistro') && items.includes('Participação em leilão'), `${id}: modelo com sinistro e leilão`);
+    }
   });
+});
+
+test('registro de leilão, roubo/furto e recall: o relatório diz o que foi encontrado, nunca "Sucesso"', async () => {
+  const { buildReportV2 } = await import('../dist/report/normalizeV2.js');
+  const leilao = ok('448', { LEILAOCONJUGADO: { DESCRICAORETORNO: 'SUCESSO', REGISTRO_1: { LOTE: '12', PLACA: 'NWM3031', CONDICAOGERALDOVEICULO: 'SUCATA', PATIO: 'SP', LEILOEIRO: 'LEILOES BRASIL', DATALEILAO: '30/10/2013', COMITENTE: 'BANCO X' } } });
+  resetCredifyTokenCache();
+  const f = fakeFetch({ '/debitosrestricoesproprietarios': sample, '/indiciosinistro': ok('450', { DESCRICAORETORNO: 'Sucesso', INDICIODESINISTRO: '1' }), '/veicularbnacionalonline': ok('369', { DESCRICAORETORNO: 'SUCESSO', PLACA: 'AAA0000' }), '/leilaoconjugado': leilao });
+  const out = await new CredifyVehicleProvider(opts(f)).queryByPlate('AAA0000', { productId: 'COMPLETE', sources: ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION'] });
+  const items = new Map(buildReportV2(out.raw).sections.flatMap((s) => s.items).map((i) => [i.key, i]));
+  assert.equal(items.get('VT_LEILAO').state, 'ALERT');
+  assert.equal(items.get('VT_LEILAO').display, 'Consta passagem por leilão');
+  assert.equal(items.get('VT_LEILAO_DETALHES').table.rows.length, 1);
+  assert.equal(items.get('VT_SINISTRO').display, 'Há indício de sinistro');
+});
+
+test('Premium com fonte de proprietários compra a consulta própria e entrega a linha do tempo', async () => {
+  const { buildReportV2 } = await import('../dist/report/normalizeV2.js');
+  const owners = JSON.parse(JSON.stringify(total.RESPOSTA.HISTORICOPROPRIETARIO));
+  resetCredifyTokenCache();
+  const f = fakeFetch({
+    '/debitosrestricoesproprietarios': sample,
+    '/indiciosinistro': ok('450', { DESCRICAORETORNO: 'Sucesso', INDICIODESINISTRO: '0' }),
+    '/veicularbnacionalonline': ok('369', { DESCRICAORETORNO: 'SUCESSO', PLACA: 'AAA0000' }),
+    '/leilaoconjugado': absent('448', 'O VEICULO NAO FOI APRESENTADO NA BASE DE LEILAO.'),
+    '/historicoproprietario': ok('458', { HISTORICOPROPRIETARIO: owners })
+  });
+  const out = await new CredifyVehicleProvider(opts(f)).queryByPlate('AAA0000', { productId: 'PREMIUM', sources: ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'OWNERS'] });
+  assert.ok(f.paid().includes('/historicoproprietario'));
+  const items = new Map(buildReportV2(out.raw).sections.flatMap((s) => s.items).map((i) => [i.key, i]));
+  assert.ok(Number(items.get('VT_PROPRIETARIOS_QTD').value) >= 1, 'quantidade de proprietários');
+  assert.match(String(items.get('VT_PROPRIETARIOS_HISTORICO').value), /atual/);
+  // Sem a fonte, a consulta própria não é comprada.
+  resetCredifyTokenCache();
+  const g = fakeFetch({ '/debitosrestricoesproprietarios': sample, '/indiciosinistro': ok('450', { DESCRICAORETORNO: 'Sucesso', INDICIODESINISTRO: '0' }), '/veicularbnacionalonline': ok('369', { DESCRICAORETORNO: 'SUCESSO', PLACA: 'AAA0000' }), '/leilaoconjugado': absent('448', 'O VEICULO NAO FOI APRESENTADO NA BASE DE LEILAO.') });
+  await new CredifyVehicleProvider(opts(g)).queryByPlate('AAA0000', { productId: 'COMPLETE', sources: ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION'] });
+  assert.ok(!g.paid().includes('/historicoproprietario'));
 });

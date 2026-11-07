@@ -4,7 +4,7 @@
  *  - com escolha: o produto compra só as fontes marcadas (mais a base de cadastro, que identifica o veículo).
  * O que o cliente VÊ continua sendo definido por "Campos do relatório"; aqui se define o que é COMPRADO (custo).
  */
-export type DataSourceKey = 'BASE' | 'SINISTRO' | 'NATIONAL' | 'THEFT' | 'RECALL' | 'AUCTION' | 'AUCTION_SIMPLE' | 'GRAVAME' | 'RENAJUD' | 'TOTAL';
+export type DataSourceKey = 'BASE' | 'SINISTRO' | 'NATIONAL' | 'THEFT' | 'RECALL' | 'AUCTION' | 'AUCTION_SIMPLE' | 'GRAVAME' | 'RENAJUD' | 'OWNERS' | 'TOTAL';
 
 export interface DataSourceDef { key: DataSourceKey; label: string; description: string; provider: 'credify' | 'anycar' }
 
@@ -17,6 +17,7 @@ export const DATA_SOURCES: readonly DataSourceDef[] = [
   { key: 'AUCTION_SIMPLE', label: 'Leilão simples (AnyCar)', description: 'Só diz se o veículo passou por leilão: data, leiloeiro, lote, condição e valor. Mais barato.', provider: 'anycar' },
   { key: 'GRAVAME', label: 'Gravame completo', description: 'Banco, contrato e datas do financiamento; busca quando o cadastro indica alienação (Credify).', provider: 'credify' },
   { key: 'RENAJUD', label: 'Restrições judiciais (Renajud)', description: 'Busca quando o cadastro indica restrição judicial (Credify).', provider: 'credify' },
+  { key: 'OWNERS', label: 'Histórico de proprietários', description: 'Quantidade e linha do tempo de proprietários (Credify). Consulta própria, cobrada sempre que o produto a usa.', provider: 'credify' },
   { key: 'TOTAL', label: 'Pacote Veículo Total (Credify)', description: 'Uma compra só com todas as bases. Substitui as demais fontes.', provider: 'credify' }
 ];
 
@@ -71,6 +72,7 @@ const SOURCE_FIELDS: Record<string, readonly string[]> = {
   AUCTION_SIMPLE: ['VT_LEILAO', 'VT_LEILAO_DETALHES', 'AU_LEILAO', 'AU_LEILAO_DETALHES'],
   GRAVAME: ['GR_DETALHES', 'GR_PRAZO', 'GR_VALORES'],
   RENAJUD: ['RJ_DETALHES'],
+  OWNERS: ['VT_PROPRIETARIOS_QTD', 'VT_PROPRIETARIOS_HISTORICO'],
   TOTAL: ['VT_SINISTRO', 'VT_ROUBOFURTO', 'VT_ROUBOFURTO_DETALHES', 'VT_LEILAO', 'VT_LEILAO_DETALHES', 'VT_RECALL', 'VT_RECALL_DETALHES', 'VT_PROPRIETARIOS_QTD', 'VT_PROPRIETARIOS_HISTORICO', 'VT_FIPE_PRECO', 'VT_FIPE_PRECO_MEDIO', 'VT_FIPE_CODIGO', 'VT_FIPE_MODELO', 'VT_FIPE_VIGENCIA']
 };
 

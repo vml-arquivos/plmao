@@ -2182,5 +2182,83 @@ export const placaMigrations: Migration[] = [
     down: async (client) => {
       await client.query(`UPDATE query_products SET data_sources=ARRAY['TOTAL']::text[] WHERE id='COMPLETE' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION']::text[]`);
     }
+  },
+  {
+    id: '064_textos_e_fontes_completa_premium',
+    name: 'Ajusta os textos da vitrine da Completa e da Premium ao que cada uma entrega de fato e fixa as fontes da Premium (camadas + gravame e Renajud quando o cadastro indica). Só mexe nos textos que ainda estão como na 062',
+    up: async (client) => {
+      await client.query(
+        `UPDATE query_products SET description=$1, long_description=$2, coverage=$3, features=$4::jsonb, updated_at=now()
+          WHERE id='COMPLETE' AND tagline='O relatório completo do veículo, pronto para decidir.'`,
+        [
+          'Cadastro, débitos, multas, restrições, financiamento, indício de sinistro, roubo/furto, leilão, recall e FIPE em um só relatório.',
+          'A checagem completa antes de comprar, vender ou financiar. Reúne cadastro, débitos, multas e restrições e acrescenta indício de sinistro, histórico de roubo e furto, passagem por leilão, recall, base nacional e valor FIPE com histórico, com resumo em semáforo e PDF com código de validação.',
+          'Cadastro, débitos, restrições, financiamento, sinistro, roubo/furto, leilão, recall e FIPE',
+          JSON.stringify([
+            'Resumo da checagem em semáforo: débitos, restrições, alienação, sinistro, roubo/furto e leilão',
+            'Dados do veículo, chassi, motor e características',
+            'Débitos: IPVA, licenciamento, multas e DPVAT',
+            'Restrições: furto/roubo, judicial, administrativa, tributária e base nacional',
+            'Indício de sinistro e histórico de roubo/furto',
+            'Passagem por leilão: data, leiloeiro, lote e condição do veículo',
+            'Alienação fiduciária (financiamento)',
+            'Recall e inspeção veicular',
+            'Valor FIPE, preço médio, variação em 12 e 24 meses e projeção',
+            'Fabricante, origem e ano pelo chassi e quilometragem de referência (estimativa)',
+            'Relatório em PDF com código de validação'
+          ])
+        ]
+      );
+      await client.query(
+        `UPDATE query_products SET description=$1, long_description=$2, coverage=$3, features=$4::jsonb, updated_at=now()
+          WHERE id='PREMIUM' AND tagline='Tudo da Completa, com financiamento e restrições judiciais em detalhe.'`,
+        [
+          'Tudo da Consulta Completa, mais o gravame detalhado (banco, contrato e datas) e as restrições judiciais (Renajud).',
+          'Para negócios de valor alto ou veículo financiado. Reúne tudo da Consulta Completa e acrescenta o gravame detalhado (banco, contrato, prazo e valores) e as restrições judiciais com tribunal, processo e data (Renajud), quando o cadastro indica alienação ou restrição.',
+          'Tudo da Completa, gravame detalhado e restrições judiciais',
+          JSON.stringify([
+            'Tudo da Consulta Completa',
+            'Gravame detalhado: banco, contrato, datas, prazo e valores (quando há alienação)',
+            'Restrições judiciais (Renajud): tribunal, processo e data (quando há restrição)',
+            'Relatório em PDF com código de validação'
+          ])
+        ]
+      );
+      // Fontes fixas: a Premium não depende de variável de ambiente para trazer gravame e Renajud.
+      await client.query(`UPDATE query_products SET data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD']::text[] WHERE id='PREMIUM' AND data_sources IS NULL`);
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET data_sources=NULL WHERE id='PREMIUM' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD']::text[]`);
+    }
+  },
+  {
+    id: '065_premium_com_historico_de_proprietarios',
+    name: 'Consulta Premium passa a trazer também o histórico de proprietários (consulta própria da Credify). Só muda se a Premium ainda estiver nas fontes da 064 e com os textos da 064',
+    up: async (client) => {
+      const done = await client.query(
+        `UPDATE query_products SET data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD','OWNERS']::text[],
+            description=$1, long_description=$2, coverage=$3, features=$4::jsonb, updated_at=now()
+          WHERE id='PREMIUM' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD']::text[]
+            AND tagline='Tudo da Completa, com financiamento e restrições judiciais em detalhe.' RETURNING id`,
+        [
+          'Tudo da Consulta Completa, mais gravame detalhado, restrições judiciais (Renajud) e histórico de proprietários.',
+          'Para negócios de valor alto ou veículo financiado. Reúne tudo da Consulta Completa e acrescenta o gravame detalhado (banco, contrato, prazo e valores), as restrições judiciais com tribunal, processo e data (Renajud), quando o cadastro indica, e o histórico de proprietários do veículo.',
+          'Tudo da Completa, gravame detalhado, restrições judiciais e histórico de proprietários',
+          JSON.stringify([
+            'Tudo da Consulta Completa',
+            'Gravame detalhado: banco, contrato, datas, prazo e valores (quando há alienação)',
+            'Restrições judiciais (Renajud): tribunal, processo e data (quando há restrição)',
+            'Histórico de proprietários: quantidade e linha do tempo',
+            'Relatório em PDF com código de validação'
+          ])
+        ]
+      );
+      if (done.rowCount) {
+        await client.query(`UPDATE product_catalog_features SET status='INCLUDED' WHERE product_id='PREMIUM' AND feature_id=(SELECT id FROM catalog_features WHERE key='proprietarios')`);
+      }
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD']::text[] WHERE id='PREMIUM' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD','OWNERS']::text[]`);
+    }
   }
 ];

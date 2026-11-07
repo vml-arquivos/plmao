@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.32.0 — Completa (padrão MTix) e Premium (padrão Olho no Carro) com vitrine, área do cliente e PDF alinhados
+
+- **Premium** passa a ter fontes fixas: sinistro, base nacional, roubo/furto, recall, leilão, gravame completo, Renajud e **histórico de proprietários** (nova fonte `OWNERS`, consulta própria da Credify, cobrada sempre que o produto a usa). Quantidade e linha do tempo de proprietários saem no relatório e no PDF só na Premium; a Completa não promete nem entrega esse item.
+- **Textos da vitrine** (descrição, o que inclui, cobertura) da Completa e da Premium reescritos para dizer só o que cada uma entrega, sem repetir itens. A Premium vira "tudo da Completa + gravame detalhado + restrições judiciais + proprietários".
+- **Relatório:** leilão, roubo/furto e recall que constam agora aparecem como "Consta passagem por leilão", "Consta registro de roubo ou furto" e "Consta recall do fabricante" (antes podia sair "Sucesso").
+- **Modelo de exemplo (PDF e tela do site):** só mostra o histórico de proprietários nos produtos que realmente o entregam.
+- Assistente de suporte reconhece "Premium" e "Completa" separadas.
+- Migrações 064 (textos e fontes) e 065 (proprietários na Premium). Só mudam se o produto ainda estiver com o texto/fontes anteriores; o que você editou no painel não é sobrescrito. Preços não são alterados: ajuste em Produtos do site.
+- Sem variável de ambiente nova.
+
 ## 1.31.1 — Consulta Completa em camadas (mais barata, no padrão MTix)
 
 - A Consulta Completa deixa de comprar o pacote fechado Veículo Total e passa a ser montada em camadas: base de débitos, restrições e alienação + indício de sinistro + base nacional + leilão conjugado; roubo/furto e recall só viram consulta própria quando o cadastro indica. Sem gravame e Renajud pagos (esses ficam na Premium).

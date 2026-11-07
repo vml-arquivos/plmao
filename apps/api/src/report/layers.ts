@@ -86,6 +86,8 @@ export interface LayerInput {
   leilao: Piece;
   farol?: Farol;
   national: Piece;
+  /** Histórico de proprietários (consulta própria da Credify); sem ela o bloco fica como "não consultado". */
+  owners?: Piece;
 }
 
 /** A documentação mostra algumas consultas com os campos dentro de um bloco de mesmo nome (ex.: RESPOSTA.INDICIOSINISTROVEICULAR); outras vêm direto. Aceita as duas formas. */
@@ -122,7 +124,7 @@ export function buildLayeredEnvelope(input: LayerInput): Rec {
     RECALL: slot('RECALL', input.recall, input.recallFromFlag),
     HISTORICOROUBOFURTO: slot('HISTORICOROUBOFURTO', input.theft, input.theftFromFlag),
     LEILAOCONJUGADO: input.leilao.kind === 'none' ? { code: input.farol ? '2' : '3' } : slot('LEILAOCONJUGADO', input.leilao),
-    HISTORICOPROPRIETARIO: { code: '3' },
+    HISTORICOPROPRIETARIO: input.owners && input.owners.kind !== 'none' ? slot('HISTORICOPROPRIETARIO', input.owners) : { code: '3' },
     VEICULARBNACIONAL: slot('VEICULARBNACIONAL', input.national),
     PRECIFICADORFIPE: { code: '3' },
     VEICULOSBDRP: { code: '1', block: bdrp }

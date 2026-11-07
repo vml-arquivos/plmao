@@ -144,7 +144,7 @@ const money = (v: unknown): number => {
  *  código 3 ou bloco ausente → não informado; código 2 → a base não tem o veículo (roubo/leilão: nada consta);
  *  código 1 → há registro (alerta com o texto da fonte). Sem vetor de códigos, vale o texto.
  */
-function occurrence(r: Rec, name: BlockName, clearText: string, noneMeansClear: boolean): VtValue {
+function occurrence(r: Rec, name: BlockName, clearText: string, noneMeansClear: boolean, alertText = 'Consta registro'): VtValue {
   const b = block(r, name);
   if (!b) return NOT_PROVIDED;
   const c = blockCode(r, name);
@@ -158,7 +158,9 @@ function occurrence(r: Rec, name: BlockName, clearText: string, noneMeansClear: 
   if (saysNone && !records(b).length && c !== '3') return { state: 'CLEAR', value: desc || clearText, display: clearText };
   if (c === '2' || (c === undefined && saysNone)) return noneMeansClear ? { state: 'CLEAR', value: desc || clearText, display: clearText } : NOT_PROVIDED;
   if (c === undefined && (!desc || saysUnknown)) return NOT_PROVIDED;
-  return { state: 'ALERT', value: desc || 'CONSTA', display: desc ? sentenceCase(desc) : 'Consta registro' };
+  // "Sucesso", "OK" e afins só dizem que a consulta rodou; o cliente precisa ler o que foi encontrado.
+  const generic = !desc || /^(SUCESSO|OK|CONSULTA (REALIZADA )?COM SUCESSO|REGISTRO(S)? ENCONTRADO(S)?|ENCONTRADO)\.?$/.test(f.trim());
+  return { state: 'ALERT', value: desc || 'CONSTA', display: generic ? alertText : sentenceCase(desc) };
 }
 
 const LABELS: Record<string, string> = { DATA: 'Data', DT: 'Data', LEILOEIRO: 'Leiloeiro', LOTE: 'Lote', COMITENTE: 'Comitente', STATUS: 'Situação', SITUACAO: 'Situação', UF: 'UF', MUNICIPIO: 'Município', CIDADE: 'Cidade', DESCRICAO: 'Descrição', CAMPANHA: 'Campanha', FABRICANTE: 'Fabricante', RISCO: 'Risco', REMEDIO: 'Solução', TIPO: 'Tipo', OBSERVACAO: 'Observação', BO: 'Boletim de ocorrência', BOLETIM: 'Boletim de ocorrência', DELEGACIA: 'Delegacia' };
@@ -249,9 +251,9 @@ export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
     : ind === '0' ? { state: 'CLEAR', value: 'SEM INDICIO', display: 'Sem indício de sinistro' } : { state: 'ALERT', value: str(sin.DESCRICAORETORNO) || 'INDICIO DE SINISTRO', display: 'Há indício de sinistro' });
   const origem = isRec(r.ORIGEM) ? upperKeys(r.ORIGEM as Rec) : {};
   // Roubo/furto lido só do marcador do cadastro (Completa em camadas): a frase diz exatamente isso.
-  const theft = occurrence(r, 'HISTORICOROUBOFURTO', origem.ROUBOFURTO === 'CADASTRO' ? 'Sem restrição de roubo ou furto no cadastro do veículo' : 'Não consta no histórico de roubo ou furto', true);
-  const auction = auctionWithFarol(r, occurrence(r, 'LEILAOCONJUGADO', 'Não consta em base de leilão', true));
-  const recall = occurrence(r, 'RECALL', 'Sem recall pendente', false);
+  const theft = occurrence(r, 'HISTORICOROUBOFURTO', origem.ROUBOFURTO === 'CADASTRO' ? 'Sem restrição de roubo ou furto no cadastro do veículo' : 'Não consta no histórico de roubo ou furto', true, 'Consta registro de roubo ou furto');
+  const auction = auctionWithFarol(r, occurrence(r, 'LEILAOCONJUGADO', 'Não consta em base de leilão', true, 'Consta passagem por leilão'));
+  const recall = occurrence(r, 'RECALL', 'Sem recall pendente', false, 'Consta recall do fabricante');
   out.set('VT_ROUBOFURTO', theft); out.set('VT_ROUBOFURTO_DETALHES', occurrenceDetails(r, 'HISTORICOROUBOFURTO', theft));
   out.set('VT_LEILAO', auction); out.set('VT_LEILAO_DETALHES', occurrenceDetails(r, 'LEILAOCONJUGADO', auction));
   out.set('VT_RECALL', recall); out.set('VT_RECALL_DETALHES', occurrenceDetails(r, 'RECALL', recall));
