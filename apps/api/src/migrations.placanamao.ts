@@ -2305,5 +2305,41 @@ export const placaMigrations: Migration[] = [
       await client.query(`UPDATE query_products SET data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION']::text[] WHERE id='COMPLETE' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','FIPE']::text[]`);
       await client.query(`UPDATE query_products SET data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD','OWNERS']::text[] WHERE id='PREMIUM' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD','OWNERS','FIPE','RENAINF']::text[]`);
     }
+  },
+  {
+    id: '068_precos_premium_e_completa',
+    name: 'Preços definidos pelo responsável: Premium (equivalente ao Veículo Completo+) R$ 62,90 e Completa (equivalente ao MTix) R$ 34,59. Premium vira a "Mais completa" e passa à frente na vitrine',
+    up: async (client) => {
+      const definir = async (id: string, novo: number, motivo: string) => {
+        const atual = await client.query('SELECT price_cents, floor_price_cents FROM query_products WHERE id=$1', [id]);
+        if (!atual.rowCount) return;
+        const antes = Number(atual.rows[0].price_cents);
+        // Preço escolhido pelo responsável. Se o piso gravado for maior (custo antigo), ele é limpo e volta a ser calculado ao salvar os custos em Financeiro.
+        const r = await client.query(
+          `UPDATE query_products SET price_cents=$2::int, pricing_mode='MANUAL', credit_cost=GREATEST(1, CEIL($2::numeric/100))::int,
+              floor_price_cents=CASE WHEN floor_price_cents > $2::int THEN NULL ELSE floor_price_cents END, margin_locked=false,
+              list_price_cents=CASE WHEN list_price_cents IS NOT NULL AND list_price_cents <= $2::int THEN NULL ELSE list_price_cents END,
+              price_version=price_version+CASE WHEN price_cents<>$2::int THEN 1 ELSE 0 END,
+              price_updated_at=CASE WHEN price_cents<>$2::int THEN now() ELSE price_updated_at END, updated_at=now()
+            WHERE id=$1 RETURNING price_version, floor_price_cents`,
+          [id, novo]
+        );
+        if (antes !== novo && r.rows[0]) {
+          await client.query(
+            `INSERT INTO product_price_history(product_id,version,old_price_cents,new_price_cents,reference_price_cents,floor_price_cents,margin_locked,reason) VALUES($1,$2,$3,$4,NULL,$5,false,$6)`,
+            [id, r.rows[0].price_version, antes, novo, r.rows[0].floor_price_cents, motivo]
+          );
+        }
+      };
+      await definir('PREMIUM', 6290, 'Consulta Premium (padrão Veículo Completo+): R$ 62,90');
+      await definir('COMPLETE', 3459, 'Consulta Completa (padrão MTix): R$ 34,59');
+      // Premium é a "Mais completa" (faixa da página de planos) e vem primeiro; a Completa segue como a mais vendida.
+      await client.query(`UPDATE query_products SET featured=true, badge='Mais completa', display_order=8, updated_at=now() WHERE id='PREMIUM' AND active=true`);
+      await client.query(`UPDATE query_products SET featured=false, badge='Mais vendida', display_order=10, updated_at=now() WHERE id='COMPLETE' AND active=true`);
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET featured=false, badge='Cobertura máxima', display_order=15, updated_at=now() WHERE id='PREMIUM'`);
+      await client.query(`UPDATE query_products SET featured=true, updated_at=now() WHERE id='COMPLETE'`);
+    }
   }
 ];

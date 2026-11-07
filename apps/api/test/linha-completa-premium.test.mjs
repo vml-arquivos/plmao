@@ -74,12 +74,15 @@ describe('migração 062: Completa e Premium', integration, () => {
   before(async () => { ({ pool } = await loadCore()); server = await startServer({}); });
   after(async () => { await server.stop(); await pool.end(); });
 
-  it('Completa a R$ 32,99 com Veículo Total; Premium acima; Básica intacta', async () => {
+  it('Completa a R$ 34,59 com Veículo Total; Premium a R$ 62,90; Básica intacta', async () => {
     const rows = (await pool.query(`SELECT id,name,price_cents,credit_cost,active,featured,commercial_status,data_sources,report_sections FROM query_products WHERE id IN ('COMPLETE','PREMIUM','BASIC')`)).rows;
     const by = Object.fromEntries(rows.map((r) => [r.id, r]));
     assert.equal(by.COMPLETE.name, 'Consulta Completa');
-    assert.equal(by.COMPLETE.price_cents, 3299);
-    assert.equal(by.COMPLETE.credit_cost, 33);
+    assert.equal(by.COMPLETE.price_cents, 3459, '068: preço definido pelo responsável');
+    assert.equal(by.COMPLETE.credit_cost, 35);
+    assert.equal(by.PREMIUM.price_cents, 6290);
+    assert.equal(by.PREMIUM.featured, true, 'Premium é a Mais completa');
+    assert.equal(by.COMPLETE.featured, false);
     assert.deepEqual(by.COMPLETE.data_sources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'FIPE'], 'Completa montada em camadas, com FIPE pela placa (067)');
     assert.ok(by.COMPLETE.report_sections.includes('HISTORICO') && by.COMPLETE.report_sections.includes('FIPE'));
     assert.equal(by.PREMIUM.name, 'Consulta Premium');
@@ -89,6 +92,8 @@ describe('migração 062: Completa e Premium', integration, () => {
     assert.equal(by.BASIC.active, true, 'Básica segue ativa para a API e links antigos');
     const hist = await pool.query(`SELECT product_id FROM product_price_history WHERE reason LIKE 'Nova Consulta%'`);
     assert.deepEqual(hist.rows.map((r) => r.product_id).sort(), ['COMPLETE', 'PREMIUM']);
+    const hist68 = await pool.query(`SELECT product_id,new_price_cents FROM product_price_history WHERE reason LIKE 'Consulta Premium (padrão%' OR reason LIKE 'Consulta Completa (padrão%' ORDER BY product_id`);
+    assert.deepEqual(hist68.rows.map((r) => [r.product_id, r.new_price_cents]), [['COMPLETE', 3459], ['PREMIUM', 6290]]);
   });
 
   it('vitrine pública: Completa e Premium aparecem, com leilão incluso e Premium com gravame/Renajud detalhados', async () => {
@@ -104,7 +109,9 @@ describe('migração 062: Completa e Premium', integration, () => {
     assert.equal(complete.matrix[feat('renajud')], 'NOT_INCLUDED');
     assert.equal(premium.matrix[feat('renajud')], 'INCLUDED');
     assert.equal(premium.matrix[feat('gravame-detalhado')], 'INCLUDED');
-    assert.equal(complete.priceCents, 3299);
+    assert.equal(complete.priceCents, 3459);
+    assert.equal(premium.priceCents, 6290);
+    assert.ok(ids.indexOf('PREMIUM') < ids.indexOf('COMPLETE'), 'Premium vem primeiro na vitrine');
     // A vitrine só promete o que o modo em camadas entrega: nada de histórico de proprietários.
     assert.doesNotMatch(JSON.stringify([complete.description, complete.longDescription, complete.features, complete.coverage]), /propriet/i);
     assert.match(JSON.stringify(premium.features), /propriet/i);

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.34.0 — Preços e posição da Premium e da Completa
+
+- **Premium** (equivalente ao Veículo Completo+ do Olho no Carro): **R$ 62,90**. Passa a ser a "Mais completa" na página de planos e vem primeiro na vitrine.
+- **Completa** (equivalente ao MTix): **R$ 34,59**. Segue como "Mais vendida".
+- Os dois preços ficam em modo manual (sem a regra de referência de mercado) e entram no histórico de preços. Os nomes e o conteúdo não mudaram.
+- Se o piso de margem gravado estiver acima do preço (custo antigo), ele é limpo e volta a ser calculado quando você salvar os custos em Financeiro → Produtos (Completa ≈ R$ 21,50 e Premium ≈ R$ 33,15, pela tabela da Credify).
+- Migração 068. Sem variável de ambiente nova.
+
 ## 1.33.0 — Completa e Premium fechando as lacunas de dados (FIPE pela placa, multas detalhadas, alterações)
 
 - **FIPE pela placa (Completa e Premium):** nova fonte `FIPE` (Credify `/precificadorfipe`): código FIPE, preço e preço médio exatos pela placa. Antes a FIPE da Completa era localizada pelo modelo e ano.
