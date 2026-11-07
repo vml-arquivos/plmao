@@ -291,11 +291,22 @@ function withoutOwners(raw: Record<string, unknown>): Record<string, unknown> {
   return copy as Record<string, unknown>;
 }
 
-export function sampleReport(withLien = false, owners = true): ReportV2 {
-  const key = `${withLien ? 'lien' : 'clean'}${owners ? '' : '-noowners'}`;
+/** A consulta de infrações (RENAINF) só entra no modelo dos produtos que a compram. O exemplo não tem multas, como o resto do modelo. */
+function renainfIncluded(productId: string): boolean {
+  return sourcesForProduct(productId)?.includes('RENAINF') === true;
+}
+function withRenainf(raw: Record<string, unknown>): Record<string, unknown> {
+  const copy = structuredClone(raw) as { RESPOSTA?: Record<string, unknown> };
+  if (copy.RESPOSTA) copy.RESPOSTA.RENAINF = { PLACA: 'ABC1234', DEBITOS: {} };
+  return copy as Record<string, unknown>;
+}
+
+export function sampleReport(withLien = false, owners = true, renainf = false): ReportV2 {
+  const key = `${withLien ? 'lien' : 'clean'}${owners ? '' : '-noowners'}${renainf ? '-renainf' : ''}`;
   let hit = cache.get(key);
   if (!hit) {
-    const base = withLien ? SAMPLE_RAW : withoutLien();
+    const base0 = withLien ? SAMPLE_RAW : withoutLien();
+    const base = renainf ? withRenainf(base0) : base0;
     hit = buildReportV2({ ...(owners ? base : withoutOwners(base)), enrichment: { fipeHistory: { series: sampleSeries() }, generatedAt: new Date().toISOString() } });
     cache.set(key, hit);
   }
@@ -305,7 +316,7 @@ export function sampleReport(withLien = false, owners = true): ReportV2 {
 /** O relatório de exemplo exatamente como o cliente receberia neste produto (mesmas seções, mesmas regras de privacidade). */
 export function sampleViewFor(productId: string): ReportV2 {
   const scope = scopeForProduct(productId, new Date());
-  return viewReport(sampleReport(productId === 'LIEN', ownersIncluded(productId)), { audience: 'client', tier: tierForProductCode(productId), sections: scope.sections, template: scope.template });
+  return viewReport(sampleReport(productId === 'LIEN', ownersIncluded(productId), renainfIncluded(productId)), { audience: 'client', tier: tierForProductCode(productId), sections: scope.sections, template: scope.template });
 }
 
 export function sampleSections(productId: string): Array<{ key: string; label: string; items: string[] }> {

@@ -2260,5 +2260,50 @@ export const placaMigrations: Migration[] = [
     down: async (client) => {
       await client.query(`UPDATE query_products SET data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD']::text[] WHERE id='PREMIUM' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD','OWNERS']::text[]`);
     }
+  },
+  {
+    id: '066_gravame_sem_promessa_de_valores',
+    name: 'Textos do gravame detalhado: as bases não informam saldo devedor nem parcelas, então a vitrine deixa de prometer "valores". Só troca onde o texto ainda é o das migrações anteriores',
+    up: async (client) => {
+      await client.query(`UPDATE query_products SET
+          description=replace(replace(description,'(banco, contrato, prazo e valores)','(banco, contrato, datas e prazo do contrato)'),'banco, contrato, datas, prazo e valores','banco, contrato, datas e prazo do contrato'),
+          long_description=replace(replace(long_description,'(banco, contrato, prazo e valores)','(banco, contrato, datas e prazo do contrato)'),'(banco, contrato, datas, prazo e valores)','(banco, contrato, datas e prazo do contrato)'),
+          features=replace(features::text,'datas, prazo e valores','datas e prazo do contrato')::jsonb,
+          updated_at=now()
+        WHERE id='PREMIUM' AND (description LIKE '%prazo e valores%' OR long_description LIKE '%prazo e valores%' OR features::text LIKE '%prazo e valores%')`);
+      await client.query(`UPDATE catalog_features SET description='Banco, contrato, datas e prazo do contrato. As bases oficiais não informam saldo devedor nem parcelas.' WHERE key='gravame-detalhado' AND description='Banco, contrato, datas, prazo e valores do financiamento.'`);
+    },
+    down: async (client) => {
+      await client.query(`UPDATE catalog_features SET description='Banco, contrato, datas, prazo e valores do financiamento.' WHERE key='gravame-detalhado' AND description='Banco, contrato, datas e prazo do contrato. As bases oficiais não informam saldo devedor nem parcelas.'`);
+    }
+  },
+  {
+    id: '067_fipe_alteracoes_e_multas_detalhadas',
+    name: 'Completa e Premium: FIPE pela placa e comparação de alterações entre bases; Premium: multas detalhadas por infração (RENAINF). Só muda onde as fontes ainda são as das migrações anteriores',
+    up: async (client) => {
+      const alteracoes = 'Alterações de características: chassi, motor, câmbio, cor e combustível comparados entre as bases';
+      const pdf = '"Relatório em PDF com código de validação"';
+      const completa = await client.query(
+        `UPDATE query_products SET data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','FIPE']::text[],
+            features=CASE WHEN features::text LIKE '%Alterações de características%' THEN features ELSE replace(features::text, $1, to_jsonb($2::text)::text || ',' || $1)::jsonb END, updated_at=now()
+          WHERE id='COMPLETE' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION']::text[] RETURNING id`,
+        [pdf, alteracoes]
+      );
+      await client.query(
+        `UPDATE query_products SET data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD','OWNERS','FIPE','RENAINF']::text[],
+            features=CASE WHEN features::text LIKE '%Multas detalhadas%' THEN features ELSE replace(features::text, $1, to_jsonb($2::text)::text || ',' || $1)::jsonb END, updated_at=now()
+          WHERE id='PREMIUM' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD','OWNERS']::text[] RETURNING id`,
+        [pdf, 'Multas detalhadas: cada infração com descrição, vencimento e valor (RENAINF)']
+      );
+      await client.query(`INSERT INTO catalog_features(key,label,description,display_order) VALUES('alteracoes','Alterações de características','Compara chassi, motor, câmbio, cor e combustível entre o cadastro estadual, a base nacional e o registro de leilão.',56) ON CONFLICT (key) DO NOTHING`);
+      await client.query(`INSERT INTO catalog_features(key,label,description,display_order) VALUES('multas-detalhadas','Multas detalhadas por infração','Cada multa com descrição, vencimento e valor (RENAINF).',57) ON CONFLICT (key) DO NOTHING`);
+      for (const [productId, key] of [['COMPLETE', 'alteracoes'], ['PREMIUM', 'alteracoes'], ['PREMIUM', 'multas-detalhadas']] as const) {
+        await client.query(`INSERT INTO product_catalog_features(product_id,feature_id,status) SELECT $1,id,'INCLUDED' FROM catalog_features WHERE key=$2 ON CONFLICT DO NOTHING`, [productId, key]);
+      }
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION']::text[] WHERE id='COMPLETE' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','FIPE']::text[]`);
+      await client.query(`UPDATE query_products SET data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD','OWNERS']::text[] WHERE id='PREMIUM' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD','OWNERS','FIPE','RENAINF']::text[]`);
+    }
   }
 ];

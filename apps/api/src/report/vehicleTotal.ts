@@ -188,6 +188,69 @@ function occurrenceDetails(r: Rec, name: BlockName, main: VtValue): VtValue {
 const digitsOnly = (s: string) => s.replace(/\D/g, '');
 const unknownText = (s: string) => !s || /^(NAO INFORMAD[OA]|N\/?A|-+)$/.test(fold(s));
 
+const comparable = (v: unknown): string => fold(str(v)).replace(/[^A-Z0-9]/g, '');
+const missing = (v: unknown): boolean => { const t = str(v); return !t || unknownText(t) || /^0+$/.test(t); };
+
+/**
+ * Alterações de características: compara chassi, motor, câmbio, cor e combustível entre o cadastro estadual (BDRP),
+ * a base nacional e, quando há, o registro de leilão. NÃO são dados de fábrica: é a mesma informação vista por
+ * bases diferentes. Chassi, motor e câmbio divergentes viram alerta; cor e combustível divergentes só são informados.
+ */
+function featureChanges(r: Rec): VtValue {
+  const bdrp = block(r, 'VEICULOSBDRP');
+  const state: Rec = bdrp && isRec(bdrp.RETORNO) ? upperKeys(bdrp.RETORNO as Rec) : {};
+  const nat = records(block(r, 'VEICULARBNACIONAL'))[0] ?? {};
+  const auction = auctionRecords(r.LEILAOCONJUGADO)[0] ?? {};
+  const hasAuction = Object.keys(auction).length > 0;
+  const rows: Array<{ label: string; vals: [unknown, unknown, unknown]; critical: boolean }> = [
+    { label: 'Chassi', vals: [state.CHASSI, nat.CHASSI, auction.CHASSI], critical: true },
+    { label: 'Motor', vals: [state.MOTOR, nat.NUMERO_MOTOR, auction.NRMOTOR], critical: true },
+    { label: 'Caixa de câmbio', vals: [state.NUMERO_CAIXACAMBIO, nat.NUMERO_CAIXA_CAMBIO, auction.NRCAMBIO], critical: true },
+    { label: 'Cor', vals: [state.COR, nat.COR, auction.COR], critical: false },
+    { label: 'Combustível', vals: [state.COMBUSTIVEL, nat.COMBUSTIVEL, auction.COMBUSTIVEL], critical: false }
+  ];
+  let compared = 0; let criticalDiff = 0; let anyDiff = 0;
+  const table: string[][] = [];
+  for (const row of rows) {
+    const shown = row.vals.map((v) => (missing(v) ? '—' : str(v)));
+    const present = row.vals.filter((v) => !missing(v)).map(comparable);
+    let result = 'Sem base para comparar';
+    if (present.length >= 2) {
+      compared++;
+      if (new Set(present).size === 1) result = 'Sem divergência';
+      else { result = 'Divergente'; anyDiff++; if (row.critical) criticalDiff++; }
+    }
+    if (shown.some((x) => x !== '—')) table.push([row.label, shown[0]!, shown[1]!, ...(hasAuction ? [shown[2]!] : []), result]);
+  }
+  if (!compared) return NOT_PROVIDED;
+  const columns = ['Item', 'Cadastro estadual', 'Base nacional', ...(hasAuction ? ['Registro de leilão'] : []), 'Resultado'];
+  const text = criticalDiff
+    ? 'Há divergência de chassi, motor ou câmbio entre as bases consultadas; confira o veículo pessoalmente'
+    : anyDiff ? 'Sem divergência de chassi, motor ou câmbio; cor ou combustível diferem entre as bases' : 'Sem divergência entre as bases consultadas';
+  return { state: criticalDiff ? 'ALERT' : 'INFO', value: text, display: text, table: { columns, rows: table } };
+}
+
+/** Multas detalhadas da consulta de infrações (RENAINF): uma linha por infração. */
+function renainfFines(r: Rec): VtValue {
+  const rn = isRec(r.RENAINF) ? upperKeys(r.RENAINF as Rec) : null;
+  if (!rn) return NOT_PROVIDED;
+  const d = rn.DEBITOS;
+  const list: Rec[] = Array.isArray(d) ? d.filter(isRec).map((x) => upperKeys(x as Rec)) : isRec(d)
+    ? (() => { const up = upperKeys(d as Rec); const regs = Object.entries(up).filter(([k, v]) => /^REGISTRO_\d+$/.test(k) && isRec(v)).map(([, v]) => upperKeys(v as Rec)); return regs.length ? regs : [up]; })()
+    : [];
+  const fines = list.filter((x) => money(x.TOTAL) > 0 || money(x.MULTA) > 0 || (str(x.DESCRICAO) !== '' && !unknownText(str(x.DESCRICAO))));
+  if (!fines.length) return { state: 'CLEAR', value: 'Sem multas', display: 'Nenhuma multa registrada na consulta de infrações (RENAINF)' };
+  const rows = fines.slice(0, 30).map((x) => [
+    str(x.DESCRICAO) || str(x.TIPO) || 'Infração',
+    str(x.DATA_VENCIMENTO) ? brDate(x.DATA_VENCIMENTO) : '—',
+    money(x.TOTAL) ? brlFromCents(money(x.TOTAL)) : money(x.MULTA) ? brlFromCents(money(x.MULTA)) : '—',
+    str(x.STATUS_PAGAMENTO) || 'Em aberto'
+  ]);
+  const total = fines.reduce((acc, x) => acc + (money(x.TOTAL) || money(x.MULTA)), 0);
+  const t = `${fines.length} ${fines.length === 1 ? 'multa' : 'multas'}${total ? ` — total ${brlFromCents(total)}` : ''}`;
+  return { state: 'ALERT', value: t, display: t, table: { columns: ['Infração', 'Vencimento', 'Valor', 'Situação'], rows } };
+}
+
 /**
  * Histórico de proprietários, um por linha (mais recente primeiro): ano, local e quem era. Empresa (CNPJ) aparece completa;
  * pessoa física com nome e CPF, sempre completos.
@@ -242,6 +305,8 @@ export function vehicleTotalExtras(raw: unknown): Map<string, VtValue> {
   out.set('VN_ULTIMA_ATUALIZACAO', textItem(str(nat?.ULTIMA_ATUALIZACAO) ? brDate(nat?.ULTIMA_ATUALIZACAO) : ''));
   const di = str(nat?.NUMERO_DI);
   const importer = digitsOnly(str(nat?.IDENTIFICACAO_IMPORTADORA));
+  out.set('AL_ALTERACOES', featureChanges(r));
+  out.set('RN_MULTAS', renainfFines(r));
   out.set('VN_IMPORTACAO', di && !unknownText(di) && di !== '0' ? textItem([`DI nº ${di}`, str(nat?.DATA_REGISTRO_DI) ? `registrada em ${brDate(nat?.DATA_REGISTRO_DI)}` : '', str(nat?.UNIDADE_LOCAL_SRF) && !unknownText(str(nat?.UNIDADE_LOCAL_SRF)) ? `unidade da Receita ${str(nat?.UNIDADE_LOCAL_SRF)}` : '', importer && importer.length >= 11 ? `importador ${formatDocument(importer)}` : ''].filter(Boolean).join(' · ')) : NOT_PROVIDED);
 
   const sin = block(r, 'INDICIOSINISTROVEICULAR');

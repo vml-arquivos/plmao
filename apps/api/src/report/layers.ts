@@ -88,6 +88,10 @@ export interface LayerInput {
   national: Piece;
   /** Histórico de proprietários (consulta própria da Credify); sem ela o bloco fica como "não consultado". */
   owners?: Piece;
+  /** FIPE pela placa (consulta própria da Credify); sem ela o bloco fica como "não consultado". */
+  fipe?: Piece;
+  /** Infrações (RENAINF): multas detalhadas. Vai fora do vetor de blocos do Veículo Total. */
+  renainf?: Piece;
 }
 
 /** A documentação mostra algumas consultas com os campos dentro de um bloco de mesmo nome (ex.: RESPOSTA.INDICIOSINISTROVEICULAR); outras vêm direto. Aceita as duas formas. */
@@ -106,6 +110,13 @@ function slot(name: LayerBlock, piece: Piece, flag?: string): { code: string; bl
   if (piece.kind === 'notFound') return { code: '2', block: { DESCRICAORETORNO: NOT_PRESENTED[name] ?? 'DADO NAO ENCONTRADO' } };
   return { code: '3' };
 }
+
+/** A consulta de infrações pode vir direto ou dentro de RESPOSTA.RENAINF. */
+function unwrapRenainf(resposta: Rec): Rec {
+  const inner = upperKeys(resposta).RENAINF;
+  return isRec(inner) ? { ...upperKeys(resposta), ...upperKeys(inner) } : resposta;
+}
+function renainfBlock(resposta: Rec): Rec { return blockFrom(resposta); }
 
 /** A base nacional sai do bloco simples da consulta avulsa como REGISTRO_1, que é o formato do Veículo Total. */
 function nationalBlock(resposta: Rec): Rec {
@@ -126,11 +137,12 @@ export function buildLayeredEnvelope(input: LayerInput): Rec {
     LEILAOCONJUGADO: input.leilao.kind === 'none' ? { code: input.farol ? '2' : '3' } : slot('LEILAOCONJUGADO', input.leilao),
     HISTORICOPROPRIETARIO: input.owners && input.owners.kind !== 'none' ? slot('HISTORICOPROPRIETARIO', input.owners) : { code: '3' },
     VEICULARBNACIONAL: slot('VEICULARBNACIONAL', input.national),
-    PRECIFICADORFIPE: { code: '3' },
+    PRECIFICADORFIPE: input.fipe && input.fipe.kind !== 'none' ? slot('PRECIFICADORFIPE', input.fipe) : { code: '3' },
     VEICULOSBDRP: { code: '1', block: bdrp }
   };
   const resposta: Rec = { CODIGO: LAYER_ORDER.map((n) => pieces[n].code) };
   for (const n of LAYER_ORDER) if (pieces[n].block) resposta[n] = pieces[n].block;
+  if (input.renainf?.kind === 'data') resposta.RENAINF = renainfBlock(unwrapRenainf(input.renainf.resposta));
   if (input.farol) resposta.FAROLLEILAO = { PARECERTECNICO: String(input.farol.parecer), SEMAFORO: input.farol.semaforo };
   const origem: Rec = {};
   if (input.theftFromFlag !== undefined) origem.ROUBOFURTO = 'CADASTRO';

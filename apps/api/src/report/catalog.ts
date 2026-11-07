@@ -171,6 +171,8 @@ export const FIELD_CATALOG: FieldDef[] = [
  * Só entram no relatório quando a resposta do fornecedor é do tipo Veículo Total (ver vehicleTotal.ts).
  */
 export const VT_CATALOG: FieldDef[] = [
+  f('AL_ALTERACOES', 'Alterações de características: comparação entre bases', 'CARACTERISTICAS', 'text', 2, { optional: true }),
+  f('RN_MULTAS', 'Multas: detalhe por infração (RENAINF)', 'DEBITOS', 'text', 2, { optional: true }),
   f('VT_PLACA_MERCOSUL', 'Placa (padrão Mercosul)', 'IDENTIFICACAO', 'text', 1),
   f('VT_EMPLACAMENTO', 'Data de emplacamento', 'REGISTRO', 'text', 2),
   f('VT_SINISTRO', 'Indício de sinistro', 'HISTORICO', 'flag', 2),

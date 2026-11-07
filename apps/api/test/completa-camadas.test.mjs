@@ -130,3 +130,13 @@ test('resposta com os campos dentro do bloco de mesmo nome (formato da documenta
   const items = new Map(buildReportV2(out.raw).sections.flatMap((s) => s.items).map((i) => [i.key, i]));
   assert.equal(items.get('VT_SINISTRO').state, 'ALERT');
 });
+
+test('Completa com as fontes do painel (sem gravame marcado) ainda mostra a alienação do cadastro, sem chamada extra', async () => {
+  resetCredifyTokenCache();
+  const f = fakeFetch({ '/debitosrestricoesproprietarios': withFlags(ALIENADO), '/indiciosinistro': SINISTRO_LIMPO, '/veicularbnacionalonline': NACIONAL, '/leilaoconjugado': LEILAO_NADA, '/gravame': GRAVAME });
+  const out = await new CredifyVehicleProvider(opts(f)).queryByPlate('AAA0000', { productId: 'COMPLETE', sources: ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION'] });
+  const items = new Map(buildReportV2(out.raw).sections.flatMap((s) => s.items).map((i) => [i.key, i]));
+  assert.ok(!f.paid().includes('/gravame'), 'sem gravame marcado, não compra a consulta de gravame');
+  assert.equal(items.get('RESTRICAOFINAN').state, 'ALERT');
+  assert.match(String(items.get('GR_SITUACAO').value), /alienação|gravame/i);
+});

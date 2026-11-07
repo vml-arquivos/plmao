@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.33.0 — Completa e Premium fechando as lacunas de dados (FIPE pela placa, multas detalhadas, alterações)
+
+- **FIPE pela placa (Completa e Premium):** nova fonte `FIPE` (Credify `/precificadorfipe`): código FIPE, preço e preço médio exatos pela placa. Antes a FIPE da Completa era localizada pelo modelo e ano.
+- **Multas detalhadas (Premium):** nova fonte `RENAINF` (Credify `/renainf`): cada infração com descrição, vencimento, valor e situação. O valor segue o formato "195,23"; confira na primeira consulta real.
+- **Alterações de características (Completa e Premium):** compara chassi, motor, câmbio, cor e combustível entre o cadastro estadual, a base nacional e o registro de leilão (quando há). Chassi, motor ou câmbio divergentes viram alerta. Não são dados de fábrica: é a mesma informação vista por bases diferentes. Sem custo extra.
+- **Texto do gravame corrigido:** a vitrine da Premium não promete mais "valores" do financiamento (as bases não informam saldo devedor nem parcelas). Migração 066.
+- Migração 067: Completa passa a usar FIPE e Premium passa a usar FIPE e RENAINF, só se as fontes ainda forem as da versão anterior. Sem variável de ambiente nova.
+- Custo extra por consulta (preços do inventário): FIPE R$ 0,11 (Completa e Premium) e RENAINF R$ 0,64 (Premium).
+
 ## 1.32.0 — Completa (padrão MTix) e Premium (padrão Olho no Carro) com vitrine, área do cliente e PDF alinhados
 
 - **Premium** passa a ter fontes fixas: sinistro, base nacional, roubo/furto, recall, leilão, gravame completo, Renajud e **histórico de proprietários** (nova fonte `OWNERS`, consulta própria da Credify, cobrada sempre que o produto a usa). Quantidade e linha do tempo de proprietários saem no relatório e no PDF só na Premium; a Completa não promete nem entrega esse item.
