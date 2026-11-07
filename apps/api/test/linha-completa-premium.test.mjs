@@ -30,11 +30,25 @@ function fakeFetch(routes) {
 }
 const opts = (fetchImpl) => ({ baseUrl: 'https://api.credify.test', clientId: 'cid', clientSecret: 'sec', method: 'post', timeoutMs: 3000, fetchImpl });
 
-test('Completa (fonte Veículo Total) compra uma consulta só: o pacote inteiro', async () => {
+test('fonte Veículo Total compra uma consulta só: o pacote inteiro', async () => {
   resetCredifyTokenCache();
   const f = fakeFetch({ '/veiculototal': total });
   await new CredifyVehicleProvider(opts(f)).queryByPlate('AAA0000', { productId: 'COMPLETE', sources: ['TOTAL'] });
   assert.deepEqual(f.paid(), ['/veiculototal']);
+});
+
+test('Completa em camadas: base + sinistro + nacional + leilão, sem o pacote fechado nem gravame/Renajud pagos', async () => {
+  resetCredifyTokenCache();
+  const f = fakeFetch({
+    '/debitosrestricoesproprietarios': sample,
+    '/indiciosinistro': ok('450', { DESCRICAORETORNO: 'Sucesso', INDICIODESINISTRO: '1' }),
+    '/veicularbnacionalonline': ok('369', { DESCRICAORETORNO: 'SUCESSO', PLACA: 'AAA0000' }),
+    '/leilaoconjugado': absent('448', 'O VEICULO NAO FOI APRESENTADO NA BASE DE LEILAO.')
+  });
+  await new CredifyVehicleProvider(opts(f)).queryByPlate('AAA0000', { productId: 'COMPLETE', sources: ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION'] });
+  const paid = f.paid();
+  assert.ok(!paid.includes('/veiculototal') && !paid.includes('/gravame') && !paid.includes('/renajud'));
+  for (const p of ['/debitosrestricoesproprietarios', '/indiciosinistro', '/veicularbnacionalonline', '/leilaoconjugado']) assert.ok(paid.includes(p), p);
 });
 
 test('Premium usa as camadas (base + sinistro + base nacional + leilão), nunca o pacote fechado', async () => {
@@ -66,7 +80,7 @@ describe('migração 062: Completa e Premium', integration, () => {
     assert.equal(by.COMPLETE.name, 'Consulta Completa');
     assert.equal(by.COMPLETE.price_cents, 3299);
     assert.equal(by.COMPLETE.credit_cost, 33);
-    assert.deepEqual(by.COMPLETE.data_sources, ['TOTAL']);
+    assert.deepEqual(by.COMPLETE.data_sources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION'], 'Completa montada em camadas (063)');
     assert.ok(by.COMPLETE.report_sections.includes('HISTORICO') && by.COMPLETE.report_sections.includes('FIPE'));
     assert.equal(by.PREMIUM.name, 'Consulta Premium');
     assert.equal(by.PREMIUM.active, true);

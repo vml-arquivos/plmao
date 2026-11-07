@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.31.1 — Consulta Completa em camadas (mais barata, no padrão MTix)
+
+- A Consulta Completa deixa de comprar o pacote fechado Veículo Total e passa a ser montada em camadas: base de débitos, restrições e alienação + indício de sinistro + base nacional + leilão conjugado; roubo/furto e recall só viram consulta própria quando o cadastro indica. Sem gravame e Renajud pagos (esses ficam na Premium).
+- O histórico de proprietários vinha só no pacote fechado, então saiu da lista e da comparação da Completa e da Premium para não prometer o que não entrega.
+- Migração 063: só troca se a Completa ainda estiver na fonte da 062. Quem já mudou as fontes no painel não é afetado.
+
 ## 1.31.0 — Nova linha: Consulta Completa (padrão MTix) e Consulta Premium
 
 - **Consulta Completa (R$ 32,99):** passa a comprar o pacote Veículo Total inteiro numa chamada só (indício de sinistro, roubo/furto, leilão, recall, proprietários, base nacional, FIPE e a base de débitos e restrições). O relatório já traz o resumo em semáforo, débitos, multas, restrições, alienação, FIPE com histórico e as análises do sistema. Mantém o mesmo identificador (`COMPLETE`), então links e histórico continuam valendo.

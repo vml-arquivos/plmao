@@ -386,7 +386,7 @@ Para não prometer mais do que o sistema faz:
 
 ## Linha de consultas: Completa e Premium (1.31.0)
 
-- **Completa** (`COMPLETE`, R$ 32,99): fonte `TOTAL` (Credify `/veiculototal`, uma compra só). Seções: identificação, características, registro, débitos, restrições, histórico, gravame (situação), inspeção/recall, FIPE, análises e proprietário.
+- **Completa** (`COMPLETE`, R$ 32,99): camadas `SINISTRO`, `NATIONAL`, `THEFT`, `RECALL`, `AUCTION` sobre a base `/debitosrestricoesproprietarios` (1.31.1; na 1.31.0 era a fonte `TOTAL`, que continua disponível no painel). Seções: identificação, características, registro, débitos, restrições, histórico, gravame (situação), inspeção/recall, FIPE, análises e proprietário.
 - **Premium** (`PREMIUM`, R$ 44,90): sem escolha de fontes, segue o modo em camadas (`CREDIFY_COMPLETE_MODE=layered`): base + sinistro + base nacional + roubo/furto/recall/leilão quando o cadastro indica, mais gravame completo e Renajud (`CREDIFY_GRAVAME_SUPPLEMENT`, `CREDIFY_JUDICIAL_SUPPLEMENT`). Com `CREDIFY_COMPLETE_MODE=total` volta ao pacote fechado.
 - **Básica** (`BASIC`) segue ativa e inalterada (R$ 29,90); o id também é usado pelas buscas internas de placa (guia de veículos e FIPE), que compram só a base de cadastro. Desativá-la na vitrine bloqueia compras por API e links antigos desse id.
 - Para mudar o que cada consulta compra: Produtos do site → Editar → Fontes de dados. Para mudar o que o cliente vê: Campos do relatório.

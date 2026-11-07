@@ -2161,5 +2161,26 @@ export const placaMigrations: Migration[] = [
       await client.query(`UPDATE query_products SET active=false, featured=false, show_on_home=false, updated_at=now() WHERE id='PREMIUM'`);
       await client.query(`DELETE FROM query_source_rules WHERE product_id='PREMIUM'`);
     }
+  },
+  {
+    id: '063_completa_em_camadas_padrao_mtix',
+    name: 'Consulta Completa passa a ser montada em camadas (base de débitos + sinistro + base nacional + leilão conjugado; roubo/furto e recall quando o cadastro indica), sem o pacote fechado. Só troca se ainda estiver na fonte da 062',
+    up: async (client) => {
+      const layers = ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION'];
+      const done = await client.query(
+        `UPDATE query_products SET data_sources=$1::text[], features=(
+            SELECT COALESCE(jsonb_agg(f), '[]'::jsonb) FROM jsonb_array_elements(features) f WHERE f <> to_jsonb('Quantidade de proprietários anteriores'::text)
+          ), updated_at=now()
+          WHERE id='COMPLETE' AND data_sources=ARRAY['TOTAL']::text[] RETURNING id`,
+        [layers]
+      );
+      if (done.rowCount) {
+        // O histórico de proprietários só vem no pacote fechado; não prometemos o que a montagem em camadas não entrega.
+        await client.query(`UPDATE product_catalog_features SET status='NOT_INCLUDED' WHERE product_id IN ('COMPLETE','PREMIUM') AND status='INCLUDED' AND feature_id=(SELECT id FROM catalog_features WHERE key='proprietarios')`);
+      }
+    },
+    down: async (client) => {
+      await client.query(`UPDATE query_products SET data_sources=ARRAY['TOTAL']::text[] WHERE id='COMPLETE' AND data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION']::text[]`);
+    }
   }
 ];
