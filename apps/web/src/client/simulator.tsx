@@ -212,14 +212,16 @@ export function ScheduleTable({ r }: { r: SimResult }) {
   );
 }
 
-export function KindTabs({ value, onChange, compact }: { value: Kind; onChange: (k: Kind) => void; compact?: boolean }) {
+export function KindTabs({ value, onChange, compact, hrefFor }: { value: Kind; onChange: (k: Kind) => void; compact?: boolean; hrefFor?: (k: Kind) => string }) {
   return (
     <div className={`kind-tabs ${compact ? 'compact' : ''}`} role="tablist" aria-label="Tipo de veículo">
-      {KINDS.map((k) => (
-        <button key={k.key} type="button" role="tab" aria-selected={value === k.key} className="kind-tab" onClick={() => onChange(k.key)}>
-          <Icon name={k.icon} size={compact ? 18 : 22} /><span>{k.label}</span>
-        </button>
-      ))}
+      {KINDS.map((k) => {
+        const inner = <><Icon name={k.icon} size={compact ? 18 : 22} /><span>{k.label}</span></>;
+        // Com endereço próprio vira link de verdade (o Google e quem abre em nova aba seguem o caminho); o clique simples continua trocando sem recarregar.
+        return hrefFor
+          ? <a key={k.key} href={hrefFor(k.key)} role="tab" aria-selected={value === k.key} className="kind-tab" onClick={(e) => { if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); onChange(k.key); }}>{inner}</a>
+          : <button key={k.key} type="button" role="tab" aria-selected={value === k.key} className="kind-tab" onClick={() => onChange(k.key)}>{inner}</button>;
+      })}
     </div>
   );
 }

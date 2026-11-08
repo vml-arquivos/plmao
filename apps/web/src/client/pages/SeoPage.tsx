@@ -38,11 +38,13 @@ export default function SeoPage({ path }: { path: string }) {
       </section>
       <section className="section" style={{ paddingTop: 24 }}>
         <div className="container">
+          <h2 className="sr-only">Por que verificar</h2>
           <div className="why-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>{page.points.map((p) => <div className="why-card" key={p.title}><span className="wi"><Icon name="check-circle" size={24} /></span><h3>{p.title}</h3><p>{p.text}</p></div>)}</div>
         </div>
       </section>
       <section className="section" style={{ paddingTop: 0 }}>
         <div className="container">
+          <h2 className="sr-only">Ferramentas relacionadas</h2>
           <div className="why-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
             {TOOLS.map((t) => (
               <Link key={t.to} to={t.to} className="why-card" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'seo_tools', target: t.to, landing: path })}>

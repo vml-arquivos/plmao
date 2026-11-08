@@ -85,7 +85,7 @@ export default function Simulator() {
       <section className="section" style={{ paddingTop: 8 }}>
         <div className="container sim-layout">
           <form className="card card-pad sim-form" onSubmit={(e) => e.preventDefault()} aria-label="Dados da simulação">
-            <KindTabs value={state.kind} onChange={(k) => { nav(`/simulador/${kindByKey(k).slug}${state.label ? `?${new URLSearchParams({ n: state.label }).toString()}` : ''}`, { replace: false }); }} />
+            <KindTabs value={state.kind} hrefFor={(k) => `/simulador/${kindByKey(k).slug}`} onChange={(k) => { nav(`/simulador/${kindByKey(k).slug}${state.label ? `?${new URLSearchParams({ n: state.label }).toString()}` : ''}`, { replace: false }); }} />
             <FipePicker vehicleType={state.kind === 'MOTORCYCLE' ? 'motorcycles' : state.kind === 'TRUCK' ? 'trucks' : 'cars'} label={state.label} onLabel={(l) => set('label', l)} onUseValue={(cents) => set('value', Math.round(cents / 100))} />
 
             <div className="field">

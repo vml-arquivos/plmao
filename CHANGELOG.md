@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.44.0 — SEO: cabeçalho certo no navegador, schema sem erro, link real nos simuladores e FAQ do leilão atualizada
+
+Correções a partir da auditoria de SEO de 08/11/2026.
+
+- **Canonical e descrição por página também no navegador:** o HTML que o servidor entrega já saía certo por página (verificado nas 30 rotas), mas o service worker do app abria a cópia guardada do `index.html` (valores da home) e a troca de tela não atualizava o cabeçalho. Novo `HeadSync` no app: a cada tela ajusta canonical, `og:url`, descrição (a do painel, ou a de fábrica) e `robots` (telas de conta/app ficam `noindex`), e remove os dados estruturados da tela anterior. `/api/seo/page` passa a devolver `description`.
+- **`/robots.txt` e `/sitemap.xml`:** o service worker não os intercepta mais (antes, quem já tinha o app instalado via a tela “404”). Qualquer URL com extensão de arquivo também fica de fora.
+- **Schema `WebApplication` genérico removido do `index.html`:** ele ia para todas as páginas. `WebApplication` continua só nas ferramentas (FIPE, simuladores, combustível, comparador), com o tipo certo.
+- **Simulador:** o seletor Carro/Moto/Caminhão/Utilitário agora são links de verdade (`/simulador/carro` etc.); o clique simples continua trocando sem recarregar.
+- **Títulos H2/H3:** as páginas de consulta (placa, gravame, sinistro, leilão, débitos, multas, recall, histórico, lojistas, concessionárias) ganharam H2 (invisível) antes dos blocos de benefícios e de ferramentas, sem mudar o visual.
+- **Leilão:** a pergunta “A consulta de leilão já está disponível?” da página `/consultar-leilao-veiculo` ainda dizia que a fonte seria ativada, contradizendo o preço em `/planos`. Texto de fábrica corrigido e **migração 078** atualiza o que está gravado, **só se ainda for o texto de fábrica** (texto editado pela equipe é preservado).
+- **Painel de SEO:** a ajuda não promete mais “resultado enriquecido” para perguntas (o Google deixou de exibir em maio de 2026).
+- Sem variável de ambiente nova. Testes em `test/seo-cabecalho.test.mjs`; `seo-pages` e `migration-rollback` (52 migrações) ajustados.
+
 ## 1.43.0 — Chave PIX também para parceiros (obrigatória para eles)
 
 - **Parceiro precisa da chave PIX:** ao aceitar o convite de parceiro, a pessoa informa a chave PIX (ou usa a que já tem no cadastro da conta). Sem chave, o convite não é aceito e continua valendo para tentar de novo. A chave é validada por tipo (CPF, CNPJ, e-mail, celular ou aleatória) e guardada em formato padrão.

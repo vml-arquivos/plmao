@@ -15,7 +15,8 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'brand/logo-*.svg', 'brand/icon-*.png', 'brand/apple-touch-icon.png'],
       workbox: {
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//, /^\/painel/, /^\/admin/, /^\/health/],
+        // robots.txt, sitemap.xml e qualquer arquivo com extensão vêm do servidor, nunca da cópia do index.html.
+        navigateFallbackDenylist: [/^\/api\//, /^\/painel/, /^\/admin/, /^\/health/, /^\/robots\.txt$/, /^\/sitemap\.xml$/, /\/[^/?]+\.[a-z0-9]+$/i],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         globIgnores: ['**/admin.html', '**/assets/admin-*', '**/brand/og-image.png', '**/brand/shot-*.png']
       }

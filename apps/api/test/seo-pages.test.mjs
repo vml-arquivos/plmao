@@ -55,7 +55,7 @@ describe('SEO por página (integração)', integration, () => {
 
   it('API pública entrega textos e perguntas para a tela mostrar o mesmo conteúdo', async () => {
     const r = await hostRequest(server.base, '/api/seo/page?path=/simulador'); assert.equal(r.status, 200); assert.ok(r.json.faq.length >= 5); assert.ok(r.json.sections.length >= 3);
-    const none = await hostRequest(server.base, '/api/seo/page?path=/nao-existe'); assert.deepEqual(none.json, { h1: null, title: null, sections: [], faq: [] }); assert.equal(r.json.h1, 'Simulador de financiamento');
+    const none = await hostRequest(server.base, '/api/seo/page?path=/nao-existe'); assert.deepEqual(none.json, { h1: null, title: null, description: null, sections: [], faq: [] }); assert.equal(r.json.h1, 'Simulador de financiamento');
   });
 
   it('painel: lista com nota, edita, reflete no HTML e no sitemap, exclui da indexação e restaura o padrão', async () => {

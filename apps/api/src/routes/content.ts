@@ -419,9 +419,11 @@ adminContentRouter.delete('/products/:id', asyncRoute(async (req, res) => {
 
 publicContentRouter.get('/seo/page', asyncRoute(async (req, res) => {
   const path = String(req.query.path ?? '').slice(0, 120);
-  const row = (await seoRows()).get(path.length > 1 ? path.replace(/\/$/, '') : path);
+  const key = path.length > 1 ? path.replace(/\/$/, '') : path;
+  const row = (await seoRows()).get(key);
   res.setHeader('Cache-Control', 'public, max-age=300');
-  res.json({ h1: row?.h1 ?? null, title: row?.title ?? null, sections: row?.sections ?? [], faq: row?.faq ?? [] });
+  // description: a do painel, ou a de fábrica da página (a mesma que o servidor escreve no HTML). O app usa para manter o cabeçalho certo ao trocar de página.
+  res.json({ h1: row?.h1 ?? null, title: row?.title ?? null, description: row?.description || pageMeta[key]?.description || null, sections: row?.sections ?? [], faq: row?.faq ?? [] });
 }));
 
 // ---------------------------------------------------------------- SEO por página (painel)

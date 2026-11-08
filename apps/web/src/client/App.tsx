@@ -4,6 +4,7 @@ import SupportWidget from './components/SupportWidget';
 import SeoContent from './components/SeoContent';
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { PageLoading } from '../shared/ui';
+import HeadSync from './components/HeadSync';
 import { AppLayout, PublicLayout, RequireAuth, ScrollManager } from './layouts';
 import { useActiveProfile } from './session';
 import { SEO_PAGES } from './content/seoPages';
@@ -105,6 +106,7 @@ export default function App() {
   return (
     <>
       <ScrollManager />
+      <HeadSync />
       <ConsentBanner />
       <SupportWidget />
       <Suspense fallback={<PageLoading />}>

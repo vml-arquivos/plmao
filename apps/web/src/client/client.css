@@ -534,6 +534,7 @@
 @media (max-width: 1020px) { .sim-layout { grid-template-columns: minmax(0, 1fr); } .sim-form { position: static; } }
 .kind-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .kind-tab { display: grid; justify-items: center; gap: 6px; padding: 12px 6px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font-family: var(--font-display); font-weight: 400; font-size: 13px; cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
+a.kind-tab { text-decoration: none; box-sizing: border-box; }
 .kind-tab:hover { border-color: var(--primary); }
 .kind-tab[aria-selected='true'] { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-ink); box-shadow: var(--shadow-sm); }
 .kind-tab:focus-visible, .seg button:focus-visible, .chips-sel button:focus-visible { outline: 3px solid var(--focus); }

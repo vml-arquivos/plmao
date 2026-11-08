@@ -2911,5 +2911,23 @@ export const placaMigrations: Migration[] = [
       `);
     }
   }
+  ,
+  {
+    id: '078_seo_leilao_faq_ativa',
+    name: 'SEO: a pergunta sobre leilão na página de consulta deixa de dizer que a fonte ainda será ativada (só se o texto ainda for o de fábrica)',
+    up: async (client) => {
+      const antigo = 'Em algumas consultas a passagem por leilão aparece como indício. A consulta avulsa de leilão será liberada quando a fonte de dados for ativada.';
+      const novo = 'Sim. A consulta Leilão e Dados do Veículo está ativa e mostra a passagem por leilão, com nível de risco quando a fonte informa. A passagem por leilão também vem dentro das consultas Completa e Premium. Nada é cobrado por informação que não possa ser entregue.';
+      await client.query(
+        `UPDATE seo_pages SET faq=(
+           SELECT jsonb_agg(CASE WHEN e->>'q'='A consulta de leilão já está disponível?' AND e->>'a'=$1 THEN jsonb_set(e,'{a}',to_jsonb($2::text)) ELSE e END ORDER BY ord)
+             FROM jsonb_array_elements(faq) WITH ORDINALITY AS t(e,ord)), updated_at=now()
+          WHERE path='/consultar-leilao-veiculo'
+            AND EXISTS (SELECT 1 FROM jsonb_array_elements(faq) AS x(e) WHERE x.e->>'q'='A consulta de leilão já está disponível?' AND x.e->>'a'=$1)`,
+        [antigo, novo]
+      );
+    },
+    down: async () => { /* só ajuste de texto; nada a desfazer */ }
+  }
 
 ];

@@ -209,7 +209,7 @@ export const SEO_SEED: SeoSeed[] = [
       { q: 'Como consultar leilão de veículo?', a: 'Informe a placa e escolha a consulta com passagem por leilão. O relatório mostra o que a fonte retorna e diferencia um campo sem ocorrência de um dado não informado.' },
       { q: 'Por que verificar a passagem por leilão?', a: 'Veículos de leilão podem vir de seguradoras, financeiras ou órgãos públicos. Pode haver bom preço, mas também histórico que pede atenção.' },
       { q: 'Carro de leilão é ruim?', a: 'Não necessariamente. O importante é saber da passagem por leilão, avaliar o preço e fazer uma vistoria antes de comprar.' },
-      { q: 'A consulta de leilão já está disponível?', a: 'Em algumas consultas a passagem por leilão aparece como indício. A consulta avulsa de leilão será liberada quando a fonte de dados for ativada.' }
+      { q: 'A consulta de leilão já está disponível?', a: 'Sim. A consulta Leilão e Dados do Veículo está ativa e mostra a passagem por leilão, com nível de risco quando a fonte informa. A passagem por leilão também vem dentro das consultas Completa e Premium. Nada é cobrado por informação que não possa ser entregue.' }
     ]
   },
   {

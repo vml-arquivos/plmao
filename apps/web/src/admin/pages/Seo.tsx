@@ -33,7 +33,7 @@ const GUIDE: Array<[string, string, string, string]> = [
   ['Descrição', '70 a 165 caracteres', 'Uma ou duas frases que dizem o que a pessoa encontra e por que clicar. Use a palavra-chave uma vez e termine com um convite ou um diferencial real.', 'Consulte a Tabela FIPE grátis: valor médio de carros, motos e caminhões por marca, modelo e ano. Sem cadastro.'],
   ['Palavra-chave', '2 a 4 palavras', 'O que as pessoas digitam para achar a página. Uma por página, sem repetir em outra. Precisa aparecer no H1, no título, na descrição e no texto.', 'tabela fipe'],
   ['Textos da página', '2 a 4 blocos, 60 a 120 palavras cada', 'Explique o assunto em linguagem simples, de baixo para cima: o que é, como usar, o que muda o resultado. Nada de promessa que o produto não cumpre.', 'O que é a Tabela FIPE'],
-  ['Perguntas frequentes', '3 a 8 perguntas', 'Perguntas que as pessoas realmente fazem, com resposta direta de 1 a 3 frases. Viram resultado enriquecido no Google.', 'A consulta da Tabela FIPE é grátis?'],
+  ['Perguntas frequentes', '3 a 8 perguntas', 'Perguntas que as pessoas realmente fazem, com resposta direta de 1 a 3 frases. Ajudam quem lê e o Google a entender a página; desde maio de 2026 o Google não mostra mais o resultado enriquecido de perguntas.', 'A consulta da Tabela FIPE é grátis?'],
   ['Indexar', 'ligado', 'Deixe ligado nas páginas que devem aparecer no Google. Desligue só em página de teste ou que não deve ser encontrada.', 'Liberada']
 ];
 
@@ -93,7 +93,7 @@ function Editor({ item, onSaved, onClose }: { item: Item; onSaved: () => void; o
           </div>
         ))}</div>
       </Card>
-      <Card title="Perguntas frequentes (viram resultado enriquecido no Google)" actions={<Button size="sm" onClick={() => setFaq([...faq, { q: '', a: '' }])}>Adicionar pergunta</Button>}>
+      <Card title="Perguntas frequentes (respostas curtas às dúvidas reais)" actions={<Button size="sm" onClick={() => setFaq([...faq, { q: '', a: '' }])}>Adicionar pergunta</Button>}>
         <div className="stack">{faq.map((f, i) => (
           <div key={i} className="stack" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 12 }}>
             <Field label="Pergunta"><Input value={f.q} maxLength={220} onChange={(e) => setFaq(faq.map((x, j) => (j === i ? { ...x, q: e.target.value } : x)))} /></Field>
