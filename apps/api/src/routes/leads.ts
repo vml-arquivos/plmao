@@ -11,7 +11,7 @@ import { requirePermission } from '../permissions.js';
 import { enqueueEmail } from '../lib/emailOutbox.js';
 import { hashIp } from '../lib/totpFlow.js';
 import {
-  CAPTURE_TOOLS, KINDS, STAGES, addLeadEvent, claimLeadLink, cleanLinkCode, createLeadLink, normEmail, normPhone, phoneForAds,
+  CAPTURE_TOOLS, CHANNELS, CHANNEL_SQL, CONSUMPTION_JOIN, KINDS, LEVELS, LEVEL_SQL, PROFILES, PROFILE_SQL, STAGES, channelOf, classifyConsumption, addLeadEvent, claimLeadLink, cleanLinkCode, createLeadLink, normEmail, normPhone, phoneForAds,
   publicLeadLink, recordLeadLinkClick, refreshLeads, sessionKeyFor, sha256Hex, unsubscribeByToken, unsubscribeUrl, upsertLead, type LeadKind
 } from '../lib/leads.js';
 
@@ -96,12 +96,17 @@ leadsPublicRouter.post('/me/lead-link/claim', auth, asyncRoute(async (req, res) 
 const uuid = z.string().uuid();
 const stageEnum = z.enum(STAGES);
 
-function whereFromQuery(q: Record<string, unknown>): { where: string; params: unknown[] } {
+function whereFromQuery(q: Record<string, unknown>): { where: string; params: unknown[]; join: string } {
   const conds: string[] = []; const params: unknown[] = [];
   const add = (sql: string, v: unknown) => { params.push(v); conds.push(sql.replace('?', `$${params.length}`)); };
   if (typeof q.stage === 'string' && (STAGES as readonly string[]).includes(q.stage)) add('l.stage=?', q.stage);
   if (typeof q.kind === 'string' && (KINDS as readonly string[]).includes(q.kind)) add('l.kind=?', q.kind);
   if (typeof q.source === 'string' && /^[A-Z_]{2,30}$/.test(q.source)) add('l.source=?', q.source);
+  let join = '';
+  if (typeof q.channel === 'string' && (CHANNELS as readonly string[]).includes(q.channel)) add(`${CHANNEL_SQL}=?`, q.channel);
+  if (typeof q.profile === 'string' && (PROFILES as readonly string[]).includes(q.profile)) { join = CONSUMPTION_JOIN; add(`${PROFILE_SQL}=?`, q.profile); }
+  if (typeof q.notprofile === 'string' && (PROFILES as readonly string[]).includes(q.notprofile)) { join = CONSUMPTION_JOIN; conds.push(`${PROFILE_SQL} IS DISTINCT FROM '${q.notprofile}'`); }
+  if (typeof q.level === 'string' && (LEVELS as readonly string[]).includes(q.level)) { join = CONSUMPTION_JOIN; add(`${LEVEL_SQL}=?`, q.level); }
   if (typeof q.tag === 'string' && q.tag.trim()) add('? = ANY(l.tags)', q.tag.trim().toLowerCase().slice(0, 30));
   if (q.consent === '1') conds.push('l.marketing_consent=true AND l.unsubscribed_at IS NULL');
   if (q.followup === '1') conds.push(`l.next_contact_at IS NOT NULL AND l.next_contact_at <= now() AND l.stage NOT IN ('CLIENTE','PERDIDO')`);
@@ -111,21 +116,29 @@ function whereFromQuery(q: Record<string, unknown>): { where: string; params: un
     const n = params.length;
     conds.push(`(l.name ILIKE $${n} OR l.email ILIKE $${n} OR l.phone LIKE $${n})`);
   }
-  return { where: conds.length ? `WHERE ${conds.join(' AND ')}` : '', params };
+  return { where: conds.length ? `WHERE ${conds.join(' AND ')}` : '', params, join };
 }
 const LEAD_COLS = `l.id,l.name,l.email,l.phone,l.kind,l.stage,l.source,l.interest,l.tags,l.marketing_consent,l.unsubscribed_at,l.user_id,l.owner_id,
-  l.first_seen_at,l.last_seen_at,l.last_contact_at,l.next_contact_at,l.created_at`;
+  l.first_seen_at,l.last_seen_at,l.last_contact_at,l.next_contact_at,l.created_at,l.utm`;
 const leadOut = (r: Record<string, unknown>) => ({
   id: String(r.id), name: r.name ? String(r.name) : null, email: r.email ? String(r.email) : null, phone: r.phone ? String(r.phone) : null,
   kind: String(r.kind), stage: String(r.stage), source: String(r.source), interest: r.interest ? String(r.interest) : null,
   tags: (r.tags as string[]) ?? [], marketingConsent: Boolean(r.marketing_consent) && !r.unsubscribed_at, unsubscribed: Boolean(r.unsubscribed_at),
   userId: r.user_id ? String(r.user_id) : null, ownerId: r.owner_id ? String(r.owner_id) : null,
-  firstSeenAt: r.first_seen_at, lastSeenAt: r.last_seen_at, lastContactAt: r.last_contact_at ?? null, nextContactAt: r.next_contact_at ?? null, createdAt: r.created_at
+  firstSeenAt: r.first_seen_at, lastSeenAt: r.last_seen_at, lastContactAt: r.last_contact_at ?? null, nextContactAt: r.next_contact_at ?? null, createdAt: r.created_at,
+  origin: { channel: channelOf(r.utm as Record<string, unknown> | null, String(r.source)), campaign: typeof (r.utm as Record<string, unknown> | null)?.utm_campaign === 'string' ? String((r.utm as Record<string, unknown>).utm_campaign) : null }
 });
+
+/** Consumo do contato com conta: quantas consultas pagas, quanto gastou, quais consultas, e o tipo/nível que isso dá. */
+const consumptionOut = (r: Record<string, unknown>) => {
+  const n = Number(r.q_n ?? 0); const spent = Number(r.q_spent ?? 0);
+  const cls = classifyConsumption(n, Number(r.q_n90 ?? 0), spent);
+  return { queries: n, spentCents: spent, lastQueryAt: r.q_last ?? null, products: ((r.q_products as string[] | null) ?? []).filter(Boolean), profile: cls.profile, level: cls.level };
+};
 
 adminLeadsRouter.get('/summary', requirePermission('VIEW_CUSTOMERS'), asyncRoute(async (_req, res) => {
   await refreshLeads();
-  const [stages, sources, totals, links] = await Promise.all([
+  const [stages, sources, totals, links, channels, consumption] = await Promise.all([
     pool.query(`SELECT stage, count(*)::int AS n FROM site_leads GROUP BY stage`),
     pool.query(`SELECT source, count(*)::int AS n FROM site_leads GROUP BY source ORDER BY n DESC LIMIT 12`),
     pool.query(`SELECT count(*)::int AS total,
@@ -134,8 +147,12 @@ adminLeadsRouter.get('/summary', requirePermission('VIEW_CUSTOMERS'), asyncRoute
         count(*) FILTER (WHERE next_contact_at IS NOT NULL AND next_contact_at <= now() AND stage NOT IN ('CLIENTE','PERDIDO'))::int AS followups,
         count(*) FILTER (WHERE stage IN ('NOVO','CONTATADO','INTERESSADO') AND coalesce(last_contact_at,created_at) < now() - interval '7 days')::int AS stale
       FROM site_leads`),
-    pool.query(`SELECT count(*)::int AS total, coalesce(sum(clicks),0)::int AS clicks, count(registered_at)::int AS registered FROM lead_links`)
+    pool.query(`SELECT count(*)::int AS total, coalesce(sum(clicks),0)::int AS clicks, count(registered_at)::int AS registered FROM lead_links`),
+    pool.query(`SELECT ${CHANNEL_SQL} AS channel, count(*)::int AS n FROM site_leads l GROUP BY 1 ORDER BY n DESC`),
+    pool.query(`SELECT ${PROFILE_SQL} AS profile, ${LEVEL_SQL} AS level, count(*)::int AS n FROM site_leads l ${CONSUMPTION_JOIN} WHERE l.user_id IS NOT NULL GROUP BY 1,2`)
   ]);
+  const profiles: Record<string, number> = { ESPORADICO: 0, RECORRENTE: 0 }; const levels: Record<string, number> = { BRONZE: 0, PRATA: 0, OURO: 0 };
+  for (const r of consumption.rows) { if (r.profile) profiles[String(r.profile)] = (profiles[String(r.profile)] ?? 0) + Number(r.n); if (r.level) levels[String(r.level)] = (levels[String(r.level)] ?? 0) + Number(r.n); }
   const by: Record<string, number> = Object.fromEntries(STAGES.map((s) => [s, 0]));
   for (const r of stages.rows) by[String(r.stage)] = Number(r.n);
   const t = totals.rows[0]!; const k = links.rows[0]!;
@@ -143,7 +160,8 @@ adminLeadsRouter.get('/summary', requirePermission('VIEW_CUSTOMERS'), asyncRoute
   res.json({
     stages: by, sources: sources.rows.map((r) => ({ source: String(r.source), n: Number(r.n) })),
     total: Number(t.total), new7: Number(t.new7), consented: Number(t.consented), followups: Number(t.followups), stale: Number(t.stale),
-    links: { total: Number(k.total), clicks: Number(k.clicks), registered: Number(k.registered) }
+    links: { total: Number(k.total), clicks: Number(k.clicks), registered: Number(k.registered) },
+    channels: channels.rows.map((r) => ({ channel: String(r.channel), n: Number(r.n) })), profiles, levels, siteUrl: publicAppUrl()
   });
 }));
 
@@ -156,32 +174,30 @@ adminLeadsRouter.get('/leads', requirePermission('VIEW_CUSTOMERS'), asyncRoute(a
   const order = req.query.sort === 'contact' ? 'l.next_contact_at ASC NULLS LAST, l.last_seen_at DESC' : 'l.last_seen_at DESC';
   const [rows, count] = await Promise.all([
     pool.query(`SELECT ${LEAD_COLS},
-        (SELECT count(*)::int FROM vehicle_queries q WHERE q.user_id=l.user_id AND q.status='SUCCESS') AS queries,
-        (SELECT coalesce(sum(o.amount_cents),0)::int FROM payment_orders o WHERE o.user_id=l.user_id AND o.status='PAID') AS spent
-      FROM site_leads l ${where} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`, built.params),
-    pool.query(`SELECT count(*)::int AS n FROM site_leads l ${where}`, built.params)
+        coalesce(c.n,0) AS q_n, coalesce(c.n90,0) AS q_n90, coalesce(c.spent,0) AS q_spent, c.last_at AS q_last, coalesce(c.products,'{}') AS q_products
+      FROM site_leads l ${CONSUMPTION_JOIN} ${where} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`, built.params),
+    pool.query(`SELECT count(*)::int AS n FROM site_leads l ${built.join} ${where}`, built.params)
   ]);
   res.setHeader('Cache-Control', 'private, no-store');
-  res.json({ total: Number(count.rows[0]!.n), leads: rows.rows.map((r) => ({ ...leadOut(r), queries: Number(r.queries), spentCents: Number(r.spent) })) });
+  res.json({ total: Number(count.rows[0]!.n), leads: rows.rows.map((r) => ({ ...leadOut(r), ...consumptionOut(r) })) });
 }));
 
 adminLeadsRouter.get('/leads/:id', requirePermission('VIEW_CUSTOMERS'), asyncRoute(async (req, res) => {
   if (!uuid.safeParse(req.params.id).success) throw appError('LEAD_NOT_FOUND', { code: 'LEAD_NOT_FOUND', http: 404, expose: true });
-  const lead = await pool.query(`SELECT ${LEAD_COLS}, l.notes, l.utm, l.session_key, l.consent_at FROM site_leads l WHERE l.id=$1`, [req.params.id]);
+  const lead = await pool.query(`SELECT ${LEAD_COLS}, l.notes, l.session_key, l.consent_at FROM site_leads l WHERE l.id=$1`, [req.params.id]);
   if (!lead.rowCount) throw appError('LEAD_NOT_FOUND', { code: 'LEAD_NOT_FOUND', http: 404, expose: true });
   const l = lead.rows[0]!;
   const [events, funnel, links, account] = await Promise.all([
     pool.query(`SELECT e.id,e.kind,e.detail,e.created_at,u.name AS actor FROM site_lead_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.lead_id=$1 ORDER BY e.id DESC LIMIT 100`, [req.params.id]),
     pool.query(`SELECT event_type,metadata,created_at FROM funnel_events WHERE (session_key IS NOT NULL AND session_key=$1) OR (user_id IS NOT NULL AND user_id=$2) ORDER BY id DESC LIMIT 60`, [l.session_key ?? null, l.user_id ?? null]),
     pool.query(`SELECT id,code,kind,product_id,plate,channel,expires_at,revoked_at,clicks,last_click_at,registered_at,created_at FROM lead_links WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [req.params.id]),
-    l.user_id ? pool.query(`SELECT (SELECT count(*)::int FROM vehicle_queries q WHERE q.user_id=$1 AND q.status='SUCCESS') AS queries,
-        (SELECT coalesce(sum(o.amount_cents),0)::int FROM payment_orders o WHERE o.user_id=$1 AND o.status='PAID') AS spent,
-        (SELECT max(q.created_at) FROM vehicle_queries q WHERE q.user_id=$1) AS last_query`, [l.user_id]) : Promise.resolve(null)
+    l.user_id ? pool.query(`SELECT coalesce(c.n,0) AS q_n, coalesce(c.n90,0) AS q_n90, coalesce(c.spent,0) AS q_spent, c.last_at AS q_last, coalesce(c.products,'{}') AS q_products
+        FROM site_leads l ${CONSUMPTION_JOIN} WHERE l.id=$1`, [req.params.id]) : Promise.resolve(null)
   ]);
   res.setHeader('Cache-Control', 'private, no-store');
   res.json({
     lead: { ...leadOut(l), notes: l.notes ? String(l.notes) : '', utm: l.utm ?? {}, consentAt: l.consent_at ?? null },
-    account: account?.rowCount ? { queries: Number(account.rows[0]!.queries), spentCents: Number(account.rows[0]!.spent), lastQueryAt: account.rows[0]!.last_query ?? null } : null,
+    account: account?.rowCount ? consumptionOut(account.rows[0]!) : null,
     events: events.rows.map((e) => ({ id: Number(e.id), kind: String(e.kind), detail: e.detail ?? {}, actor: e.actor ? String(e.actor) : null, at: e.created_at })),
     site: funnel.rows.map((f) => ({ type: String(f.event_type), path: (f.metadata as Record<string, unknown> | null)?.path ?? null, at: f.created_at })),
     links: links.rows.map((k) => ({ id: String(k.id), code: String(k.code), url: new URL(`/c/${k.code}`, publicAppUrl()).toString(), kind: String(k.kind), productId: k.product_id ? String(k.product_id) : null, channel: String(k.channel), expiresAt: k.expires_at, revoked: Boolean(k.revoked_at), clicks: Number(k.clicks), lastClickAt: k.last_click_at ?? null, registeredAt: k.registered_at ?? null, createdAt: k.created_at }))
@@ -430,7 +446,7 @@ const csv = (head: string[], rows: unknown[][]) => `﻿${[head, ...rows].map((r)
 adminLeadsRouter.get('/export', requirePermission('MANAGE_CUSTOMERS'), asyncRoute(async (req, res) => {
   const built = whereFromQuery(req.query as Record<string, unknown>);
   const where = built.where;
-  const r = await pool.query(`SELECT ${LEAD_COLS}, l.utm FROM site_leads l ${where} ORDER BY l.created_at DESC LIMIT 20000`, built.params);
+  const r = await pool.query(`SELECT ${LEAD_COLS} FROM site_leads l ${built.join} ${where} ORDER BY l.created_at DESC LIMIT 20000`, built.params);
   await audit(req.user!.id, 'LEAD_EXPORT', 'LEAD', null, { requestId: requestId(req), rows: r.rowCount, kind: 'FULL' });
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="leads.csv"');

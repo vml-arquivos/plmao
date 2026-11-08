@@ -4,6 +4,7 @@ import { Alert, Button, PageLoading, usePageTitle } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { api } from '../api';
 import { useSession } from '../session';
+import { PixFields, emptyPix, pixProblem, type PixData } from '../components/CustomerFields';
 
 interface Invite { valid: boolean; state: 'OK' | 'USED' | 'REVOKED' | 'EXPIRED'; name: string | null; emailHint: string | null }
 const shell = (children: React.ReactNode) => <main className="container" style={{ maxWidth: 640, padding: '40px 16px' }}><section className="card card-pad stack">{children}</section></main>;
@@ -18,6 +19,9 @@ export default function PartnerInvite() {
   const [state, setState] = useState<'loading' | 'ready' | 'missing'>('loading');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [pix, setPix] = useState<PixData>(emptyPix);
+  const { me } = useSession();
+  const hasPix = me?.profile.pixKeyMissing === false;
 
   useEffect(() => {
     const meta = document.createElement('meta');
@@ -38,8 +42,12 @@ export default function PartnerInvite() {
 
   const back = `/parceiro/convite/${encodeURIComponent(token)}`;
   async function accept() {
+    const typed = pix.key.trim();
+    if (!hasPix && !typed) return setError('Informe a chave PIX em que você vai receber os repasses.');
+    const problem = typed ? pixProblem(pix) : '';
+    if (problem) return setError(problem);
     setBusy(true); setError('');
-    try { await api.post('/affiliate/accept-invite', { token }); await refresh(); nav('/app/parceiro', { replace: true }); }
+    try { await api.post('/affiliate/accept-invite', { token, ...(typed ? { pixKey: typed, pixKeyType: pix.type } : {}) }); await refresh(); nav('/app/parceiro', { replace: true }); }
     catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   }
 
@@ -49,7 +57,11 @@ export default function PartnerInvite() {
     {invite.emailHint && <Alert tone="info">Este convite é pessoal e vale só para o e-mail {invite.emailHint}.</Alert>}
     {error && <Alert tone="danger">{error}</Alert>}
     {status === 'authed' ? (
-      <div><Button variant="primary" size="lg" loading={busy} onClick={() => void accept()}>Aceitar convite</Button></div>
+      <div className="stack">
+        {hasPix ? <p className="muted">Você já tem uma chave PIX cadastrada na conta. Ela será usada para os repasses (você pode trocar depois no painel).</p>
+          : <><p>Para receber as comissões, informe a chave PIX. Ela é obrigatória para parceiros.</p><PixFields required value={pix} onChange={setPix} hint="A chave em que você vai receber os repasses." /></>}
+        <div><Button variant="primary" size="lg" loading={busy} onClick={() => void accept()}>Aceitar convite</Button></div>
+      </div>
     ) : (
       <div className="stack">
         <p>Para aceitar, crie sua conta gratuita ou entre na sua. Depois você volta para esta página e confirma.</p>

@@ -12,6 +12,55 @@ type Db = { query: (text: string, params?: unknown[]) => Promise<{ rows: Array<R
 
 export const STAGES = ['NOVO', 'CONTATADO', 'INTERESSADO', 'CADASTRADO', 'CLIENTE', 'PERDIDO'] as const;
 export type Stage = (typeof STAGES)[number];
+/** Qualificação pelo consumo (só consulta paga e concluída conta; estornada, falha e consulta interna da equipe ficam de fora).
+ *  Tipo: esporádico (1 consulta, ou poucas e espaçadas) ou recorrente (2+ nos últimos 90 dias, ou 4+ no total).
+ *  Nível por gasto acumulado: bronze (qualquer valor pago), prata (a partir de R$ 100) e ouro (a partir de R$ 300). Ajuste aqui se a regra mudar. */
+export const PROFILES = ['ESPORADICO', 'RECORRENTE'] as const;
+export const LEVELS = ['BRONZE', 'PRATA', 'OURO'] as const;
+export const LEVEL_SILVER_CENTS = 10_000;
+export const LEVEL_GOLD_CENTS = 30_000;
+export const RECURRENT_RECENT_MIN = 2;
+export const RECURRENT_TOTAL_MIN = 4;
+export function classifyConsumption(n: number, n90: number, spentCents: number): { profile: (typeof PROFILES)[number] | null; level: (typeof LEVELS)[number] | null } {
+  const profile = n <= 0 ? null : n90 >= RECURRENT_RECENT_MIN || n >= RECURRENT_TOTAL_MIN ? 'RECORRENTE' : 'ESPORADICO';
+  const level = spentCents >= LEVEL_GOLD_CENTS ? 'OURO' : spentCents >= LEVEL_SILVER_CENTS ? 'PRATA' : spentCents > 0 ? 'BRONZE' : null;
+  return { profile, level };
+}
+/** Consumo por contato com conta (mesma regra do classifyConsumption), em SQL. Alias esperado: l = site_leads. */
+export const CONSUMPTION_JOIN = `LEFT JOIN LATERAL (
+    SELECT count(*)::int AS n, count(*) FILTER (WHERE q.created_at > now() - interval '90 days')::int AS n90,
+           coalesce(sum(q.price_cents),0)::bigint AS spent, max(q.created_at) AS last_at,
+           array_agg(DISTINCT p.name) AS products
+      FROM vehicle_queries q JOIN query_products p ON p.id=q.product_id
+     WHERE q.user_id=l.user_id AND q.status='SUCCESS' AND q.source IS DISTINCT FROM 'ADMIN' AND q.price_cents>0
+  ) c ON l.user_id IS NOT NULL`;
+export const PROFILE_SQL = `(CASE WHEN coalesce(c.n,0)=0 THEN NULL WHEN coalesce(c.n90,0)>=${RECURRENT_RECENT_MIN} OR c.n>=${RECURRENT_TOTAL_MIN} THEN 'RECORRENTE' ELSE 'ESPORADICO' END)`;
+export const LEVEL_SQL = `(CASE WHEN coalesce(c.spent,0)>=${LEVEL_GOLD_CENTS} THEN 'OURO' WHEN coalesce(c.spent,0)>=${LEVEL_SILVER_CENTS} THEN 'PRATA' WHEN coalesce(c.spent,0)>0 THEN 'BRONZE' END)`;
+
+/** De onde a pessoa veio, lido das marcações do link (utm_source, utm_medium, utm_campaign, ref). Sem marcação = site (direto ou busca). */
+export const CHANNELS = ['INSTAGRAM', 'FACEBOOK', 'GOOGLE', 'TIKTOK', 'YOUTUBE', 'WHATSAPP', 'EMAIL', 'OUTRA_CAMPANHA', 'INDICACAO', 'EQUIPE', 'SITE'] as const;
+export type Channel = (typeof CHANNELS)[number];
+const CHANNEL_SOURCES: Record<string, string[]> = {
+  INSTAGRAM: ['instagram', 'ig'], FACEBOOK: ['facebook', 'fb', 'meta'], GOOGLE: ['google', 'adwords', 'googleads', 'google_ads'], TIKTOK: ['tiktok'],
+  YOUTUBE: ['youtube', 'yt'], WHATSAPP: ['whatsapp', 'wa', 'zap'], EMAIL: ['email', 'e-mail', 'newsletter']
+};
+export function channelOf(utm: Record<string, unknown> | null | undefined, source?: string | null): Channel {
+  const u = (utm ?? {}) as Record<string, unknown>;
+  const src = String(u.utm_source ?? '').trim().toLowerCase();
+  if (!src && source === 'LINK_ADMIN') return 'EQUIPE';
+  for (const [ch, names] of Object.entries(CHANNEL_SOURCES)) if (names.includes(src)) return ch as Channel;
+  if (src) return 'OUTRA_CAMPANHA';
+  if (String(u.ref ?? '').trim()) return 'INDICACAO';
+  return 'SITE';
+}
+const sqlList = (names: string[]) => names.map((n) => `'${n}'`).join(',');
+export const CHANNEL_SQL = `(CASE
+    WHEN coalesce(l.utm->>'utm_source','')='' AND l.source='LINK_ADMIN' THEN 'EQUIPE'
+    ${Object.entries(CHANNEL_SOURCES).map(([ch, names]) => `WHEN lower(coalesce(l.utm->>'utm_source','')) IN (${sqlList(names)}) THEN '${ch}'`).join('\n    ')}
+    WHEN coalesce(l.utm->>'utm_source','')<>'' THEN 'OUTRA_CAMPANHA'
+    WHEN coalesce(l.utm->>'ref','')<>'' THEN 'INDICACAO'
+    ELSE 'SITE' END)`;
+
 export const KINDS = ['CLIENTE', 'LOJISTA'] as const;
 export type LeadKind = (typeof KINDS)[number];
 export const CAPTURE_TOOLS = ['SIMULADOR', 'FIPE', 'CONSULTA', 'COMPARAR', 'COMBUSTIVEL', 'GUIA', 'CONTATO', 'PLANOS', 'LOJISTA', 'SITE'] as const;
@@ -143,6 +192,10 @@ export async function mergeLeads(keepId: string, dropId: string, db: Db = pool):
  * Mantém o CRM em dia sem depender de cada tela avisar: liga leads a contas pelo e-mail, traz para o CRM quem criou conta
  * por outro caminho, e promove a etapa (conta criada → CADASTRADO; compra paga → CLIENTE). Tudo em lote e repetível.
  */
+/** Virou cliente: pagou um pedido ou tem consulta paga concluída (consulta interna da equipe não conta). */
+const BOUGHT = `(EXISTS (SELECT 1 FROM payment_orders o WHERE o.user_id=l.user_id AND o.status='PAID')
+  OR EXISTS (SELECT 1 FROM vehicle_queries q WHERE q.user_id=l.user_id AND q.status='SUCCESS' AND q.source IS DISTINCT FROM 'ADMIN' AND q.price_cents>0))`;
+
 export async function refreshLeads(db: Db = pool): Promise<void> {
   await db.query(
     `UPDATE site_leads l SET user_id=u.id, updated_at=now()
@@ -164,10 +217,10 @@ export async function refreshLeads(db: Db = pool): Promise<void> {
        FROM user_profiles p WHERE p.user_id=l.user_id AND p.marketing_opt_in=false AND l.marketing_consent=true AND l.consent_text='Aceite no cadastro'`);
   const up = await db.query(
     `WITH promoted AS (
-       UPDATE site_leads l SET stage=CASE WHEN EXISTS (SELECT 1 FROM payment_orders o WHERE o.user_id=l.user_id AND o.status='PAID') THEN 'CLIENTE' ELSE 'CADASTRADO' END, updated_at=now()
+       UPDATE site_leads l SET stage=CASE WHEN ${BOUGHT} THEN 'CLIENTE' ELSE 'CADASTRADO' END, updated_at=now()
         WHERE l.user_id IS NOT NULL AND l.stage IN ('NOVO','CONTATADO','INTERESSADO','CADASTRADO','PERDIDO')
-          AND l.stage <> CASE WHEN EXISTS (SELECT 1 FROM payment_orders o WHERE o.user_id=l.user_id AND o.status='PAID') THEN 'CLIENTE' ELSE 'CADASTRADO' END
-          AND NOT (l.stage='PERDIDO' AND NOT EXISTS (SELECT 1 FROM payment_orders o WHERE o.user_id=l.user_id AND o.status='PAID'))
+          AND l.stage <> CASE WHEN ${BOUGHT} THEN 'CLIENTE' ELSE 'CADASTRADO' END
+          AND NOT (l.stage='PERDIDO' AND NOT (${BOUGHT}))
         RETURNING id, stage)
      INSERT INTO site_lead_events(lead_id,kind,detail) SELECT id,'STAGE',jsonb_build_object('to',stage,'auto',true) FROM promoted RETURNING lead_id`);
   void up;

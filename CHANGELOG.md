@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.43.0 — Chave PIX também para parceiros (obrigatória para eles)
+
+- **Parceiro precisa da chave PIX:** ao aceitar o convite de parceiro, a pessoa informa a chave PIX (ou usa a que já tem no cadastro da conta). Sem chave, o convite não é aceito e continua valendo para tentar de novo. A chave é validada por tipo (CPF, CNPJ, e-mail, celular ou aleatória) e guardada em formato padrão.
+- **Painel do parceiro:** novo cartão “Chave PIX para receber”, com aviso enquanto não houver chave, chave mascarada e botão para trocar. Trocar a chave vale para o parceiro e para o perfil da conta (reembolso e cashback).
+- **Indique e ganhe (cliente comum):** continua opcional. A chave do cadastro/Minha conta já é usada como chave do repasse; se a equipe tiver digitado outra chave no parceiro, ela não é apagada.
+- **Repasse:** usa a chave do parceiro e, se não houver, a da conta dele. Sem nenhuma, segue bloqueado (`PARTNER_PIX_KEY_REQUIRED`).
+- **Equipe cadastrando parceiro:** a chave informada passa a ser validada e normalizada (antes aceitava qualquer texto).
+- Sem migração e sem variável de ambiente nova. Testes em `test/partner-convites.test.mjs`.
+
+## 1.42.0 — CRM em quadro (Kanban), qualificação por consumo, consultas limpas e envio pela vitrine
+
+- **CRM em quadro (Leads e CRM → Esteira):** colunas Não qualificado › Contatado › Interessado › Cadastrado › Cliente esporádico › Cliente recorrente › Perdido. Arraste o cartão para outra coluna (no celular, use “Mover para…” no cartão); a mudança fica no histórico do contato. Cada cartão mostra a origem (canal e campanha), a ferramenta do site e, para cliente, nível, tipo, nº de consultas, gasto e quais consultas fez.
+- **Qualificação automática pelo consumo:** quem só simulou ou olhou a FIPE fica em “Não qualificado”; quem cria conta vai para “Cadastrado”; quem faz a primeira consulta paga e concluída sobe sozinho para Cliente. **Tipo:** esporádico (1 consulta, ou poucas e espaçadas) ou recorrente (2 ou mais nos últimos 90 dias, ou 4 ou mais no total). **Nível pelo gasto:** bronze (qualquer valor pago), prata (a partir de R$ 100) e ouro (a partir de R$ 300). Só conta consulta paga e concluída: estornada, falha, consulta sem valor e consulta interna da equipe não contam. As colunas de cliente e Cadastrado são automáticas (o quadro avisa se tentar arrastar para elas). Limites ajustáveis em `lib/leads.ts`.
+- **Origem e rastreamento:** o canal vem das marcações do link (utm_source: Instagram, Facebook, Google, TikTok, YouTube, WhatsApp, e-mail; ref = indicação; link da equipe; sem marcação = site). Resumo no alto da tela, filtros por canal, tipo de cliente e nível na lista, e na exportação. Novo botão **Link rastreado (campanha)**: escolhe a página, onde vai colocar (bio do Instagram, stories, anúncio, WhatsApp, e-mail…) e o nome da campanha, e copia o link já marcado para usar nas postagens e anúncios.
+- **Consultas (painel) limpo:** deixou de mostrar tudo em cartões. Agora é uma lista com abas **Concluídas** (padrão), **Estornadas**, **Falhas e pendentes** e **Todas**, com a contagem de cada uma; estornadas e falhas não se misturam com as concluídas. PDF, Link e Enviar ao cliente ficam em cada linha concluída.
+- **Produtos do site → Enviar consulta:** cartões das consultas à venda (nome, preço, o que inclui). “Enviar link” gera o link da consulta e manda por WhatsApp, e-mail ou só copia; quem abrir cria o acesso e cai direto nela, e o cadastro fica ligado ao contato no CRM.
+- Sem migração e sem variável de ambiente nova. Testes: `test/crm-qualificacao.test.mjs`; `crm-leads.test.mjs` ajustado (gasto passa a ser o das consultas pagas).
+
 ## 1.41.0 — FIPE grátis pela placa exige conta, cadastro simples e chave PIX
 
 - **Criar conta ficou simples:** só nome, e-mail, WhatsApp e senha (mais o aceite dos Termos e da Privacidade). CPF, cidade, estado e o aceite de responsabilidade deixaram de ser pedidos na criação da conta e passam a ser pedidos **uma única vez, na primeira compra de consulta** (a tela avisa o que falta e leva para Minha conta; depois de preenchido não pede mais). Para usar o que é grátis (FIPE pela placa com conta) não é preciso CPF, endereço nem dado de pagamento.

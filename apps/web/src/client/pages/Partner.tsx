@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../../shared/icons';
+import { PIX_TYPE_LABEL, PixFields, emptyPix, pixProblem, type PixData, type PixType } from '../components/CustomerFields';
 import { Alert, Badge, Button, CopyField, EmptyState, ErrorState, Field, Input, PageLoading, Stat, Tabs, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { bpsToPercent, dateOnly, money } from '../../shared/format';
@@ -9,6 +10,7 @@ interface Affiliate { id: string; name: string; email: string; code: string; com
 interface Stats { monthly?: Array<{ month: string; payments: number; cents: number }>; affiliate: { id: string; code: string } | null; shareUrl?: string; links?: Array<{ key: string; label: string; url: string }>; performance?: { clicks30d: number; paidPayments: number; reversedCommissions: number }; totals: { commissions: number; pendingCents: number; paidCents: number; referredUsers?: number } }
 
 interface Panel {
+  pix?: { set: boolean; type: string | null; masked: string | null };
   affiliate: { code: string; commissionBps: number; partnerType: string; active: boolean } | null;
   totals: { revenueCents: number; salesCount: number; clientsCount: number; queriesCount: number; earnedCents: number; pendingCents: number; availableCents: number; inPayoutCents: number; paidCents: number; clawbackDueCents: number; reversedCount: number };
   clients: Array<{ id: string; name: string; email: string; joinedAt: string; queries: number; spentCents: number }>;
@@ -63,6 +65,34 @@ function LinkQr({ url, name }: { url: string; name: string }) {
   );
 }
 
+/** Chave PIX em que o parceiro recebe o repasse. Sem ela a equipe não consegue pagar. */
+function PixCard({ pix, onSaved }: { pix?: Panel['pix']; onSaved: () => void }) {
+  const toast = useToast();
+  const [v, setV] = useState<PixData>(emptyPix);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  async function save() {
+    const problem = pixProblem(v) || (v.key.trim() ? '' : 'Informe a chave PIX.');
+    if (problem) return void toast.error(problem);
+    setBusy(true);
+    try { await api.put('/affiliate/pix', { pixKey: v.key.trim(), pixKeyType: v.type }); toast.ok('Chave PIX salva.'); setOpen(false); setV(emptyPix); onSaved(); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  }
+  return (
+    <section className="card card-pad stack">
+      <div className="row-between"><h2 style={{ fontSize: 18 }}>Chave PIX para receber</h2>{pix?.set && !open && <Button size="sm" onClick={() => setOpen(true)}>Trocar</Button>}</div>
+      {pix?.set ? <p className="muted" style={{ margin: 0 }}>Chave cadastrada{pix.type ? ` (${PIX_TYPE_LABEL[pix.type as PixType] ?? pix.type})` : ''}: <b>{pix.masked}</b>. Os repasses e comissões são pagos nela.</p>
+        : <Alert tone="warn" title="Cadastre sua chave PIX">Sem ela a equipe não consegue fazer o repasse das suas comissões.</Alert>}
+      {(!pix?.set || open) && (
+        <div className="stack">
+          <PixFields required value={v} onChange={setV} hint="A chave em que você quer receber." />
+          <div><Button variant="primary" loading={busy} onClick={() => void save()}>Salvar chave PIX</Button></div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function Partner() {
   usePageTitle('Indique e ganhe');
   const toast = useToast();
@@ -108,6 +138,7 @@ export default function Partner() {
         <Stat label="Visitas (30 dias)" value={stats.data?.performance?.clicks30d ?? 0} sub="pessoas que chegaram pelo seu link" />
         <Stat label="Cadastros" value={t?.referredUsers ?? 0} sub="pessoas que criaram conta pelo seu link" />
       </div>
+      {panel.data?.affiliate && <PixCard pix={panel.data.pix} onSaved={panel.reload} />}
       {panel.data?.affiliate && <PartnerPanel panel={panel.data} />}
       <section className="card card-pad stack">
         <h2 style={{ fontSize: 18 }}>Seu código</h2>

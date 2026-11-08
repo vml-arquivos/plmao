@@ -771,6 +771,7 @@ api.put('/profile', auth, asyncRoute(async (req, res) => {
   if (pixSent && input.pixKey && !pix) throw appError('INVALID_PIX_KEY', { code: 'INVALID_PIX_KEY', http: 400, expose: true });
   const zip = input.zip === undefined ? null : input.zip.replace(/\D/g, '');
   const profile = await tx(async (client) => {
+    const prevPix = (await client.query('SELECT pix_key FROM user_profiles WHERE user_id=$1', [req.user!.id])).rows[0]?.pix_key ?? null;
     const user = await client.query('UPDATE users SET name=$2 WHERE id=$1 AND active=true RETURNING id,email,name,role,password_enabled', [req.user!.id, input.name]);
     if (!user.rowCount) throw appError('ACCOUNT_NOT_FOUND', { code: 'ACCOUNT_NOT_FOUND', http: 404, expose: true });
     const updated = await client.query(`INSERT INTO user_profiles(user_id,cpf_cnpj,phone,company_name,city,state,marketing_opt_in,zip,street,street_number,complement,district,responsibility_accepted_at,responsibility_version,pix_key,pix_key_type,pix_key_updated_at)
@@ -784,6 +785,7 @@ api.put('/profile', auth, asyncRoute(async (req, res) => {
         pix_key_updated_at=CASE WHEN $15::boolean THEN now() ELSE user_profiles.pix_key_updated_at END
       RETURNING *`, [req.user!.id, input.cpfCnpj ?? null, input.phone ?? null, input.companyName ?? null, input.city ?? null, input.state?.toUpperCase() ?? null, input.marketingOptIn ?? null,
         zip, input.street ?? null, input.streetNumber ?? null, input.complement ?? null, input.district ?? null, input.acceptResponsibility === true, RESPONSIBILITY_VERSION, pixSent, pix?.key ?? null, pix?.type ?? null]);
+    if (pixSent) await client.query('UPDATE affiliates SET pix_key=$2,updated_at=now() WHERE user_id=$1 AND (pix_key IS NULL OR pix_key=$3)', [req.user!.id, pix?.key ?? null, prevPix]);
     if (input.marketingOptIn !== undefined) {
       await client.query(`INSERT INTO user_consents(user_id,consent_type,granted,policy_version,source,ip_hash)
         VALUES($1,'MARKETING_EMAIL',$2,'2026-08','profile_update',$3)`, [req.user!.id, input.marketingOptIn, hashIp(req.ip)]);
@@ -2660,7 +2662,7 @@ api.post('/affiliate/activate', auth, asyncRoute(async (req, res) => {
   const commissionBps = typeof configuredRate === 'number' && Number.isInteger(configuredRate) && configuredRate >= 0 && configuredRate <= 5000 ? configuredRate : 1000;
   const defaultCode = `PNM-${randomBytes(5).toString('hex').toUpperCase()}`;
   const code = (parsed.data.code ?? defaultCode).toUpperCase();
-  const result = await pool.query(`INSERT INTO affiliates(user_id,name,email,code,commission_bps,active) VALUES($1,$2,$3,$4,$5,true)
+  const result = await pool.query(`INSERT INTO affiliates(user_id,name,email,code,commission_bps,pix_key,active) VALUES($1,$2,$3,$4,$5,(SELECT pix_key FROM user_profiles WHERE user_id=$1),true)
     RETURNING id,name,email,code,commission_bps,active,created_at`, [req.user!.id, account.rows[0].name, account.rows[0].email, code, commissionBps]);
   await audit(req.user!.id, 'ACTIVATE_AFFILIATE', 'AFFILIATE', result.rows[0].id, { requestId: requestId(req) });
   res.status(201).json({ affiliate: result.rows[0] });

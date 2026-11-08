@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { normalizePixKey } from '../lib/pix.js';
+import { payoutPixKey } from '../lib/pixStore.js';
 import { pool, tx } from '../db.js';
 import { adminAuth } from '../auth.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
@@ -58,6 +60,7 @@ partnersRouter.post('/partners', requirePermission('MANAGE_BILLING'), asyncRoute
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const v = parsed.data;
   if ((v.pixKey || v.document) && !hasPermission(req.user!.role, 'ADMIN_SYSTEM')) throw appError('FORBIDDEN', { code: 'FORBIDDEN', http: 403, expose: true });
+  if (v.pixKey) { const pix = normalizePixKey(v.pixKey); if (!pix) throw appError('INVALID_PIX_KEY', { code: 'INVALID_PIX_KEY', http: 400, expose: true }); v.pixKey = pix.key; }
   try {
     const r = await pool.query(`INSERT INTO affiliates(name,email,code,partner_type,commission_bps,commission_base,pix_key,document,payout_notes,active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [v.name, v.email || null, v.code.toUpperCase(), v.partnerType, v.commissionBps, v.commissionBase ?? null, v.pixKey ?? null, v.document ?? null, v.payoutNotes ?? null, v.active]);
@@ -74,6 +77,7 @@ partnersRouter.patch('/partners/:id', requirePermission('MANAGE_BILLING'), async
   const parsed = partnerUpdate.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   if ((parsed.data.pixKey !== undefined || parsed.data.document !== undefined) && !hasPermission(req.user!.role, 'ADMIN_SYSTEM')) throw appError('FORBIDDEN', { code: 'FORBIDDEN', http: 403, expose: true });
+  if (parsed.data.pixKey) { const pix = normalizePixKey(parsed.data.pixKey); if (!pix) throw appError('INVALID_PIX_KEY', { code: 'INVALID_PIX_KEY', http: 400, expose: true }); parsed.data.pixKey = pix.key; }
   const values: unknown[] = []; const sets: string[] = [];
   for (const [k, value] of Object.entries(parsed.data)) {
     values.push(k === 'code' ? String(value).toUpperCase() : k === 'email' && value === '' ? null : value);
@@ -116,14 +120,15 @@ partnersRouter.post('/payouts', requirePermission('MANAGE_BILLING'), asyncRoute(
   const payout = await tx(async (client) => {
     const partner = await client.query('SELECT id,pix_key,active FROM affiliates WHERE id=$1 FOR UPDATE', [parsed.data.partnerId]);
     if (!partner.rowCount) throw appError('AFFILIATE_NOT_FOUND', { code: 'AFFILIATE_NOT_FOUND', http: 404, expose: true });
-    if (!partner.rows[0].pix_key) throw appError('PARTNER_PIX_KEY_REQUIRED', { code: 'PARTNER_PIX_KEY_REQUIRED', http: 422, expose: true });
+    const payoutKey = await payoutPixKey(client, parsed.data.partnerId);
+    if (!payoutKey) throw appError('PARTNER_PIX_KEY_REQUIRED', { code: 'PARTNER_PIX_KEY_REQUIRED', http: 422, expose: true });
     const available = await client.query(`SELECT id,amount_cents FROM affiliate_commissions WHERE affiliate_id=$1 AND status='AVAILABLE' AND payout_id IS NULL FOR UPDATE`, [parsed.data.partnerId]);
     const clawbacks = await client.query(`SELECT id,amount_cents FROM affiliate_commissions WHERE affiliate_id=$1 AND status='CLAWBACK_DUE' AND payout_id IS NULL FOR UPDATE`, [parsed.data.partnerId]);
     const gross = available.rows.reduce((a, r) => a + Number(r.amount_cents), 0);
     const claw = clawbacks.rows.reduce((a, r) => a + Number(r.amount_cents), 0);
     const amount = gross - claw;
     if (amount <= 0 || gross < settings.payoutMinCents || amount < settings.payoutMinCents) throw appError('PAYOUT_BELOW_MINIMUM', { code: 'PAYOUT_BELOW_MINIMUM', http: 422, expose: true });
-    const created = await client.query(`INSERT INTO payouts(affiliate_id,amount_cents,pix_key_snapshot,notes,requested_by) VALUES($1,$2,$3,$4,$5) RETURNING id`, [parsed.data.partnerId, amount, partner.rows[0].pix_key, parsed.data.notes ?? (claw ? `Líquido de ${formatBRL(claw)} em estornos/chargebacks` : null), req.user!.id]);
+    const created = await client.query(`INSERT INTO payouts(affiliate_id,amount_cents,pix_key_snapshot,notes,requested_by) VALUES($1,$2,$3,$4,$5) RETURNING id`, [parsed.data.partnerId, amount, payoutKey, parsed.data.notes ?? (claw ? `Líquido de ${formatBRL(claw)} em estornos/chargebacks` : null), req.user!.id]);
     const payoutId = created.rows[0].id as string;
     await client.query('UPDATE affiliate_commissions SET payout_id=$2 WHERE id = ANY($1::uuid[])', [available.rows.map((r) => r.id), payoutId]);
     if (clawbacks.rowCount) await client.query(`UPDATE affiliate_commissions SET payout_id=$2,status='REVERSED' WHERE id = ANY($1::uuid[])`, [clawbacks.rows.map((r) => r.id), payoutId]);

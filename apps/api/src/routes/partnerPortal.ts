@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { pool, tx } from '../db.js';
 import { auth } from '../auth.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
+import { PIX_KEY_TYPES, maskPixKey, normalizePixKey } from '../lib/pix.js';
+import { saveUserPix } from '../lib/pixStore.js';
 
 /**
  * Portal do parceiro: convite por link (público para ler, conta logada para aceitar) e o painel com
@@ -41,12 +43,17 @@ partnerPortalRouter.get('/partner-invites/:token', asyncRoute(async (req, res) =
   res.json({ valid: state === 'OK', state, name: row.name, emailHint: row.email ? maskEmail(row.email) : null, expiresAt: row.expires_at });
 }));
 
-const acceptSchema = z.object({ token: tokenSchema }).strict();
+/** A chave PIX é obrigatória para o parceiro (é por ela que ele recebe o repasse): vem no aceite ou já está no perfil da conta. */
+const pixFields = { pixKey: z.string().trim().max(140).optional(), pixKeyType: z.enum(PIX_KEY_TYPES).optional() };
+const acceptSchema = z.object({ token: tokenSchema, ...pixFields }).strict();
+const pixSchema = z.object({ pixKey: z.string().trim().min(1).max(140), pixKeyType: z.enum(PIX_KEY_TYPES).optional() }).strict();
 
 /** Quem está logado aceita o convite: vira parceiro com a comissão e o tipo definidos pelo painel. */
 partnerPortalRouter.post('/affiliate/accept-invite', auth, asyncRoute(async (req, res) => {
   const parsed = acceptSchema.safeParse(req.body ?? {});
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const sentPix = parsed.data.pixKey ? normalizePixKey(parsed.data.pixKey, parsed.data.pixKeyType) : null;
+  if (parsed.data.pixKey && !sentPix) throw appError('INVALID_PIX_KEY', { code: 'INVALID_PIX_KEY', http: 400, expose: true });
   const out = await tx(async (client) => {
     const found = await client.query('SELECT * FROM partner_invites WHERE token=$1 FOR UPDATE', [parsed.data.token]);
     if (!found.rowCount) throw appError('INVITE_NOT_FOUND', { code: 'INVITE_NOT_FOUND', http: 404, expose: true });
@@ -60,6 +67,8 @@ partnerPortalRouter.post('/affiliate/accept-invite', auth, asyncRoute(async (req
     const { name, email } = account.rows[0] as { name: string; email: string };
     if (inv.email && String(email).toLowerCase() !== String(inv.email).toLowerCase()) throw appError('INVITE_EMAIL_MISMATCH', { code: 'INVITE_EMAIL_MISMATCH', http: 403, expose: true });
 
+    const have = await client.query(`SELECT coalesce(p.pix_key,(SELECT a.pix_key FROM affiliates a WHERE a.user_id=$1)) AS pix FROM (SELECT 1) x LEFT JOIN user_profiles p ON p.user_id=$1`, [req.user!.id]);
+    if (!sentPix && !have.rows[0]?.pix) throw appError('PIX_KEY_REQUIRED', { code: 'PIX_KEY_REQUIRED', http: 400, expose: true });
     const existing = await client.query('SELECT id,code FROM affiliates WHERE user_id=$1', [req.user!.id]);
     let affiliateId: string; let affiliateCode: string;
     if (existing.rowCount) {
@@ -81,6 +90,8 @@ partnerPortalRouter.post('/affiliate/accept-invite', auth, asyncRoute(async (req
       affiliateId = String(ins.rows[0].id); affiliateCode = String(ins.rows[0].code);
     }
     await client.query('UPDATE partner_invites SET used_at=now(), used_by=$2, affiliate_id=$3 WHERE id=$1', [inv.id, req.user!.id, affiliateId]);
+    if (sentPix) await saveUserPix(client, req.user!.id, sentPix, 'force');
+    else await client.query(`UPDATE affiliates SET pix_key=(SELECT pix_key FROM user_profiles WHERE user_id=$1) WHERE id=$2 AND pix_key IS NULL`, [req.user!.id, affiliateId]);
     await client.query(`UPDATE users SET active_profile='AFILIADO' WHERE id=$1`, [req.user!.id]);
     return { id: affiliateId, code: affiliateCode, inviteId: inv.id };
   });
@@ -88,11 +99,24 @@ partnerPortalRouter.post('/affiliate/accept-invite', auth, asyncRoute(async (req
   res.status(201).json({ affiliate: { id: out.id, code: out.code } });
 }));
 
+/** O parceiro informa ou troca a chave PIX em que recebe o repasse. Vale também para o perfil da conta (reembolso e cashback). */
+partnerPortalRouter.put('/affiliate/pix', auth, asyncRoute(async (req, res) => {
+  const parsed = pixSchema.safeParse(req.body ?? {});
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const pix = normalizePixKey(parsed.data.pixKey, parsed.data.pixKeyType);
+  if (!pix) throw appError('INVALID_PIX_KEY', { code: 'INVALID_PIX_KEY', http: 400, expose: true });
+  const aff = await pool.query('SELECT id FROM affiliates WHERE user_id=$1', [req.user!.id]);
+  if (!aff.rowCount) throw appError('AFFILIATE_NOT_FOUND', { code: 'AFFILIATE_NOT_FOUND', http: 404, expose: true });
+  await tx((client) => saveUserPix(client, req.user!.id, pix, 'force'));
+  await audit(req.user!.id, 'PARTNER_PIX_UPDATED', 'AFFILIATE', String(aff.rows[0].id), { requestId: requestId(req) });
+  res.json({ pix: { set: true, type: pix.type, masked: maskPixKey(pix.key, pix.type) } });
+}));
+
 /** Painel do parceiro: totais, comissões, clientes e consultas dos indicados (dados mascarados). */
 partnerPortalRouter.get('/affiliate/panel', auth, asyncRoute(async (req, res) => {
-  const a = await pool.query('SELECT id,code,name,commission_bps,partner_type,active FROM affiliates WHERE user_id=$1', [req.user!.id]);
+  const a = await pool.query(`SELECT a.id,a.code,a.name,a.commission_bps,a.partner_type,a.active,coalesce(a.pix_key,p.pix_key) AS pix_key,p.pix_key_type FROM affiliates a LEFT JOIN user_profiles p ON p.user_id=a.user_id WHERE a.user_id=$1`, [req.user!.id]);
   if (!a.rowCount) { res.json({ affiliate: null }); return; }
-  const aff = a.rows[0] as { id: string; code: string; name: string; commission_bps: number; partner_type: string; active: boolean };
+  const aff = a.rows[0] as { id: string; code: string; name: string; commission_bps: number; partner_type: string; active: boolean; pix_key: string | null; pix_key_type: string | null };
   const me = String(req.user!.id);
   const [totals, revenue, clients, queries, sales, payouts] = await Promise.all([
     pool.query(`SELECT
@@ -121,6 +145,7 @@ partnerPortalRouter.get('/affiliate/panel', auth, asyncRoute(async (req, res) =>
   res.setHeader('Cache-Control', 'no-store');
   res.json({
     affiliate: { id: aff.id, code: aff.code, name: aff.name, commissionBps: Number(aff.commission_bps), partnerType: aff.partner_type, active: aff.active },
+    pix: { set: Boolean(aff.pix_key), type: aff.pix_key_type, masked: maskPixKey(aff.pix_key, aff.pix_key_type) },
     totals: { revenueCents: Number(revenue.rows[0].cents), salesCount: Number(revenue.rows[0].n), clientsCount: clients.rowCount ?? 0, queriesCount: clients.rows.reduce((n, r) => n + Number(r.queries), 0), earnedCents: t.earned, pendingCents: t.pending, availableCents: t.available, inPayoutCents: t.in_payout, paidCents: t.paid, clawbackDueCents: t.clawback, reversedCount: t.reversed },
     clients: clients.rows.map((r) => ({ id: String(r.id), name: firstName(r.name), email: maskEmail(r.email), joinedAt: r.created_at, queries: Number(r.queries), spentCents: Number(r.spent) })),
     queries: queries.rows.map((r) => ({ id: String(r.id), date: r.created_at, product: String(r.product_name), plate: maskPlate(r.plate), status: String(r.status), customer: firstName(r.customer_name) })),

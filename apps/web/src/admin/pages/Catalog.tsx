@@ -5,6 +5,8 @@ import { errorMessage } from '../../shared/api';
 import { centsToInput, money, parseMoneyToCents } from '../../shared/format';
 import { PageHead } from '../parts';
 import { ReportScopeEditor } from './ReportScope';
+import { LinkModal } from './Leads';
+import { useAdminSession } from '../session';
 
 interface AdminProduct {
   id: string; name: string; slug: string; description: string; tagline: string; longDescription: string; features: string[]; badge: string | null;
@@ -26,15 +28,48 @@ export const suggestFromReference = (ref: number): number => Math.floor((ref * 0
 
 export default function Catalog() {
   usePageTitle('Produtos do site');
-  const [tab, setTab] = useState<'products' | 'matrix' | 'packages'>('products');
+  const [tab, setTab] = useState<'products' | 'send' | 'matrix' | 'packages'>('products');
   return (
     <>
       <PageHead title="Produtos do site" sub="Tudo o que aparece na página inicial e em Planos: o que cada consulta inclui, valor, desconto, selos e pacotes." />
-      <Tabs label="Catálogo" value={tab} onChange={setTab} items={[{ id: 'products', label: 'Consultas' }, { id: 'matrix', label: 'Comparação' }, { id: 'packages', label: 'Pacotes de saldo' }]} />
+      <Tabs label="Catálogo" value={tab} onChange={setTab} items={[{ id: 'products', label: 'Consultas' }, { id: 'send', label: 'Enviar consulta' }, { id: 'matrix', label: 'Comparação' }, { id: 'packages', label: 'Pacotes de saldo' }]} />
       {tab === 'products' && <ProductsTab />}
+      {tab === 'send' && <SendTab />}
       {tab === 'matrix' && <MatrixTab />}
       {tab === 'packages' && <PackagesTab />}
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ Enviar consulta */
+
+/** Cartões das consultas à venda: gera o link de uma consulta e manda para um cliente ou lojista (WhatsApp, e-mail ou só copiar). */
+function SendTab() {
+  const { can } = useAdminSession();
+  const res = useAsync(() => api.get<AdminProduct[]>('/admin/products'));
+  const [sending, setSending] = useState<AdminProduct | null>(null);
+  const allowed = can('MANAGE_CUSTOMERS');
+  if (res.loading && !res.data) return <PageLoading />;
+  if (res.error || !res.data) return <ErrorState error={res.error} onRetry={res.reload} />;
+  const items = res.data.filter((p) => !p.isFree && !p.archivedAt && p.active && p.commercialStatus === 'ACTIVE');
+  return (
+    <div className="stack">
+      <div className="toolbar"><span className="muted grow">Escolha a consulta, gere o link e envie. Quem abrir cria o acesso e já cai nesta consulta; o cadastro fica ligado ao contato no CRM.{!allowed ? ' Seu acesso não permite gerar links.' : ''}</span></div>
+      {!items.length ? <EmptyState title="Nenhuma consulta à venda no momento" /> : (
+        <div className="qcards">
+          {items.map((p) => (
+            <article key={p.id} className="qcard">
+              <header><b>{p.name}</b>{p.badge ? <Badge tone="info">{p.badge}</Badge> : null}</header>
+              {p.tagline && <p className="muted">{p.tagline}</p>}
+              <div className="qcard-meta"><span>{p.sellableNow ? 'Disponível' : 'Sem fonte de dados ativa'}</span><span className="num">{money(p.priceCents)}</span></div>
+              {p.features.length > 0 && <ul className="muted" style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>{p.features.slice(0, 4).map((f) => <li key={f}>{f}</li>)}</ul>}
+              <footer><Button variant="primary" size="sm" icon="link" disabled={!allowed || !p.sellableNow} onClick={() => setSending(p)}>Enviar link</Button></footer>
+            </article>
+          ))}
+        </div>
+      )}
+      {sending && <LinkModal productId={sending.id} onClose={() => setSending(null)} onDone={() => undefined} />}
+    </div>
   );
 }
 

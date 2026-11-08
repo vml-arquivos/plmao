@@ -67,11 +67,11 @@ export function signupProblem(phone: string): string {
   return d.length < 10 || d.length > 13 ? 'Informe um WhatsApp válido, com DDD.' : '';
 }
 
-export function PixFields({ value, onChange, hint }: { value: PixData; onChange: (next: PixData) => void; hint?: string }) {
+export function PixFields({ value, onChange, hint, required }: { value: PixData; onChange: (next: PixData) => void; hint?: string; required?: boolean }) {
   return (
     <div className="form-grid cols-2">
       <Field label="Tipo da chave PIX"><Select name="pixType" value={value.type} onChange={(e) => onChange({ ...value, type: e.target.value as PixType })}>{(Object.keys(PIX_TYPE_LABEL) as PixType[]).map((t) => <option key={t} value={t}>{PIX_TYPE_LABEL[t]}</option>)}</Select></Field>
-      <Field label="Sua chave PIX (opcional)" hint={hint ?? 'Para devolver valores, pagar cashback e comissões do Indique e Ganhe.'}><Input name="pixKey" value={value.key} onChange={(e) => onChange({ ...value, key: e.target.value })} autoComplete="off" placeholder={value.type === 'EMAIL' ? 'voce@exemplo.com' : value.type === 'ALEATORIA' ? '00000000-0000-0000-0000-000000000000' : value.type === 'TELEFONE' ? '(11) 99999-0000' : undefined} /></Field>
+      <Field label={required ? 'Sua chave PIX' : 'Sua chave PIX (opcional)'} hint={hint ?? 'Para devolver valores, pagar cashback e comissões do Indique e Ganhe.'}><Input name="pixKey" value={value.key} onChange={(e) => onChange({ ...value, key: e.target.value })} autoComplete="off" placeholder={value.type === 'EMAIL' ? 'voce@exemplo.com' : value.type === 'ALEATORIA' ? '00000000-0000-0000-0000-000000000000' : value.type === 'TELEFONE' ? '(11) 99999-0000' : undefined} /></Field>
     </div>
   );
 }

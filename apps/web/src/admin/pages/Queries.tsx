@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, CUSTOMER_TYPE, QUERY_STATUS } from '../api';
+import { api, CUSTOMER_TYPE } from '../api';
 import { useAdminSession } from '../session';
 import { Alert, Badge, Button, CopyField, EmptyState, ErrorState, Field, Input, Modal, PageLoading, PlateBadge, Select, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
@@ -12,67 +12,52 @@ import { TypeBadge } from '../people';
 
 interface Row { id: string; plate: string; status: string; priceCents: number; chargeSource: string; source?: string; sentToCustomer?: boolean; provider: string; productName: string; createdAt: string; completedAt: string | null; errorCode: string | null; errorMessage?: string | null; customerType?: string; customer: { name: string; email: string } }
 
+const GROUPS: Record<'ok' | 'refunded' | 'issues' | 'all', { label: string; match: (status: string) => boolean }> = {
+  ok: { label: 'Concluídas', match: (st) => st === 'SUCCESS' },
+  refunded: { label: 'Estornadas', match: (st) => st === 'REFUNDED' },
+  issues: { label: 'Falhas e pendentes', match: (st) => st !== 'SUCCESS' && st !== 'REFUNDED' },
+  all: { label: 'Todas', match: () => true }
+};
+
 export function QueriesList() {
   usePageTitle('Consultas');
   const { can } = useAdminSession();
   const nav = useNavigate();
   const list = useAsync(() => api.get<Row[]>('/admin/queries'));
   const [q, setQ] = useState('');
-  const [status, setStatus] = useState('');
+  const [group, setGroup] = useState<'ok' | 'refunded' | 'issues' | 'all'>('ok');
   const [type, setType] = useState('');
   const [origin, setOrigin] = useState('');
   const [lookup, setLookup] = useState(false);
   const [lien, setLien] = useState(false);
   const [clean, setClean] = useState(false);
   const [deliver, setDeliver] = useState<{ id: string; plate: string; mode: 'send' | 'link' } | null>(null);
-  const [view, setView] = useState<'cards' | 'list'>(() => { try { return localStorage.getItem('adm-queries-view') === 'list' ? 'list' : 'cards'; } catch { return 'cards'; } });
   const toast = useToast();
-  const pickView = (v: 'cards' | 'list') => { setView(v); try { localStorage.setItem('adm-queries-view', v); } catch { /* sem armazenamento: só não lembra */ } };
   async function openPdf(id: string) {
     const tab = window.open('about:blank', '_blank');
     try { const href = await api.blobUrl(`/admin/queries/${id}/report/pdf`); if (tab) tab.location.href = href; else window.location.assign(href); } catch (e) { tab?.close(); toast.error(errorMessage(e)); }
   }
-  const rows = useMemo(() => (list.data ?? []).filter((r) => (!status || r.status === status) && (!type || r.customerType === type) && (!origin || (origin === 'ADMIN' ? r.source === 'ADMIN' : r.source !== 'ADMIN')) && (!q || `${r.plate} ${r.customer.email} ${r.customer.name}`.toLowerCase().includes(q.toLowerCase()))), [list.data, q, status, type, origin]);
+  const rows = useMemo(() => (list.data ?? []).filter((r) => GROUPS[group].match(r.status) && (!type || r.customerType === type) && (!origin || (origin === 'ADMIN' ? r.source === 'ADMIN' : r.source !== 'ADMIN')) && (!q || `${r.plate} ${r.customer.email} ${r.customer.name}`.toLowerCase().includes(q.toLowerCase()))), [list.data, q, group, type, origin]);
+  const counts = useMemo(() => { const o = { ok: 0, refunded: 0, issues: 0, all: 0 }; for (const r of list.data ?? []) { o.all += 1; if (r.status === 'SUCCESS') o.ok += 1; else if (r.status === 'REFUNDED') o.refunded += 1; else o.issues += 1; } return o; }, [list.data]);
   return (
     <>
-      <PageHead title="Consultas" sub="Últimas 300 consultas, inclusive as internas feitas aqui no painel. Relatórios completos; a abertura do dado bruto é motivada e auditada." actions={<>{can('MANAGE_BILLING') && <Button icon="trash" onClick={() => setClean(true)}>Limpar falhas e sem pagamento</Button>}{can('VIEW_SENSITIVE_DATA') && <><Button icon="refresh" onClick={() => setLien(true)}>Atualizar gravames</Button><Button variant="primary" icon="search" onClick={() => setLookup(true)}>Consulta interna</Button></>}</>} />
+      <PageHead title="Consultas" sub="Histórico das consultas concluídas. Estornadas, falhas e pendentes ficam em abas próprias, sem se misturar. Para mandar uma consulta à venda a um cliente, use Produtos do site → Enviar consulta." actions={<>{can('MANAGE_BILLING') && <Button icon="trash" onClick={() => setClean(true)}>Limpar falhas e sem pagamento</Button>}{can('VIEW_SENSITIVE_DATA') && <><Button icon="refresh" onClick={() => setLien(true)}>Atualizar gravames</Button><Button variant="primary" icon="search" onClick={() => setLookup(true)}>Consulta interna</Button></>}</>} />
+      <div className="seg" role="group" aria-label="Situação das consultas" style={{ marginBottom: 8 }}>{(Object.keys(GROUPS) as Array<keyof typeof GROUPS>).map((k) => <Button key={k} variant={group === k ? 'primary' : 'ghost'} onClick={() => setGroup(k)}>{GROUPS[k].label} ({counts[k]})</Button>)}</div>
       <div className="toolbar">
         <div className="grow"><Input icon="search" placeholder="Buscar por placa, nome ou e-mail" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar" /></div>
-        <Select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">Todos os status</option>{Object.entries(QUERY_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select>
         <Select value={type} onChange={(e) => setType(e.target.value)} aria-label="Tipo de cliente"><option value="">Todos os tipos de cliente</option>{Object.entries(CUSTOMER_TYPE).map(([k, v]) => <option key={k} value={k}>{v.plural}</option>)}</Select>
         <Select value={origin} onChange={(e) => setOrigin(e.target.value)} aria-label="Origem"><option value="">Todas as origens</option><option value="ADMIN">Consultas internas</option><option value="WEB">Feitas pelos clientes</option></Select>
-        <div className="seg" role="group" aria-label="Forma de exibir"><Button variant={view === 'cards' ? 'primary' : 'ghost'} onClick={() => pickView('cards')}>Cartões</Button><Button variant={view === 'list' ? 'primary' : 'ghost'} onClick={() => pickView('list')}>Lista</Button></div>
         <Button variant="ghost" icon="refresh" onClick={list.reload}>Atualizar</Button>
       </div>
-      {list.loading && !list.data ? <PageLoading /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : !rows.length ? <EmptyState title="Nenhuma consulta encontrada" /> : view === 'cards' ? (
-        <div className="qcards">
-          {rows.map((r) => {
-            const ready = r.status === 'SUCCESS';
-            return (
-              <article key={r.id} className={`qcard${ready ? '' : ' qcard-off'}`}>
-                <header><PlateBadge plate={r.plate} size="sm" /><QueryStatusBadge status={r.status} /></header>
-                <h3>{r.productName}</h3>
-                <p className="muted">{r.customer.name} · {r.customer.email}</p>
-                <div className="qcard-meta"><span>{dateTime(r.createdAt)}</span><span className="num">{r.source === 'ADMIN' ? (r.sentToCustomer ? 'Enviada ao cliente' : 'Interna') : money(r.priceCents)}</span></div>
-                {r.errorCode && <p className="tag-danger" title={r.errorMessage ?? undefined}>{r.errorCode}</p>}
-                <footer>
-                  <Button size="sm" onClick={() => nav(`/consultas/${r.id}`)}>Ver relatório</Button>
-                  {ready && <Button size="sm" icon="file-text" onClick={() => void openPdf(r.id)}>PDF</Button>}
-                  {ready && can('VIEW_SENSITIVE_DATA') && <Button size="sm" variant="primary" icon="link" onClick={() => setDeliver({ id: r.id, plate: r.plate, mode: 'link' })}>Enviar link</Button>}
-                  {ready && can('VIEW_SENSITIVE_DATA') && <Button size="sm" icon="send" onClick={() => setDeliver({ id: r.id, plate: r.plate, mode: 'send' })}>Enviar ao cliente</Button>}
-                </footer>
-              </article>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="table-wrap"><table className="table"><thead><tr><th>Placa</th><th>Produto</th><th>Cliente</th><th>Status</th><th className="r">Valor</th><th>Origem</th><th>Data</th></tr></thead><tbody>
+      {list.loading && !list.data ? <PageLoading /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : !rows.length ? <EmptyState title={group === 'ok' ? 'Nenhuma consulta concluída neste filtro' : 'Nenhuma consulta encontrada'} /> : (
+        <div className="table-wrap"><table className="table"><thead><tr><th>Placa</th><th>Produto</th><th>Cliente</th><th>Status</th><th className="r">Valor</th><th>Origem</th><th>Data</th><th className="r"><span className="sr-only">Ações</span></th></tr></thead><tbody>
           {rows.map((r) => (
             <tr key={r.id} className="clickable" onClick={() => nav(`/consultas/${r.id}`)}>
               <td><b className="mono">{formatPlate(r.plate)}</b></td><td>{r.productName}</td>
               <td>{r.customer.name} <TypeBadge type={r.customerType} /><div className="muted" style={{ fontSize: 12.5 }}>{r.customer.email}</div></td>
               <td><QueryStatusBadge status={r.status} />{r.errorCode && <div className="muted" style={{ fontSize: 12 }} title={r.errorMessage ?? undefined}>{r.errorCode}</div>}</td>
               <td className="r num">{r.source === 'ADMIN' ? '—' : money(r.priceCents)}</td><td>{r.source === 'ADMIN' ? <Badge tone="info">{r.sentToCustomer ? 'Enviada ao cliente' : 'Interna'}</Badge> : <Badge>{r.chargeSource}</Badge>}</td><td>{dateTime(r.createdAt)}</td>
+              <td className="r" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>{r.status === 'SUCCESS' && <span className="row" style={{ gap: 4, justifyContent: 'flex-end', flexWrap: 'nowrap' }}><Button size="sm" variant="ghost" icon="file-text" onClick={() => void openPdf(r.id)}>PDF</Button>{can('VIEW_SENSITIVE_DATA') && <><Button size="sm" variant="ghost" icon="link" onClick={() => setDeliver({ id: r.id, plate: r.plate, mode: 'link' })}>Link</Button><Button size="sm" variant="ghost" icon="send" onClick={() => setDeliver({ id: r.id, plate: r.plate, mode: 'send' })}>Enviar</Button></>}</span>}</td>
             </tr>
           ))}
         </tbody></table></div>

@@ -36,8 +36,15 @@ describe('convite de parceiro e painel do parceiro', integration, () => {
     const user = await mk('Maria Silva');
     assert.equal((await api('/affiliate/panel', { token: user.token })).json.affiliate, null);
     assert.equal((await api('/affiliate/accept-invite', { method: 'POST', body: { token } })).status, 401, 'precisa estar logada');
-    const ok = await api('/affiliate/accept-invite', { method: 'POST', token: user.token, body: { token } });
+    // chave PIX é obrigatória para o parceiro: sem ela (e sem uma no perfil) o convite não é aceito, e o convite continua valendo
+    const noPix = await api('/affiliate/accept-invite', { method: 'POST', token: user.token, body: { token } });
+    assert.equal(noPix.status, 400); assert.equal(noPix.json.error, 'PIX_KEY_REQUIRED');
+    assert.equal((await api('/affiliate/accept-invite', { method: 'POST', token: user.token, body: { token, pixKey: '123' } })).json.error, 'INVALID_PIX_KEY');
+    assert.equal((await api(`/partner-invites/${token}`)).json.valid, true, 'tentativas recusadas não gastam o convite');
+    const ok = await api('/affiliate/accept-invite', { method: 'POST', token: user.token, body: { token, pixKey: 'maria@exemplo.com', pixKeyType: 'EMAIL' } });
     assert.equal(ok.status, 201, ok.text);
+    const stored = (await pool.query(`SELECT a.pix_key AS aff, p.pix_key AS prof FROM affiliates a JOIN users u ON u.id=a.user_id LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.email=$1`, [user.email])).rows[0];
+    assert.deepEqual([stored.aff, stored.prof], ['maria@exemplo.com', 'maria@exemplo.com'], 'a chave vai para o parceiro e para o perfil');
 
     const panel = await api('/affiliate/panel', { token: user.token });
     assert.equal(panel.json.affiliate.commissionBps, 1500);
@@ -64,7 +71,7 @@ describe('convite de parceiro e painel do parceiro', integration, () => {
     const stranger = await mk('Intruso');
     const bad = await api('/affiliate/accept-invite', { method: 'POST', token: stranger.token, body: { token: t1 } });
     assert.equal(bad.status, 403); assert.equal(bad.json.error, 'INVITE_EMAIL_MISMATCH');
-    assert.equal((await api('/affiliate/accept-invite', { method: 'POST', token: mine.token, body: { token: t1 } })).status, 201);
+    assert.equal((await api('/affiliate/accept-invite', { method: 'POST', token: mine.token, body: { token: t1, pixKey: '529.982.247-25', pixKeyType: 'CPF' } })).status, 201);
 
     const revoked = await sa.call('/api/admin/finance/partner-invites', { method: 'POST', body: { commissionBps: 1000 } });
     assert.equal((await sa.call(`/api/admin/finance/partner-invites/${revoked.json.id}`, { method: 'DELETE' })).status, 204);
@@ -82,7 +89,7 @@ describe('convite de parceiro e painel do parceiro', integration, () => {
     const partner = await mk('Paulo Parceiro');
     const inv = await sa.call('/api/admin/finance/partner-invites', { method: 'POST', body: { commissionBps: 1000, code: 'PAULO10' } });
     assert.equal(inv.json.code, 'PAULO10');
-    assert.equal((await api('/affiliate/accept-invite', { method: 'POST', token: partner.token, body: { token: tokenOf(inv.json.link) } })).status, 201);
+    assert.equal((await api('/affiliate/accept-invite', { method: 'POST', token: partner.token, body: { token: tokenOf(inv.json.link), pixKey: 'parceiro@exemplo.com' } })).status, 201);
     const aff = (await pool.query('SELECT id FROM affiliates WHERE user_id=$1', [partner.id])).rows[0].id;
     assert.equal((await pool.query('SELECT code FROM affiliates WHERE id=$1', [aff])).rows[0].code, 'PAULO10');
 
@@ -108,5 +115,49 @@ describe('convite de parceiro e painel do parceiro', integration, () => {
 
     const stranger = await mk('Sem Parceria');
     assert.equal((await api('/affiliate/panel', { token: stranger.token })).json.affiliate, null);
+  });
+
+  it('PIX do parceiro: obrigatório para receber, troca pelo painel, valida o tipo e serve de chave do repasse', async () => {
+    const { payoutPixKey } = await import('../dist/lib/pixStore.js');
+    // quem já tem chave no perfil aceita o convite sem digitar de novo
+    const withPix = await mk('Com Chave');
+    assert.equal((await api('/profile', { method: 'PUT', token: withPix.token, body: { name: 'Com Chave', pixKey: 'comchave@exemplo.com', pixKeyType: 'EMAIL' } })).status, 200);
+    const inv = await sa.call('/api/admin/finance/partner-invites', { method: 'POST', body: { commissionBps: 1000 } });
+    assert.equal((await api('/affiliate/accept-invite', { method: 'POST', token: withPix.token, body: { token: tokenOf(inv.json.link) } })).status, 201);
+    const aff = (await pool.query('SELECT id,pix_key FROM affiliates WHERE user_id=$1', [withPix.id])).rows[0];
+    assert.equal(aff.pix_key, 'comchave@exemplo.com');
+    let panel = (await api('/affiliate/panel', { token: withPix.token })).json;
+    assert.equal(panel.pix.set, true); assert.match(panel.pix.masked, /^co\*\*\*@exemplo\.com$/);
+
+    // troca pelo painel: vale para o parceiro e para o perfil; chave inválida é recusada
+    assert.equal((await api('/affiliate/pix', { method: 'PUT', token: withPix.token, body: { pixKey: 'lixo' } })).json.error, 'INVALID_PIX_KEY');
+    const put = await api('/affiliate/pix', { method: 'PUT', token: withPix.token, body: { pixKey: '(11) 98888-7777', pixKeyType: 'TELEFONE' } });
+    assert.equal(put.status, 200, put.text);
+    const row = (await pool.query('SELECT a.pix_key AS aff, p.pix_key AS prof FROM affiliates a JOIN user_profiles p ON p.user_id=a.user_id WHERE a.user_id=$1', [withPix.id])).rows[0];
+    assert.deepEqual([row.aff, row.prof], ['+5511988887777', '+5511988887777']);
+    assert.equal((await api('/affiliate/pix', { method: 'PUT', token: (await mk('Sem Parceria')).token, body: { pixKey: 'a@b.co' } })).json.error, 'AFFILIATE_NOT_FOUND');
+
+    // Indique e ganhe ativado pelo próprio cliente: já nasce com a chave do perfil; trocar o PIX em Minha conta acompanha
+    const client = await mk('Indicador');
+    await api('/profile', { method: 'PUT', token: client.token, body: { name: 'Indicador', pixKey: 'indicador@exemplo.com', pixKeyType: 'EMAIL' } });
+    assert.equal((await api('/affiliate/activate', { method: 'POST', token: client.token, body: {} })).status, 201);
+    assert.equal((await pool.query('SELECT pix_key FROM affiliates WHERE user_id=$1', [client.id])).rows[0].pix_key, 'indicador@exemplo.com');
+    await api('/profile', { method: 'PUT', token: client.token, body: { name: 'Indicador', pixKey: 'novo@exemplo.com', pixKeyType: 'EMAIL' } });
+    assert.equal((await pool.query('SELECT pix_key FROM affiliates WHERE user_id=$1', [client.id])).rows[0].pix_key, 'novo@exemplo.com');
+    // chave digitada pela equipe no parceiro não é apagada por mudança no perfil
+    await pool.query(`UPDATE affiliates SET pix_key='chave-da-equipe@banco.com' WHERE user_id=$1`, [client.id]);
+    await api('/profile', { method: 'PUT', token: client.token, body: { name: 'Indicador', pixKey: 'outro@exemplo.com', pixKeyType: 'EMAIL' } });
+    assert.equal((await pool.query('SELECT pix_key FROM affiliates WHERE user_id=$1', [client.id])).rows[0].pix_key, 'chave-da-equipe@banco.com');
+
+    // repasse usa a chave do parceiro ou, na falta, a do perfil
+    const aff2 = (await pool.query('SELECT id FROM affiliates WHERE user_id=$1', [client.id])).rows[0].id;
+    await pool.query('UPDATE affiliates SET pix_key=NULL WHERE id=$1', [aff2]);
+    assert.equal(await payoutPixKey(pool, aff2), 'outro@exemplo.com');
+
+    // equipe cadastrando parceiro: chave precisa ser válida e é guardada no formato padrão
+    const bad = await sa.call('/api/admin/finance/partners', { method: 'POST', body: { name: 'Parceiro X', code: uid('PX'), commissionBps: 1000, pixKey: 'isso-nao-e-pix' } });
+    assert.equal(bad.status, 400); assert.equal(bad.json.error, 'INVALID_PIX_KEY');
+    const good = await sa.call('/api/admin/finance/partners', { method: 'POST', body: { name: 'Parceiro Y', code: uid('PY'), commissionBps: 1000, pixKey: 'Pix@Banco.com' } });
+    assert.equal(good.status, 201, good.text); assert.equal(good.json.pixKey, 'pix@banco.com');
   });
 });

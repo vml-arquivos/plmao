@@ -190,7 +190,9 @@ describe('CRM de leads e links de consulta', integration, () => {
     await sa.call('/api/admin/crm/summary');
     assert.equal((await leadByEmail(x)).stage, 'CLIENTE');
     const list = await sa.call(`/api/admin/crm/leads?stage=CLIENTE&q=${encodeURIComponent(x)}`);
-    assert.equal(list.json.leads[0].spentCents, 3459);
+    assert.equal(list.json.leads[0].spentCents, 0, 'gasto = consultas pagas e concluídas; só ter pago um pedido ainda não conta como consumo');
+    await pool.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,provider,price_cents) VALUES($1,'ZZZ9Z99','COMPLETE','SUCCESS',0,'mock',3459)`, [u.rows[0].id]);
+    assert.equal((await sa.call(`/api/admin/crm/leads?stage=CLIENTE&q=${encodeURIComponent(x)}`)).json.leads[0].spentCents, 3459);
     // lead do site com o mesmo e-mail de quem criou conta depois: liga sem duplicar
     const y = email('depois');
     await pub('/api/leads/capture', { method: 'POST', body: { email: y, tool: 'FIPE', consent: true } });
