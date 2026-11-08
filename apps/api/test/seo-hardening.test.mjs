@@ -45,8 +45,20 @@ describe('servidor: status HTTP das páginas', integration, () => {
   it('rota desconhecida responde 404 com noindex; página real responde 200', async () => {
     const miss = await fetch(`${server.base}/pagina-inexistente`, { headers: { accept: 'text/html' } });
     const real = await fetch(`${server.base}/planos`, { headers: { accept: 'text/html' } });
+    const economy = await fetch(`${server.base}/veiculos/mais-economicos`, { headers: { accept: 'text/html' } });
+    const missingModel = await fetch(`${server.base}/veiculos/modelo-que-nao-existe`, { headers: { accept: 'text/html' } });
+    const sitemap = await fetch(`${server.base}/sitemap.xml`);
     if (!(real.headers.get('content-type') ?? '').includes('html')) return; // build do front ausente neste ambiente
     assert.equal(miss.status, 404); assert.match(await miss.text(), /noindex,nofollow/);
     assert.equal(real.status, 200);
+    assert.ok(SITEMAP_PATHS.includes('/veiculos/mais-economicos'));
+    assert.equal(economy.status, 200);
+    const economyHtml = await economy.text();
+    assert.match(economyHtml, /Carros mais econômicos/);
+    assert.match(economyHtml, /rel="canonical" href="[^"]*\/veiculos\/mais-economicos"/);
+    assert.match(economyHtml, /content="index,follow/);
+    assert.equal(sitemap.status, 200);
+    assert.match(await sitemap.text(), /<loc>[^<]*\/veiculos\/mais-economicos<\/loc>/);
+    assert.equal(missingModel.status, 404);
   });
 });

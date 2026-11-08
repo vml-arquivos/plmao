@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.37.1 — Página de carros mais econômicos
+
+- Corrige o 404 de `/veiculos/mais-economicos` (a página está no sitemap): agora abre com status 200 e fica indexável. Modelo inexistente continua dando 404. Teste incluído. Sem migração e sem variável nova.
+
 ## 1.37.0 — Visual mais leve, menus agrupados, convite por usuário e guia com mais veículos
 
 - **Convite por usuário (migração 073):** todo usuário — cliente, lojista, operador, administrador — tem o próprio código e link (`/convite/CÓDIGO`). Quem abre o link e se cadastra (e-mail e senha ou Google) fica ligado a quem convidou, com data e caminho (convite pelo site ou consulta enviada). Fica registrado também quantas vezes o link foi aberto.

@@ -3422,6 +3422,8 @@ app.get('*', asyncRoute(async (req, res, next) => {
     if (faqs.rowCount) jsonLd.push({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.rows.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })) });
     const list = prods.rows.map((p) => `<li><h3>${escapeHtmlText(p.name)} · ${brl(Number(p.price_cents))}</h3><p>${escapeHtmlText(p.description)}</p></li>`).join('');
     override = { jsonLd, bodyHtml: `<section><h2>Consultas veiculares por placa</h2><ul>${list}</ul><p>Sem mensalidade: você paga só pela consulta que fizer, com preço visível antes do pagamento e relatório em PDF com código de validação.</p><p><a href="/planos">Compare as consultas e os preços</a> · <a href="/simulador">Simulador de financiamento</a> · <a href="/veiculos">Guia de veículos</a></p></section>` };
+  } else if (req.path.replace(/\/$/, '') === '/veiculos/mais-economicos') {
+    // Rota estática do ranking; não consultar como se fosse slug de modelo.
   } else if (/^\/veiculos\/[a-z0-9-]+\/?$/.test(req.path)) {
     const v = await pool.query(`SELECT brand,name,summary,year_from,year_to,body_type FROM vehicle_models WHERE slug=$1 AND status='PUBLISHED' AND archived_at IS NULL`, [req.path.split('/')[2]]);
     if (!v.rowCount) { res.status(404); override = { notFound: true }; }
