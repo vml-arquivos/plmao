@@ -6,7 +6,7 @@ import { errorMessage } from '../../shared/api';
 import { HeroArt } from '../art';
 import { api } from '../api';
 import { useSession } from '../session';
-import { storedInvite, storedReferral, trackFunnel } from '../funnel';
+import { attribution, funnelSessionId, storedInvite, storedLeadLink, storedReferral, trackFunnel } from '../funnel';
 import { CustomerFields, customerProblem, emptyCustomer, type CustomerData } from '../components/CustomerFields';
 
 type Mode = 'login' | 'register' | 'forgot' | 'reset';
@@ -87,8 +87,8 @@ export default function Auth({ initial }: { initial: Mode }) {
         nav('/entrar', { replace: true });
         setMode('login');
       } else if (mode === 'register') {
-        const ref = storedReferral(); const inv = storedInvite();
-        const r = await api.post<{ token: string }>('/auth/register', { name: f.name.trim(), email: f.email.trim(), password: f.password, acceptTerms: true, acceptPrivacy: true, marketingOptIn: f.marketing, accountType: f.accountType, phone: cust.phone.trim(), cpfCnpj: cust.cpfCnpj.trim(), city: cust.city.trim(), state: cust.state, acceptResponsibility: true, ...(ref ? { affiliateCode: ref } : {}), ...(inv ? { inviteCode: inv.code, inviteVia: inv.via } : {}) });
+        const ref = storedReferral(); const inv = storedInvite(); const leadLink = storedLeadLink();
+        const r = await api.post<{ token: string }>('/auth/register', { name: f.name.trim(), email: f.email.trim(), password: f.password, acceptTerms: true, acceptPrivacy: true, marketingOptIn: f.marketing, accountType: f.accountType, phone: cust.phone.trim(), cpfCnpj: cust.cpfCnpj.trim(), city: cust.city.trim(), state: cust.state, acceptResponsibility: true, ...(ref ? { affiliateCode: ref } : {}), ...(inv ? { inviteCode: inv.code, inviteVia: inv.via } : {}), ...(leadLink ? { leadLinkCode: leadLink } : {}), funnelSession: funnelSessionId(), utm: attribution() });
         trackFunnel('ACCOUNT_CREATED', {});
         await login(r.token);
       } else {

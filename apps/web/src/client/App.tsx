@@ -9,6 +9,7 @@ import { useActiveProfile } from './session';
 import { SEO_PAGES } from './content/seoPages';
 import { useEffect } from 'react';
 import { captureInvite, captureReferral } from './funnel';
+import { LeadLinkLanding, Unsubscribe } from './pages/LeadLink';
 import { api } from './api';
 import { useSession } from './session';
 
@@ -135,6 +136,8 @@ export default function App() {
             <Route path="/privacidade" element={<Legal kind="privacy" />} />
             <Route path="/parceiro/convite/:token" element={<PartnerInvite />} />
             <Route path="/convite/:code" element={<InviteLanding />} />
+            <Route path="/c/:code" element={<LeadLinkLanding />} />
+            <Route path="/descadastrar" element={<Unsubscribe />} />
             <Route path="/contrato/assinar/:token" element={<ContractSign />} />
             <Route path="/contrato/:token" element={<ContractCopy />} />
             <Route path="/documento-fiscal/:token" element={<FiscalDocumentPage />} />

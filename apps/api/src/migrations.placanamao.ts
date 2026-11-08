@@ -2809,6 +2809,87 @@ export const placaMigrations: Migration[] = [
       }
       await client.query(`DROP TABLE IF EXISTS migration_075_prev`);
     }
+  },
+  {
+    id: '076_crm_leads_e_links_de_consulta',
+    name: 'CRM de leads do site, histórico de contatos e links de consulta enviados pelo painel',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS site_leads (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          name text,
+          email text,
+          phone text,
+          kind text NOT NULL DEFAULT 'CLIENTE' CHECK (kind IN ('CLIENTE','LOJISTA')),
+          stage text NOT NULL DEFAULT 'NOVO' CHECK (stage IN ('NOVO','CONTATADO','INTERESSADO','CADASTRADO','CLIENTE','PERDIDO')),
+          source text NOT NULL DEFAULT 'SITE',
+          interest text,
+          utm jsonb NOT NULL DEFAULT '{}'::jsonb,
+          session_key text,
+          user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          owner_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          tags text[] NOT NULL DEFAULT '{}',
+          notes text,
+          marketing_consent boolean NOT NULL DEFAULT false,
+          consent_at timestamptz,
+          consent_text text,
+          consent_ip_hash text,
+          unsubscribed_at timestamptz,
+          first_seen_at timestamptz NOT NULL DEFAULT now(),
+          last_seen_at timestamptz NOT NULL DEFAULT now(),
+          last_contact_at timestamptz,
+          next_contact_at timestamptz,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          CHECK (email IS NOT NULL OR phone IS NOT NULL OR user_id IS NOT NULL)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_site_leads_email ON site_leads(lower(email)) WHERE email IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_site_leads_user ON site_leads(user_id) WHERE user_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_site_leads_phone ON site_leads(phone) WHERE phone IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_site_leads_stage ON site_leads(stage, last_seen_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_site_leads_session ON site_leads(session_key) WHERE session_key IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_site_leads_followup ON site_leads(next_contact_at) WHERE next_contact_at IS NOT NULL AND stage NOT IN ('CLIENTE','PERDIDO');
+
+        CREATE TABLE IF NOT EXISTS site_lead_events (
+          id bigserial PRIMARY KEY,
+          lead_id uuid NOT NULL REFERENCES site_leads(id) ON DELETE CASCADE,
+          kind text NOT NULL,
+          detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+          actor_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_site_lead_events ON site_lead_events(lead_id, id DESC);
+
+        CREATE TABLE IF NOT EXISTS lead_links (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          code text NOT NULL UNIQUE,
+          lead_id uuid REFERENCES site_leads(id) ON DELETE SET NULL,
+          created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          kind text NOT NULL DEFAULT 'CLIENTE' CHECK (kind IN ('CLIENTE','LOJISTA')),
+          recipient_name text,
+          product_id text,
+          plate text,
+          channel text NOT NULL DEFAULT 'COPIA' CHECK (channel IN ('COPIA','WHATSAPP','EMAIL')),
+          expires_at timestamptz NOT NULL,
+          revoked_at timestamptz,
+          clicks integer NOT NULL DEFAULT 0,
+          first_click_at timestamptz,
+          last_click_at timestamptz,
+          registered_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          registered_at timestamptz,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_lead_links_lead ON lead_links(lead_id);
+        CREATE INDEX IF NOT EXISTS idx_lead_links_created ON lead_links(created_at DESC);
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        DROP TABLE IF EXISTS lead_links;
+        DROP TABLE IF EXISTS site_lead_events;
+        DROP TABLE IF EXISTS site_leads;
+      `);
+    }
   }
 
 ];

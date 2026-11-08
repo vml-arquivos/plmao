@@ -4,9 +4,9 @@ import { env, publicAppUrl } from '../config.js';
  * Modelos aprovados de e-mail transacional. Regras: nenhum CPF/CNPJ, relatório ou documento anexado no corpo;
  * documentos sensíveis só por link seguro expirável.
  */
-export type EmailTemplateName = 'CONTRACT_SIGN_REQUEST' | 'CONTRACT_SIGNED' | 'FISCAL_DOCUMENT_READY' | 'PURCHASE_OTP' | 'GENERIC_NOTICE';
+export type EmailTemplateName = 'CONTRACT_SIGN_REQUEST' | 'CONTRACT_SIGNED' | 'FISCAL_DOCUMENT_READY' | 'PURCHASE_OTP' | 'GENERIC_NOTICE' | 'LEAD_MESSAGE';
 export interface RenderedEmail { subject: string; text: string; html: string }
-export type TemplateData = { name?: string; documentTitle?: string; documentNumber?: string; linkPath?: string; token?: string; expiresAt?: string; message?: string };
+export type TemplateData = { name?: string; documentTitle?: string; documentNumber?: string; linkPath?: string; token?: string; expiresAt?: string; message?: string; ctaUrl?: string; ctaLabel?: string; unsubscribeUrl?: string };
 
 const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
 const when = (iso?: string) => (iso ? new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '');
@@ -52,6 +52,15 @@ export function renderEmail(template: EmailTemplateName, d: TemplateData): Rende
         subject: `Código para confirmar seu contrato | ${app}`,
         text: `${greeting}\n\nSeu código para aceitar o contrato${d.documentNumber ? ` ${d.documentNumber}` : ''}: ${code}\n\n${d.expiresAt ? `O código vale até ${when(d.expiresAt)}. ` : ''}Não passe este código a ninguém. Se você não pediu, ignore esta mensagem.`,
         html: shell('Confirme seu contrato', `<p>${esc(greeting)}</p><p>Seu código para aceitar o contrato${d.documentNumber ? ` <b>${esc(d.documentNumber)}</b>` : ''}:</p><p style="font-size:30px;letter-spacing:6px;font-weight:bold;color:#166534">${esc(code)}</p><p>${d.expiresAt ? `O código vale até ${esc(when(d.expiresAt))}. ` : ''}Não passe este código a ninguém.</p>`)
+      };
+    }
+    case 'LEAD_MESSAGE': {
+      const cta = d.ctaUrl && /^https?:\/\//.test(d.ctaUrl) ? { href: d.ctaUrl, label: d.ctaLabel || 'Abrir' } : undefined;
+      const off = d.unsubscribeUrl && /^https?:\/\//.test(d.unsubscribeUrl) ? d.unsubscribeUrl : null;
+      return {
+        subject: `${d.documentTitle ?? 'Novidade'} | ${app}`,
+        text: `${greeting}\n\n${d.message ?? ''}${cta ? `\n\n${cta.label}: ${cta.href}` : ''}${off ? `\n\nNão quer mais receber? ${off}` : ''}`,
+        html: shell(d.documentTitle ?? 'Novidade', `<p>${esc(greeting)}</p><p>${esc(d.message ?? '').replace(/\n/g, '<br>')}</p>`, cta) + (off ? `<p style="font-family:Arial,sans-serif;color:#6b7280;font-size:12px;max-width:600px;margin:auto"><a href="${esc(off)}">Não quero mais receber estas mensagens</a></p>` : '')
       };
     }
     default:

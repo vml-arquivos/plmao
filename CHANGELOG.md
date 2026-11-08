@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.40.0 — CRM de leads, links de consulta pelo painel e menus enxutos
+
+- **Leads e CRM (painel → Clientes e CRM → Leads e CRM):** quem deixa contato no simulador, na Tabela FIPE, no fale conosco, no interesse em planos, quem recebe um link da equipe e quem cria conta por qualquer caminho entra numa esteira (Novo → Contatado → Interessado → Cadastrado → Cliente → Perdido). A etapa sobe sozinha: conta criada vira Cadastrado e primeira compra paga vira Cliente. Cada contato mostra o que fez no site (páginas, FIPE, checkout, ligadas pela sessão), o histórico de contatos, etiquetas, anotações, retorno marcado e o gasto na conta. Filtros por etapa, origem, tipo, aceite de mensagens, retorno vencido e parados há 7+ dias; ações em lote; planilha.
+- **Enviar link de consulta (cliente ou lojista):** o painel gera um link `/c/CÓDIGO` (validade de 1 a 90 dias, com consulta e placa opcionais), com mensagem pronta para WhatsApp ou e-mail. Quem abre cria o acesso e cai direto na consulta; o link conta aberturas e cadastros, o contato avança de etapa e a conta fica ligada a quem enviou em Convites. Dá para cancelar o link.
+- **Formulário de contato nas ferramentas:** simulador e FIPE ganham um cartão discreto (nome, e-mail ou WhatsApp). O aceite de receber novidades vem desmarcado e só vale se a pessoa marcar. Tem campo-armadilha contra robô e limite de pedidos.
+- **E-mail de conteúdo:** envio em lote só para quem aceitou e não saiu, com filtro por etapa, tipo e etiqueta, contagem antes de enviar, botão opcional para uma página do site e link “Não quero mais receber” em todo e-mail (página `/descadastrar`, confirmada por clique). Quem sai nunca mais recebe marketing, inclusive na conta.
+- **Público para anúncios (lookalike/remarketing):** lista CSV só de quem aceitou, com e-mail e telefone em SHA-256 (formato aceito por Meta e Google). Nada legível sai. Toda exportação fica na auditoria.
+- **Privacidade e segurança:** aceite de marketing só pela própria pessoa (a equipe não consegue marcar por ela); contato com conta não pode ser apagado pelo CRM; planilha neutraliza fórmula; a página do link não mostra o e-mail do destinatário; a lista de links mostra a placa mascarada; permissões: ver (Clientes), mexer/enviar/exportar (gerenciar clientes). Texto da Política de Privacidade ganhou o item 9 (contatos deixados no site).
+- **Menus enxutos:** painel da equipe com 7 grupos (Convites passou para dentro do CRM; Resultados junto do Painel; Equipe em Sistema; Simulador em Site e conteúdo) e área do cliente com “Convites e indicações” num só item.
+- **Correção:** `/convite/…`, `/c/…`, `/descadastrar` e `/parceiro/convite/…` voltavam status 404 do servidor (a tela abria, mas com código de erro). Agora abrem com 200, `noindex` e ficam fora do robots.txt.
+- Migração 076 (tabelas `site_leads`, `site_lead_events`, `lead_links`; reversível). Sem variável de ambiente nova.
+
 ## 1.39.0 — Consulta Avançada, cartões de consultas no painel e limpeza
 
 - **Cartões de consultas no painel (Consultas):** nova visão em cartões (e a lista de antes, com um botão para alternar). Cada cartão mostra placa, produto, cliente, data, valor e situação, com **Ver relatório**, **PDF**, **Enviar link** (link de visualização com validade, sem login, com WhatsApp) e **Enviar ao cliente** (coloca na conta dele e avisa por e-mail), tudo sem consultar o provedor de novo e sem cobrar.

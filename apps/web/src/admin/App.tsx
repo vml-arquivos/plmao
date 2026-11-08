@@ -9,7 +9,7 @@ import Customers, { CustomerDetail } from './pages/Customers';
 import Dealerships from './pages/Dealerships';
 import Companies, { CompanyDetail } from './pages/Companies';
 import Team from './pages/Team';
-import Invites from './pages/Invites';
+import Leads from './pages/Leads';
 import Charges from './pages/Charges';
 import Fiscal from './pages/Fiscal';
 import Contracts from './pages/Contracts';
@@ -49,7 +49,8 @@ export default function App() {
         <Route path="empresas" element={<Companies />} />
         <Route path="empresas/:id" element={<CompanyDetail />} />
         <Route path="equipe" element={<Team />} />
-        <Route path="convites" element={<Invites />} />
+        <Route path="leads" element={<Leads />} />
+        <Route path="convites" element={<Navigate to="/leads?aba=convites" replace />} />
         <Route path="cobrancas" element={<Charges />} />
         <Route path="notas-fiscais" element={<Fiscal />} />
         <Route path="contratos" element={<Contracts />} />

@@ -37,7 +37,7 @@ export const pageMeta: Record<string, SeoMeta> = {
 
 /** Páginas públicas indexáveis (entram no sitemap). Telas de conta e do app ficam de fora. */
 export const SITEMAP_PATHS: string[] = Object.keys(pageMeta).filter((p) => !['/entrar', '/criar-conta'].includes(p));
-const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|contrato|documento-fiscal|validar|validar-relatorio|r|consultar|veiculos\/frota|desenvolvedores)(\/|$)/;
+const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|contrato|documento-fiscal|validar|validar-relatorio|r|c|convite|descadastrar|parceiro|consultar|veiculos\/frota|desenvolvedores)(\/|$)/;
 
 export interface GoogleTags { gaId?: string; adsId?: string; adsPurchaseLabel?: string; googleVerification?: string; bingVerification?: string }
 let tags: GoogleTags = {};
@@ -47,7 +47,7 @@ export function setGoogleTags(next: GoogleTags): void { tags = { ...next }; }
 export interface SeoOverride { h1?: string; title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string; noindex?: boolean }
 
 /** Rotas que o app conhece, inclusive as dinâmicas. Qualquer outra recebe 404 e noindex. */
-const DYNAMIC = /^\/(blog|veiculos|simulador|validar|validar-relatorio|r|contrato|documento-fiscal|app|painel|recuperar-senha|consultar|desenvolvedores|loja)(\/|$)/;
+const DYNAMIC = /^\/(blog|veiculos|simulador|validar|validar-relatorio|r|c|convite|descadastrar|parceiro|contrato|documento-fiscal|app|painel|recuperar-senha|consultar|desenvolvedores|loja)(\/|$)/;
 export function isKnownPath(pathname: string): boolean {
   const n = pathname.length > 1 ? pathname.replace(/\/$/, '') : pathname;
   return n in pageMeta || DYNAMIC.test(n);
@@ -58,7 +58,7 @@ const NAV: Array<[string, string]> = [['/fipe', 'Consulta FIPE grátis'], ['/con
 export function renderRobotsTxt(appUrl: string, adminHost: boolean): string {
   if (adminHost) return 'User-agent: *\nDisallow: /\n';
   const base = appUrl.replace(/\/$/, '');
-  return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\nDisallow: /r/\nDisallow: /contrato/\nDisallow: /parceiro/\nDisallow: /documento-fiscal/\nDisallow: /comparar?\n\nSitemap: ${base}/sitemap.xml\n`;
+  return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\nDisallow: /r/\nDisallow: /c/\nDisallow: /convite/\nDisallow: /descadastrar\nDisallow: /contrato/\nDisallow: /parceiro/\nDisallow: /documento-fiscal/\nDisallow: /comparar?\n\nSitemap: ${base}/sitemap.xml\n`;
 }
 
 export function renderSitemapXml(appUrl: string, extra: Array<{ path: string; lastmod?: Date }> = [], pages: Map<string, { noindex: boolean; updatedAt: Date }> = new Map()): string {

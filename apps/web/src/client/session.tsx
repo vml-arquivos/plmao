@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api } from './api';
-import { clearInvite, storedInvite } from './funnel';
+import { clearInvite, clearLeadLink, funnelSessionId, storedInvite, storedLeadLink } from './funnel';
 
 export interface Profile { id: string; email: string; name: string; role: string; passwordEnabled: boolean; cpfCnpj: string; phone: string; companyName: string; city: string; state: string; zip: string; street: string; streetNumber: string; complement: string; district: string; customerType: string; responsibilityAccepted: boolean; profileComplete: boolean; profileMissing: string[]; profileRequired: boolean; marketingOptIn: boolean }
 export interface StoreAccess { name: string; role: 'OWNER' | 'MANAGER' | 'SELLER'; active: boolean }
@@ -30,6 +30,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // Convite guardado no navegador (ex.: quem entrou pelo Google): liga a conta nova a quem convidou, uma vez só.
       const inv = storedInvite();
       if (inv) { clearInvite(); void api.post('/me/invite/claim', { code: inv.code, via: inv.via }).catch(() => undefined); }
+      // Link de consulta enviado pela equipe: o servidor liga a conta ao link só se a conta for nova.
+      const ll = storedLeadLink();
+      if (ll) { clearLeadLink(); void api.post('/me/lead-link/claim', { code: ll, sessionId: funnelSessionId() }).catch(() => undefined); }
     }
     catch { api.token.clear(); setMe(null); setStatus('anon'); }
   }, []);

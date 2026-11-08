@@ -1,3 +1,4 @@
+import LeadCapture from '../components/LeadCapture';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
@@ -120,6 +121,7 @@ export default function Fipe() {
               </div>
             </div>
           )}
+          {quote && <div style={{ marginTop: 18 }}><LeadCapture tool="FIPE" interest={`FIPE: ${quote.brand.name} ${quote.model.name}`.slice(0, 160)} title="Quer receber este resultado e avisos de preço?" text="Deixe seu contato e a gente envia o resumo da Tabela FIPE e dicas para negociar com segurança." /></div>}
           {quote && (quote.vehicleDetails || quote.sheet) && <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>{quote.vehicleDetails && <FreeIdentity details={quote.vehicleDetails} />}{quote.sheet && <SheetView sheet={quote.sheet} />}</div>}
           {quote?.vehicleDetails?.chassis?.includes('*') && <p className="muted" style={{ fontSize: 14, marginTop: 12 }}>Chassi e motor aparecem completos nas consultas Básica e Completa.</p>}
           <p className="muted" style={{ fontSize: 13, marginTop: 20 }}>A Tabela FIPE é uma referência de preço médio de mercado e não considera estado de conservação, quilometragem nem situação documental.</p>

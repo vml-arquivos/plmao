@@ -126,3 +126,16 @@
 .qcard footer { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .qcard-off { opacity: .82; }
 .seg { display: inline-flex; gap: 4px; }
+
+/* CRM de leads */
+.span-all { grid-column: 1 / -1; }
+.adm-page .linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--primary); cursor: pointer; text-align: left; }
+.adm-page .linkbtn:hover { text-decoration: underline; }
+.crm-board { display: grid; grid-template-columns: repeat(6, minmax(168px, 1fr)); gap: 12px; overflow-x: auto; align-items: start; padding-bottom: 6px; }
+.crm-col { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px; display: grid; gap: 8px; align-content: start; min-width: 168px; }
+.crm-col header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.crm-col p { margin: 0; }
+.crm-card { text-align: left; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 2px; cursor: pointer; font: inherit; color: inherit; overflow-wrap: anywhere; }
+.crm-card:hover { border-color: var(--primary); }
+.crm-card .muted { font-size: 12.5px; }
+.crm-timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13.5px; max-height: 280px; overflow: auto; }

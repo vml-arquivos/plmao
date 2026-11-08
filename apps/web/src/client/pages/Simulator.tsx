@@ -1,3 +1,4 @@
+import LeadCapture from '../components/LeadCapture';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
@@ -197,6 +198,7 @@ export default function Simulator() {
 
             {status === 'authed' && <SimHistory reload={mineTick} limit={4} compact />}
             {proposal && calc.data && <SimProposalModal data={calc.data} label={state.label} notes={state.notes} body={toBody(state)} onSaved={() => setMineTick((n) => n + 1)} onClose={() => setProposal(false)} />}
+            <LeadCapture tool="SIMULADOR" interest={`Simulador: ${kindInfo?.short ?? 'Carro'}`} title="Quer receber esta simulação e dicas de financiamento?" text="Deixe seu contato e a gente envia o resumo e avisa quando as taxas mudarem." />
             <div className="card card-pad between sim-cta-plate">
               <div><b>Vai financiar um veículo usado?</b><p className="muted">Antes de fechar, consulte a placa: débitos, multas, restrições, gravame e leilão.</p></div>
               <LinkButton to="/consultar" iconRight="arrow-right">Consultar a placa</LinkButton>

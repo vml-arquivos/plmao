@@ -1207,3 +1207,7 @@
 .app-sheet .app-nav a { padding: 12px; font-size: 15.5px; }
 @keyframes sheetup { from { transform: translateY(24px); opacity: 0; } }
 @media (min-width: 961px) { .app-sheet-wrap { display: none; } }
+
+/* Captura de contato nas ferramentas */
+.lead-cap { position: relative; border-style: dashed; }
+.lead-cap .check { font-size: 13.5px; }

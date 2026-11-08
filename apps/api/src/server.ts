@@ -21,6 +21,8 @@ import { partnersRouter, releaseCommissions } from './routes/partners.js';
 import { partnerPortalRouter } from './routes/partnerPortal.js';
 import { adminInvitesRouter, invitesRouter } from './routes/invites.js';
 import { attachInviter, ensureInviteCode } from './lib/invites.js';
+import { adminLeadsRouter, leadsPublicRouter } from './routes/leads.js';
+import { claimLeadLink, sessionKeyFor, upsertLead } from './lib/leads.js';
 import { adminQueriesRouter } from './routes/adminQueries.js';
 import { completeAuthorization, consumeLoginTicket, createAuthorizationRequest, oauthErrorUrl, oauthSuccessUrl, socialProviderStatus, type OAuthProvider } from './oauth.js';
 import { adminHosts, env, publicAppUrl } from './config.js';
@@ -129,6 +131,8 @@ api.use('/admin/finance', financeRouter);
 api.use('/admin/finance', partnersRouter);
 api.use(partnerPortalRouter);
 api.use(invitesRouter);
+api.use(leadsPublicRouter);
+api.use('/admin/crm', adminLeadsRouter);
 api.use('/admin/queries', adminQueriesRouter);
 api.use('/admin/content', adminContentRouter);
 api.use('/admin/vehicles', adminVehiclesRouter);
@@ -172,6 +176,9 @@ const registerSchema = z.object({
   affiliateCode: z.string().trim().min(3).max(40).optional(),
   inviteCode: z.string().trim().max(20).optional(),
   inviteVia: z.enum(['LINK', 'REPORT']).optional(),
+  leadLinkCode: z.string().trim().max(20).optional(),
+  funnelSession: z.string().regex(/^[a-zA-Z0-9-]{16,80}$/).optional(),
+  utm: z.record(z.string().max(60), z.string().max(160)).optional(),
   accountType: z.enum(['PARTICULAR', 'AUTONOMO', 'EMPRESA']).optional().default('PARTICULAR'),
   // Cadastro completo (obrigatório quando CUSTOMER_PROFILE_REQUIRED está ligado; validado na rota).
   phone: z.string().trim().max(30).optional(),
@@ -687,6 +694,11 @@ api.post('/auth/register', asyncRoute(async (req, res) => {
               ($1,'MARKETING_EMAIL',$3,'2026-08','registration',$2)`, [user.rows[0].id, hashIp(req.ip), parsed.data.marketingOptIn]);
       return user.rows[0] as AuthUser;
     });
+    // CRM: a conta nova entra na esteira (e liga ao link que a equipe mandou, se veio de um). Falha aqui nunca derruba o cadastro.
+    try {
+      await upsertLead({ userId: created.id, email, name: parsed.data.name, phone: d.phone, source: 'CADASTRO', sessionKey: sessionKeyFor(d.funnelSession), utm: d.utm, stage: 'CADASTRADO', consent: { granted: d.marketingOptIn, ipHash: hashIp(req.ip), text: 'Aceite no cadastro' } });
+      if (d.leadLinkCode) await claimLeadLink(created.id, d.leadLinkCode, { sessionKey: sessionKeyFor(d.funnelSession), utm: d.utm });
+    } catch (leadError) { log('warn', 'lead_register_sync_failed', { requestId: requestId(req), reason: leadError instanceof Error ? leadError.message : 'unknown' }); }
     const issued = await issueSession(created, { flow: 'password_registration', requestId: requestId(req) });
     await audit(created.id, 'REGISTER', 'USER', created.id, { requestId: requestId(req), responsibilityAccepted: Boolean(d.acceptResponsibility) });
     res.status(201).json({ token: issued.token, user: created });
@@ -1362,6 +1374,7 @@ api.post('/contact', contactRateLimit, asyncRoute(async (req, res) => {
   const parsed = contactMessageSchema.safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const result = await createContactTicket(null, parsed.data);
+  await upsertLead({ email: parsed.data.email, name: parsed.data.name, source: 'CONTATO', interest: parsed.data.subject }).catch(() => undefined);
   res.status(201).json({ ticketId: result.id, emailSent: result.emailSent, message: result.emailSent ? 'Solicitação recebida. Enviamos uma confirmação para o e-mail informado.' : 'Solicitação recebida. O protocolo foi registrado; o retorno por e-mail será ativado quando o canal estiver configurado.' });
 }));
 
@@ -1378,6 +1391,7 @@ api.post('/plan-interest', asyncRoute(async (req, res) => {
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   // O interesse comercial é aceito, mas analytics não recebe e-mail nem outro identificador direto.
   await recordFunnelEvent(null, req, parsed.data.plan === 'RISK' ? 'RISK_INTEREST' : 'PREMIUM_INTEREST', { plan: parsed.data.plan });
+  await upsertLead({ email: parsed.data.email, source: 'PLANOS', interest: `Plano ${parsed.data.plan}` }).catch(() => undefined);
   res.status(201).json({ ok: true });
 }));
 

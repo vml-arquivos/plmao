@@ -260,7 +260,7 @@ export function CustomerDetail() {
             <dt>Telefone</dt><dd>{c.phone ?? '—'}</dd>
             {c.legalName && <><dt>Razão social</dt><dd>{c.legalName}</dd></>}
             {c.companyName && <><dt>Nome fantasia</dt><dd>{c.companyName}</dd></>}
-            <dt>Convidado por</dt><dd>{invitedBy ? <>{invitedBy.name} ({ROLE_LABEL[invitedBy.role] ?? invitedBy.role}){invitedBy.at ? ` · ${dateTime(invitedBy.at)}` : ''}{invitedBy.via === 'REPORT' ? ' · por consulta enviada' : ''}</> : 'Entrou sem convite'}{invitedCount ? <> · convidou <Link to="/convites">{invitedCount} {invitedCount === 1 ? 'pessoa' : 'pessoas'}</Link></> : null}</dd>
+            <dt>Convidado por</dt><dd>{invitedBy ? <>{invitedBy.name} ({ROLE_LABEL[invitedBy.role] ?? invitedBy.role}){invitedBy.at ? ` · ${dateTime(invitedBy.at)}` : ''}{invitedBy.via === 'REPORT' ? ' · por consulta enviada' : ''}</> : 'Entrou sem convite'}{invitedCount ? <> · convidou <Link to="/leads?aba=convites">{invitedCount} {invitedCount === 1 ? 'pessoa' : 'pessoas'}</Link></> : null}</dd>
             <dt>Acesso ao site</dt><dd>{c.portalAccess ? `Sim · último acesso ${dateTime(c.lastLoginAt)}` : 'Sem acesso (só cadastro)'}</dd>
             {c.notes && <><dt>Observações</dt><dd style={{ fontWeight: 400 }}>{c.notes}</dd></>}
           </dl>

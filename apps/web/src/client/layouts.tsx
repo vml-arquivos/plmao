@@ -178,8 +178,7 @@ const SECTIONS: NavSection[] = [
   ] },
   { title: 'Carteira e convites', items: [
     { to: '/app/carteira', label: 'Carteira', icon: 'wallet' },
-    { to: '/app/parceiro', label: 'Indique e ganhe', icon: 'users', only: ['CLIENTE', 'LOJISTA'] },
-    { to: '/app/convites', label: 'Meus convites', icon: 'link' }
+    { to: '/app/convites', label: 'Convites e indicações', icon: 'users' }
   ] },
   { title: 'Conta', items: [
     { to: '/app/suporte', label: 'Suporte', icon: 'mail' },

@@ -8,17 +8,18 @@ import { useAdminSession } from './session';
 
 interface NavItem { to: string; label: string; icon: IconName; perm: Permission; end?: boolean }
 export const GROUPS: Array<{ title: string; items: NavItem[] }> = [
-  { title: 'Visão geral', items: [{ to: '/', label: 'Painel', icon: 'dashboard', perm: 'VIEW_DASHBOARD', end: true }] },
-  { title: 'Pessoas', items: [
+  { title: 'Visão geral', items: [
+    { to: '/', label: 'Painel', icon: 'dashboard', perm: 'VIEW_DASHBOARD', end: true },
+    { to: '/resultados', label: 'Resultados', icon: 'bar-chart', perm: 'VIEW_DASHBOARD' }
+  ] },
+  { title: 'Clientes e CRM', items: [
+    { to: '/leads', label: 'Leads e CRM', icon: 'trending-up', perm: 'VIEW_CUSTOMERS' },
     { to: '/clientes', label: 'Clientes', icon: 'users', perm: 'VIEW_CUSTOMERS' },
     { to: '/lojas', label: 'Lojas', icon: 'building', perm: 'VIEW_CUSTOMERS' },
-    { to: '/empresas', label: 'Empresas', icon: 'building', perm: 'VIEW_CUSTOMERS' },
-    { to: '/convites', label: 'Convites', icon: 'link', perm: 'VIEW_CUSTOMERS' },
-    { to: '/equipe', label: 'Equipe e acessos', icon: 'key', perm: 'MANAGE_TEAM' }
+    { to: '/empresas', label: 'Empresas', icon: 'building', perm: 'VIEW_CUSTOMERS' }
   ] },
-  { title: 'Operação', items: [
+  { title: 'Atendimento', items: [
     { to: '/consultas', label: 'Consultas', icon: 'search', perm: 'VIEW_QUERIES' },
-    { to: '/resultados', label: 'Resultados', icon: 'bar-chart', perm: 'VIEW_DASHBOARD' },
     { to: '/suporte', label: 'Suporte', icon: 'mail', perm: 'MANAGE_SUPPORT' }
   ] },
   { title: 'Dinheiro', items: [
@@ -31,18 +32,19 @@ export const GROUPS: Array<{ title: string; items: NavItem[] }> = [
   { title: 'Preços e vendas', items: [
     { to: '/precos', label: 'Preços e margens', icon: 'tag', perm: 'MANAGE_PRICING' },
     { to: '/cupons', label: 'Cupons', icon: 'percent', perm: 'MANAGE_BILLING' },
-    { to: '/parceiros', label: 'Parceiros e repasses', icon: 'wallet', perm: 'MANAGE_BILLING' },
-    { to: '/simulador', label: 'Simulador de financiamento', icon: 'calculator', perm: 'MANAGE_BILLING' }
+    { to: '/parceiros', label: 'Parceiros e repasses', icon: 'wallet', perm: 'MANAGE_BILLING' }
   ] },
   { title: 'Site e conteúdo', items: [
     { to: '/catalogo', label: 'Vitrine de produtos', icon: 'sparkles', perm: 'MANAGE_CONTENT' },
     { to: '/guia', label: 'Guia de veículos', icon: 'car', perm: 'MANAGE_CONTENT' },
+    { to: '/simulador', label: 'Simulador de financiamento', icon: 'calculator', perm: 'MANAGE_BILLING' },
     { to: '/artigos', label: 'Artigos e blog', icon: 'file-text', perm: 'MANAGE_CONTENT' },
     { to: '/faq', label: 'Perguntas frequentes', icon: 'info', perm: 'MANAGE_CONTENT' },
     { to: '/depoimentos', label: 'Depoimentos', icon: 'users', perm: 'MANAGE_CONTENT' },
     { to: '/seo', label: 'SEO e Google', icon: 'search', perm: 'MANAGE_CONTENT' }
   ] },
   { title: 'Sistema', items: [
+    { to: '/equipe', label: 'Equipe e acessos', icon: 'key', perm: 'MANAGE_TEAM' },
     { to: '/integracoes', label: 'Integrações', icon: 'settings', perm: 'MANAGE_PROVIDERS' },
     { to: '/auditoria', label: 'Auditoria', icon: 'shield-check', perm: 'VIEW_AUDIT' },
     { to: '/sistema', label: 'Sistema', icon: 'settings', perm: 'VIEW_AUDIT' }

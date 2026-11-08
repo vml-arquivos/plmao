@@ -12,15 +12,15 @@ interface Data {
 }
 
 /** Quem convidou quem e quando: cada usuário (cliente, operador, administrador) tem o próprio link e tudo fica registrado. */
-export default function Invites() {
-  usePageTitle('Convites');
+export default function Invites({ embedded = false }: { embedded?: boolean } = {}) {
+  usePageTitle(embedded ? 'Leads e CRM' : 'Convites');
   const res = useAsync(() => api.get<Data>('/admin/invites'), []);
   if (res.loading && !res.data) return <PageLoading />;
   if (res.error || !res.data) return <ErrorState error={res.error} onRetry={res.reload} />;
   const d = res.data;
   return (
     <>
-      <PageHead title="Convites" sub="Cada pessoa tem o próprio link de convite. Aqui fica quem convidou quem, quando e por qual caminho. O seu link está em Minha conta." />
+      {!embedded && <PageHead title="Convites" sub="Cada pessoa tem o próprio link de convite. Aqui fica quem convidou quem, quando e por qual caminho. O seu link está em Minha conta." />}
       <div className="adm-grid-4">
         <Kpi label="Cadastros por convite" value={d.totals.signups} tone="ok" />
         <Kpi label="Links abertos" value={d.totals.clicks} />

@@ -8,10 +8,10 @@ import { useSession } from '../session';
 
 /** Área logada: o link próprio de convite e o acompanhamento de quem entrou por ele. */
 export default function Invites() {
-  usePageTitle('Meus convites');
+  usePageTitle('Convites e indicações');
   return (
     <div className="stack">
-      <header className="page-head"><h1>Meus convites</h1><p>Convide quem precisa consultar um veículo e acompanhe quem entrou pelo seu link.</p></header>
+      <header className="page-head"><h1>Convites e indicações</h1><p>Convide quem precisa consultar um veículo e acompanhe quem entrou pelo seu link.</p></header>
       <InvitePanel
         load={() => api.get<InviteData>('/me/invite')}
         note={<p className="muted" style={{ fontSize: 13 }}>Este convite é só para acompanhar quem você trouxe. Para ganhar comissão nas compras, ative o <Link to="/app/parceiro">Indique e ganhe</Link>.</p>}

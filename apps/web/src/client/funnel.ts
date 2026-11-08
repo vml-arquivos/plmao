@@ -66,6 +66,24 @@ export function storedInvite(): StoredInvite | undefined {
 }
 export function clearInvite(): void { try { localStorage.removeItem(INVITE_KEY); } catch { /* ignora */ } }
 
+/* ---------- Link de consulta enviado pela equipe (/c/CODIGO) ---------- */
+const LEADLINK_KEY = 'pnm_lead_link';
+const LEADLINK_RE = /^[A-Za-z2-9]{8}$/;
+export function storeLeadLink(rawCode: string | null | undefined): string | null {
+  const code = (rawCode ?? '').trim().toUpperCase();
+  if (!LEADLINK_RE.test(code)) return null;
+  try {
+    const seen = sessionStorage.getItem('pnm_lead_link_click') === code;
+    localStorage.setItem(LEADLINK_KEY, code);
+    if (!seen) { sessionStorage.setItem('pnm_lead_link_click', code); void fetch(`/api/lead-links/${code}/click`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', keepalive: true, cache: 'no-store' }).catch(() => undefined); }
+  } catch { /* sem armazenamento: o link vale só nesta visita */ }
+  return code;
+}
+export function storedLeadLink(): string | undefined {
+  try { const v = localStorage.getItem(LEADLINK_KEY); return v && LEADLINK_RE.test(v) ? v : undefined; } catch { return undefined; }
+}
+export function clearLeadLink(): void { try { localStorage.removeItem(LEADLINK_KEY); } catch { /* ignora */ } }
+
 export type FunnelEvent = 'HOME_PAGE_VIEW' | 'SEO_PAGE_VIEW' | 'FIPE_PAGE_VIEW' | 'CTA_CLICKED' | 'PLATE_CAPTURED' | 'FIPE_FORM_SUBMITTED' | 'FIPE_RESULT_VIEWED' | 'FIPE_REPORT_ACTION' | 'AUTH_VIEWED' | 'AUTH_SUBMITTED' | 'ACCOUNT_CREATED' | 'AUTH_SUCCEEDED' | 'CHECKOUT_QUOTE_VIEWED' | 'CHECKOUT_STARTED';
 export function trackFunnel(event: FunnelEvent, metadata: Meta = {}): void {
   mirrorFunnel(event, metadata);
