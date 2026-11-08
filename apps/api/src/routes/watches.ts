@@ -54,7 +54,7 @@ watchesRouter.post('/watches', asyncRoute(async (req, res) => {
   if (!parsed.success) throw bad('Informe a placa, o tipo de consulta, o intervalo e confirme que cada verificação é cobrada do seu saldo.');
   const userId = req.user!.id;
   if (!siteOpenFor(String(req.user!.email ?? ''))) throw appError('SITE_NOT_OPEN', { code: 'SITE_NOT_OPEN', http: 403, expose: true });
-  await assertCustomerProfile(userId, req.user!.role);
+  await assertCustomerProfile(userId, req.user!.role, { productId: parsed.data.productId });
   if (!(await legalAcceptanceStatus(userId)).accepted) throw appError('TERMS_ACCEPTANCE_REQUIRED', { code: 'TERMS_ACCEPTANCE_REQUIRED', http: 409, expose: true });
   const product = await pool.query(`SELECT id,name,price_cents,is_free,commercial_status FROM query_products WHERE id=$1 AND active=true`, [parsed.data.productId]);
   if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });

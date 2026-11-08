@@ -153,8 +153,8 @@ export default function NewQuery() {
     <div className="stack-lg">
       <div className="page-head"><div><h1>Nova consulta</h1></div></div>
       {me?.profile.profileRequired && !me.profile.profileComplete && (
-        <Alert tone="warn" title="Complete seu cadastro para consultar">
-          Falta: {me.profile.profileMissing.join(', ')}. <Link to="/app/conta?voltar=/app/consultar">Completar agora</Link>
+        <Alert tone="warn" title="Antes da primeira compra, complete seu cadastro">
+          São dados pedidos uma única vez. Falta: {me.profile.profileMissing.join(', ')}. <Link to="/app/conta?voltar=/app/consultar">Completar agora</Link>
         </Alert>
       )}
       <PaidQueries />

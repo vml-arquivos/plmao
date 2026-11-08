@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.41.0 — FIPE grátis pela placa exige conta, cadastro simples e chave PIX
+
+- **Criar conta ficou simples:** só nome, e-mail, WhatsApp e senha (mais o aceite dos Termos e da Privacidade). CPF, cidade, estado e o aceite de responsabilidade deixaram de ser pedidos na criação da conta e passam a ser pedidos **uma única vez, na primeira compra de consulta** (a tela avisa o que falta e leva para Minha conta; depois de preenchido não pede mais). Para usar o que é grátis (FIPE pela placa com conta) não é preciso CPF, endereço nem dado de pagamento.
+- **Produto gratuito não trava:** a checagem do cadastro de compra não vale para produto marcado como gratuito. Consulta paga, checkout e monitoramento seguem exigindo os dados de compra, como antes.
+- **Chave PIX no cadastro (opcional):** tipo (CPF, CNPJ, e-mail, celular ou aleatória) e chave, validados e guardados em formato padrão. Serve só para devolver valores, cashback e comissão do Indique e Ganhe; pode ser informada ou trocada em Minha conta e apagada deixando em branco. A chave nunca vai para o registro de auditoria (só “atualizada” ou “removida”). No painel, o detalhe do cliente mostra a chave (inteira para quem gerencia clientes ou fiscal, mascarada para os demais). Quem ainda não tem chave vê um aviso em Minha conta.
+- Compatível: o formulário antigo (que manda CPF, cidade, estado e aceite no cadastro) continua funcionando e a conta nasce completa. Contas que já estão completas não perdem nada.
+- Migração 077 (colunas `pix_key`, `pix_key_type`, `pix_key_updated_at` em `user_profiles`; reversível). Sem variável de ambiente nova.
+- Testes: `test/customer-profile.test.mjs` (cadastro por etapas e PIX) e `test/migration-rollback.test.mjs` (51 migrações).
+
+### FIPE pela placa só com conta
+
+- **FIPE pela placa só com conta de cliente (grátis):** quem não está logado e digita a placa na Tabela FIPE vê um aviso para criar a conta ou entrar (volta para a FIPE com a placa preenchida). O servidor também recusa (401) antes de gastar cota ou consultar qualquer fonte, então não dá para burlar pela API. Os dados do veículo pela placa ficam dentro da conta; o resto das consultas (débitos, restrições, leilão…) segue sendo comprado.
+- **Sem conta continua valendo:** FIPE por marca, modelo e ano (resultado na tela, sem PDF nem impressão, que já exigiam conta).
+- Os pedidos recusados por falta de conta entram no funil (`FREE_QUERY_LOGIN_REQUIRED`) para medir quantos viram cadastro. Teste: `test/fipe-placa-conta.test.mjs`. Sem migração e sem variável de ambiente nova.
+
 ## 1.40.0 — CRM de leads, links de consulta pelo painel e menus enxutos
 
 - **Leads e CRM (painel → Clientes e CRM → Leads e CRM):** quem deixa contato no simulador, na Tabela FIPE, no fale conosco, no interesse em planos, quem recebe um link da equipe e quem cria conta por qualquer caminho entra numa esteira (Novo → Contatado → Interessado → Cadastrado → Cliente → Perdido). A etapa sobe sozinha: conta criada vira Cadastrado e primeira compra paga vira Cliente. Cada contato mostra o que fez no site (páginas, FIPE, checkout, ligadas pela sessão), o histórico de contatos, etiquetas, anotações, retorno marcado e o gasto na conta. Filtros por etapa, origem, tipo, aceite de mensagens, retorno vencido e parados há 7+ dias; ações em lote; planilha.

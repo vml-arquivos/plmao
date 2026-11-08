@@ -271,6 +271,7 @@ export function CustomerDetail() {
             <dt>Endereço</dt><dd>{[c.street, c.streetNumber, c.complement].filter(Boolean).join(', ') || '—'}</dd>
             <dt>Bairro / cidade</dt><dd>{[c.district, c.city && `${c.city}${c.state ? `/${c.state}` : ''}`].filter(Boolean).join(' · ') || '—'}</dd>
             <dt>CEP</dt><dd>{c.zip ? maskZip(c.zip) : '—'}</dd>
+            <dt>Chave PIX</dt><dd className="mono">{c.pixKey ? `${c.pixKey}${c.pixKeyType ? ` (${c.pixKeyType.toLowerCase()})` : ''}` : <span className="muted">não cadastrada</span>}</dd>
             <dt>E-mail da nota</dt><dd>{c.billingEmail ?? c.email}</dd>
             {c.stateRegistration && <><dt>Insc. estadual</dt><dd>{c.stateRegistration}</dd></>}
             {c.municipalRegistration && <><dt>Insc. municipal</dt><dd>{c.municipalRegistration}</dd></>}

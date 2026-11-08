@@ -5,7 +5,7 @@ import { Badge, Button, Input, Select, Spinner } from '../shared/ui';
 export interface Customer {
   id: string; name: string; email: string; active: boolean; archived: boolean; createdAt: string; lastLoginAt: string | null; portalAccess: boolean;
   type: CustomerType; segment: string | null; cpfCnpj: string | null; documentKind: 'CPF' | 'CNPJ' | null; phone: string | null; companyName: string | null; legalName: string | null;
-  stateRegistration: string | null; municipalRegistration: string | null; billingEmail: string | null;
+  stateRegistration: string | null; municipalRegistration: string | null; billingEmail: string | null; pixKey?: string | null; pixKeyType?: string | null;
   zip: string | null; street: string | null; streetNumber: string | null; complement: string | null; district: string | null; city: string | null; state: string | null; notes: string | null;
   organization: { id: string; name: string } | null;
   balanceCents: number; queriesCount: number; lastQueryAt: string | null; paidCents: number; openCents: number; overdueCents: number; fiscalReady: boolean;

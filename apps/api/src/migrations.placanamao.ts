@@ -2890,6 +2890,26 @@ export const placaMigrations: Migration[] = [
         DROP TABLE IF EXISTS site_leads;
       `);
     }
+  },
+  {
+    id: '077_chave_pix_do_cliente',
+    name: 'Chave PIX do cliente (reembolso, cashback e comissão do Indique e Ganhe)',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE user_profiles
+          ADD COLUMN IF NOT EXISTS pix_key text,
+          ADD COLUMN IF NOT EXISTS pix_key_type text CHECK (pix_key_type IS NULL OR pix_key_type IN ('CPF','CNPJ','EMAIL','TELEFONE','ALEATORIA')),
+          ADD COLUMN IF NOT EXISTS pix_key_updated_at timestamptz;
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        ALTER TABLE user_profiles
+          DROP COLUMN IF EXISTS pix_key_updated_at,
+          DROP COLUMN IF EXISTS pix_key_type,
+          DROP COLUMN IF EXISTS pix_key;
+      `);
+    }
   }
 
 ];

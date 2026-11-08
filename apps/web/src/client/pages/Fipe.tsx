@@ -91,7 +91,7 @@ export default function Fipe() {
         <div className="container" style={{ maxWidth: 860 }}>
           {!enabled && <Alert tone="warn" title="Consulta FIPE em ativação.">Esta consulta ainda não está disponível neste ambiente.</Alert>}
           <div className="card card-pad stack">
-            <Tabs label="Forma de busca" value={mode} onChange={(m) => { setMode(m); setErr(''); }} items={[{ id: 'plate', label: 'Por placa' }, { id: 'select', label: 'Por marca e modelo' }]} />
+            <Tabs label="Forma de busca" value={mode} onChange={(m) => { setMode(m); setErr(''); }} items={[{ id: 'plate', label: status === 'authed' ? 'Por placa' : 'Por placa (com conta)' }, { id: 'select', label: 'Por marca e modelo' }]} />
             {mode === 'plate' ? (
               <div className="plate-input-wrap"><div className="plate-input"><input value={plate} onChange={(e) => setPlate(normalizePlate(e.target.value))} placeholder="ABC1D23" aria-label="Placa" maxLength={8} autoComplete="off" autoCapitalize="characters" /></div></div>
             ) : (
@@ -106,8 +106,18 @@ export default function Fipe() {
                 <Field label="Ano / combustível"><Select value={year} onChange={(e) => setYear(e.target.value)} disabled={!model}><option value="">Selecione</option>{years.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}</Select></Field>
               </div>
             )}
+            {mode === 'plate' && status !== 'authed' && (
+              <Alert tone="info" title="Para consultar pela placa, crie sua conta grátis">
+                <p style={{ margin: '0 0 10px' }}>A Tabela FIPE continua grátis. Pela placa, o sistema busca os dados do veículo, e isso fica dentro da sua conta de cliente. Se preferir não se cadastrar agora, consulte por marca, modelo e ano.</p>
+                <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+                  <LinkButton to={`/criar-conta?next=${encodeURIComponent(`/fipe${isValidPlate(plate) ? `?placa=${plate}` : ''}`)}`} variant="primary" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'fipe-plate-gate', destination: 'register' })}>Criar conta e consultar</LinkButton>
+                  <LinkButton to={`/entrar?next=${encodeURIComponent(`/fipe${isValidPlate(plate) ? `?placa=${plate}` : ''}`)}`}>Já tenho conta</LinkButton>
+                  <Button variant="ghost" onClick={() => { setMode('select'); setErr(''); }}>Consultar por marca e modelo</Button>
+                </div>
+              </Alert>
+            )}
             {err && <Alert tone="danger">{err}</Alert>}
-            <div><Button variant="primary" size="lg" icon="search" disabled={!ready || !enabled} loading={busy} onClick={submit}>Consultar FIPE</Button></div>
+            {(mode === 'select' || status === 'authed') && <div><Button variant="primary" size="lg" icon="search" disabled={!ready || !enabled} loading={busy} onClick={submit}>Consultar FIPE</Button></div>}
           </div>
 
           {quote && (

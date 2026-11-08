@@ -7,7 +7,7 @@ import { HeroArt } from '../art';
 import { api } from '../api';
 import { useSession } from '../session';
 import { attribution, funnelSessionId, storedInvite, storedLeadLink, storedReferral, trackFunnel } from '../funnel';
-import { CustomerFields, customerProblem, emptyCustomer, type CustomerData } from '../components/CustomerFields';
+import { PixFields, SignupFields, emptyPix, pixProblem, signupProblem, type PixData } from '../components/CustomerFields';
 
 type Mode = 'login' | 'register' | 'forgot' | 'reset';
 type Provider = { id: 'google' | 'microsoft' | 'apple'; label: string; enabled: boolean };
@@ -51,7 +51,8 @@ export default function Auth({ initial }: { initial: Mode }) {
   const [busy, setBusy] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [f, setF] = useState({ name: '', email: '', password: '', confirm: '', terms: false, marketing: false, accountType: 'PARTICULAR' });
-  const [cust, setCust] = useState<CustomerData>(emptyCustomer);
+  const [phone, setPhone] = useState('');
+  const [pix, setPix] = useState<PixData>(emptyPix);
   const title = { login: 'Entrar', register: 'Criar conta', forgot: 'Recuperar senha', reset: 'Nova senha' }[mode];
   usePageTitle(title);
 
@@ -72,7 +73,7 @@ export default function Auth({ initial }: { initial: Mode }) {
       if (f.password !== f.confirm) return setError('As senhas não conferem.');
     }
     if (mode === 'register' && f.name.trim().split(/\s+/).length < 2) return setError('Informe seu nome completo (nome e sobrenome).');
-    if (mode === 'register') { const problem = customerProblem(cust, f.accountType, { needResponsibility: false }); if (problem) return setError(problem); }
+    if (mode === 'register') { const problem = signupProblem(phone) || pixProblem(pix); if (problem) return setError(problem); }
     if (mode === 'register' && !f.terms) return setError('Para criar sua conta, aceite os Termos de Uso e a Política de Privacidade.');
     setBusy(true);
     trackFunnel('AUTH_SUBMITTED', { mode });
@@ -88,7 +89,7 @@ export default function Auth({ initial }: { initial: Mode }) {
         setMode('login');
       } else if (mode === 'register') {
         const ref = storedReferral(); const inv = storedInvite(); const leadLink = storedLeadLink();
-        const r = await api.post<{ token: string }>('/auth/register', { name: f.name.trim(), email: f.email.trim(), password: f.password, acceptTerms: true, acceptPrivacy: true, marketingOptIn: f.marketing, accountType: f.accountType, phone: cust.phone.trim(), cpfCnpj: cust.cpfCnpj.trim(), city: cust.city.trim(), state: cust.state, acceptResponsibility: true, ...(ref ? { affiliateCode: ref } : {}), ...(inv ? { inviteCode: inv.code, inviteVia: inv.via } : {}), ...(leadLink ? { leadLinkCode: leadLink } : {}), funnelSession: funnelSessionId(), utm: attribution() });
+        const r = await api.post<{ token: string }>('/auth/register', { name: f.name.trim(), email: f.email.trim(), password: f.password, acceptTerms: true, acceptPrivacy: true, marketingOptIn: f.marketing, accountType: f.accountType, phone: phone.trim(), ...(pix.key.trim() ? { pixKey: pix.key.trim(), pixKeyType: pix.type } : {}), ...(ref ? { affiliateCode: ref } : {}), ...(inv ? { inviteCode: inv.code, inviteVia: inv.via } : {}), ...(leadLink ? { leadLinkCode: leadLink } : {}), funnelSession: funnelSessionId(), utm: attribution() });
         trackFunnel('ACCOUNT_CREATED', {});
         await login(r.token);
       } else {
@@ -101,7 +102,7 @@ export default function Auth({ initial }: { initial: Mode }) {
   }
 
   const heading = { login: 'Que bom ver você de volta.', register: 'Crie sua conta grátis.', forgot: 'Vamos recuperar seu acesso.', reset: 'Defina sua nova senha.' }[mode];
-  const sub = { login: 'Entre para consultar placas e acessar seus relatórios salvos.', register: 'Sem mensalidade. Você só paga pela consulta que fizer.', forgot: 'Informe seu e-mail e enviaremos as instruções.', reset: 'Escolha uma nova senha com pelo menos 8 caracteres.' }[mode];
+  const sub = { login: 'Entre para consultar placas e acessar seus relatórios salvos.', register: 'Só nome, e-mail e WhatsApp. CPF e dados de pagamento só se você comprar uma consulta.', forgot: 'Informe seu e-mail e enviaremos as instruções.', reset: 'Escolha uma nova senha com pelo menos 8 caracteres.' }[mode];
 
   return (
     <div className="auth-shell">
@@ -138,10 +139,11 @@ export default function Auth({ initial }: { initial: Mode }) {
             {mode !== 'reset' && <Field label="E-mail"><Input name="email" type="email" value={f.email} onChange={(e) => set('email')(e.target.value)} autoComplete="email" required placeholder="voce@exemplo.com" icon="mail" /></Field>}
             {mode !== 'forgot' && <PasswordField label={mode === 'reset' ? 'Nova senha' : 'Senha'} name="password" value={f.password} onChange={set('password') as (v: string) => void} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'login' ? 1 : 8} meter={mode !== 'login'} />}
             {(mode === 'register' || mode === 'reset') && <PasswordField label="Confirmar senha" name="confirm" value={f.confirm} onChange={set('confirm') as (v: string) => void} autoComplete="new-password" minLength={8} />}
-            {mode === 'register' && <CustomerFields value={cust} onChange={setCust} accountType={f.accountType} />}
+            {mode === 'register' && <SignupFields phone={phone} onPhone={setPhone} />}
+            {mode === 'register' && <PixFields value={pix} onChange={setPix} />}
             {mode === 'register' && (
               <div className="stack-sm">
-                <Check checked={f.terms} onChange={(e) => set('terms')(e.target.checked)} required>Li e aceito os <Link to="/termos" target="_blank">Termos de Uso</Link> e a <Link to="/privacidade" target="_blank">Política de Privacidade</Link>, e sou responsável pelo uso das informações que consultar.</Check>
+                <Check checked={f.terms} onChange={(e) => set('terms')(e.target.checked)} required>Li e aceito os <Link to="/termos" target="_blank">Termos de Uso</Link> e a <Link to="/privacidade" target="_blank">Política de Privacidade</Link>.</Check>
                 <Check checked={f.marketing} onChange={(e) => set('marketing')(e.target.checked)}>Quero receber novidades e ofertas por e-mail (opcional).</Check>
               </div>
             )}

@@ -88,6 +88,7 @@ import { startFiscalAuto } from './lib/fiscalAuto.js';
 import { startPaymentSyncWorker, syncUserOpenOrders } from './lib/paymentSync.js';
 import { toCsv } from './lib/br.js';
 import { refreshStaleReports } from './lib/reportRefresh.js';
+import { PIX_KEY_TYPES, normalizePixKey } from './lib/pix.js';
 import { RESPONSIBILITY_VERSION, assertCustomerProfile, profileDto, profileRequired, validDocument, validPhone, validateRegistrationProfile } from './lib/customerProfile.js';
 import { supportAdminRouter, supportClientRouter, supportPublicRouter } from './routes/support.js';
 import { testimonialsAdminRouter, testimonialsRouter } from './routes/testimonials.js';
@@ -180,8 +181,10 @@ const registerSchema = z.object({
   funnelSession: z.string().regex(/^[a-zA-Z0-9-]{16,80}$/).optional(),
   utm: z.record(z.string().max(60), z.string().max(160)).optional(),
   accountType: z.enum(['PARTICULAR', 'AUTONOMO', 'EMPRESA']).optional().default('PARTICULAR'),
-  // Cadastro completo (obrigatório quando CUSTOMER_PROFILE_REQUIRED está ligado; validado na rota).
+  // Conta simples: nome, e-mail e telefone (telefone obrigatório quando CUSTOMER_PROFILE_REQUIRED está ligado). CPF e endereço ficam para a primeira compra; a chave PIX é opcional.
   phone: z.string().trim().max(30).optional(),
+  pixKey: z.string().trim().max(140).optional(),
+  pixKeyType: z.enum(PIX_KEY_TYPES).optional(),
   cpfCnpj: z.string().trim().max(30).optional(),
   companyName: z.string().trim().max(160).optional(),
   zip: z.string().trim().max(12).optional(),
@@ -232,7 +235,9 @@ const profileUpdateSchema = z.object({
   complement: z.string().trim().max(80).optional(),
   district: z.string().trim().max(100).optional(),
   acceptResponsibility: z.literal(true).optional(),
-  marketingOptIn: z.boolean().optional()
+  marketingOptIn: z.boolean().optional(),
+  pixKey: z.string().trim().max(140).optional(),
+  pixKeyType: z.enum(PIX_KEY_TYPES).optional()
 });
 const forgotPasswordSchema = z.object({ email: z.string().trim().email().max(254) }).strict();
   const resetPasswordSchema = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{30,160}$/), newPassword: z.string().min(8).max(128) }).strict();
@@ -670,9 +675,12 @@ api.post('/auth/register', asyncRoute(async (req, res) => {
   assertSiteOpenFor(email);
   const d = parsed.data;
   if (profileRequired()) {
-    const invalid = validateRegistrationProfile({ phone: d.phone, cpfCnpj: d.cpfCnpj, companyName: d.companyName, zip: d.zip, street: d.street, streetNumber: d.streetNumber, district: d.district, city: d.city, state: d.state, acceptResponsibility: d.acceptResponsibility }, d.accountType);
+    const invalid = validateRegistrationProfile({ phone: d.phone, cpfCnpj: d.cpfCnpj, pixKey: d.pixKey, pixKeyType: d.pixKeyType }, d.accountType);
     if (invalid) throw appError(invalid, { code: invalid, http: 400, expose: true });
   }
+  // Chave PIX é opcional, mas se vier precisa ser válida (vale também com o cadastro obrigatório desligado).
+  const pix = d.pixKey ? normalizePixKey(d.pixKey, d.pixKeyType) : null;
+  if (d.pixKey && !pix) throw appError('INVALID_PIX_KEY', { code: 'INVALID_PIX_KEY', http: 400, expose: true });
   const passwordHash = await bcrypt.hash(parsed.data.password, 12);
   try {
     const created = await tx(async (client) => {
@@ -685,9 +693,9 @@ api.post('/auth/register', asyncRoute(async (req, res) => {
       const user = await client.query('INSERT INTO users(email,password_hash,name,role,affiliate_id) VALUES($1,$2,$3,$4,$5) RETURNING id,email,name,role', [email, passwordHash, parsed.data.name, 'CLIENTE', affiliateId]);
       await client.query('INSERT INTO wallets(user_id,balance) VALUES($1,0)', [user.rows[0].id]);
       if (parsed.data.inviteCode) await attachInviter(String(user.rows[0].id), parsed.data.inviteCode, parsed.data.inviteVia, client);
-      await client.query(`INSERT INTO user_profiles(user_id,marketing_opt_in,customer_type,cpf_cnpj,phone,company_name,zip,street,street_number,complement,district,city,state,responsibility_accepted_at,responsibility_version)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-        [user.rows[0].id, d.marketingOptIn, d.accountType, d.cpfCnpj || null, d.phone || null, d.companyName || null, d.zip ? d.zip.replace(/\D/g, '') : null, d.street || null, d.streetNumber || null, d.complement || null, d.district || null, d.city || null, d.state ? d.state.toUpperCase() : null, d.acceptResponsibility ? new Date() : null, d.acceptResponsibility ? RESPONSIBILITY_VERSION : null]);
+      await client.query(`INSERT INTO user_profiles(user_id,marketing_opt_in,customer_type,cpf_cnpj,phone,company_name,zip,street,street_number,complement,district,city,state,responsibility_accepted_at,responsibility_version,pix_key,pix_key_type,pix_key_updated_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,CASE WHEN $16::text IS NOT NULL THEN now() END)`,
+        [user.rows[0].id, d.marketingOptIn, d.accountType, d.cpfCnpj || null, d.phone || null, d.companyName || null, d.zip ? d.zip.replace(/\D/g, '') : null, d.street || null, d.streetNumber || null, d.complement || null, d.district || null, d.city || null, d.state ? d.state.toUpperCase() : null, d.acceptResponsibility ? new Date() : null, d.acceptResponsibility ? RESPONSIBILITY_VERSION : null, pix?.key ?? null, pix?.type ?? null]);
       await client.query(`INSERT INTO user_consents(user_id,consent_type,granted,policy_version,source,ip_hash)
         VALUES($1,'TERMS_OF_SERVICE',true,'2026-08','registration',$2),
               ($1,'PRIVACY_POLICY',true,'2026-08','registration',$2),
@@ -700,7 +708,7 @@ api.post('/auth/register', asyncRoute(async (req, res) => {
       if (d.leadLinkCode) await claimLeadLink(created.id, d.leadLinkCode, { sessionKey: sessionKeyFor(d.funnelSession), utm: d.utm });
     } catch (leadError) { log('warn', 'lead_register_sync_failed', { requestId: requestId(req), reason: leadError instanceof Error ? leadError.message : 'unknown' }); }
     const issued = await issueSession(created, { flow: 'password_registration', requestId: requestId(req) });
-    await audit(created.id, 'REGISTER', 'USER', created.id, { requestId: requestId(req), responsibilityAccepted: Boolean(d.acceptResponsibility) });
+    await audit(created.id, 'REGISTER', 'USER', created.id, { requestId: requestId(req), responsibilityAccepted: Boolean(d.acceptResponsibility), pixKeyInformed: Boolean(pix) });
     res.status(201).json({ token: issued.token, user: created });
   } catch (error: unknown) {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') throw appError('EMAIL_ALREADY_EXISTS', { code: 'EMAIL_ALREADY_EXISTS', http: 409, expose: true });
@@ -757,18 +765,25 @@ api.put('/profile', auth, asyncRoute(async (req, res) => {
     if (input.phone && !validPhone(input.phone)) throw appError('INVALID_PHONE', { code: 'INVALID_PHONE', http: 400, expose: true });
     if (input.zip && input.zip.replace(/\D/g, '').length !== 8) throw appError('INVALID_ZIP', { code: 'INVALID_ZIP', http: 400, expose: true });
   }
+  // PIX: não enviado = mantém; enviado vazio = apaga; enviado = precisa ser uma chave válida.
+  const pixSent = input.pixKey !== undefined;
+  const pix = pixSent && input.pixKey ? normalizePixKey(input.pixKey, input.pixKeyType) : null;
+  if (pixSent && input.pixKey && !pix) throw appError('INVALID_PIX_KEY', { code: 'INVALID_PIX_KEY', http: 400, expose: true });
   const zip = input.zip === undefined ? null : input.zip.replace(/\D/g, '');
   const profile = await tx(async (client) => {
     const user = await client.query('UPDATE users SET name=$2 WHERE id=$1 AND active=true RETURNING id,email,name,role,password_enabled', [req.user!.id, input.name]);
     if (!user.rowCount) throw appError('ACCOUNT_NOT_FOUND', { code: 'ACCOUNT_NOT_FOUND', http: 404, expose: true });
-    const updated = await client.query(`INSERT INTO user_profiles(user_id,cpf_cnpj,phone,company_name,city,state,marketing_opt_in,zip,street,street_number,complement,district,responsibility_accepted_at,responsibility_version)
-      VALUES($1,$2,$3,$4,$5,$6,COALESCE($7,false),$8,$9,$10,$11,$12,CASE WHEN $13::boolean THEN now() END,CASE WHEN $13::boolean THEN $14 END)
+    const updated = await client.query(`INSERT INTO user_profiles(user_id,cpf_cnpj,phone,company_name,city,state,marketing_opt_in,zip,street,street_number,complement,district,responsibility_accepted_at,responsibility_version,pix_key,pix_key_type,pix_key_updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,COALESCE($7,false),$8,$9,$10,$11,$12,CASE WHEN $13::boolean THEN now() END,CASE WHEN $13::boolean THEN $14 END,CASE WHEN $15::boolean THEN $16 END,CASE WHEN $15::boolean THEN $17 END,CASE WHEN $15::boolean AND $16::text IS NOT NULL THEN now() END)
       ON CONFLICT(user_id) DO UPDATE SET cpf_cnpj=EXCLUDED.cpf_cnpj,phone=EXCLUDED.phone,company_name=EXCLUDED.company_name,city=EXCLUDED.city,state=EXCLUDED.state,marketing_opt_in=COALESCE($7,user_profiles.marketing_opt_in),
         zip=COALESCE($8,user_profiles.zip),street=COALESCE($9,user_profiles.street),street_number=COALESCE($10,user_profiles.street_number),complement=COALESCE($11,user_profiles.complement),district=COALESCE($12,user_profiles.district),
         responsibility_accepted_at=CASE WHEN $13::boolean THEN now() ELSE user_profiles.responsibility_accepted_at END,
         responsibility_version=CASE WHEN $13::boolean THEN $14 ELSE user_profiles.responsibility_version END,updated_at=now()
+        ,pix_key=CASE WHEN $15::boolean THEN $16 ELSE user_profiles.pix_key END,
+        pix_key_type=CASE WHEN $15::boolean THEN $17 ELSE user_profiles.pix_key_type END,
+        pix_key_updated_at=CASE WHEN $15::boolean THEN now() ELSE user_profiles.pix_key_updated_at END
       RETURNING *`, [req.user!.id, input.cpfCnpj ?? null, input.phone ?? null, input.companyName ?? null, input.city ?? null, input.state?.toUpperCase() ?? null, input.marketingOptIn ?? null,
-        zip, input.street ?? null, input.streetNumber ?? null, input.complement ?? null, input.district ?? null, input.acceptResponsibility === true, RESPONSIBILITY_VERSION]);
+        zip, input.street ?? null, input.streetNumber ?? null, input.complement ?? null, input.district ?? null, input.acceptResponsibility === true, RESPONSIBILITY_VERSION, pixSent, pix?.key ?? null, pix?.type ?? null]);
     if (input.marketingOptIn !== undefined) {
       await client.query(`INSERT INTO user_consents(user_id,consent_type,granted,policy_version,source,ip_hash)
         VALUES($1,'MARKETING_EMAIL',$2,'2026-08','profile_update',$3)`, [req.user!.id, input.marketingOptIn, hashIp(req.ip)]);
@@ -776,7 +791,7 @@ api.put('/profile', auth, asyncRoute(async (req, res) => {
     return { user: user.rows[0], profile: updated.rows[0] };
   });
   const publicAccount = publicUser({ id: String(profile.user.id), email: String(profile.user.email), name: String(profile.user.name), role: String(profile.user.role) });
-  await audit(req.user!.id, 'PROFILE_UPDATED', 'USER', req.user!.id, { requestId: requestId(req), responsibilityAccepted: input.acceptResponsibility === true });
+  await audit(req.user!.id, 'PROFILE_UPDATED', 'USER', req.user!.id, { requestId: requestId(req), responsibilityAccepted: input.acceptResponsibility === true, ...(pixSent ? { pixKey: pix ? 'ATUALIZADA' : 'REMOVIDA' } : {}) });
   res.json({ user: publicAccount, profile: profileDto({ id: publicAccount.id, email: publicAccount.email, name: publicAccount.name, role: publicAccount.role, passwordEnabled: Boolean(profile.user.password_enabled) }, profile.profile) });
 }));
 
@@ -1277,6 +1292,11 @@ api.post('/fipe/quote', optionalAuth, asyncRoute(async (req, res) => {
   const normalizedPlate = parsed.data.plate ? plateSchema.safeParse(parsed.data.plate) : null;
   if (parsed.data.plate && !normalizedPlate?.success) throw appError('INVALID_PLATE', { code: 'INVALID_PLATE', http: 400, expose: true });
   const plate = normalizedPlate?.success ? normalizedPlate.data : undefined;
+  // Consulta pela placa precisa de conta (grátis). Sem conta, só por marca, modelo e ano. Vale antes de gastar cota ou consultar qualquer fonte.
+  if (plate && !req.user) {
+    await recordFunnelEvent(null, req, 'FREE_QUERY_LOGIN_REQUIRED', { plateLookup: true });
+    throw appError('Para consultar a FIPE pela placa, entre ou crie sua conta grátis. Por marca, modelo e ano você consulta sem conta.', { code: 'FIPE_PLATE_LOGIN_REQUIRED', http: 401, expose: true, showMessage: true });
+  }
   // O prefixo v2 isola contadores criados antes da correção de proxy e evita
   // que um IP compartilhado do Cloudflare consuma a cota de todos os visitantes.
   const scopeKey = `v2:ip:${hashIp(requestSourceIp(req)) ?? 'unknown'}`;
@@ -1629,7 +1649,7 @@ api.post('/queries/warm', auth, requirePermission('QUERY_VEHICLE'), (_req, res) 
 
 api.post('/queries', auth, requirePermission('QUERY_VEHICLE'), asyncRoute(async (req, res) => {
   assertSiteOpenFor(req.user!.email);
-  await assertCustomerProfile(req.user!.id, req.user!.role);
+  await assertCustomerProfile(req.user!.id, req.user!.role, { productId: (req.body as { productId?: unknown } | undefined)?.productId });
   const parsed = requestQuerySchema.safeParse(req.body);
   if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
   const idempotencyKeyHeader = req.headers['idempotency-key'];
@@ -2238,7 +2258,7 @@ api.post('/payments/query/quote', auth, requirePermission('BUY_CREDITS'), asyncR
 
 api.post('/payments/query/checkout', auth, requirePermission('BUY_CREDITS'), asyncRoute(async (req, res) => {
   assertSiteOpenFor(req.user!.email);
-  await assertCustomerProfile(req.user!.id, req.user!.role);
+  await assertCustomerProfile(req.user!.id, req.user!.role, { productId: (req.body as { productId?: unknown } | undefined)?.productId });
   const parsed = queryCheckoutSchema.safeParse(req.body);
   if (!parsed.success) { const code = searchErrorCode(req.body); throw appError(code, { code, http: 400, expose: true }); }
   const paymentProvider = getPaymentProvider();
@@ -3272,6 +3292,7 @@ function humanMessage(code: string): string {
     INVALID_RENAVAM: 'Informe um Renavam válido (9 a 11 dígitos).',
     INVALID_OWNER_DOC: 'Informe um CPF ou CNPJ válido.',
     INVALID_PHONE: 'Informe um WhatsApp válido, com DDD.',
+    INVALID_PIX_KEY: 'A chave PIX não parece válida. Confira o tipo (CPF, CNPJ, e-mail, celular ou aleatória) e o número.',
     INVALID_ZIP: 'Informe um CEP válido, com 8 números.',
     RESPONSIBILITY_REQUIRED: 'Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.',
     PROFILE_INCOMPLETE: 'Preencha os dados do cadastro (nome, WhatsApp, CPF, cidade e estado).',

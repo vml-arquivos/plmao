@@ -1,3 +1,4 @@
+import { maskPixKey } from '../lib/pix.js';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
@@ -195,7 +196,7 @@ const CUSTOMER_COLS: Record<string, string> = {
 };
 
 const CUSTOMER_SELECT = `SELECT u.id,u.name,u.email,u.active,u.created_at,u.last_login_at,u.password_enabled,
-    coalesce(p.customer_type,'PARTICULAR') AS customer_type,p.segment,p.cpf_cnpj,p.phone,p.company_name,p.legal_name,p.state_registration,p.municipal_registration,p.billing_email,p.zip,p.street,p.street_number,p.complement,p.district,p.city,p.state,p.notes,p.archived_at,
+    coalesce(p.customer_type,'PARTICULAR') AS customer_type,p.segment,p.cpf_cnpj,p.phone,p.company_name,p.legal_name,p.state_registration,p.municipal_registration,p.billing_email,p.zip,p.street,p.street_number,p.complement,p.district,p.pix_key,p.pix_key_type,p.city,p.state,p.notes,p.archived_at,
     coalesce(w.balance_cents,0) AS balance_cents,
     org.id AS org_id, org.name AS org_name,
     (SELECT count(*)::int FROM vehicle_queries q WHERE q.user_id=u.id) AS queries_count,
@@ -219,6 +220,7 @@ function presentCustomer(r: Record<string, unknown>, full: boolean) {
     phone: r.phone ?? null, companyName: r.company_name ?? null, legalName: r.legal_name ?? null,
     stateRegistration: r.state_registration ?? null, municipalRegistration: r.municipal_registration ?? null, billingEmail: r.billing_email ?? null,
     zip: r.zip ?? null, street: r.street ?? null, streetNumber: r.street_number ?? null, complement: r.complement ?? null, district: r.district ?? null, city: r.city ?? null, state: r.state ? String(r.state).trim() : null,
+    pixKeyType: r.pix_key_type ?? null, pixKey: r.pix_key ? (full ? r.pix_key : maskPixKey(String(r.pix_key), r.pix_key_type as string | null)) : null,
     notes: r.notes ?? null,
     organization: r.org_id ? { id: r.org_id, name: r.org_name } : null,
     balanceCents: Number(r.balance_cents ?? 0), queriesCount: Number(r.queries_count ?? 0), lastQueryAt: r.last_query_at ?? null,

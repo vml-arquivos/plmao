@@ -99,7 +99,7 @@ export default function Batch() {
         } catch (e) {
           const code = e instanceof ApiError ? e.code : '';
           if (code === 'INSUFFICIENT_BALANCE') { halted = 'Saldo insuficiente: as demais placas não foram consultadas.'; patch(plate, { state: 'SKIPPED', error: 'Saldo insuficiente.' }); }
-          else if (code === 'PROFILE_INCOMPLETE') { halted = 'Complete seu cadastro em Minha conta para consultar.'; patch(plate, { state: 'SKIPPED', error: 'Cadastro incompleto.' }); }
+          else if (code === 'PROFILE_INCOMPLETE') { halted = 'Complete seu cadastro em Minha conta para comprar consultas (só na primeira compra).'; patch(plate, { state: 'SKIPPED', error: 'Cadastro incompleto.' }); }
           else patch(plate, { state: 'FAILED', error: errorMessage(e) });
         }
       }

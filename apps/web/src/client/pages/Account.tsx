@@ -6,7 +6,7 @@ import { errorMessage } from '../../shared/api';
 import { api } from '../api';
 import { useSession, type Profile } from '../session';
 import TestimonialForm from '../components/TestimonialForm';
-import { ResponsibilityCheck, UFS, customerProblem, type CustomerData } from '../components/CustomerFields';
+import { PixFields, ResponsibilityCheck, UFS, customerProblem, pixProblem, signupProblem, type CustomerData, type PixData, type PixType } from '../components/CustomerFields';
 
 export default function Account() {
   usePageTitle('Minha conta');
@@ -17,6 +17,8 @@ export default function Account() {
   const [p, setP] = useState<Profile | null>(me?.profile ?? null);
   const [busy, setBusy] = useState(false);
   const [resp, setResp] = useState(false);
+  const [pix, setPix] = useState<PixData>({ type: 'CPF', key: '' });
+  useEffect(() => { if (me) setPix({ type: ((me.profile.pixKeyType || 'CPF') as PixType), key: me.profile.pixKey ?? '' }); }, [me]);
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
   const [pwBusy, setPwBusy] = useState(false);
   const [pwErr, setPwErr] = useState('');
@@ -40,16 +42,19 @@ export default function Account() {
   const needsResponsibility = !p.responsibilityAccepted;
   async function save(e: FormEvent) {
     e.preventDefault();
+    const back = params.get('voltar');
     if (p!.profileRequired) {
+      // Só exige o cadastro de compra (CPF, cidade, estado e aceite) quando a pessoa veio de uma compra; no resto, salvar nome, telefone ou preferências não trava.
       const data: CustomerData = { phone: p!.phone, cpfCnpj: p!.cpfCnpj, companyName: p!.companyName, city: p!.city, state: p!.state, responsibility: resp };
-      const problem = customerProblem(data, p!.customerType, { needResponsibility: needsResponsibility });
+      const problem = back ? customerProblem(data, p!.customerType, { needResponsibility: needsResponsibility }) : signupProblem(p!.phone);
       if (problem) return void toast.error(problem);
     }
+    const pixErr = pixProblem(pix);
+    if (pixErr) return void toast.error(pixErr);
     setBusy(true);
     try {
-      await api.put('/profile', { name: p!.name.trim(), cpfCnpj: p!.cpfCnpj || undefined, phone: p!.phone || undefined, companyName: p!.companyName || undefined, city: p!.city || undefined, state: p!.state || undefined, ...(resp ? { acceptResponsibility: true } : {}), marketingOptIn: p!.marketingOptIn });
+      await api.put('/profile', { name: p!.name.trim(), cpfCnpj: p!.cpfCnpj || undefined, phone: p!.phone || undefined, companyName: p!.companyName || undefined, city: p!.city || undefined, state: p!.state || undefined, ...(resp ? { acceptResponsibility: true } : {}), marketingOptIn: p!.marketingOptIn, ...(pix.key.trim() !== (p!.pixKey ?? '') || (pix.key.trim() && pix.type !== p!.pixKeyType) ? { pixKey: pix.key.trim(), ...(pix.key.trim() ? { pixKeyType: pix.type } : {}) } : {}) });
       await refresh(); setResp(false); toast.ok('Dados atualizados.');
-      const back = params.get('voltar');
       if (back && back.startsWith('/app')) nav(back, { replace: true });
     } catch (err) { toast.error(errorMessage(err)); } finally { setBusy(false); }
   }
@@ -66,13 +71,14 @@ export default function Account() {
     <div className="stack-lg">
       <div className="page-head"><div><h1>Minha conta</h1><p>{me.user.email}</p></div></div>
       {(me.profiles?.length ?? 1) > 1 && <div className="card card-pad stack-sm"><h2 style={{ fontSize: 18 }}>Perfil de uso</h2><p className="muted" style={{ fontSize: 14 }}>Sua conta tem mais de um perfil. O perfil muda o menu e a página inicial; seus dados e seu saldo são os mesmos.</p><ProfileSwitch label /></div>}
-      {p.profileRequired && !p.profileComplete && <Alert tone="warn">Para consultar placas, complete seu cadastro. Falta: {p.profileMissing.join(', ')}.</Alert>}
+      {p.profileRequired && !p.profileComplete && params.get('voltar') && <Alert tone="warn">Para comprar a consulta, complete estes dados (só na primeira compra). Falta: {p.profileMissing.join(', ')}.</Alert>}
+      {p.profileRequired && !p.profileComplete && !params.get('voltar') && <Alert tone="info">Você já pode usar a FIPE grátis. CPF, cidade e estado só são pedidos na primeira compra de consulta.</Alert>}
       <form className="card card-pad stack" onSubmit={save}>
         <h2 style={{ fontSize: 18 }}>Dados pessoais</h2>
         <div className="form-grid cols-2">
           <Field label="Nome completo"><Input value={p.name} onChange={(e) => set('name', e.target.value)} required minLength={2} autoComplete="name" /></Field>
           <Field label="WhatsApp (com DDD)"><Input value={p.phone} onChange={(e) => set('phone', e.target.value)} autoComplete="tel" inputMode="tel" /></Field>
-          <Field label="CPF" hint="Necessário para consultar e emitir a cobrança no checkout."><Input value={p.cpfCnpj} onChange={(e) => set('cpfCnpj', e.target.value)} inputMode="numeric" />
+          <Field label="CPF" hint="Só é pedido para comprar consultas e emitir a cobrança."><Input value={p.cpfCnpj} onChange={(e) => set('cpfCnpj', e.target.value)} inputMode="numeric" />
             {cnpjOn && p.cpfCnpj.replace(/\D/g, '').length === 14 && <Button type="button" variant="ghost" loading={cnpjBusy} onClick={() => void searchCnpj()}>Buscar dados do CNPJ</Button>}
             {cnpjNote && <small className="muted" role="status">{cnpjNote}</small>}
           </Field>
@@ -86,6 +92,10 @@ export default function Account() {
         {p.responsibilityAccepted
           ? <p className="muted" style={{ fontSize: 14 }}>Termos de Uso e responsabilidade pelas informações consultadas: aceitos.</p>
           : <ResponsibilityCheck checked={resp} onChange={setResp} />}
+        <h2 style={{ fontSize: 18 }}>Chave PIX</h2>
+        <p className="muted" style={{ fontSize: 14 }}>Usada só para devolver valores, pagar cashback e comissões do Indique e Ganhe. Não é cobrada nem usada para pagar nada.</p>
+        {p.pixKeyMissing && <Alert tone="info">Você ainda não cadastrou uma chave PIX. Sem ela, reembolsos e comissões ficam parados até você informar.</Alert>}
+        <PixFields value={pix} onChange={setPix} hint="Deixe em branco para remover a chave." />
         <Check checked={p.marketingOptIn} onChange={(e) => set('marketingOptIn', e.target.checked)}>Quero receber novidades e ofertas por e-mail.</Check>
         <div><Button type="submit" variant="primary" loading={busy}>Salvar alterações</Button></div>
       </form>

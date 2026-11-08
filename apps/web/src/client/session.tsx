@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api } from './api';
 import { clearInvite, clearLeadLink, funnelSessionId, storedInvite, storedLeadLink } from './funnel';
 
-export interface Profile { id: string; email: string; name: string; role: string; passwordEnabled: boolean; cpfCnpj: string; phone: string; companyName: string; city: string; state: string; zip: string; street: string; streetNumber: string; complement: string; district: string; customerType: string; responsibilityAccepted: boolean; profileComplete: boolean; profileMissing: string[]; profileRequired: boolean; marketingOptIn: boolean }
+export interface Profile { id: string; email: string; name: string; role: string; passwordEnabled: boolean; cpfCnpj: string; phone: string; companyName: string; city: string; state: string; zip: string; street: string; streetNumber: string; complement: string; district: string; customerType: string; responsibilityAccepted: boolean; profileComplete: boolean; profileMissing: string[]; profileRequired: boolean; marketingOptIn: boolean; accessMissing?: string[]; pixKey?: string; pixKeyType?: string; pixKeyMasked?: string; pixKeyMissing?: boolean }
 export interface StoreAccess { name: string; role: 'OWNER' | 'MANAGER' | 'SELLER'; active: boolean }
 export type UsageProfile = 'CLIENTE' | 'LOJISTA' | 'AFILIADO';
 export const PROFILE_LABEL: Record<UsageProfile, string> = { CLIENTE: 'Cliente', LOJISTA: 'Lojista', AFILIADO: 'Afiliado' };

@@ -2,11 +2,13 @@ import { env } from '../config.js';
 import { pool } from '../db.js';
 import { appError } from './http.js';
 import { BR_STATES, isValidCnpj, isValidCpf, onlyDigits } from './br.js';
+import { maskPixKey, normalizePixKey } from './pix.js';
 
 /** Versão do termo de responsabilidade aceito no cadastro (texto: cláusulas de responsabilidade dos Termos de Uso e do Contrato). */
 export const RESPONSIBILITY_VERSION = '2026-11';
 
-/** Cadastro completo obrigatório para consultar. Ligado por padrão; os testes automáticos partem de "desligado". */
+/** Cadastro por etapas. Ligado por padrão; os testes automáticos partem de "desligado".
+ *  Criar conta e usar o que é grátis: nome, e-mail, telefone. CPF, cidade, estado e o aceite só na primeira compra de consulta. */
 export function profileRequired(): boolean {
   return env.CUSTOMER_PROFILE_REQUIRED ?? env.NODE_ENV !== 'test';
 }
@@ -15,13 +17,19 @@ export interface ProfileRow {
   customer_type?: string | null; cpf_cnpj?: string | null; phone?: string | null; company_name?: string | null;
   zip?: string | null; street?: string | null; street_number?: string | null; district?: string | null; city?: string | null; state?: string | null;
   responsibility_accepted_at?: Date | string | null;
+  pix_key?: string | null; pix_key_type?: string | null;
 }
 
 const text = (v: unknown) => String(v ?? '').trim();
 export const validPhone = (v: unknown) => { const d = onlyDigits(text(v)); return d.length >= 10 && d.length <= 13; };
 export const validDocument = (v: unknown) => isValidCpf(text(v)) || isValidCnpj(text(v));
 
-/** Campos que faltam (ou estão inválidos) para o cadastro estar completo. Vazio = completo. Cadastro enxuto: telefone (WhatsApp), CPF, cidade, estado e o aceite. */
+/** Conta simples (acesso e FIPE grátis pela placa): só o telefone, além de nome e e-mail que já existem. */
+export function missingAccessFields(row: ProfileRow | null | undefined): string[] {
+  return validPhone((row ?? {}).phone) ? [] : ['telefone'];
+}
+
+/** Campos que faltam (ou estão inválidos) para COMPRAR consulta. Vazio = pode comprar. Pedidos uma única vez: telefone (WhatsApp), CPF, cidade, estado e o aceite. */
 export function missingProfileFields(row: ProfileRow | null | undefined): string[] {
   const r = row ?? {};
   const missing: string[] = [];
@@ -35,24 +43,28 @@ export function missingProfileFields(row: ProfileRow | null | undefined): string
 
 export interface ProfileInput {
   phone?: string; cpfCnpj?: string; companyName?: string; zip?: string; street?: string; streetNumber?: string; complement?: string; district?: string; city?: string; state?: string; acceptResponsibility?: boolean;
+  pixKey?: string; pixKeyType?: string;
 }
 
-/** Valida o cadastro vindo do formulário de criar conta (telefone, CPF, cidade, estado e aceite). Devolve o código de erro ou null. */
-export function validateRegistrationProfile(input: ProfileInput, accountType: string): string | null {
+/** Valida o cadastro vindo do formulário de criar conta: telefone é obrigatório; CPF, PIX e o resto só são conferidos se vierem preenchidos. Devolve o código de erro ou null. */
+export function validateRegistrationProfile(input: ProfileInput, _accountType: string): string | null {
   if (!validPhone(input.phone)) return 'INVALID_PHONE';
-  if (!validDocument(input.cpfCnpj)) return 'INVALID_OWNER_DOC';
-  const row: ProfileRow = { customer_type: accountType, cpf_cnpj: input.cpfCnpj, phone: input.phone, city: input.city, state: input.state, responsibility_accepted_at: input.acceptResponsibility ? new Date() : null };
-  const missing = missingProfileFields(row);
-  if (missing.includes('aceite dos termos')) return 'RESPONSIBILITY_REQUIRED';
-  return missing.length ? 'PROFILE_INCOMPLETE' : null;
+  if (text(input.cpfCnpj) && !validDocument(input.cpfCnpj)) return 'INVALID_OWNER_DOC';
+  if (text(input.pixKey) && !normalizePixKey(text(input.pixKey), input.pixKeyType)) return 'INVALID_PIX_KEY';
+  return null;
 }
 
-/** Trava antes de consultar ou pagar: cliente com cadastro incompleto é levado a completar. Equipe interna não é afetada. */
-export async function assertCustomerProfile(userId: string, role: string): Promise<void> {
+/** Trava antes de COMPRAR consulta: cliente que ainda não passou pelos dados de compra é levado a completá-los (uma vez só). Equipe interna não é afetada.
+ *  Produto gratuito não pede nada além da conta. */
+export async function assertCustomerProfile(userId: string, role: string, opts: { productId?: unknown } = {}): Promise<void> {
   if (!profileRequired() || role !== 'CLIENTE') return;
+  if (typeof opts.productId === 'string' && opts.productId) {
+    const free = await pool.query('SELECT is_free FROM query_products WHERE id=$1', [opts.productId]);
+    if (free.rows[0]?.is_free === true) return;
+  }
   const row = await pool.query('SELECT customer_type,cpf_cnpj,phone,city,state,responsibility_accepted_at FROM user_profiles WHERE user_id=$1', [userId]);
   const missing = missingProfileFields(row.rows[0] as ProfileRow | undefined);
-  if (missing.length) throw appError(`Complete seu cadastro para consultar: falta ${missing.join(', ')}.`, { code: 'PROFILE_INCOMPLETE', http: 409, expose: true, showMessage: true });
+  if (missing.length) throw appError(`Para comprar a consulta, complete seu cadastro (só na primeira compra): falta ${missing.join(', ')}.`, { code: 'PROFILE_INCOMPLETE', http: 409, expose: true, showMessage: true });
 }
 
 /** Perfil como o app recebe: dados, endereço e se está completo. */
@@ -64,6 +76,7 @@ export function profileDto(user: { id: string; email: string; name: string; role
     cpfCnpj: row.cpf_cnpj ?? '', phone: row.phone ?? '', companyName: row.company_name ?? '', city: row.city ?? '', state: row.state ?? '',
     zip: row.zip ?? '', street: row.street ?? '', streetNumber: row.street_number ?? '', complement: (row.complement as string | null | undefined) ?? '', district: row.district ?? '',
     customerType: row.customer_type ?? 'PARTICULAR', responsibilityAccepted: Boolean(row.responsibility_accepted_at),
-    marketingOptIn: Boolean(row.marketing_opt_in), profileComplete: missing.length === 0, profileMissing: missing, profileRequired: profileRequired()
+    marketingOptIn: Boolean(row.marketing_opt_in), profileComplete: missing.length === 0, profileMissing: missing, profileRequired: profileRequired(),
+    accessMissing: missingAccessFields(row), pixKey: row.pix_key ?? '', pixKeyType: row.pix_key_type ?? '', pixKeyMasked: maskPixKey(row.pix_key, row.pix_key_type) ?? '', pixKeyMissing: !row.pix_key
   };
 }
