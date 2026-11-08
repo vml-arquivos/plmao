@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, CUSTOMER_TYPE, maskDocument, maskPhone, maskZip, SEGMENT_SUGGESTIONS, STATES, type CustomerType } from '../api';
+import { api, CUSTOMER_TYPE, ROLE_LABEL, maskDocument, maskPhone, maskZip, SEGMENT_SUGGESTIONS, STATES, type CustomerType } from '../api';
 import { useAdminSession } from '../session';
 import { Alert, Badge, Button, ConfirmDialog, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Select, Switch, Tabs, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
@@ -210,6 +210,8 @@ export function AdjustModal({ customer, onClose }: { customer: Pick<Customer, 'i
 
 interface Detail {
   customer: Customer;
+  invitedBy?: { id: string; name: string; role: string; at: string | null; via: string } | null;
+  invitedCount?: number;
   queries: Array<{ id: string; plate: string; status: string; priceCents: number; createdAt: string; productName: string }>;
   payments: Array<{ id: string; status: string; amountCents: number; provider: string; createdAt: string; paidAt: string | null }>;
   charges: Array<{ id: string; description: string; totalCents: number; status: string; createdAt: string; paidCents: number; nextDue: string | null }>;
@@ -229,7 +231,7 @@ export function CustomerDetail() {
   usePageTitle(res.data?.customer.name ?? 'Cliente');
   if (res.loading && !res.data) return <PageLoading />;
   if (res.error || !res.data) return <ErrorState error={res.error} onRetry={res.reload} />;
-  const { customer: c, queries, payments, charges, fiscalDocuments } = res.data;
+  const { customer: c, queries, payments, charges, fiscalDocuments, invitedBy, invitedCount } = res.data;
   const manage = can('MANAGE_CUSTOMERS');
   const missing = [!c.cpfCnpj && 'CPF/CNPJ', !c.street && 'endereço', !c.zip && 'CEP', !c.city && 'cidade', !c.state && 'UF'].filter(Boolean) as string[];
 
@@ -258,6 +260,7 @@ export function CustomerDetail() {
             <dt>Telefone</dt><dd>{c.phone ?? '—'}</dd>
             {c.legalName && <><dt>Razão social</dt><dd>{c.legalName}</dd></>}
             {c.companyName && <><dt>Nome fantasia</dt><dd>{c.companyName}</dd></>}
+            <dt>Convidado por</dt><dd>{invitedBy ? <>{invitedBy.name} ({ROLE_LABEL[invitedBy.role] ?? invitedBy.role}){invitedBy.at ? ` · ${dateTime(invitedBy.at)}` : ''}{invitedBy.via === 'REPORT' ? ' · por consulta enviada' : ''}</> : 'Entrou sem convite'}{invitedCount ? <> · convidou <Link to="/convites">{invitedCount} {invitedCount === 1 ? 'pessoa' : 'pessoas'}</Link></> : null}</dd>
             <dt>Acesso ao site</dt><dd>{c.portalAccess ? `Sim · último acesso ${dateTime(c.lastLoginAt)}` : 'Sem acesso (só cadastro)'}</dd>
             {c.notes && <><dt>Observações</dt><dd style={{ fontWeight: 400 }}>{c.notes}</dd></>}
           </dl>

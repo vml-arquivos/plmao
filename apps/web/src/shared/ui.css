@@ -139,7 +139,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; min-width
 /* ---------- Estatísticas ---------- */
 .stat { padding: 18px 20px; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border); display: grid; gap: 4px; }
 .stat .k { font-size: 13px; color: var(--muted); font-weight: 400; }
-.stat .v { font-family: var(--font-display); font-weight: 400; font-size: 26px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stat .v { font-family: var(--font-display); font-weight: 400; font-size: 23px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .stat .s { font-size: 13px; color: var(--muted); }
 .stat.hl { background: linear-gradient(135deg, #2F6FE4, #1646B0); color: #fff; border-color: transparent; }
 .stat.hl .k, .stat.hl .s { color: rgba(255, 255, 255, .78); }
@@ -157,7 +157,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; min-width
 
 /* ---------- Utilitários de página ---------- */
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
-.page-head h1 { font-size: clamp(24px, 3vw, 32px); }
+.page-head h1 { font-size: clamp(21px, 2.4vw, 27px); }
 .page-head p { color: var(--muted); margin-top: 6px; max-width: 62ch; }
 .grid-2 { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid-3 { display: grid; gap: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -174,7 +174,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; min-width
 
 /* Dica com ícone "i" */
 .infotip { display: inline-flex; vertical-align: middle; margin-left: 6px; }
-.infotip-btn { width: 20px; height: 20px; min-width: 20px; padding: 0; border-radius: 50%; border: 1.5px solid var(--primary, #1f6feb); background: transparent; color: var(--primary, #1f6feb); font: 700 12px/1 var(--font-display, inherit); font-style: italic; cursor: pointer; display: inline-grid; place-items: center; text-transform: none; letter-spacing: 0; }
+.infotip-btn { width: 20px; height: 20px; min-width: 20px; padding: 0; border-radius: 50%; border: 1.5px solid var(--primary, #1f6feb); background: transparent; color: var(--primary, #1f6feb); font: 500 12px/1 var(--font-display, inherit); font-style: italic; cursor: pointer; display: inline-grid; place-items: center; text-transform: none; letter-spacing: 0; }
 .infotip-btn:hover, .infotip-btn[aria-expanded="true"] { background: var(--primary, #1f6feb); color: #fff; }
 .infotip-btn:focus-visible { outline: 2px solid var(--primary, #1f6feb); outline-offset: 2px; }
 .infotip-pop { position: fixed; z-index: 1000; width: min(300px, calc(100vw - 24px)); padding: 12px 14px; border-radius: 12px; background: var(--surface, #fff); color: var(--text, #111); border: 1px solid var(--border, #d0d7de); box-shadow: 0 10px 30px rgba(0,0,0,.18); font: 400 13.5px/1.45 var(--font-body, inherit); font-style: normal; text-transform: none; letter-spacing: 0; text-align: left; }
@@ -227,9 +227,9 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; min-width
 .tab { border-radius: 0; min-height: 40px; padding: 8px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tab[aria-selected='true'] { background: transparent; box-shadow: none; color: var(--primary); border-bottom-color: var(--primary); }
 .page-head { margin-bottom: 8px; align-items: center; }
-.page-head h1 { font-size: 24px; }
+.page-head h1 { font-size: 22px; }
 .page-head p { font-size: 14px; margin-top: 4px; }
-h2 { font-size: 18px; }
+h2 { font-size: 17px; }
 .filters { display: grid; grid-template-columns: minmax(140px, 200px) minmax(160px, 220px) 1fr; gap: 12px; align-items: center; }
 .period { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .period-dates { display: flex; gap: 8px; align-items: center; }

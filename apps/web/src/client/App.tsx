@@ -8,7 +8,7 @@ import { AppLayout, PublicLayout, RequireAuth, ScrollManager } from './layouts';
 import { useActiveProfile } from './session';
 import { SEO_PAGES } from './content/seoPages';
 import { useEffect } from 'react';
-import { captureReferral } from './funnel';
+import { captureInvite, captureReferral } from './funnel';
 import { api } from './api';
 import { useSession } from './session';
 
@@ -42,6 +42,8 @@ const QueryDetail = lazy(() => import('./pages/QueryDetail'));
 const Wallet = lazy(() => import('./pages/Wallet'));
 const Partner = lazy(() => import('./pages/Partner'));
 const PartnerInvite = lazy(() => import('./pages/PartnerInvite'));
+const Invites = lazy(() => import('./pages/Invites'));
+const InviteLanding = lazy(() => import('./pages/Invites').then((m) => ({ default: m.InviteLanding })));
 const Garage = lazy(() => import('./pages/Garage'));
 const GarageVehicle = lazy(() => import('./pages/Garage').then((m) => ({ default: m.GarageVehicle })));
 const FaqPage = lazy(() => import('./pages/Content').then((m) => ({ default: m.FaqPage })));
@@ -98,7 +100,7 @@ function SimulatorKind() {
 }
 
 export default function App() {
-  useEffect(() => { captureReferral(); }, []);
+  useEffect(() => { captureReferral(); captureInvite(); }, []);
   return (
     <>
       <ScrollManager />
@@ -132,6 +134,7 @@ export default function App() {
             <Route path="/termos" element={<Legal kind="terms" />} />
             <Route path="/privacidade" element={<Legal kind="privacy" />} />
             <Route path="/parceiro/convite/:token" element={<PartnerInvite />} />
+            <Route path="/convite/:code" element={<InviteLanding />} />
             <Route path="/contrato/assinar/:token" element={<ContractSign />} />
             <Route path="/contrato/:token" element={<ContractCopy />} />
             <Route path="/documento-fiscal/:token" element={<FiscalDocumentPage />} />
@@ -167,6 +170,7 @@ export default function App() {
               <Route path="campanhas" element={<StoreCampaigns />} />
             </Route>
             <Route path="parceiro" element={<Partner />} />
+            <Route path="convites" element={<Invites />} />
             <Route path="api" element={<Navigate to="/app" replace />} />
             <Route path="conta" element={<Account />} />
             <Route path="suporte" element={<SupportChat />} />

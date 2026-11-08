@@ -5,6 +5,7 @@ import { useAdminSession } from '../session';
 import { Alert, Badge, Button, CopyField, Field, Input, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { Card, PageHead } from '../parts';
+import InvitePanel, { type InviteData } from '../../shared/InvitePanel';
 
 /** Só a própria pessoa altera o nome; nem quem está acima na equipe edita dados pessoais de outro. */
 function ProfileName({ name, onSaved }: { name: string; onSaved: () => void }) {
@@ -54,6 +55,7 @@ export default function Account() {
         </Card>
         <TwoFactorCard enabled={totpEnabled} required={totpRequired} onChanged={() => void reload()} />
         {totpEnabled && <TrustedDevices />}
+        <div style={{ gridColumn: '1 / -1' }}><Card title="Meu link de convite"><InvitePanel queryHint={false} load={() => api.get<InviteData>('/admin/me/invite')} /></Card></div>
         <Card title="Alterar senha">
           <form className="stack" onSubmit={save}>
             <Field label="Senha atual"><Input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required /></Field>

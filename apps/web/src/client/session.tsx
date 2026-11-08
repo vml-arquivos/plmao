@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api } from './api';
+import { clearInvite, storedInvite } from './funnel';
 
 export interface Profile { id: string; email: string; name: string; role: string; passwordEnabled: boolean; cpfCnpj: string; phone: string; companyName: string; city: string; state: string; zip: string; street: string; streetNumber: string; complement: string; district: string; customerType: string; responsibilityAccepted: boolean; profileComplete: boolean; profileMissing: string[]; profileRequired: boolean; marketingOptIn: boolean }
 export interface StoreAccess { name: string; role: 'OWNER' | 'MANAGER' | 'SELLER'; active: boolean }
@@ -24,7 +25,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (!api.token.get()) { setMe(null); setStatus('anon'); return; }
-    try { const data = await api.get<Me>('/me'); setMe(data); setStatus('authed'); }
+    try {
+      const data = await api.get<Me>('/me'); setMe(data); setStatus('authed');
+      // Convite guardado no navegador (ex.: quem entrou pelo Google): liga a conta nova a quem convidou, uma vez só.
+      const inv = storedInvite();
+      if (inv) { clearInvite(); void api.post('/me/invite/claim', { code: inv.code, via: inv.via }).catch(() => undefined); }
+    }
     catch { api.token.clear(); setMe(null); setStatus('anon'); }
   }, []);
 

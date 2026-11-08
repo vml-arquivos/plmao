@@ -109,13 +109,13 @@
 .rv-verdict-ico, :root[data-theme='dark'] .rv-verdict-ico { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
 .rv-tile.ok .rv-tile-ico, .rv-tile.warn .rv-tile-ico, .rv-tile.danger .rv-tile-ico { background: var(--text); color: var(--surface); }
 .rv-tile.danger { border-color: var(--text); }
-.rv-tile.danger .v, .rv-tile.warn .v { font-weight: 700; }
+.rv-tile.danger .v, .rv-tile.warn .v { font-weight: 500; }
 .rv-sec-ico.ok, .rv-sec-ico.warn, .rv-sec-ico.violet { background: var(--bg-soft); color: var(--text); }
 .rv-sec-ico.warn { background: var(--text); color: var(--surface); }
 .rv-mark.ok { background: var(--text); color: var(--surface); }
 .rv-mark.warn { background: transparent; color: var(--text); border: 2px solid var(--text); }
 .rv-item.alert dd, .rv-item.alert dt { color: var(--text); }
-.rv-item.alert dd { font-weight: 700; }
+.rv-item.alert dd { font-weight: 500; }
 .rv-alerts li, .rv-alerts li.high { background: var(--bg-soft); color: var(--text); border-left: 4px solid var(--text); }
 .rv-upsell { border-color: var(--border); background: var(--bg-soft); color: var(--text); }
 .rv-debts tr.total td { color: var(--text); }
@@ -125,7 +125,7 @@
 
 .rv-table-wrap { width: 100%; overflow-x: auto; }
 .rv-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.rv-table th { text-align: left; background: var(--soft, rgba(127,127,160,.12)); padding: 8px 10px; font-weight: 700; white-space: nowrap; }
+.rv-table th { text-align: left; background: var(--soft, rgba(127,127,160,.12)); padding: 8px 10px; font-weight: 500; white-space: nowrap; }
 .rv-table td { padding: 8px 10px; border-bottom: 1px solid var(--line, rgba(127,127,160,.2)); vertical-align: top; font-weight: 500; }
 .rv-table td span { display: block; }
 @media (max-width: 560px) {
@@ -133,11 +133,11 @@
   .rv-table, .rv-table tbody, .rv-table tr, .rv-table td { display: block; width: 100%; }
   .rv-table tr { margin-bottom: 8px; padding: 6px 0; border: 1px solid var(--line, rgba(127,127,160,.2)); border-radius: 10px; }
   .rv-table td { border: 0; padding: 4px 10px; }
-  .rv-table td::before { content: attr(data-label); display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; opacity: .65; font-weight: 700; }
+  .rv-table td::before { content: attr(data-label); display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; opacity: .65; font-weight: 500; }
 }
 
 /* Parecer de revenda/seguro e checklist "Antes de pagar" */
-.rv-resale .rv-resale-title { font-weight: 600; margin: 2px 0 8px; }
+.rv-resale .rv-resale-title { font-weight: 500; margin: 2px 0 8px; }
 .rv-resale ul { margin: 0 0 8px; padding-left: 18px; display: grid; gap: 4px; font-size: 14.5px; }
 .rv-resale small { color: var(--muted); }
 .rv-resale.ok { border-left: 5px solid var(--ok); } .rv-resale.warn { border-left: 5px solid var(--warn); } .rv-resale.danger { border-left: 5px solid var(--danger); }
@@ -145,7 +145,7 @@
 .rv-checks li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 14px; border-radius: 12px; background: var(--surface-2); font-size: 14.5px; }
 .rv-checks li > div { display: grid; gap: 2px; min-width: 0; }
 .rv-checks li span:not(.rv-check-tag) { color: var(--muted); font-size: 13.5px; }
-.rv-check-tag { flex: none; min-width: 92px; text-align: center; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: var(--surface); color: var(--muted); }
+.rv-check-tag { flex: none; min-width: 92px; text-align: center; font-size: 12px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: var(--surface); color: var(--muted); }
 .rv-checks li.ok .rv-check-tag { background: var(--ok-soft); color: var(--ok-ink); }
 .rv-checks li.warn .rv-check-tag { background: var(--warn-soft); color: var(--warn-ink); }
 .rv-checks li.danger .rv-check-tag { background: var(--danger-soft); color: var(--danger-ink); }
@@ -156,8 +156,8 @@
 /* Ficha gratuita (decodificador, FIPE por ano e mês, financiamento, ficha técnica) */
 .rv-sheet { display: grid; gap: 14px; }
 .rv-sheet details { margin-top: 10px; }
-.rv-sheet summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
-.rv-up { color: var(--ok, #0f7b4f); font-weight: 600; }
-.rv-down { color: var(--danger, #b42318); font-weight: 600; }
+.rv-sheet summary { cursor: pointer; font-weight: 500; padding: 6px 0; }
+.rv-up { color: var(--ok, #0f7b4f); font-weight: 500; }
+.rv-down { color: var(--danger, #b42318); font-weight: 500; }
 .rv-fipe-now b, .rv-fin b { font-size: 22px; }
 .rv-fin { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin: 0 0 4px; }

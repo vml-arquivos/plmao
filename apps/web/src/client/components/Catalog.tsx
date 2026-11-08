@@ -29,7 +29,7 @@ function CatalogState({ loading, error, reload }: { loading: boolean; error: unk
 }
 
 /* ---------- Cards de produto ---------- */
-function ProductCard({ p, authed }: { p: CatalogProduct; features: CatalogFeature[]; authed: boolean }) {
+function ProductCard({ p, authed, wide = false }: { p: CatalogProduct; features: CatalogFeature[]; authed: boolean; wide?: boolean }) {
   const soon = !isActive(p);
   const all = (p.features ?? []).filter(Boolean);
   const top = all.slice(0, 4);
@@ -66,7 +66,7 @@ export function ProductCards({ homeOnly = false }: { homeOnly?: boolean }) {
   let list = data.products.filter(sellable).filter((p) => (homeOnly ? p.showOnHome : true));
   if (homeOnly) list = [...list].sort((a, b) => Number(!isActive(a)) - Number(!isActive(b))).slice(0, 4);
   if (!list.length) return <p className="muted">Nenhuma consulta disponível no momento.</p>;
-  return <div className="prod-grid">{list.map((p) => <ProductCard key={p.id} p={p} features={data.features} authed={status === 'authed'} />)}</div>;
+  return <div className={`prod-grid${homeOnly ? '' : ' wide'}`}>{list.map((p) => <ProductCard key={p.id} p={p} features={data.features} authed={status === 'authed'} wide={!homeOnly} />)}</div>;
 }
 
 /* ---------- Matriz de comparação ---------- */

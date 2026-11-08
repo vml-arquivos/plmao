@@ -37,6 +37,35 @@ export function storedReferral(): string | undefined {
   try { return localStorage.getItem(REF_KEY) ?? undefined; } catch { return undefined; }
 }
 
+/* ---------- Convite por usuário (?convite=CODIGO ou /convite/CODIGO) ---------- */
+const INVITE_KEY = 'pnm_invite';
+export interface StoredInvite { code: string; via: 'LINK' | 'REPORT' }
+const INVITE_RE = /^[A-Za-z2-9]{8}$/;
+export function storeInvite(rawCode: string | null | undefined, via: 'LINK' | 'REPORT'): StoredInvite | null {
+  const code = (rawCode ?? '').trim().toUpperCase();
+  if (!INVITE_RE.test(code)) return null;
+  const inv: StoredInvite = { code, via };
+  try {
+    const seen = sessionStorage.getItem('pnm_invite_click') === code;
+    localStorage.setItem(INVITE_KEY, JSON.stringify(inv));
+    if (!seen) { sessionStorage.setItem('pnm_invite_click', code); void fetch(`/api/invites/${code}/click`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ via }), keepalive: true, cache: 'no-store' }).catch(() => undefined); }
+  } catch { /* sem armazenamento: o convite vale só nesta visita */ }
+  return inv;
+}
+/** Lê ?convite= de qualquer página; em /r/… (consulta enviada) o caminho é "REPORT". */
+export function captureInvite(): void {
+  const code = new URL(window.location.href).searchParams.get('convite');
+  if (code) storeInvite(code, window.location.pathname.startsWith('/r/') ? 'REPORT' : 'LINK');
+}
+export function storedInvite(): StoredInvite | undefined {
+  try {
+    const raw = localStorage.getItem(INVITE_KEY);
+    const v = raw ? JSON.parse(raw) as StoredInvite : null;
+    return v && INVITE_RE.test(v.code) ? { code: v.code, via: v.via === 'REPORT' ? 'REPORT' : 'LINK' } : undefined;
+  } catch { return undefined; }
+}
+export function clearInvite(): void { try { localStorage.removeItem(INVITE_KEY); } catch { /* ignora */ } }
+
 export type FunnelEvent = 'HOME_PAGE_VIEW' | 'SEO_PAGE_VIEW' | 'FIPE_PAGE_VIEW' | 'CTA_CLICKED' | 'PLATE_CAPTURED' | 'FIPE_FORM_SUBMITTED' | 'FIPE_RESULT_VIEWED' | 'FIPE_REPORT_ACTION' | 'AUTH_VIEWED' | 'AUTH_SUBMITTED' | 'ACCOUNT_CREATED' | 'AUTH_SUCCEEDED' | 'CHECKOUT_QUOTE_VIEWED' | 'CHECKOUT_STARTED';
 export function trackFunnel(event: FunnelEvent, metadata: Meta = {}): void {
   mirrorFunnel(event, metadata);
