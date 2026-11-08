@@ -33,6 +33,8 @@ export const SPEC_FIELDS: SpecField[] = [
   t('drive', 'Motor e desempenho', 'Tração'),
   n('accel_0_100_s', 'Motor e desempenho', 'Aceleração 0–100 km/h', 's', 'low', { max: 60 }),
   n('top_speed_kmh', 'Motor e desempenho', 'Velocidade máxima', 'km/h', 'high', { max: 500 }),
+  n('battery_kwh', 'Motor e desempenho', 'Bateria', 'kWh', 'high', { max: 500 }),
+  n('range_km', 'Motor e desempenho', 'Autonomia elétrica', 'km', 'high', { max: 2000 }),
 
   n('cons_city_gas_kml', 'Consumo', 'Cidade (gasolina)', 'km/l', 'high', { highlight: true, max: 60 }),
   n('cons_road_gas_kml', 'Consumo', 'Estrada (gasolina)', 'km/l', 'high', { max: 60 }),
@@ -40,6 +42,7 @@ export const SPEC_FIELDS: SpecField[] = [
   n('cons_road_eth_kml', 'Consumo', 'Estrada (etanol)', 'km/l', 'high', { max: 60 }),
   n('cons_city_diesel_kml', 'Consumo', 'Cidade (diesel)', 'km/l', 'high', { max: 60 }),
   n('cons_road_diesel_kml', 'Consumo', 'Estrada (diesel)', 'km/l', 'high', { max: 60 }),
+  n('cons_elec_kwh100', 'Consumo', 'Consumo elétrico', 'kWh/100 km', 'low', { max: 100 }),
   n('tank_l', 'Consumo', 'Tanque', 'L', 'high', { max: 1000 }),
 
   n('length_mm', 'Dimensões e capacidades', 'Comprimento', 'mm', undefined, { max: 30000 }),

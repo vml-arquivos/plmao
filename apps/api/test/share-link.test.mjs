@@ -5,7 +5,7 @@ import { hostRequest, startServer } from './helpers/server.mjs';
 
 describe('link do vendedor', integration, () => {
   let pool; let server; let token; let other; let queryId;
-  const tokenOf = (url) => url.split('/r/')[1];
+  const tokenOf = (url) => url.split('/r/')[1].split('?')[0];
   before(async () => {
     useTestEnv();
     ({ pool } = await loadCore());
@@ -28,7 +28,7 @@ describe('link do vendedor', integration, () => {
     assert.equal(own.status, 200);
     const share = await hostRequest(server.base, `/api/queries/${queryId}/share`, { method: 'POST', token, body: { days: 3 } });
     assert.equal(share.status, 201, share.text);
-    assert.match(share.json.url, /\/r\/[A-Za-z0-9_-]{40,64}$/);
+    assert.match(share.json.url, /\/r\/[A-Za-z0-9_-]{40,64}\?convite=[A-HJ-NP-Z2-9]{8}$/);
     const days = (new Date(share.json.expiresAt) - Date.now()) / 86_400_000;
     assert.ok(days > 2.9 && days <= 3.01, `expira em 3 dias (${days})`);
     const pub = await hostRequest(server.base, `/api/shared-report/${tokenOf(share.json.url)}`);

@@ -29,9 +29,9 @@ describe('migrações 027–067: aplicar, reverter e reaplicar', integration, ()
   it('rollback de todas desde a 027 remove só o que elas criaram e mantém o restante íntegro', async () => {
     const before = await tables();
     const n = before.ids.length - before.ids.indexOf(FIRST);
-    assert.equal(n, 45, 'esperadas 027 a 071');
+    assert.equal(n, 47, 'esperadas 027 a 073');
     const out = JSON.parse(cli('rollback', String(n)).trim().split('\n').pop());
-    assert.equal(out.reverted.length, 45);
+    assert.equal(out.reverted.length, 47);
     const s = await tables();
     for (const t of NEW_TABLES) assert.ok(!s.tables.has(t), `sobrou ${t}`);
     assert.ok(!s.ids.some((id) => id >= FIRST));

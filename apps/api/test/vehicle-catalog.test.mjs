@@ -105,9 +105,10 @@ describe('catálogo de frota: API pública, destaques, interesse e painel', inte
     assert.ok(frota && frota.items.length === 6);
     const fleets = frota.items.map((i) => i.fleet);
     assert.deepEqual(fleets, [...fleets].sort((a, b) => b - a));
-    assert.equal(frota.items[0].slug, 'fiat-strada');
+    // a ordem vem da frota; o primeiro é o de maior frota entre os modelos publicados
+    assert.ok(frota.items[0].fleet >= frota.items[1].fleet);
     for (const slug of ['fiat-strada', 'chevrolet-onix', 'hyundai-hb20']) {
-      const it = frota.items.find((i) => i.slug === slug);
+      const it = (await pub(`/api/vehicles/${slug}`)).json;
       assert.match(it.imageUrl, /^https:\/\/commons\.wikimedia\.org\//);
       assert.ok(it.imageCredit && it.imageLicense);
     }
@@ -125,7 +126,8 @@ describe('catálogo de frota: API pública, destaques, interesse e painel', inte
     assert.equal(frota.items[0].slug, 'fiat-mobi'); assert.equal(frota.items[0].editorial, true);
     assert.equal(frota.items.length, 6);
     await cont.call(`/api/admin/vehicles/${mobi}`, { method: 'PATCH', body: { featured: false } });
-    assert.equal((await pub('/api/vehicles/featured')).json.lists[0].items[0].slug, 'fiat-strada');
+    const depois = (await pub('/api/vehicles/featured')).json.lists[0].items;
+    assert.ok(depois[0].slug !== 'fiat-mobi' && !depois[0].editorial);
   });
 
   it('a ficha do modelo traz a frota (Senatran) e o crédito da foto', async () => {

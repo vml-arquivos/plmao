@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.37.0 — Visual mais leve, menus agrupados, convite por usuário e guia com mais veículos
+
+- **Convite por usuário (migração 073):** todo usuário — cliente, lojista, operador, administrador — tem o próprio código e link (`/convite/CÓDIGO`). Quem abre o link e se cadastra (e-mail e senha ou Google) fica ligado a quem convidou, com data e caminho (convite pelo site ou consulta enviada). Fica registrado também quantas vezes o link foi aberto.
+- **Consulta enviada ao comprador:** o link gerado em "Enviar ao comprador" já leva o convite de quem enviou. Se o comprador se cadastrar a partir dele, o cadastro fica ligado a quem mandou a consulta.
+- **Onde ver:** cliente/lojista em **Meus convites** (totais, lista dos convidados com nome e e-mail parciais, WhatsApp e e-mail); equipe em **Minha conta → Meu link de convite**; no painel, **Pessoas → Convites** mostra quem convidou quem, quando, por qual caminho e se já consultou/comprou. Na ficha do cliente aparece "Convidado por". É só rastreio, sem comissão (comissão continua no "Indique e ganhe").
+- **Visual mais leve em todo o sistema (site, PWA, tablet, desktop e painel):** títulos e números menores, letras mais finas (peso 400/500; a fonte só tem esses pesos, os negritos pesados foram removidos), menos letras em caixa alta espaçadas.
+- **Menus agrupados por assunto:** site (Veículos, Ferramentas, Ajuda), área do cliente/lojista/afiliado (Acompanhar, Garagem, Loja, Carteira e convites, Conta) e painel da equipe (Dinheiro e Preços e vendas separados; Integrações foi para Sistema). No celular, a aba **Menu** abre todas as páginas da conta (antes várias só apareciam por atalhos).
+
+- **Página /planos:** os cartões das consultas avulsas agora seguem a proporção dos cartões dos pacotes — três por linha no computador (duas linhas), dois no tablet e um no celular — em vez de ficarem finos e esticados. A tabela comparativa deixou de fixar a primeira coluna no computador (só fixa em tela pequena).
+- **Guia de veículos (migração 072):** +34 modelos e 38 versões de 15 marcas (Fiat, Volkswagen, Chevrolet, Toyota, Honda, Jeep, Nissan, Hyundai, Renault, Citroën, Peugeot, BYD, Mitsubishi, Ford e GWM), com ano-modelo, motor, consumo, medidas e demais dados. Só entra número que consta na fonte (Ficha Completa); o que a fonte não lista fica em branco, nada é estimado. Os modelos entram publicados, sem opinião, prós e contras escritos por nós — você complementa no painel.
+- **Elétricos e híbridos:** novos campos de ficha — capacidade da bateria (kWh), autonomia (km) e consumo elétrico (kWh/100 km) —, que aparecem na ficha e na comparação.
+- A carga não mexe em modelos já existentes nem sobrescreve o que a equipe editou; a frota (Senatran) é religada aos modelos novos automaticamente. Reverter remove só os modelos desta carga que não tenham opinião, dica ou consumo registrados.
+- Sem variável de ambiente nova.
+
 ## 1.36.0 — Custo de cada consulta e controle de margem
 
 - **Custo de cada consulta gravado (migração 071):** Cadastral R$ 2,15 · Financiamento R$ 3,52 · Básica R$ 3,52 · Leilão R$ 18,91 · Completa R$ 21,52 · Premium R$ 33,13. É a soma das chamadas pagas de cada consulta, pela tabela da Credify. Só preenche onde o custo está vazio: valor que você já salvou em Financeiro → Produtos não é alterado.

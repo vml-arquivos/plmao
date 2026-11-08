@@ -359,8 +359,12 @@ adminPeopleRouter.get('/customers/:id', requirePermission('VIEW_CUSTOMERS'), asy
       ? pool.query(`SELECT id,kind,status,amount_cents,number,issued_at,created_at FROM fiscal_documents WHERE user_id=$1 ORDER BY created_at DESC LIMIT 10`, [id])
       : Promise.resolve({ rows: [] })
   ]);
+  const inv = await pool.query(`SELECT u.id,u.name,u.role,c.invited_at,c.invited_via FROM users c JOIN users u ON u.id=c.invited_by WHERE c.id=$1`, [id]);
+  const invitedCount = await pool.query('SELECT count(*)::int AS n FROM users WHERE invited_by=$1', [id]);
   res.json({
     customer: presentCustomer(row.rows[0], full),
+    invitedBy: inv.rowCount ? { id: String(inv.rows[0].id), name: String(inv.rows[0].name), role: String(inv.rows[0].role), at: inv.rows[0].invited_at, via: String(inv.rows[0].invited_via ?? 'LINK') } : null,
+    invitedCount: Number(invitedCount.rows[0].n),
     queries: queries.rows.map((q) => ({ id: q.id, plate: q.plate, status: q.status, priceCents: Number(q.price_cents ?? 0), createdAt: q.created_at, productName: q.product_name })),
     payments: payments.rows.map((p) => ({ id: p.id, status: p.status, amountCents: Number(p.amount_cents), provider: p.provider, createdAt: p.created_at, paidAt: p.paid_at })),
     charges: charges.rows.map((c) => ({ id: c.id, description: c.description, totalCents: Number(c.total_cents), status: c.status, createdAt: c.created_at, paidCents: Number(c.paid_cents), nextDue: c.next_due })),

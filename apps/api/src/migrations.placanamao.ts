@@ -1,5 +1,6 @@
 import type { Migration } from './migrations.js';
 import { SEED_SOURCE, VEHICLE_SEED } from './data/vehicleSeed.js';
+import { EXTRA_SEED_SOURCE, EXTRA_VEHICLE_SEED } from './data/vehicleSeedExtra.js';
 import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL, CIVIC_SUMMARY, INMETRO_NAME, INMETRO_PBEV_2024_URL, COLLECTED_AT, type ConsumptionSeed } from './data/consumptionSeed.js';
 import { VEHICLE_PHOTOS, photoPage, photoUrl } from './data/vehiclePhotos.js';
 import { readBundledSnapshot, upsertCatalog, rematchCatalog } from './lib/catalog.js';
@@ -2497,6 +2498,76 @@ export const placaMigrations: Migration[] = [
       for (const [id, custo] of custos) {
         await client.query(`UPDATE query_products SET provider_cost_cents=NULL, floor_price_cents=NULL WHERE id=$1 AND provider_cost_cents=$2`, [id, custo]);
       }
+    }
+  }
+
+  ,{
+    id: '072_guia_mais_veiculos',
+    name: 'Guia de veículos: mais marcas, modelos e versões para consulta e comparação (ficha técnica com fonte). Não altera o que a equipe já cadastrou ou editou',
+    up: async (client) => {
+      for (const model of EXTRA_VEHICLE_SEED) {
+        const inserted = await client.query(
+          `INSERT INTO vehicle_models(slug,brand,name,vehicle_type,body_type,year_from,summary,status,spec_source)
+           VALUES($1,$2,$3,$4,$5,$6,$7,'PUBLISHED',$8) ON CONFLICT (slug) DO NOTHING RETURNING id`,
+          [model.slug, model.brand, model.name, model.vehicleType, model.bodyType, model.yearFrom ?? null, `${model.brand} ${model.name}: ficha técnica de referência, sem opiniões ainda. Seja o primeiro a avaliar.`, EXTRA_SEED_SOURCE]
+        );
+        const modelId = inserted.rows[0]?.id as string | undefined;
+        if (!modelId) continue;
+        let order = 0;
+        for (const v of model.versions) {
+          await client.query(
+            `INSERT INTO vehicle_versions(model_id,name,year_model,fuel,specs,display_order) VALUES($1,$2,$3,$4,$5::jsonb,$6) ON CONFLICT DO NOTHING`,
+            [modelId, v.name, v.yearModel, v.fuel, JSON.stringify(v.specs), order++]
+          );
+        }
+      }
+      // Liga os novos modelos à frota publicada (Senatran) pelo nome, como na carga anterior.
+      await rematchCatalog(client);
+    },
+    down: async (client) => {
+      // Remove só os modelos desta carga que ainda não receberam opinião, dica ou observação de consumo.
+      await client.query(
+        `DELETE FROM vehicle_models m WHERE m.slug = ANY($1::text[]) AND m.spec_source=$2
+           AND NOT EXISTS (SELECT 1 FROM vehicle_opinions o WHERE o.model_id=m.id)
+           AND NOT EXISTS (SELECT 1 FROM vehicle_tips t WHERE t.model_id=m.id)
+           AND NOT EXISTS (SELECT 1 FROM vehicle_consumption_obs c WHERE c.model_id=m.id)`,
+        [EXTRA_VEHICLE_SEED.map((x) => x.slug), EXTRA_SEED_SOURCE]
+      );
+    }
+  }
+
+  ,{
+    id: '073_convite_por_usuario',
+    name: 'Convite por usuário: cada pessoa (cliente, operador ou administrador) tem o seu código e link; fica gravado quem convidou quem, por qual caminho e quando',
+    up: async (client) => {
+      await client.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code text;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by uuid REFERENCES users(id) ON DELETE SET NULL;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_at timestamptz;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_via text;
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_users_invite_code ON users(invite_code) WHERE invite_code IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_users_invited_by ON users(invited_by, invited_at DESC) WHERE invited_by IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS invite_events (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          inviter_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          kind text NOT NULL CHECK (kind IN ('CLICK','SIGNUP')),
+          via text NOT NULL DEFAULT 'LINK' CHECK (via IN ('LINK','REPORT')),
+          invitee_id uuid REFERENCES users(id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_invite_events_inviter ON invite_events(inviter_id, kind, created_at DESC);
+      `);
+    },
+    down: async (client) => {
+      await client.query(`
+        DROP TABLE IF EXISTS invite_events;
+        DROP INDEX IF EXISTS idx_users_invited_by;
+        DROP INDEX IF EXISTS uq_users_invite_code;
+        ALTER TABLE users DROP COLUMN IF EXISTS invited_via;
+        ALTER TABLE users DROP COLUMN IF EXISTS invited_at;
+        ALTER TABLE users DROP COLUMN IF EXISTS invited_by;
+        ALTER TABLE users DROP COLUMN IF EXISTS invite_code;
+      `);
     }
   }
 

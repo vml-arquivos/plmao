@@ -97,7 +97,7 @@ describe('guia de veículos: API pública e painel', integration, () => {
     // versão repetida
     assert.equal((await cont.call(`/api/admin/vehicles/${modelA}/versions`, { method: 'POST', body: { name: 'premier 1.4 turbo', yearModel: 2018 } })).status, 409);
 
-    const list = await pub('/api/vehicles');
+    const list = await pub('/api/vehicles?search=TESTE');
     assert.ok(!list.json.items.some((i) => i.slug === slugA)); // ainda rascunho
     assert.ok(list.json.items.some((i) => i.brand === 'TESTE Hyundai'));
   });

@@ -19,6 +19,8 @@ import { financeRouter } from './routes/finance.js';
 import { enforceMarginFloor } from './pricing/guard.js';
 import { partnersRouter, releaseCommissions } from './routes/partners.js';
 import { partnerPortalRouter } from './routes/partnerPortal.js';
+import { adminInvitesRouter, invitesRouter } from './routes/invites.js';
+import { attachInviter, ensureInviteCode } from './lib/invites.js';
 import { adminQueriesRouter } from './routes/adminQueries.js';
 import { completeAuthorization, consumeLoginTicket, createAuthorizationRequest, oauthErrorUrl, oauthSuccessUrl, socialProviderStatus, type OAuthProvider } from './oauth.js';
 import { adminHosts, env, publicAppUrl } from './config.js';
@@ -126,6 +128,7 @@ api.use('/admin/auth', adminAuthRouter);
 api.use('/admin/finance', financeRouter);
 api.use('/admin/finance', partnersRouter);
 api.use(partnerPortalRouter);
+api.use(invitesRouter);
 api.use('/admin/queries', adminQueriesRouter);
 api.use('/admin/content', adminContentRouter);
 api.use('/admin/vehicles', adminVehiclesRouter);
@@ -149,6 +152,7 @@ api.use('/contracts', contractsPublicRouter);
 api.use('/account', accountCnpjRouter);
 api.use('/webhooks', emailWebhookRouter);
 api.use('/admin', adminPeopleRouter);
+api.use('/admin', adminInvitesRouter);
 api.use('/admin', adminBillingRouter);
 api.use((_req, res, next) => {
   // API responses are not cacheable: authenticated clients must never receive a conditional 304 without a body.
@@ -166,6 +170,8 @@ const registerSchema = z.object({
   acceptPrivacy: z.literal(true),
   marketingOptIn: z.boolean().optional().default(false),
   affiliateCode: z.string().trim().min(3).max(40).optional(),
+  inviteCode: z.string().trim().max(20).optional(),
+  inviteVia: z.enum(['LINK', 'REPORT']).optional(),
   accountType: z.enum(['PARTICULAR', 'AUTONOMO', 'EMPRESA']).optional().default('PARTICULAR'),
   // Cadastro completo (obrigatório quando CUSTOMER_PROFILE_REQUIRED está ligado; validado na rota).
   phone: z.string().trim().max(30).optional(),
@@ -671,6 +677,7 @@ api.post('/auth/register', asyncRoute(async (req, res) => {
       }
       const user = await client.query('INSERT INTO users(email,password_hash,name,role,affiliate_id) VALUES($1,$2,$3,$4,$5) RETURNING id,email,name,role', [email, passwordHash, parsed.data.name, 'CLIENTE', affiliateId]);
       await client.query('INSERT INTO wallets(user_id,balance) VALUES($1,0)', [user.rows[0].id]);
+      if (parsed.data.inviteCode) await attachInviter(String(user.rows[0].id), parsed.data.inviteCode, parsed.data.inviteVia, client);
       await client.query(`INSERT INTO user_profiles(user_id,marketing_opt_in,customer_type,cpf_cnpj,phone,company_name,zip,street,street_number,complement,district,city,state,responsibility_accepted_at,responsibility_version)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [user.rows[0].id, d.marketingOptIn, d.accountType, d.cpfCnpj || null, d.phone || null, d.companyName || null, d.zip ? d.zip.replace(/\D/g, '') : null, d.street || null, d.streetNumber || null, d.complement || null, d.district || null, d.city || null, d.state ? d.state.toUpperCase() : null, d.acceptResponsibility ? new Date() : null, d.acceptResponsibility ? RESPONSIBILITY_VERSION : null]);
@@ -1891,7 +1898,9 @@ api.post('/queries/:id/share', auth, requirePermission('VIEW_HISTORY'), asyncRou
   await audit(req.user!.id, 'REPORT_SHARE_CREATED', 'VEHICLE_QUERY', queryId, { linkId: link.id, days: parsed.data.days, requestId: requestId(req) });
   await recordFunnelEvent(req.user!.id, req, 'REPORT_SHARED', { days: parsed.data.days });
   const base = (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '');
-  res.status(201).json({ id: link.id, url: `${base}/r/${link.token}`, expiresAt: link.expiresAt, maxViews: 100 });
+  // O link da consulta leva o convite de quem enviou: se o comprador se cadastrar a partir dele, fica registrado.
+  const inviteCode = await ensureInviteCode(req.user!.id);
+  res.status(201).json({ id: link.id, url: `${base}/r/${link.token}?convite=${inviteCode}`, expiresAt: link.expiresAt, maxViews: 100 });
 }));
 api.get('/queries/:id/shares', auth, requirePermission('VIEW_HISTORY'), asyncRoute(async (req, res) => {
   const queryId = String(req.params.id);
