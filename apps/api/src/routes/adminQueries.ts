@@ -16,6 +16,7 @@ import { runExclusive } from '../lib/providerGuard.js';
 import { createSecureLink } from '../lib/secureLinks.js';
 import { enqueueEmail } from '../lib/emailOutbox.js';
 import { publicAppUrl } from '../config.js';
+import { CLEANUP_KINDS, OPEN_CHECKOUT_HOURS, STUCK_HOURS, previewCleanup, runCleanup, type CleanupKind } from '../lib/queryCleanup.js';
 
 /**
  * Consultas vistas pela equipe (LGPD): relatório com dados pessoais mascarados e revelação
@@ -52,6 +53,21 @@ adminQueriesRouter.post('/refresh-gravame', requirePermission('VIEW_SENSITIVE_DA
   }
   await audit(req.user!.id, 'QUERIES_GRAVAME_REFRESH_BATCH', 'VEHICLE_QUERY', null, { updated, failed, stopped, requestId: requestId(req) });
   res.json({ updated, failed, stopped, remaining: Math.max(0, pending.length - updated) });
+}));
+
+/**
+ * Limpeza do que não gerou receita: consultas que falharam ou travaram e pedidos sem pagamento.
+ * Sem "confirm", só conta o que seria apagado (e o que fica por ter dinheiro envolvido). Com "confirm", apaga e audita.
+ */
+adminQueriesRouter.post('/cleanup', requirePermission('MANAGE_BILLING'), asyncRoute(async (req, res) => {
+  const parsed = z.object({ kinds: z.array(z.enum(['FAILED', 'STUCK', 'UNPAID_ORDERS'])).min(1).max(3).optional(), confirm: z.boolean().default(false) }).strict().safeParse(req.body ?? {});
+  if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const kinds: CleanupKind[] = parsed.data.kinds ?? [...CLEANUP_KINDS];
+  const preview = await previewCleanup(pool, kinds);
+  if (!parsed.data.confirm) { res.json({ confirm: false, items: preview, rules: { stuckHours: STUCK_HOURS, openCheckoutHours: OPEN_CHECKOUT_HOURS } }); return; }
+  const done = await tx((client) => runCleanup(client, kinds));
+  await audit(req.user!.id, 'QUERY_CLEANUP', 'VEHICLE_QUERY', 'bulk', { kinds, deleted: done, requestId: requestId(req) });
+  res.json({ confirm: true, deleted: done, items: await previewCleanup(pool, kinds) });
 }));
 
 adminQueriesRouter.post('/:id/refresh-gravame', requirePermission('VIEW_SENSITIVE_DATA'), asyncRoute(async (req, res) => {

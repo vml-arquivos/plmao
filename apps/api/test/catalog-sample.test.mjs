@@ -17,10 +17,10 @@ describe('modelo de relatório e detalhes das consultas (público)', integration
     const ids = products.map((p) => p.id);
     assert.ok(ids.includes('COMPLETE') && ids.includes('BASIC'));
     const labels = (id) => products.find((p) => p.id === id).sections.flatMap((s) => s.items);
-    assert.ok(labels('COMPLETE').length > labels('BASIC').length, 'a Completa traz mais itens que a Segura');
+    assert.ok(labels('PREMIUM').length > labels('BASIC').length, 'a Premium traz mais itens que a Avançada');
     assert.ok(labels('COMPLETE').includes('Indício de sinistro'));
-    assert.ok(labels('BASIC').includes('Indício de sinistro'), 'a Segura traz o indício de sinistro');
-    assert.deepEqual(labels('BASIC').filter((l) => /histórico de roubo|recall|propriet/i.test(l)), [], 'a Segura não promete histórico de roubo, recall nem proprietários');
+    assert.ok(labels('BASIC').includes('Indício de sinistro'), 'a Avançada traz o indício de sinistro');
+    assert.deepEqual(labels('BASIC').filter((l) => /propriet/i.test(l)), [], 'a Avançada não traz proprietários');
     for (const id of ids) {
       const all = labels(id).join('|');
       assert.doesNotMatch(all, /Chave de retorno|Controle interno/i);

@@ -2727,4 +2727,88 @@ export const placaMigrations: Migration[] = [
     }
   }
 
+  ,{
+    id: '075_consulta_avancada_acima_da_completa',
+    name: 'A consulta que era Segura vira Avançada: tudo da Completa mais gravame detalhado, restrições judiciais e multas por infração (Premium sem proprietários), com preço acima da Completa e abaixo do teto de mercado. Só muda onde ainda está como a 074 deixou',
+    up: async (client) => {
+      const atual = await client.query(`SELECT price_cents FROM query_products WHERE id='BASIC' AND name='Consulta Segura' AND price_cents=3290`);
+      if (!atual.rowCount) return;
+      await client.query(`CREATE TABLE IF NOT EXISTS migration_075_prev (product_id text PRIMARY KEY, data jsonb NOT NULL)`);
+      await client.query(`INSERT INTO migration_075_prev(product_id,data) SELECT id, to_jsonb(query_products.*) FROM query_products WHERE id='BASIC' ON CONFLICT (product_id) DO NOTHING`);
+      const pdf = 'Relatório em PDF com código de validação';
+      const features = [
+        'Tudo da Completa: sinistro, roubo e furto, leilão, recall, FIPE e comparação entre bases',
+        'Gravame detalhado: banco, contrato e datas do financiamento',
+        'Restrições judiciais detalhadas (Renajud): tribunal, processo e data',
+        'Multas detalhadas por infração: descrição, vencimento e valor',
+        'Nível de risco de leilão, possível desvalorização e CSV do Inmetro',
+        'Aceitação em seguro e risco de revenda',
+        pdf
+      ];
+      await client.query(
+        `UPDATE query_products SET name='Consulta Avançada', tagline='Tudo da Completa, com gravame, Renajud e multas detalhadas.',
+            description='A Completa mais o gravame detalhado, as restrições judiciais (Renajud) e as multas por infração, com nível de risco de leilão e aceitação em seguro.',
+            coverage='Completa, gravame, Renajud e multas detalhadas', badge=NULL, features=$1::jsonb, display_order=9, featured=false,
+            long_description='Para quem vai fechar um negócio de valor mais alto. Reúne tudo da Completa (débitos, restrições, sinistro, roubo e furto, leilão, recall e FIPE) e acrescenta o financiamento em detalhe (banco, contrato e datas), as restrições judiciais com tribunal e processo e cada multa por infração. O relatório mostra o nível de risco de leilão, a possível desvalorização e se pode haver recusa de seguro. Não inclui o histórico de proprietários, que fica na Premium.',
+            data_sources=ARRAY['SINISTRO','NATIONAL','THEFT','RECALL','AUCTION','GRAVAME','RENAJUD','FIPE','RENAINF']::text[],
+            report_sections=ARRAY['IDENTIFICACAO','CARACTERISTICAS','REGISTRO','DEBITOS','RESTRICOES','HISTORICO','GRAVAME','INSPECAO_RECALL','FIPE','ANALISES']::text[], updated_at=now()
+          WHERE id='BASIC'`, [JSON.stringify(features)]
+      );
+      // Mesmo escopo de seções da Completa/Premium (sem proprietários): o modelo de campos da 074 deixa de valer.
+      await client.query(`UPDATE report_template_publications SET superseded_at=now() WHERE product_id='BASIC' AND superseded_at IS NULL AND template_id IN (SELECT id FROM report_templates WHERE product_id='BASIC' AND name='Consulta Segura — cadastro, débitos, restrições, sinistro e leilão')`);
+      await client.query(`UPDATE report_templates SET status='DRAFT' WHERE product_id='BASIC' AND name='Consulta Segura — cadastro, débitos, restrições, sinistro e leilão'`);
+
+      // Custo normal: base 2,15 + sinistro 1,33 + nacional 1,17 + leilão 16,76 + FIPE 0,11 + gravame 1,37 + Renajud 1,60 + Renainf 0,64 = 25,13.
+      // Roubo/furto (7,31) e recall (1,97) só são comprados quando a base não traz o sinal limpo (reserva, como na Completa).
+      const custo = 2513; const novo = 4190;
+      const ant = Number((await client.query(`SELECT price_cents FROM query_products WHERE id='BASIC'`)).rows[0].price_cents);
+      const r = await client.query(
+        `UPDATE query_products SET price_cents=$1::int, provider_cost_cents=$2::int, pricing_mode='MANUAL', credit_cost=GREATEST(1, CEIL($1::numeric/100))::int, floor_price_cents=NULL, margin_locked=false,
+            price_version=price_version+1, price_updated_at=now(), updated_at=now() WHERE id='BASIC' RETURNING price_version, name, supplier_cost_cents`, [novo, custo]
+      );
+      let piso: number | null = null;
+      if ((await client.query('SELECT 1 FROM payment_settings WHERE id=1')).rowCount) {
+        const settings = await loadPaymentSettings(client);
+        const { floorCents } = floorPriceFor(settings, { id: 'BASIC', name: String(r.rows[0].name), providerCostCents: custo, supplierCostCents: Number(r.rows[0].supplier_cost_cents ?? 0) });
+        piso = floorCents > 0 && floorCents <= novo ? floorCents : null;
+        await client.query(`UPDATE query_products SET floor_price_cents=$1 WHERE id='BASIC'`, [piso]);
+      }
+      await client.query(`INSERT INTO product_price_history(product_id,version,old_price_cents,new_price_cents,reference_price_cents,floor_price_cents,provider_cost_cents,margin_locked,reason) VALUES('BASIC',$1,$2,$3,NULL,$4,$5,false,'Consulta Avançada (acima da Completa e abaixo do teto de mercado): R$ 41,90')`, [r.rows[0].price_version, ant, novo, piso, custo]);
+
+      // Matriz de comparação: o que a Premium tem, menos proprietários.
+      await client.query(
+        `INSERT INTO product_catalog_features(product_id,feature_id,status)
+           SELECT 'BASIC', feature_id, CASE WHEN feature_id=(SELECT id FROM catalog_features WHERE key='proprietarios') THEN 'NOT_INCLUDED' ELSE status END
+             FROM product_catalog_features WHERE product_id='PREMIUM'
+         ON CONFLICT (product_id,feature_id) DO UPDATE SET status=EXCLUDED.status`
+      );
+      await client.query(
+        `UPDATE faqs SET answer='Para conferir se o veículo é o que o anúncio diz, a Cadastral resolve. Se você quer saber do leilão e do cadastro, a Leilão e Dados do Veículo mostra o nível de risco e a possível desvalorização. A Completa reúne débitos, restrições, sinistro, roubo e furto, leilão, recall e FIPE. A Avançada soma a isso o gravame detalhado, o Renajud e as multas por infração, e a Premium traz também o histórico de proprietários. Na página de planos há um comparador que monta a combinação mais barata para o que você precisa.', updated_at=now()
+          WHERE question='Qual consulta devo escolher?' AND answer LIKE 'Para conferir se o veículo é o que o anúncio diz, a Cadastral resolve. Para comprar com segurança, a Segura soma%'`
+      );
+    },
+    down: async (client) => {
+      if (!(await client.query(`SELECT to_regclass('migration_075_prev') AS t`)).rows[0].t) return;
+      const r = await client.query(`SELECT data FROM migration_075_prev WHERE product_id='BASIC'`);
+      if (r.rowCount) {
+        const d = r.rows[0].data as Record<string, unknown>;
+        await client.query(
+          `UPDATE query_products SET name=$2, tagline=$3, description=$4, coverage=$5, badge=$6, features=$7::jsonb, long_description=$8, data_sources=$9::text[], report_sections=$10::text[],
+              price_cents=$11, provider_cost_cents=$12, floor_price_cents=$13, credit_cost=$14, display_order=$15, featured=$16, updated_at=now() WHERE id=$1`,
+          ['BASIC', d.name, d.tagline, d.description, d.coverage, d.badge, JSON.stringify(d.features ?? []), d.long_description, d.data_sources ?? null, d.report_sections ?? null, d.price_cents, d.provider_cost_cents ?? null, d.floor_price_cents ?? null, d.credit_cost, d.display_order, d.featured]
+        );
+        const nome = 'Consulta Segura — cadastro, débitos, restrições, sinistro e leilão';
+        const tpl = await client.query(`SELECT id FROM report_templates WHERE product_id='BASIC' AND name=$1`, [nome]);
+        if (tpl.rowCount) {
+          await client.query(`UPDATE report_templates SET status='PUBLISHED' WHERE id=$1`, [tpl.rows[0].id]);
+          await client.query(`INSERT INTO report_template_publications(product_id,template_id) VALUES('BASIC',$1)`, [tpl.rows[0].id]);
+        }
+        // Matriz: volta ao que a 074 deixou (só as linhas que ela criou ficam).
+        await client.query(`DELETE FROM product_catalog_features WHERE product_id='BASIC' AND feature_id IN (SELECT id FROM catalog_features WHERE key IN ('renajud','alteracoes','multas-detalhadas','recall-inspecao','fipe','proprietarios'))`);
+        await client.query(`UPDATE product_catalog_features SET status='NOT_INCLUDED' WHERE product_id='BASIC' AND feature_id=(SELECT id FROM catalog_features WHERE key='gravame-detalhado')`);
+      }
+      await client.query(`DROP TABLE IF EXISTS migration_075_prev`);
+    }
+  }
+
 ];

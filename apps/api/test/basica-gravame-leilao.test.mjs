@@ -64,19 +64,19 @@ describe('migração 069: Básica com gravame e Leilão ativo', integration, () 
     }
   });
 
-  it('Segura (ex-Básica): cadastro, débitos, restrições, sinistro e leilão; sem proprietários e sem gravame detalhado', async () => {
+  it('Avançada (ex-Básica): tudo da Completa mais gravame detalhado, Renajud e multas por infração; sem proprietários', async () => {
     const b = (await pool.query(`SELECT name,data_sources,report_sections,active,commercial_status,features,price_cents FROM query_products WHERE id='BASIC'`)).rows[0];
-    assert.equal(b.name, 'Consulta Segura');
-    assert.deepEqual(b.data_sources, ['SINISTRO', 'NATIONAL', 'AUCTION']);
-    assert.ok(b.report_sections.includes('HISTORICO') && b.report_sections.includes('DEBITOS') && b.report_sections.includes('ANALISES'));
+    assert.equal(b.name, 'Consulta Avançada');
+    assert.deepEqual(b.data_sources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'FIPE', 'RENAINF']);
+    for (const k of ['HISTORICO', 'DEBITOS', 'ANALISES', 'GRAVAME', 'FIPE', 'INSPECAO_RECALL']) assert.ok(b.report_sections.includes(k), k);
     assert.ok(!b.report_sections.includes('PROPRIETARIO'));
     assert.equal(b.active, true);
-    assert.equal(b.price_cents, 3290);
+    assert.equal(b.price_cents, 4190);
     assert.match(JSON.stringify(b.features), /Aceitação em seguro/);
-    assert.doesNotMatch(JSON.stringify(b.features), /propriet/i);
+    assert.doesNotMatch(JSON.stringify(b.features), /histórico de propriet/i);
     const det = await (await fetch(`${server.base}/api/catalog/details`)).json();
     const secs = det.products.find((p) => p.id === 'BASIC').sections.map((s) => s.key);
-    assert.ok(secs.includes('DEBITOS') && secs.includes('HISTORICO') && secs.includes('ANALISES') && !secs.includes('PROPRIETARIO'), JSON.stringify(secs));
+    assert.ok(secs.includes('DEBITOS') && secs.includes('HISTORICO') && secs.includes('ANALISES') && secs.includes('GRAVAME') && !secs.includes('PROPRIETARIO'), JSON.stringify(secs));
   });
 
   it('Leilão e Dados do Veículo: à venda, com regra de fonte, cadastro nacional, restrições, leilão e análises; sem débitos e sem gravame', async () => {
@@ -100,11 +100,9 @@ describe('migração 069: Básica com gravame e Leilão ativo', integration, () 
     const { validateScopeConfig } = await import('../dist/lib/reportScope.js');
     const tpl = (await pool.query(`SELECT config FROM report_templates t JOIN report_template_publications p ON p.template_id=t.id WHERE p.product_id='AUCTION' AND p.superseded_at IS NULL`)).rows[0].config;
     assert.equal(validateScopeConfig(tpl).ok, true, JSON.stringify(validateScopeConfig(tpl)));
-    const tplBasic = (await pool.query(`SELECT config FROM report_templates t JOIN report_template_publications p ON p.template_id=t.id WHERE p.product_id='BASIC' AND p.superseded_at IS NULL`)).rows[0].config;
-    assert.equal(validateScopeConfig(tplBasic).ok, true, JSON.stringify(validateScopeConfig(tplBasic)));
   });
 
-  it('vitrine pública: Leilão aparece como ativo e a Segura traz leilão e sinistro na comparação', async () => {
+  it('vitrine pública: Leilão aparece como ativo e a Avançada traz leilão, sinistro e gravame detalhado na comparação', async () => {
     const cat = await (await fetch(`${server.base}/api/catalog`)).json();
     const auction = cat.products.find((p) => p.id === 'AUCTION');
     assert.equal(auction.commercialStatus, 'ACTIVE');
@@ -114,28 +112,29 @@ describe('migração 069: Básica com gravame e Leilão ativo', integration, () 
     assert.equal(basic.matrix[feat('gravame')], 'INCLUDED');
     assert.equal(basic.matrix[feat('leilao')], 'INCLUDED');
     assert.equal(basic.matrix[feat('score-leilao')], 'INCLUDED');
-    assert.notEqual(basic.matrix[feat('gravame-detalhado')], 'INCLUDED');
+    assert.equal(basic.matrix[feat('gravame-detalhado')], 'INCLUDED');
+    assert.notEqual(basic.matrix[feat('proprietarios')], 'INCLUDED');
   });
 
   it('preços dentro da média de mercado, em escada, e nenhum abaixo do piso de margem', async () => {
     const rows = (await pool.query(`SELECT id,price_cents,floor_price_cents FROM query_products WHERE id IN ('CADASTRAL','LIEN','AUCTION','BASIC','COMPLETE','PREMIUM')`)).rows;
     const p = Object.fromEntries(rows.map((r) => [r.id, r]));
     assert.ok(p.CADASTRAL.price_cents < p.LIEN.price_cents && p.LIEN.price_cents < p.AUCTION.price_cents);
-    assert.ok(p.AUCTION.price_cents < p.BASIC.price_cents && p.BASIC.price_cents < p.COMPLETE.price_cents && p.COMPLETE.price_cents < p.PREMIUM.price_cents);
-    // Teto de mercado: Dados Cadastrais R$ 13,90, Gravame R$ 14,90, Essencial R$ 34,90.
-    assert.ok(p.CADASTRAL.price_cents <= 1390 && p.LIEN.price_cents <= 1490 && p.BASIC.price_cents <= 3490);
+    assert.ok(p.AUCTION.price_cents < p.COMPLETE.price_cents && p.COMPLETE.price_cents < p.BASIC.price_cents && p.BASIC.price_cents < p.PREMIUM.price_cents);
+    // Teto de mercado: Dados Cadastrais R$ 13,90, Gravame R$ 14,90, Essencial R$ 45,90.
+    assert.ok(p.CADASTRAL.price_cents <= 1390 && p.LIEN.price_cents <= 1490 && p.BASIC.price_cents <= 4590);
     for (const r of rows) if (r.floor_price_cents != null) assert.ok(Number(r.price_cents) >= Number(r.floor_price_cents), `${r.id} abaixo do piso`);
   });
 
   it('o histórico de preços registra a mudança', async () => {
-    const h = await pool.query(`SELECT product_id,new_price_cents FROM product_price_history WHERE reason LIKE 'Consulta Segura%' OR reason LIKE 'Leilão e Dados%'`);
+    const h = await pool.query(`SELECT product_id,new_price_cents FROM product_price_history WHERE reason LIKE 'Consulta Avançada%' OR reason LIKE 'Leilão e Dados%'`);
     assert.ok(h.rows.length >= 1);
   });
 
   it('o catálogo público mostra a escada com os nomes novos e a matriz de análises', async () => {
     const cat = await (await fetch(`${server.base}/api/catalog`)).json();
     const names = Object.fromEntries(cat.products.map((x) => [x.id, x.name]));
-    assert.equal(names.BASIC, 'Consulta Segura');
+    assert.equal(names.BASIC, 'Consulta Avançada');
     assert.equal(names.AUCTION, 'Leilão e Dados do Veículo');
     const feat = (key) => cat.features.find((f) => f.key === key)?.id;
     for (const id of ['BASIC', 'AUCTION', 'COMPLETE', 'PREMIUM']) {

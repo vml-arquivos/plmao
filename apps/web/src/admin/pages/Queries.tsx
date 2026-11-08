@@ -23,18 +23,49 @@ export function QueriesList() {
   const [origin, setOrigin] = useState('');
   const [lookup, setLookup] = useState(false);
   const [lien, setLien] = useState(false);
+  const [clean, setClean] = useState(false);
+  const [deliver, setDeliver] = useState<{ id: string; plate: string; mode: 'send' | 'link' } | null>(null);
+  const [view, setView] = useState<'cards' | 'list'>(() => { try { return localStorage.getItem('adm-queries-view') === 'list' ? 'list' : 'cards'; } catch { return 'cards'; } });
+  const toast = useToast();
+  const pickView = (v: 'cards' | 'list') => { setView(v); try { localStorage.setItem('adm-queries-view', v); } catch { /* sem armazenamento: só não lembra */ } };
+  async function openPdf(id: string) {
+    const tab = window.open('about:blank', '_blank');
+    try { const href = await api.blobUrl(`/admin/queries/${id}/report/pdf`); if (tab) tab.location.href = href; else window.location.assign(href); } catch (e) { tab?.close(); toast.error(errorMessage(e)); }
+  }
   const rows = useMemo(() => (list.data ?? []).filter((r) => (!status || r.status === status) && (!type || r.customerType === type) && (!origin || (origin === 'ADMIN' ? r.source === 'ADMIN' : r.source !== 'ADMIN')) && (!q || `${r.plate} ${r.customer.email} ${r.customer.name}`.toLowerCase().includes(q.toLowerCase()))), [list.data, q, status, type, origin]);
   return (
     <>
-      <PageHead title="Consultas" sub="Últimas 300 consultas, inclusive as internas feitas aqui no painel. Relatórios completos; a abertura do dado bruto é motivada e auditada." actions={can('VIEW_SENSITIVE_DATA') && <><Button icon="refresh" onClick={() => setLien(true)}>Atualizar gravames</Button><Button variant="primary" icon="search" onClick={() => setLookup(true)}>Consulta interna</Button></>} />
+      <PageHead title="Consultas" sub="Últimas 300 consultas, inclusive as internas feitas aqui no painel. Relatórios completos; a abertura do dado bruto é motivada e auditada." actions={<>{can('MANAGE_BILLING') && <Button icon="trash" onClick={() => setClean(true)}>Limpar falhas e sem pagamento</Button>}{can('VIEW_SENSITIVE_DATA') && <><Button icon="refresh" onClick={() => setLien(true)}>Atualizar gravames</Button><Button variant="primary" icon="search" onClick={() => setLookup(true)}>Consulta interna</Button></>}</>} />
       <div className="toolbar">
         <div className="grow"><Input icon="search" placeholder="Buscar por placa, nome ou e-mail" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar" /></div>
         <Select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">Todos os status</option>{Object.entries(QUERY_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select>
         <Select value={type} onChange={(e) => setType(e.target.value)} aria-label="Tipo de cliente"><option value="">Todos os tipos de cliente</option>{Object.entries(CUSTOMER_TYPE).map(([k, v]) => <option key={k} value={k}>{v.plural}</option>)}</Select>
         <Select value={origin} onChange={(e) => setOrigin(e.target.value)} aria-label="Origem"><option value="">Todas as origens</option><option value="ADMIN">Consultas internas</option><option value="WEB">Feitas pelos clientes</option></Select>
+        <div className="seg" role="group" aria-label="Forma de exibir"><Button variant={view === 'cards' ? 'primary' : 'ghost'} onClick={() => pickView('cards')}>Cartões</Button><Button variant={view === 'list' ? 'primary' : 'ghost'} onClick={() => pickView('list')}>Lista</Button></div>
         <Button variant="ghost" icon="refresh" onClick={list.reload}>Atualizar</Button>
       </div>
-      {list.loading && !list.data ? <PageLoading /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : !rows.length ? <EmptyState title="Nenhuma consulta encontrada" /> : (
+      {list.loading && !list.data ? <PageLoading /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> : !rows.length ? <EmptyState title="Nenhuma consulta encontrada" /> : view === 'cards' ? (
+        <div className="qcards">
+          {rows.map((r) => {
+            const ready = r.status === 'SUCCESS';
+            return (
+              <article key={r.id} className={`qcard${ready ? '' : ' qcard-off'}`}>
+                <header><PlateBadge plate={r.plate} size="sm" /><QueryStatusBadge status={r.status} /></header>
+                <h3>{r.productName}</h3>
+                <p className="muted">{r.customer.name} · {r.customer.email}</p>
+                <div className="qcard-meta"><span>{dateTime(r.createdAt)}</span><span className="num">{r.source === 'ADMIN' ? (r.sentToCustomer ? 'Enviada ao cliente' : 'Interna') : money(r.priceCents)}</span></div>
+                {r.errorCode && <p className="tag-danger" title={r.errorMessage ?? undefined}>{r.errorCode}</p>}
+                <footer>
+                  <Button size="sm" onClick={() => nav(`/consultas/${r.id}`)}>Ver relatório</Button>
+                  {ready && <Button size="sm" icon="file-text" onClick={() => void openPdf(r.id)}>PDF</Button>}
+                  {ready && can('VIEW_SENSITIVE_DATA') && <Button size="sm" variant="primary" icon="link" onClick={() => setDeliver({ id: r.id, plate: r.plate, mode: 'link' })}>Enviar link</Button>}
+                  {ready && can('VIEW_SENSITIVE_DATA') && <Button size="sm" icon="send" onClick={() => setDeliver({ id: r.id, plate: r.plate, mode: 'send' })}>Enviar ao cliente</Button>}
+                </footer>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
         <div className="table-wrap"><table className="table"><thead><tr><th>Placa</th><th>Produto</th><th>Cliente</th><th>Status</th><th className="r">Valor</th><th>Origem</th><th>Data</th></tr></thead><tbody>
           {rows.map((r) => (
             <tr key={r.id} className="clickable" onClick={() => nav(`/consultas/${r.id}`)}>
@@ -48,7 +79,49 @@ export function QueriesList() {
       )}
       {lookup && <LookupModal onClose={() => { setLookup(false); list.reload(); }} />}
       {lien && <LienRefreshModal onClose={() => { setLien(false); list.reload(); }} />}
+      {clean && <CleanupModal onClose={() => { setClean(false); list.reload(); }} />}
+      {deliver && <DeliverModal queryId={deliver.id} plate={deliver.plate} mode={deliver.mode} onClose={() => setDeliver(null)} />}
     </>
+  );
+}
+
+interface CleanupItem { kind: string; label: string; deletable: number; kept: number; keptReason: string }
+interface CleanupInfo { items: CleanupItem[]; rules: { stuckHours: number; openCheckoutHours: number } }
+
+/** Apaga o que não gerou receita nem entrega: consultas com falha ou travadas e pedidos sem pagamento. Mostra a contagem antes e pede confirmação. */
+function CleanupModal({ onClose }: { onClose: () => void }) {
+  const toast = useToast();
+  const info = useAsync(() => api.post<CleanupInfo>('/admin/queries/cleanup', { confirm: false }));
+  const [pick, setPick] = useState<Record<string, boolean>>({ FAILED: true, STUCK: true, UNPAID_ORDERS: true });
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<Record<string, number> | null>(null);
+  const items = info.data?.items ?? [];
+  const kinds = items.filter((i) => pick[i.kind] && i.deletable > 0).map((i) => i.kind);
+  const total = items.filter((i) => pick[i.kind]).reduce((n, i) => n + i.deletable, 0);
+  async function go() {
+    setBusy(true);
+    try { const r = await api.post<{ deleted: Record<string, number> }>('/admin/queries/cleanup', { confirm: true, kinds }); setDone(r.deleted); info.reload(); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  }
+  return (
+    <Modal title="Limpar falhas e consultas sem pagamento" onClose={onClose} footer={done ? <Button variant="primary" onClick={onClose}>Fechar</Button> : <><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="danger" icon="trash" loading={busy} disabled={!kinds.length} onClick={() => void go()}>{kinds.length ? `Apagar ${total}` : 'Nada para apagar'}</Button></>}>
+      <div className="stack">
+        {info.loading && !info.data ? <PageLoading /> : info.error ? <ErrorState error={info.error} onRetry={info.reload} /> : done ? (
+          <Alert tone="info" title="Concluído">{Object.entries(done).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k === 'UNPAID_ORDERS' ? 'pedido(s) sem pagamento' : k === 'STUCK' ? 'consulta(s) travada(s)' : 'consulta(s) com falha'}`).join(' · ') || 'Nada precisou ser apagado.'}</Alert>
+        ) : (
+          <>
+            <p className="muted">Só entra aqui o que não gerou receita nem entrega. Consulta feita com sucesso, pedido pago ou estornado e qualquer coisa com lançamento financeiro nunca são apagados. A ação não pode ser desfeita e fica na auditoria.</p>
+            {items.map((i) => (
+              <label key={i.kind} style={{ display: 'flex', flexWrap: 'nowrap', gap: 10, alignItems: 'flex-start' }}>
+                <input type="checkbox" style={{ marginTop: 4, flex: '0 0 auto' }} checked={Boolean(pick[i.kind])} disabled={i.deletable === 0} onChange={(e) => setPick({ ...pick, [i.kind]: e.target.checked })} />
+                <span style={{ flex: 1 }}><b>{i.label}</b>: {i.deletable} para apagar{i.kept ? <span className="muted"> · {i.kept} mantida(s): {i.keptReason}</span> : null}
+                  {i.kind === 'STUCK' && <span className="muted"> (em processamento há mais de {info.data?.rules.stuckHours} horas)</span>}
+                  {i.kind === 'UNPAID_ORDERS' && <span className="muted"> (checkout aberto só entra depois de {info.data?.rules.openCheckoutHours} horas)</span>}</span>
+              </label>
+            ))}
+          </>
+        )}
+      </div>
+    </Modal>
   );
 }
 

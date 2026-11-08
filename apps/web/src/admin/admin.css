@@ -115,3 +115,14 @@
 .fipe-fill-list { list-style: none; margin: 0; padding: 4px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); max-height: 240px; overflow: auto; display: grid; }
 .fipe-fill-list button { width: 100%; text-align: left; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: inherit; cursor: pointer; font: inherit; }
 .fipe-fill-list button:hover { background: var(--primary-soft); }
+
+/* Consultas em cartões */
+.qcards { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.qcard { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: 16px; display: grid; gap: 8px; align-content: start; }
+.qcard header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.qcard h3 { font-size: 15px; font-weight: 500; }
+.qcard p { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.qcard-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); }
+.qcard footer { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.qcard-off { opacity: .82; }
+.seg { display: inline-flex; gap: 4px; }
