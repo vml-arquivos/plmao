@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.38.0 — Escada de consultas: Segura, Leilão e Dados do Veículo, e análises de leilão
+
+- **Escada de consultas (migração 074):** Premium (R$ 62,90) › Completa (R$ 34,59) › **Segura** (R$ 32,90) › **Leilão e Dados do Veículo** (R$ 29,90) › Gravame (R$ 11,90) › Cadastral (R$ 9,90). Todas abaixo do teto de mercado (Essencial R$ 34,90, Gravame R$ 14,90, Cadastral R$ 13,90) e acima do preço mínimo de margem.
+- **Consulta Segura (era a Básica):** cadastro estadual e da base nacional, débitos, multas, restrições, indício de sinistro e passagem por leilão, com nível de risco e aceitação em seguro. O id do produto (`BASIC`) e o endereço continuam os mesmos; muda o nome, o conteúdo, as fontes e o preço (de R$ 29,90 para R$ 32,90). O gravame detalhado (banco, contrato e datas) sai desta consulta e continua na consulta Gravame e na Premium; a situação do financiamento segue aparecendo.
+- **Leilão e Dados do Veículo (era a Leilão):** dados do veículo com a base nacional, restrições, registros de leilão (data, leiloeiro, lote, condição) e as análises abaixo. Sem débitos e sem gravame. Preço de R$ 27,90 para R$ 29,90, porque a base nacional entra no custo (R$ 20,08) e o preço mínimo ficaria acima do preço antigo.
+- **Análises novas no relatório (seção "Análises da Placa na Mão"), só com o que a consulta trouxe:** nível de risco de leilão (Muito baixo, Baixo, Razoável ou Alto), possível desvalorização (texto, sem percentual), CSV do Inmetro para veículo recuperado e aceitação em seguro. Aparecem também na Completa e na Premium. Sem leilão consultado, nada é calculado. São classificações próprias, rotuladas como tal; não são nota nem dado de órgão oficial.
+- **Comparador e /planos:** duas linhas novas na matriz (nível de risco de leilão e desvalorização; aceitação em seguro e risco de revenda). O texto "Qual consulta devo escolher?" foi atualizado.
+- **Custos gravados:** Segura R$ 21,41 e Leilão e Dados R$ 20,08 (sem gravame e sem Renajud, que só custam quando o cadastro indica). Preço mínimo recalculado com as taxas configuradas e histórico de preço registrado. Reverter restaura o produto anterior (guardado em `migration_074_prev`).
+- Sem variável de ambiente nova.
+
 ## 1.37.1 — Página de carros mais econômicos
 
 - Corrige o 404 de `/veiculos/mais-economicos` (a página está no sitemap): agora abre com status 200 e fica indexável. Modelo inexistente continua dando 404. Teste incluído. Sem migração e sem variável nova.

@@ -11,6 +11,7 @@ import { CATALOG_BY_KEY, ENRICH_CATALOG, FIELD_CATALOG, SECTIONS, VT_CATALOG, ty
 import { enrichmentExtras, readFipeMatch } from './enrichmentExtras.js';
 import { applyLien, gravameExtras, seizureExtra } from './gravame.js';
 import { leilaoExtras } from './leilao.js';
+import { leilaoAnalyses } from './analiseLeilao.js';
 import { applyJudicial, judicialExtras } from './judicial.js';
 import { adaptVehicleTotal, isVehicleTotal, vehicleTotalExtras, vehicleTotalOutcome, type ReportTable } from './vehicleTotal.js';
 import { formatDocument, ownerIdentityEnabled } from './mask.js';
@@ -243,6 +244,12 @@ export function buildReportV2(raw: unknown): ReportV2 {
   for (const [k, v] of gravameExtras(upper, raw)) enr.set(k, v);
   for (const [k, v] of judicialExtras(raw)) enr.set(k, v);
   for (const [k, v] of leilaoExtras(raw)) enr.set(k, v);
+  {
+    // Análises de leilão: usam o leilão (do pacote Veículo Total ou da consulta de leilão) e o indício de sinistro já lidos.
+    const au = enr.get('AU_LEILAO') ?? (items.get('VT_LEILAO')?.state !== 'NOT_PROVIDED' ? items.get('VT_LEILAO') : undefined);
+    const det = enr.get('AU_LEILAO_DETALHES')?.table ? enr.get('AU_LEILAO_DETALHES') : items.get('VT_LEILAO_DETALHES');
+    for (const [k, v] of leilaoAnalyses(au ? { state: au.state, ...(det?.table ? { table: det.table } : {}) } : undefined, items.get('VT_SINISTRO'))) enr.set(k, v);
+  }
   enr.set('RES_BUSCA_APREENSAO', seizureExtra(upper, raw));
   for (const def of ENRICH_CATALOG) {
     const x = enr.get(def.key) ?? { state: 'NOT_PROVIDED' as const, value: null };

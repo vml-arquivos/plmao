@@ -27,7 +27,7 @@ describe('catálogo, FAQ e artigos editáveis no painel', integration, () => {
     const complete = r.json.products.find((p) => p.id === 'COMPLETE');
     assert.equal(complete.priceCents, 3459);
     assert.ok(r.json.products.find((p) => p.id === 'PREMIUM').priceCents > complete.priceCents);
-    assert.equal(r.json.products.find((p) => p.id === 'BASIC').priceCents, 2990);
+    assert.equal(r.json.products.find((p) => p.id === 'BASIC').priceCents, 3290);
     assert.equal(complete.badge, 'Mais vendida');
     assert.ok(complete.tagline.length > 5 && complete.features.length >= 3);
     assert.equal(r.json.products.find((p) => p.id === 'AUCTION').commercialStatus, 'ACTIVE');

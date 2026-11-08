@@ -4,7 +4,7 @@ import { EXTRA_SEED_SOURCE, EXTRA_VEHICLE_SEED } from './data/vehicleSeedExtra.j
 import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL, CIVIC_SUMMARY, INMETRO_NAME, INMETRO_PBEV_2024_URL, COLLECTED_AT, type ConsumptionSeed } from './data/consumptionSeed.js';
 import { VEHICLE_PHOTOS, photoPage, photoUrl } from './data/vehiclePhotos.js';
 import { readBundledSnapshot, upsertCatalog, rematchCatalog } from './lib/catalog.js';
-import { FIELD_CATALOG } from './report/catalog.js';
+import { FIELD_CATALOG, VT_CATALOG } from './report/catalog.js';
 import { loadPaymentSettings } from './pricing/settings.js';
 import { floorPriceFor } from './pricing/productPricing.js';
 import { FINANCING_FAQS, SEED_ARTICLES, SUPPORT_FAQS, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
@@ -2568,6 +2568,162 @@ export const placaMigrations: Migration[] = [
         ALTER TABLE users DROP COLUMN IF EXISTS invited_by;
         ALTER TABLE users DROP COLUMN IF EXISTS invite_code;
       `);
+    }
+  }
+
+  ,{
+    id: '074_escada_essencial_e_leilao_com_dados',
+    name: 'Escada de consultas: Básica vira Segura (cadastro, débitos, restrições, sinistro e leilão) e Leilão vira Leilão e Dados do Veículo, ambas com nível de risco de leilão e aceitação em seguro; Completa e Premium ganham a matriz nova. Só muda onde ainda está como antes',
+    up: async (client) => {
+      await client.query(`CREATE TABLE IF NOT EXISTS migration_074_prev (product_id text PRIMARY KEY, data jsonb NOT NULL)`);
+      const novosCampos = ['AN_SCORE_LEILAO', 'AN_DESVALORIZACAO', 'AN_CSV_INMETRO', 'AN_SEGURO'];
+      const leilaoCampos = ['VT_LEILAO', 'VT_LEILAO_DETALHES', 'AU_LEILAO', 'AU_LEILAO_DETALHES'];
+      // Campos públicos de uma seção: catálogo base (nível 1 e 2) e, quando o produto compra a base nacional, os da base nacional.
+      const campos = (section: string, nacional: boolean) => [
+        ...FIELD_CATALOG.filter((f) => f.section === section && f.tier <= 2 && f.sensitivity === 'PUBLIC').map((f) => f.key),
+        ...(nacional ? VT_CATALOG.filter((f) => f.section === section && /^(VN_|AL_)/.test(f.key) && f.sensitivity === 'PUBLIC').map((f) => f.key) : [])
+      ];
+      const publicarModelo = async (productId: string, nome: string, secoes: Array<{ key: string; order: number; fields: string[] }>) => {
+        const config = { model: 'CATALOG_V1', sections: secoes.filter((s) => s.fields.length).map((s) => ({ key: s.key, order: s.order, visible: true, fields: s.fields.map((key) => ({ key, visible: true })) })) };
+        const versao = Number((await client.query(`SELECT COALESCE(MAX(version),0)+1 AS v FROM report_templates WHERE product_id=$1`, [productId])).rows[0].v);
+        const tpl = await client.query(`INSERT INTO report_templates(product_id,version,name,status,config) VALUES($1,$2,$3,'DRAFT',$4::jsonb) RETURNING id`, [productId, versao, nome, JSON.stringify(config)]);
+        const id = String(tpl.rows[0].id);
+        await client.query(`UPDATE report_template_publications SET superseded_at=now() WHERE product_id=$1 AND superseded_at IS NULL`, [productId]);
+        await client.query(`UPDATE report_templates SET status='DRAFT' WHERE product_id=$1 AND status='PUBLISHED'`, [productId]);
+        await client.query(`UPDATE report_templates SET status='PUBLISHED' WHERE id=$1`, [id]);
+        await client.query(`INSERT INTO report_template_publications(product_id,template_id) VALUES($1,$2)`, [productId, id]);
+        await client.query(`INSERT INTO product_report_configs(product_id,template_id,mode,formats) VALUES($1,$2,'SNAPSHOT',ARRAY['JSON','HTML','PDF']) ON CONFLICT(product_id) DO UPDATE SET template_id=EXCLUDED.template_id, updated_at=now()`, [productId, id]);
+      };
+      const guardar = async (id: string) => {
+        await client.query(
+          `INSERT INTO migration_074_prev(product_id,data) SELECT id, to_jsonb(query_products.*) FROM query_products WHERE id=$1 ON CONFLICT (product_id) DO NOTHING`, [id]
+        );
+      };
+      const definirPreco = async (id: string, novo: number, custo: number, motivo: string) => {
+        const atual = await client.query(`SELECT price_cents FROM query_products WHERE id=$1`, [id]);
+        if (!atual.rowCount) return;
+        const antes = Number(atual.rows[0].price_cents);
+        const r = await client.query(
+          `UPDATE query_products SET price_cents=$2::int, provider_cost_cents=$3::int, pricing_mode='MANUAL', credit_cost=GREATEST(1, CEIL($2::numeric/100))::int,
+              floor_price_cents=NULL, margin_locked=false,
+              list_price_cents=CASE WHEN list_price_cents IS NOT NULL AND list_price_cents <= $2::int THEN NULL ELSE list_price_cents END,
+              price_version=price_version+CASE WHEN price_cents<>$2::int THEN 1 ELSE 0 END,
+              price_updated_at=CASE WHEN price_cents<>$2::int THEN now() ELSE price_updated_at END, updated_at=now()
+            WHERE id=$1 RETURNING price_version, name, supplier_cost_cents`,
+          [id, novo, custo]
+        );
+        // Piso calculado com as taxas e impostos configurados; só é gravado quando cabe no preço (senão o painel bloquearia o salvamento).
+        let piso: number | null = null;
+        const cfg = await client.query('SELECT 1 FROM payment_settings WHERE id=1');
+        if (cfg.rowCount) {
+          const settings = await loadPaymentSettings(client);
+          const { floorCents } = floorPriceFor(settings, { id, name: String(r.rows[0].name), providerCostCents: custo, supplierCostCents: Number(r.rows[0].supplier_cost_cents ?? 0) });
+          piso = floorCents > 0 && floorCents <= novo ? floorCents : null;
+          await client.query(`UPDATE query_products SET floor_price_cents=$2 WHERE id=$1`, [id, piso]);
+        }
+        if (antes !== novo) {
+          await client.query(`INSERT INTO product_price_history(product_id,version,old_price_cents,new_price_cents,reference_price_cents,floor_price_cents,provider_cost_cents,margin_locked,reason) VALUES($1,$2,$3,$4,NULL,$5,$6,false,$7)`, [id, r.rows[0].price_version, antes, novo, piso, custo, motivo]);
+        }
+      };
+      const recurso = async (key: string, label: string, description: string, order: number) => {
+        await client.query(`INSERT INTO catalog_features(key,label,description,display_order) VALUES($1,$2,$3,$4) ON CONFLICT (key) DO NOTHING`, [key, label, description, order]);
+      };
+      const matriz = async (productId: string, key: string, status: string) => {
+        await client.query(`INSERT INTO product_catalog_features(product_id,feature_id,status) SELECT $1,id,$3 FROM catalog_features WHERE key=$2 ON CONFLICT (product_id,feature_id) DO UPDATE SET status=EXCLUDED.status`, [productId, key, status]);
+      };
+      await recurso('score-leilao', 'Nível de risco de leilão e desvalorização', 'Classificação do risco de leilão (Muito baixo, Baixo, Razoável ou Alto), possível desvalorização e CSV do Inmetro, calculados com os dados da consulta.', 82);
+      await recurso('seguro-revenda', 'Aceitação em seguro e risco de revenda', 'Parecer sobre recusa de seguradoras e dificuldade de revenda a partir do histórico encontrado.', 84);
+      const pdf = 'Relatório em PDF com código de validação';
+
+      // ── Básica → Segura (o essencial para comprar com segurança)
+      const segura = await client.query(`SELECT id FROM query_products WHERE id='BASIC' AND name='Consulta Básica'`);
+      if (segura.rowCount) {
+        await guardar('BASIC');
+        const features = ['Dados cadastrais do estado e da base nacional', 'Débitos, multas e restrições', 'Indício de sinistro (batidas)', 'Passagem por leilão: data, leiloeiro, lote e condição', 'Nível de risco de leilão e possível desvalorização', 'Aceitação em seguro e risco de revenda', pdf];
+        await client.query(
+          `UPDATE query_products SET name='Consulta Segura', tagline='Cadastro, débitos, restrições, sinistro e leilão.', description='Dados do veículo, débitos, multas, restrições, indício de sinistro e passagem por leilão, com nível de risco e aceitação em seguro.',
+              coverage='Cadastro, débitos, restrições, sinistro e leilão', badge='Essencial', features=$1::jsonb,
+              long_description='O essencial para comprar com segurança: confere o cadastro nas bases do estado e nacional, débitos, multas e restrições, e mostra se o veículo tem indício de sinistro ou passagem por leilão. O relatório traz o nível de risco de leilão, a possível desvalorização e se pode haver recusa de seguro, tudo calculado só com o que a consulta encontrou.',
+              data_sources=ARRAY['SINISTRO','NATIONAL','AUCTION']::text[],
+              report_sections=ARRAY['IDENTIFICACAO','CARACTERISTICAS','REGISTRO','DEBITOS','RESTRICOES','GRAVAME','HISTORICO','ANALISES']::text[], updated_at=now()
+            WHERE id='BASIC'`, [JSON.stringify(features)]
+        );
+        await publicarModelo('BASIC', 'Consulta Segura — cadastro, débitos, restrições, sinistro e leilão', [
+          { key: 'IDENTIFICACAO', order: 10, fields: campos('IDENTIFICACAO', true) },
+          { key: 'CARACTERISTICAS', order: 20, fields: campos('CARACTERISTICAS', true) },
+          { key: 'REGISTRO', order: 30, fields: campos('REGISTRO', true) },
+          { key: 'DEBITOS', order: 40, fields: campos('DEBITOS', false) },
+          { key: 'RESTRICOES', order: 50, fields: campos('RESTRICOES', true) },
+          { key: 'GRAVAME', order: 60, fields: [...campos('GRAVAME', false), 'GR_SITUACAO'] },
+          { key: 'HISTORICO', order: 55, fields: ['VT_SINISTRO', ...leilaoCampos] },
+          { key: 'ANALISES', order: 76, fields: novosCampos }
+        ]);
+        await definirPreco('BASIC', 3290, 2141, 'Consulta Segura (padrão Essencial do mercado): R$ 32,90');
+        for (const [key, status] of [['leilao', 'INCLUDED'], ['historico-ocorrencias', 'INCLUDED'], ['score-leilao', 'INCLUDED'], ['seguro-revenda', 'INCLUDED'], ['gravame-detalhado', 'NOT_INCLUDED']] as const) await matriz('BASIC', key, status);
+      }
+
+      // ── Leilão → Leilão e Dados do Veículo
+      const leilao = await client.query(`SELECT id FROM query_products WHERE id='AUCTION' AND name='Consulta Leilão'`);
+      if (leilao.rowCount) {
+        await guardar('AUCTION');
+        const features = ['Dados do veículo e cadastro da base nacional', 'Restrições', 'Passagem por leilão: data, leiloeiro, lote e condição', 'Nível de risco de leilão', 'Possível desvalorização e CSV do Inmetro', 'Aceitação em seguro e risco de revenda', pdf];
+        await client.query(
+          `UPDATE query_products SET name='Leilão e Dados do Veículo', tagline='Leilão, nível de risco e dados do veículo.', description='Passagem por leilão com nível de risco, possível desvalorização e aceitação em seguro, mais os dados do veículo e as restrições.',
+              coverage='Dados do veículo, restrições e leilão', features=$1::jsonb,
+              long_description='Saiba se o veículo passou por leilão e o quanto isso pesa. O relatório traz cada registro de leilão (data, leiloeiro, lote e condição), o nível de risco de leilão, a possível desvalorização, o CSV do Inmetro e se pode haver recusa de seguro, junto com os dados do veículo da base do estado e da base nacional e as restrições.',
+              data_sources=ARRAY['NATIONAL','AUCTION']::text[],
+              report_sections=ARRAY['IDENTIFICACAO','CARACTERISTICAS','REGISTRO','RESTRICOES','HISTORICO','ANALISES']::text[], updated_at=now()
+            WHERE id='AUCTION'`, [JSON.stringify(features)]
+        );
+        await publicarModelo('AUCTION', 'Leilão e Dados do Veículo — leilão, análises e cadastro', [
+          { key: 'IDENTIFICACAO', order: 10, fields: campos('IDENTIFICACAO', true) },
+          { key: 'CARACTERISTICAS', order: 20, fields: campos('CARACTERISTICAS', true) },
+          { key: 'REGISTRO', order: 30, fields: campos('REGISTRO', true) },
+          { key: 'RESTRICOES', order: 50, fields: campos('RESTRICOES', true) },
+          { key: 'HISTORICO', order: 55, fields: leilaoCampos },
+          { key: 'ANALISES', order: 76, fields: novosCampos }
+        ]);
+        await definirPreco('AUCTION', 2990, 2008, 'Leilão e Dados do Veículo: R$ 29,90 (cadastro nacional entra no custo)');
+        for (const [key, status] of [['registro', 'INCLUDED'], ['restricoes', 'INCLUDED'], ['score-leilao', 'INCLUDED'], ['seguro-revenda', 'INCLUDED']] as const) await matriz('AUCTION', key, status);
+      }
+
+      // ── Completa e Premium já calculam as análises (seção de análises); só a matriz de comparação passa a mostrar.
+      for (const id of ['COMPLETE', 'PREMIUM']) for (const key of ['score-leilao', 'seguro-revenda']) await matriz(id, key, 'INCLUDED');
+
+      await client.query(
+        `UPDATE faqs SET answer='Para conferir se o veículo é o que o anúncio diz, a Cadastral resolve. Para comprar com segurança, a Segura soma débitos, multas, restrições, sinistro e leilão. Se você quer o histórico de leilão em detalhe, a Leilão e Dados do Veículo mostra o nível de risco e a possível desvalorização. A Completa acrescenta roubo e furto, recall, FIPE e a comparação de características entre as bases, e a Premium traz também proprietários, gravame detalhado e restrições judiciais. Na página de planos há um comparador que monta a combinação mais barata para o que você precisa.', updated_at=now()
+          WHERE question='Qual consulta devo escolher?' AND answer LIKE 'Para conferir se o veículo é o que o anúncio diz, a Cadastral resolve. Se você vai comprar, a Completa reúne%'`
+      );
+    },
+    down: async (client) => {
+      const prev = await client.query(`SELECT to_regclass('migration_074_prev') AS t`);
+      if (!prev.rows[0].t) return;
+      for (const id of ['BASIC', 'AUCTION']) {
+        const r = await client.query(`SELECT data FROM migration_074_prev WHERE product_id=$1`, [id]);
+        if (!r.rowCount) continue;
+        const d = r.rows[0].data as Record<string, unknown>;
+        await client.query(
+          `UPDATE query_products SET name=$2, tagline=$3, description=$4, coverage=$5, badge=$6, features=$7::jsonb, long_description=$8, data_sources=$9::text[], report_sections=$10::text[],
+              price_cents=$11, provider_cost_cents=$12, floor_price_cents=$13, credit_cost=$14, updated_at=now() WHERE id=$1`,
+          [id, d.name, d.tagline, d.description, d.coverage, d.badge, JSON.stringify(d.features ?? []), d.long_description, d.data_sources ?? null, d.report_sections ?? null, d.price_cents, d.provider_cost_cents ?? null, d.floor_price_cents ?? null, d.credit_cost]
+        );
+        // O modelo novo fica no histórico (consultas já feitas apontam para ele); só deixa de valer e volta o anterior.
+        await client.query(`UPDATE report_template_publications SET superseded_at=now() WHERE product_id=$1 AND superseded_at IS NULL AND template_id IN (SELECT id FROM report_templates WHERE product_id=$1 AND name IN ('Consulta Segura — cadastro, débitos, restrições, sinistro e leilão','Leilão e Dados do Veículo — leilão, análises e cadastro'))`, [id]);
+        await client.query(`UPDATE report_templates SET status='DRAFT' WHERE product_id=$1 AND name IN ('Consulta Segura — cadastro, débitos, restrições, sinistro e leilão','Leilão e Dados do Veículo — leilão, análises e cadastro')`, [id]);
+        const anterior = await client.query(`SELECT id FROM report_templates WHERE product_id=$1 AND name NOT IN ('Consulta Segura — cadastro, débitos, restrições, sinistro e leilão','Leilão e Dados do Veículo — leilão, análises e cadastro') AND NOT EXISTS (SELECT 1 FROM report_template_publications p WHERE p.template_id=report_templates.id) ORDER BY version DESC LIMIT 1`, [id]);
+        const alvo = anterior.rowCount ? anterior : await client.query(`SELECT id FROM report_templates WHERE product_id=$1 AND name NOT IN ('Consulta Segura — cadastro, débitos, restrições, sinistro e leilão','Leilão e Dados do Veículo — leilão, análises e cadastro') ORDER BY version DESC LIMIT 1`, [id]);
+        if (alvo.rowCount) {
+          await client.query(`UPDATE report_templates SET status='PUBLISHED' WHERE id=$1`, [alvo.rows[0].id]);
+          await client.query(`INSERT INTO report_template_publications(product_id,template_id) VALUES($1,$2)`, [id, alvo.rows[0].id]);
+          await client.query(`UPDATE product_report_configs SET template_id=$2, updated_at=now() WHERE product_id=$1`, [id, alvo.rows[0].id]);
+        }
+      }
+      await client.query(`DELETE FROM product_catalog_features WHERE feature_id IN (SELECT id FROM catalog_features WHERE key IN ('score-leilao','seguro-revenda'))`);
+      await client.query(`DELETE FROM catalog_features WHERE key IN ('score-leilao','seguro-revenda')`);
+      await client.query(`UPDATE product_catalog_features SET status='INCLUDED' WHERE product_id='BASIC' AND feature_id=(SELECT id FROM catalog_features WHERE key='gravame-detalhado')`);
+      await client.query(`DELETE FROM product_catalog_features WHERE product_id='BASIC' AND feature_id IN (SELECT id FROM catalog_features WHERE key IN ('leilao','historico-ocorrencias'))`);
+      await client.query(`DELETE FROM product_catalog_features WHERE product_id='AUCTION' AND feature_id IN (SELECT id FROM catalog_features WHERE key IN ('registro','restricoes'))`);
+      await client.query(`DROP TABLE IF EXISTS migration_074_prev`);
     }
   }
 
