@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.39.0 — Consulta Avançada, cartões de consultas no painel e limpeza
+
+- **Cartões de consultas no painel (Consultas):** nova visão em cartões (e a lista de antes, com um botão para alternar). Cada cartão mostra placa, produto, cliente, data, valor e situação, com **Ver relatório**, **PDF**, **Enviar link** (link de visualização com validade, sem login, com WhatsApp) e **Enviar ao cliente** (coloca na conta dele e avisa por e-mail), tudo sem consultar o provedor de novo e sem cobrar.
+- **Limpar falhas e sem pagamento (Consultas → botão no topo, só para quem tem acesso a cobrança):** mostra a contagem antes e só apaga o que não gerou receita nem entrega — consultas que falharam, consultas travadas em processamento há mais de 2 horas e pedidos sem pagamento (checkout cancelado, expirado, com falha ou aberto há mais de 24 horas). Nunca apaga consulta feita com sucesso, pedido pago ou estornado, nem nada com lançamento na carteira, comissão, contrato ou direito de uso pendente. Fica na auditoria.
+- **Garantia de produção:** teste automático que faz o caminho inteiro de cada consulta à venda (dado → relatório → HTML → PDF legível → link de visualização), confere as seções que cada produto entrega e que o PDF sai sem valor quebrado, com o leilão e as análises.
+
+### Consulta Avançada acima da Completa (migração 075)
+
+- **Correção da escada (migração 075):** a Essencial do concorrente custa R$ 45,90 (eu tinha usado um valor menor) e traz leilão, score, desvalorização, seguro, comercialização e batidas. A consulta que a 074 chamou de Segura (R$ 32,90, abaixo da Completa) vira **Consulta Avançada, R$ 41,90**: tudo da Completa (débitos, restrições, sinistro, roubo e furto, leilão, recall, FIPE e comparação entre bases) mais gravame detalhado, restrições judiciais (Renajud) e multas por infração, com o nível de risco de leilão, a possível desvalorização e a aceitação em seguro. É a Premium sem o histórico de proprietários.
+- **Escada final:** Premium R$ 62,90 › Avançada R$ 41,90 › Completa R$ 34,59 › Leilão e Dados do Veículo R$ 29,90 › Gravame R$ 11,90 › Cadastral R$ 9,90. Todas abaixo do teto de mercado e acima do preço mínimo de margem (custo normal da Avançada R$ 25,13; roubo/furto e recall ficam como reserva, igual à Completa).
+- Vitrine: a Avançada aparece entre a Premium e a Completa; matriz de comparação copiada da Premium, sem proprietários; texto "Qual consulta devo escolher?" atualizado. Reverter restaura a Segura da 074.
+- Sem variável de ambiente nova.
+
 ## 1.38.0 — Escada de consultas: Segura, Leilão e Dados do Veículo, e análises de leilão
 
 - **Escada de consultas (migração 074):** Premium (R$ 62,90) › Completa (R$ 34,59) › **Segura** (R$ 32,90) › **Leilão e Dados do Veículo** (R$ 29,90) › Gravame (R$ 11,90) › Cadastral (R$ 9,90). Todas abaixo do teto de mercado (Essencial R$ 34,90, Gravame R$ 14,90, Cadastral R$ 13,90) e acima do preço mínimo de margem.
