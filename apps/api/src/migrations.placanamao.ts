@@ -1,4 +1,9 @@
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Migration } from './migrations.js';
+import { readImageInfo } from './lib/imageInfo.js';
 import { SEED_SOURCE, VEHICLE_SEED } from './data/vehicleSeed.js';
 import { EXTRA_SEED_SOURCE, EXTRA_VEHICLE_SEED } from './data/vehicleSeedExtra.js';
 import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL, CIVIC_SUMMARY, INMETRO_NAME, INMETRO_PBEV_2024_URL, COLLECTED_AT, type ConsumptionSeed } from './data/consumptionSeed.js';
@@ -2949,6 +2954,26 @@ export const placaMigrations: Migration[] = [
       `);
     },
     down: async (client) => { await client.query('DROP TABLE IF EXISTS seo_images;'); }
+  }
+  ,
+  {
+    id: '080_seo_imagens_iniciais',
+    name: 'SEO: imagem inicial das páginas Consulta veicular (Completa) e Gravame, sem sobrescrever o que a equipe já enviou',
+    up: async (client) => {
+      const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web');
+      const inicial: Array<[string, string]> = [['/consulta-veicular', 'consulta-completa.jpg'], ['/consultar-gravame', 'consulta-gravame.jpg']];
+      for (const [pagina, arquivo] of inicial) {
+        const file = [path.join(dir, 'dist/brand/produtos', arquivo), path.join(dir, 'public/brand/produtos', arquivo)].find((f) => existsSync(f));
+        if (!file) continue; // build do front ausente neste ambiente: a equipe envia pelo painel
+        const data = readFileSync(file);
+        const info = readImageInfo(data);
+        if (!info) continue;
+        await client.query(
+          `INSERT INTO seo_images(path,mime,size_bytes,width,height,sha256,data) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (path) DO NOTHING`,
+          [pagina, info.mime, data.length, info.width, info.height, createHash('sha256').update(data).digest('hex'), data]);
+      }
+    },
+    down: async (client) => { await client.query(`DELETE FROM seo_images WHERE path IN ('/consulta-veicular','/consultar-gravame') AND updated_by IS NULL`); }
   }
 
 ];

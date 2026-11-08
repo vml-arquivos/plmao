@@ -77,6 +77,8 @@ describe('imagens do SEO (integração)', integration, () => {
     const list = await adm.call('/api/admin/content/seo/pages');
     assert.equal(list.json.items.find((i) => i.path === '/fipe').image.url, j.image.url);
     assert.equal(list.json.items.find((i) => i.path === '/planos').image, null);
+    // imagens iniciais da migração 080
+    for (const p of ['/consulta-veicular', '/consultar-gravame']) { const im = list.json.items.find((i) => i.path === p).image; assert.ok(im, p); assert.equal(im.width, 1200); assert.equal(im.mime, 'image/jpeg'); }
     assert.equal((await hostRequest(server.base, '/api/seo/page?path=/fipe')).json.image, j.image.url);
     // HTML inicial e sitemap
     const html = await (await fetch(`${server.base}/fipe`, { headers: { accept: 'text/html' } })).text();
@@ -105,7 +107,7 @@ describe('imagens do SEO (integração)', integration, () => {
     assert.equal((await up('/pagina-inventada', fakePng(800, 800))).status, 422);
     assert.equal((await up('/fipe', Buffer.alloc(3.5 * 1024 * 1024, 1), 'image/png')).status, 413);
     assert.equal((await fetch(`${server.base}/api/admin/content/seo/pages/image?path=/fipe`, { method: 'POST', headers: { 'content-type': 'image/png' }, body: fakePng(800, 800) })).status, 401);
-    const n = (await pool.query(`SELECT count(*)::int AS n FROM seo_images`)).rows[0].n;
+    const n = (await pool.query(`SELECT count(*)::int AS n FROM seo_images WHERE path IN ('/fipe','/pagina-inventada')`)).rows[0].n;
     assert.equal(n, 0, 'nada foi gravado');
   });
 });

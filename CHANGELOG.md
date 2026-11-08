@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.45.1 — Imagens iniciais das páginas e limpeza das repetidas
+
+- **Já vêm com imagem** (migração 080): `/consulta-veicular` (arte da Consulta Completa) e `/consultar-gravame` (arte da Consulta Gravame), 1200×1200. Só entra se a página ainda não tiver imagem; o que a equipe enviar pelo painel nunca é sobrescrito. Para trocar, use Painel → SEO.
+- **Limpeza:** ficaram só as 3 artes com logo usadas nos produtos (Cadastral, Completa, Gravame) em `/brand/produtos`. Saíram as versões sem logo e a da “Consulta Básica” (o produto hoje se chama Avançada, e a arte levaria o nome antigo).
+- Sem variável de ambiente nova. `test/seo-imagens.test.mjs` confere as duas imagens iniciais; `migration-rollback` com 54 migrações.
+
 ## 1.45.0 — SEO: imagem de cada página, enviada pelo painel
 
 - **Painel de SEO → Editar página → “Imagem da página (miniatura)”:** enviar, trocar e remover a imagem de qualquer das páginas indexáveis. A lista de páginas mostra a miniatura de cada uma.
@@ -12,7 +18,7 @@
 ## 1.44.2 — Imagens das consultas no schema de produto
 
 - **O que é o campo `image`:** é a foto do produto que o Google exige no dado estruturado (schema) para considerar o item válido nas listagens do comerciante. Não aparece na página, só para o Google.
-- As miniaturas das consultas Cadastral, Completa e Gravame (versão com logo, 1200×1200) ficam em `/brand/produtos/` e são usadas como `image` do produto na home. Também ficaram guardadas as versões sem logo e a da Básica.
+- As miniaturas das consultas Cadastral, Completa e Gravame (versão com logo, 1200×1200) ficam em `/brand/produtos/` e são usadas como `image` do produto na home. 
 - Consultas sem miniatura própria (Avançada, Premium, Leilão e Dados do Veículo) usam por enquanto a imagem padrão da marca. Para trocar, basta colocar o arquivo em `/brand/produtos/` e incluir o código do produto em `PRODUCT_IMAGES` (`seo.ts`).
 - Sem migração e sem variável de ambiente nova. Teste em `test/seo-cabecalho.test.mjs`.
 
