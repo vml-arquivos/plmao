@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.44.1 — Schema de produto com imagem (listagens do comerciante)
+
+- **Listagens do comerciante (Search Console):** cada `Product` do schema da home passa a ter `image` (campo que o Google marcava como erro crítico). Os avisos opcionais (`aggregateRating`, `review`, política de devolução, frete) não são preenchidos de propósito: não há avaliações reais cadastradas e o produto é digital.
+- Sem migração e sem variável de ambiente nova. Teste em `test/seo-cabecalho.test.mjs`.
+
 ## 1.44.0 — SEO: cabeçalho certo no navegador, schema sem erro, link real nos simuladores e FAQ do leilão atualizada
 
 Correções a partir da auditoria de SEO de 08/11/2026.

@@ -58,6 +58,15 @@ describe('cabeçalho de SEO (integração)', integration, () => {
     assert.equal(none.json.description, null);
   });
 
+  it('home: cada Product do schema tem imagem (exigência das listagens do comerciante)', async () => {
+    const h = await (await fetch(`${server.base}/`, { headers: { accept: 'text/html' } })).text();
+    if (!h.includes('<div id="root">')) return; // build do front ausente neste ambiente
+    const blocks = [...h.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)].map((m) => JSON.parse(m[1]));
+    const list = blocks.find((b) => b['@type'] === 'ItemList');
+    assert.ok(list && list.itemListElement.length > 0);
+    for (const it of list.itemListElement) { assert.equal(it.item['@type'], 'Product'); assert.match(it.item.image, /^https?:\/\/.+\/brand\/og-image\.png$/); assert.ok(it.item.offers.price); }
+  });
+
   it('migração 078: corrige a pergunta de leilão só se o texto ainda for o de fábrica', async () => {
     const mig = placaMigrations.find((m) => m.id === '078_seo_leilao_faq_ativa');
     assert.ok(mig);
