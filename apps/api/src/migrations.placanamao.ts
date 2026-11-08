@@ -2929,5 +2929,26 @@ export const placaMigrations: Migration[] = [
     },
     down: async () => { /* só ajuste de texto; nada a desfazer */ }
   }
+  ,
+  {
+    id: '079_seo_imagens',
+    name: 'SEO: imagem de cada página (miniatura para Google, WhatsApp e redes), guardada no banco',
+    up: async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS seo_images (
+          path text PRIMARY KEY,
+          mime text NOT NULL CHECK (mime IN ('image/png','image/jpeg','image/webp')),
+          size_bytes integer NOT NULL,
+          width integer,
+          height integer,
+          sha256 text NOT NULL,
+          data bytea NOT NULL,
+          updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+      `);
+    },
+    down: async (client) => { await client.query('DROP TABLE IF EXISTS seo_images;'); }
+  }
 
 ];

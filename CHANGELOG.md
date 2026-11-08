@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.45.0 — SEO: imagem de cada página, enviada pelo painel
+
+- **Painel de SEO → Editar página → “Imagem da página (miniatura)”:** enviar, trocar e remover a imagem de qualquer das páginas indexáveis. A lista de páginas mostra a miniatura de cada uma.
+- **Para onde a imagem vai:** `og:image` (WhatsApp, Facebook, Instagram, LinkedIn), `twitter:image`, `image` no schema da página e `<image:image>` no sitemap (Google Imagens). Sem imagem própria, a página continua usando a imagem padrão da marca.
+- **Medidas:** 1200×1200 para consultas e produtos (o Google pede imagem quadrada para produto) e 1200×630 para páginas institucionais. PNG, JPG ou WebP, até 3 MB, mínimo de 300 px de lado; de preferência até 300 KB.
+- **Guardada no banco** (migração 079, tabela `seo_images`): não se perde a cada deploy. O endereço público é `/seo-img/<página>.<extensão>?v=<versão>` e muda a cada troca, então o cache do Google e das redes se renova. O tipo é conferido pelo conteúdo do arquivo, não pelo nome.
+- A ajuda do painel ganhou a linha “Imagem da página”. O `HeadSync` do app também troca `og:image` ao mudar de tela.
+- Sem variável de ambiente nova. Testes em `test/seo-imagens.test.mjs`; `migration-rollback` agora com 53 migrações.
+
 ## 1.44.2 — Imagens das consultas no schema de produto
 
 - **O que é o campo `image`:** é a foto do produto que o Google exige no dado estruturado (schema) para considerar o item válido nas listagens do comerciante. Não aparece na página, só para o Google.

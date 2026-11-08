@@ -47,12 +47,18 @@ export function productImageUrl(baseUrl: string, productId: string): string {
 }
 export const PRODUCT_IMAGE_FILES = Object.values(PRODUCT_IMAGES).map((f) => `${f}.jpg`);
 
+/** Endereço da imagem de uma página: /seo-img/<nome>.<extensão>?v=<versão>. O nome vem do caminho (início, fipe, simulador-carro...). */
+export const seoImageSlug = (path: string): string => (path === '/' ? 'inicio' : path.replace(/^\//, '').replace(/\//g, '-'));
+export const pathFromSeoImageSlug = (slug: string): string | null => SITEMAP_PATHS.find((p) => seoImageSlug(p) === slug) ?? null;
+const IMAGE_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+export const seoImageUrl = (baseUrl: string, path: string, mime: string, sha: string): string => `${baseUrl.replace(/\/$/, '')}/seo-img/${seoImageSlug(path)}.${IMAGE_EXT[mime] ?? 'jpg'}?v=${sha.slice(0, 10)}`;
+
 export interface GoogleTags { gaId?: string; adsId?: string; adsPurchaseLabel?: string; googleVerification?: string; bingVerification?: string }
 let tags: GoogleTags = {};
 /** Códigos do Google/Bing (variáveis de ambiente). Viram meta tags no HTML; o app só carrega o gtag depois do aceite de cookies. */
 export function setGoogleTags(next: GoogleTags): void { tags = { ...next }; }
 
-export interface SeoOverride { h1?: string; title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string; noindex?: boolean }
+export interface SeoOverride { image?: string; imageWidth?: number | null; imageHeight?: number | null; h1?: string; title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string; noindex?: boolean }
 
 /** Rotas que o app conhece, inclusive as dinâmicas. Qualquer outra recebe 404 e noindex. */
 const DYNAMIC = /^\/(blog|veiculos|simulador|validar|validar-relatorio|r|c|convite|descadastrar|parceiro|contrato|documento-fiscal|app|painel|recuperar-senha|consultar|desenvolvedores|loja)(\/|$)/;
@@ -69,11 +75,11 @@ export function renderRobotsTxt(appUrl: string, adminHost: boolean): string {
   return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /painel\nDisallow: /entrar\nDisallow: /criar-conta\nDisallow: /recuperar-senha\nDisallow: /validar\nDisallow: /r/\nDisallow: /c/\nDisallow: /convite/\nDisallow: /descadastrar\nDisallow: /contrato/\nDisallow: /parceiro/\nDisallow: /documento-fiscal/\nDisallow: /comparar?\n\nSitemap: ${base}/sitemap.xml\n`;
 }
 
-export function renderSitemapXml(appUrl: string, extra: Array<{ path: string; lastmod?: Date }> = [], pages: Map<string, { noindex: boolean; updatedAt: Date }> = new Map()): string {
+export function renderSitemapXml(appUrl: string, extra: Array<{ path: string; lastmod?: Date }> = [], pages: Map<string, { noindex: boolean; updatedAt: Date; imageUrl?: string | null }> = new Map()): string {
   const base = appUrl.replace(/\/$/, '');
   const articleUrls = extra.map((e) => `  <url><loc>${base}${e.path}</loc>${e.lastmod ? `<lastmod>${e.lastmod.toISOString().slice(0, 10)}</lastmod>` : ''}<changefreq>monthly</changefreq><priority>0.6</priority></url>`);
-  const urls = [...SITEMAP_PATHS.filter((p) => !pages.get(p)?.noindex).map((p) => `  <url><loc>${base}${p === '/' ? '/' : p}</loc>${pages.get(p) ? `<lastmod>${pages.get(p)!.updatedAt.toISOString().slice(0, 10)}</lastmod>` : ''}<changefreq>${p === '/' || p === '/planos' ? 'weekly' : 'monthly'}</changefreq><priority>${p === '/' ? '1.0' : p === '/planos' || p === '/fipe' ? '0.9' : '0.7'}</priority></url>`), ...articleUrls].join('\n');
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+  const urls = [...SITEMAP_PATHS.filter((p) => !pages.get(p)?.noindex).map((p) => `  <url><loc>${base}${p === '/' ? '/' : p}</loc>${pages.get(p) ? `<lastmod>${pages.get(p)!.updatedAt.toISOString().slice(0, 10)}</lastmod>` : ''}<changefreq>${p === '/' || p === '/planos' ? 'weekly' : 'monthly'}</changefreq><priority>${p === '/' ? '1.0' : p === '/planos' || p === '/fipe' ? '0.9' : '0.7'}</priority>${pages.get(p)?.imageUrl ? `<image:image><image:loc>${escapeHtml(pages.get(p)!.imageUrl!)}</image:loc></image:image>` : ''}</url>`), ...articleUrls].join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${urls}\n</urlset>\n`;
 }
 
 function escapeHtml(value: string): string {
@@ -94,6 +100,7 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
     name: meta.title,
     description: meta.description,
     url: canonical,
+    ...(override.image ? { image: override.image } : {}),
     inLanguage: 'pt-BR',
     isPartOf: { '@type': 'WebSite', name: 'Placa na Mão', url: `${baseUrl}/` },
     publisher: { '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/` }
@@ -128,6 +135,10 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
     .replace(/<meta property="og:title" content="[^"]*"\s*\/>/, `<meta property="og:title" content="${title}" />`)
     .replace(/<meta property="og:description" content="[^"]*"\s*\/>/, `<meta property="og:description" content="${description}" />`)
     .replace(/<meta property="og:url" content="[^"]*"\s*\/>/, `<meta property="og:url" content="${escapeHtml(canonical)}" />`)
+    .replace(/<meta property="og:image" content="[^"]*"\s*\/>/, () => override.image
+      ? `<meta property="og:image" content="${escapeHtml(override.image)}" />${override.imageWidth && override.imageHeight ? `\n    <meta property="og:image:width" content="${override.imageWidth}" />\n    <meta property="og:image:height" content="${override.imageHeight}" />` : ''}`
+      : `<meta property="og:image" content="${baseUrl}/brand/og-image.png" />`)
+    .replace(/<meta name="twitter:card" content="[^"]*"\s*\/>/, (m) => `${m}\n    <meta name="twitter:image" content="${escapeHtml(override.image ?? `${baseUrl}/brand/og-image.png`)}" />`)
     .replace(/<meta name="twitter:title" content="[^"]*"\s*\/>/, `<meta name="twitter:title" content="${title}" />`)
     .replace(/<meta name="twitter:description" content="[^"]*"\s*\/>/, `<meta name="twitter:description" content="${description}" />`)
     .replace('</head>', `<script id="pnm-route-schema" type="application/ld+json">${routeSchema}</script>${extraLd ? `\n  ${extraLd}` : ''}${metaTags ? `\n  ${metaTags}` : ''}\n  </head>`);

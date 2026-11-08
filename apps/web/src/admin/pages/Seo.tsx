@@ -8,7 +8,8 @@ import { Icon } from '../../shared/icons';
 interface Sec { h: string; p: string }
 interface Faq { q: string; a: string }
 interface Check { ok: boolean; label: string }
-interface Item { h1: string; needsFaq: boolean; override: { h1: string | null; title: string | null; description: string | null } | null; path: string; default: { title: string; description: string }; title: string; description: string; keyword: string | null; sections: Sec[]; faq: Faq[]; noindex: boolean; hasSeed: boolean; checks: Check[]; score: number; total: number }
+interface PageImage { url: string; mime: string; sizeBytes: number; width: number | null; height: number | null }
+interface Item { image: PageImage | null; h1: string; needsFaq: boolean; override: { h1: string | null; title: string | null; description: string | null } | null; path: string; default: { title: string; description: string }; title: string; description: string; keyword: string | null; sections: Sec[]; faq: Faq[]; noindex: boolean; hasSeed: boolean; checks: Check[]; score: number; total: number }
 
 const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const SITE = 'placanamao.com.br';
@@ -28,6 +29,7 @@ function liveChecks(v: { h1: string; needsFaq: boolean; title: string; descripti
 }
 
 const GUIDE: Array<[string, string, string, string]> = [
+  ['Imagem da página', '1200×1200 (consultas) ou 1200×630', 'Miniatura que aparece no Google, WhatsApp e redes. Use a arte da própria consulta, com o nome bem legível e sem texto colado nas bordas. PNG, JPG ou WebP, de preferência até 300 KB.', 'Consulta Gravame, 1200×1200'],
   ['H1', 'até 30 caracteres', 'O título que a pessoa vê no topo da página. Só um por página. Comece pela palavra-chave e não repita o nome da empresa.', 'Tabela FIPE grátis'],
   ['Título do Google', '30 a 65 caracteres', 'Palavra-chave no começo, um benefício e o nome da marca no final, separado por barra vertical. Não repita o mesmo título em outra página.', 'Tabela FIPE grátis: preço de carro e moto | Placa na Mão'],
   ['Descrição', '70 a 165 caracteres', 'Uma ou duas frases que dizem o que a pessoa encontra e por que clicar. Use a palavra-chave uma vez e termine com um convite ou um diferencial real.', 'Consulte a Tabela FIPE grátis: valor médio de carros, motos e caminhões por marca, modelo e ano. Sem cadastro.'],
@@ -43,6 +45,21 @@ function Editor({ item, onSaved, onClose }: { item: Item; onSaved: () => void; o
   const [keyword, setKeyword] = useState(item.keyword ?? ''); const [noindex, setNoindex] = useState(item.noindex);
   const [sections, setSections] = useState<Sec[]>(item.sections); const [faq, setFaq] = useState<Faq[]>(item.faq);
   const [busy, setBusy] = useState(false);
+  const [image, setImage] = useState<PageImage | null>(item.image);
+  const [imgBusy, setImgBusy] = useState(false);
+  const sendImage = async (file: File | undefined) => {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { toast.error('Use uma imagem PNG, JPG ou WebP.'); return; }
+    if (file.size > 3 * 1024 * 1024) { toast.error('A imagem passa de 3 MB. Reduza o arquivo e tente de novo.'); return; }
+    setImgBusy(true);
+    try { const r = await api.upload<{ image: PageImage }>('/admin/content/seo/pages/image', file, { path: item.path }); setImage(r.image); toast.ok('Imagem salva.'); onSaved(); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setImgBusy(false); }
+  };
+  const removeImage = async () => {
+    setImgBusy(true);
+    try { await api.del(`/admin/content/seo/pages/image`, { query: { path: item.path } }); setImage(null); toast.ok('Imagem removida. A página volta a usar a imagem padrão da marca.'); onSaved(); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setImgBusy(false); }
+  };
   const checks = useMemo(() => liveChecks({ h1: h1.trim(), needsFaq: item.needsFaq, title: title || item.default.title, description: description || item.default.description, keyword, sections, faq, noindex }), [h1, title, description, keyword, sections, faq, noindex, item.default, item.needsFaq]);
   const ok = checks.filter((c) => c.ok).length;
   const save = async () => {
@@ -73,6 +90,21 @@ function Editor({ item, onSaved, onClose }: { item: Item; onSaved: () => void; o
           <thead><tr><th>Campo</th><th>Tamanho ideal</th><th>O que colocar</th><th>Exemplo</th></tr></thead>
           <tbody>{GUIDE.map((g) => <tr key={g[0]}><td><b>{g[0]}</b></td><td>{g[1]}</td><td>{g[2]}</td><td className="muted">{g[3]}</td></tr>)}</tbody>
         </table></div>
+      </Card>
+      <Card title="Imagem da página (miniatura)">
+        <div className="stack">
+          <p className="muted" style={{ margin: 0 }}>Aparece como foto da página no Google (imagens e produtos), no WhatsApp, Facebook, Instagram e X. Ideal: quadrada ou 1200×630, PNG, JPG ou WebP, até 3 MB. A imagem fica guardada no sistema e vale na hora; o Google atualiza depois de reindexar. Sem imagem, a página usa a imagem padrão da marca.</p>
+          {image ? (
+            <div className="row" style={{ gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <img src={image.url} alt={`Imagem de ${item.path}`} style={{ width: 160, height: 160, objectFit: 'cover', borderRadius: 12, border: '1px solid var(--border)' }} />
+              <div className="muted" style={{ fontSize: 13 }}>{image.width && image.height ? `${image.width}×${image.height} px · ` : ''}{Math.max(1, Math.round(image.sizeBytes / 1024))} KB · {image.mime.replace('image/', '').toUpperCase()}</div>
+            </div>
+          ) : <Badge tone="warn">Sem imagem própria</Badge>}
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <label className="btn" style={{ cursor: imgBusy ? 'wait' : 'pointer' }}>{imgBusy ? 'Enviando…' : image ? 'Trocar imagem' : 'Enviar imagem'}<input type="file" accept="image/png,image/jpeg,image/webp" hidden disabled={imgBusy} onChange={(e) => { void sendImage(e.target.files?.[0]); e.target.value = ''; }} /></label>
+            {image && <Button variant="ghost" disabled={imgBusy} onClick={() => void removeImage()}>Remover imagem</Button>}
+          </div>
+        </div>
       </Card>
       <Card title="Dados da página">
         <div className="stack">
@@ -128,12 +160,13 @@ export default function Seo() {
           <Alert tone="info">{weak ? `${weak} página(s) com pontos a melhorar na lista de verificação.` : 'Todas as páginas passam na lista de verificação.'} Depois de publicar, envie o sitemap no Search Console: <b>/sitemap.xml</b>. Artigos do blog têm o SEO próprio em "Artigos e blog".</Alert>
           <div className="table-wrap" style={{ marginTop: 12 }}>
             <table className="table">
-              <thead><tr><th>Página</th><th>H1</th><th>Título no Google</th><th>Nota</th><th>Google</th><th /></tr></thead>
+              <thead><tr><th>Página</th><th>H1</th><th>Título no Google</th><th>Imagem</th><th>Nota</th><th>Google</th><th /></tr></thead>
               <tbody>{items.map((i) => (
                 <tr key={i.path}>
                   <td><b>{i.path === '/' ? 'Início' : i.path}</b>{i.keyword && <div className="muted" style={{ fontSize: 12 }}>{i.keyword}</div>}</td>
                   <td style={{ maxWidth: 200 }}>{i.h1 || <span className="muted">sem H1</span>}</td>
                   <td style={{ maxWidth: 380 }}>{i.title}</td>
+                  <td>{i.image ? <img src={i.image.url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} /> : <span className="muted">sem</span>}</td>
                   <td><Badge tone={i.score === i.total ? 'ok' : i.score >= i.total - 2 ? 'warn' : 'danger'}>{i.score}/{i.total}</Badge></td>
                   <td>{i.noindex ? <Badge tone="danger">Fora</Badge> : <Badge tone="ok">Indexável</Badge>}</td>
                   <td><Button size="sm" onClick={() => setOpen(i.path)}>Editar</Button></td>

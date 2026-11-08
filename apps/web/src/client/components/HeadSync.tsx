@@ -5,7 +5,7 @@ import { api } from '../api';
 // Telas que não entram no Google (mesma regra do servidor em seo.ts).
 const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|contrato|documento-fiscal|validar|validar-relatorio|r|c|convite|descadastrar|parceiro|consultar|veiculos\/frota|desenvolvedores)(\/|$)/;
 const INDEXABLE = 'index,follow,max-image-preview:large';
-const descriptions = new Map<string, string | null>();
+const pages = new Map<string, { description: string | null; image: string | null }>();
 
 function meta(selector: string): HTMLMetaElement | null { return document.head.querySelector<HTMLMetaElement>(selector); }
 function setContent(selector: string, value: string): void { const el = meta(selector); if (el && el.content !== value) el.content = value; }
@@ -45,9 +45,19 @@ export default function HeadSync() {
 
     if (NOINDEX.test(path)) return;
     let live = true;
-    const apply = (d: string | null) => { if (!live || !d) return; setContent('meta[name="description"]', d); setContent('meta[property="og:description"]', d); setContent('meta[name="twitter:description"]', d); };
-    if (descriptions.has(path)) apply(descriptions.get(path) ?? null);
-    else api.get<{ description?: string | null }>('/seo/page', { query: { path } }).then((r) => { descriptions.set(path, r.description ?? null); apply(r.description ?? null); }).catch(() => undefined);
+    const setImage = (value: string) => {
+      setContent('meta[property="og:image"]', value);
+      const tw = meta('meta[name="twitter:image"]');
+      if (tw) { if (tw.content !== value) tw.content = value; } else { const el = document.createElement('meta'); el.name = 'twitter:image'; el.content = value; document.head.appendChild(el); }
+    };
+    const apply = (p: { description: string | null; image: string | null }) => {
+      if (!live) return;
+      if (p.description) { setContent('meta[name="description"]', p.description); setContent('meta[property="og:description"]', p.description); setContent('meta[name="twitter:description"]', p.description); }
+      setImage(p.image ?? `${origin}/brand/og-image.png`);
+    };
+    const known = pages.get(path);
+    if (known) apply(known);
+    else api.get<{ description?: string | null; image?: string | null }>('/seo/page', { query: { path } }).then((r) => { const v = { description: r.description ?? null, image: r.image ?? null }; pages.set(path, v); apply(v); }).catch(() => undefined);
     return () => { live = false; };
   }, [pathname]);
   return null;

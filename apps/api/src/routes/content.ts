@@ -1,4 +1,5 @@
-import { Router } from 'express';
+import { createHash } from 'node:crypto';
+import express, { Router } from 'express';
 import { z } from 'zod';
 import { pool, tx } from '../db.js';
 import { adminAuth } from '../auth.js';
@@ -7,8 +8,9 @@ import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import { requirePermission } from '../permissions.js';
 import { SECTIONS } from '../report/catalog.js';
 import { sampleSections, samplePdf } from '../report/sample.js';
-import { SITEMAP_PATHS, pageMeta } from '../seo.js';
-import { invalidateSeo, needsFaq, seoChecks, seedFor, seoRows, H1_MAX } from '../seoStore.js';
+import { SITEMAP_PATHS, pageMeta, seoImageUrl } from '../seo.js';
+import { readImageInfo } from '../lib/imageInfo.js';
+import { invalidateSeo, needsFaq, seoChecks, seedFor, seoImages, seoRows, H1_MAX } from '../seoStore.js';
 
 /** Conteúdo público do site: catálogo (produtos, matriz e pacotes), FAQ e artigos. Só leitura, sem dados internos. */
 export const publicContentRouter = Router();
@@ -423,7 +425,8 @@ publicContentRouter.get('/seo/page', asyncRoute(async (req, res) => {
   const row = (await seoRows()).get(key);
   res.setHeader('Cache-Control', 'public, max-age=300');
   // description: a do painel, ou a de fábrica da página (a mesma que o servidor escreve no HTML). O app usa para manter o cabeçalho certo ao trocar de página.
-  res.json({ h1: row?.h1 ?? null, title: row?.title ?? null, description: row?.description || pageMeta[key]?.description || null, sections: row?.sections ?? [], faq: row?.faq ?? [] });
+  const img = (await seoImages()).get(key);
+  res.json({ h1: row?.h1 ?? null, title: row?.title ?? null, description: row?.description || pageMeta[key]?.description || null, image: img ? seoImageUrl(env.APP_URL ?? env.WEB_ORIGIN, key, img.mime, img.sha) : null, sections: row?.sections ?? [], faq: row?.faq ?? [] });
 }));
 
 // ---------------------------------------------------------------- SEO por página (painel)
@@ -440,14 +443,45 @@ const seoBody = z.object({
 }).strict();
 const seoPath = (p: string) => { if (!SITEMAP_PATHS.includes(p)) throw appError('SEO_PATH_INVALID', { code: 'SEO_PATH_INVALID', http: 422, expose: true }); return p; };
 
+const SEO_IMAGE_MAX = 3 * 1024 * 1024;
+const SEO_IMAGE_MIN_SIDE = 300;
+const seoImageUpload = express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: SEO_IMAGE_MAX });
+const imageDto = (path: string, i: { mime: string; sizeBytes: number; width: number | null; height: number | null; sha: string }) => ({ url: seoImageUrl(env.APP_URL ?? env.WEB_ORIGIN, path, i.mime, i.sha), mime: i.mime, sizeBytes: i.sizeBytes, width: i.width, height: i.height });
+
+/** Imagem da página (miniatura): vale como foto no Google, WhatsApp e redes e entra no sitemap. Fica no banco para sobreviver a cada deploy. */
+adminContentRouter.post('/seo/pages/image', seoImageUpload, asyncRoute(async (req, res) => {
+  const path = seoPath(String(req.query.path ?? '').slice(0, 120));
+  const data = req.body as Buffer;
+  if (!Buffer.isBuffer(data) || !data.length) throw appError('SEO_IMAGE_TYPE', { code: 'SEO_IMAGE_TYPE', http: 415, expose: true });
+  const info = readImageInfo(data);
+  if (!info || info.mime !== String(req.headers['content-type'] ?? '').split(';')[0]!.trim()) throw appError('SEO_IMAGE_TYPE', { code: 'SEO_IMAGE_TYPE', http: 415, expose: true });
+  if (data.length < 1000) throw appError('SEO_IMAGE_TOO_SMALL', { code: 'SEO_IMAGE_TOO_SMALL', http: 422, expose: true });
+  if (info.width !== null && info.height !== null && (info.width < SEO_IMAGE_MIN_SIDE || info.height < SEO_IMAGE_MIN_SIDE)) throw appError('SEO_IMAGE_TOO_SMALL', { code: 'SEO_IMAGE_TOO_SMALL', http: 422, expose: true });
+  const sha = createHash('sha256').update(data).digest('hex');
+  await pool.query(
+    `INSERT INTO seo_images(path,mime,size_bytes,width,height,sha256,data,updated_by,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
+     ON CONFLICT (path) DO UPDATE SET mime=$2,size_bytes=$3,width=$4,height=$5,sha256=$6,data=$7,updated_by=$8,updated_at=now()`,
+    [path, info.mime, data.length, info.width, info.height, sha, data, req.user!.id]);
+  invalidateSeo();
+  await audit(req.user!.id, 'UPDATE_SEO_IMAGE', 'SEO_PAGE', path, { size: data.length, mime: info.mime, requestId: requestId(req) });
+  res.json({ ok: true, image: imageDto(path, { mime: info.mime, sizeBytes: data.length, width: info.width, height: info.height, sha }) });
+}));
+adminContentRouter.delete('/seo/pages/image', asyncRoute(async (req, res) => {
+  const path = seoPath(String(req.query.path ?? '').slice(0, 120));
+  await pool.query('DELETE FROM seo_images WHERE path=$1', [path]);
+  invalidateSeo();
+  await audit(req.user!.id, 'DELETE_SEO_IMAGE', 'SEO_PAGE', path, { requestId: requestId(req) });
+  res.json({ ok: true });
+}));
+
 adminContentRouter.get('/seo/pages', asyncRoute(async (_req, res) => {
-  const rows = await seoRows();
+  const rows = await seoRows(); const images = await seoImages();
   res.json({ items: SITEMAP_PATHS.map((path) => {
     const def = pageMeta[path]; const r = rows.get(path);
     const h1 = r?.h1 || ''; const title = r?.title || def.title; const description = r?.description || def.description;
     const sections = r?.sections ?? []; const faq = r?.faq ?? [];
     const checks = seoChecks({ h1, needsFaq: needsFaq(path), title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasContent: sections.length > 0 || faq.length > 0 });
-    return { path, default: def, override: r ? { h1: r.h1, title: r.title, description: r.description, keyword: r.keyword, sections: r.sections, faq: r.faq, noindex: r.noindex } : null, h1, title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasSeed: !!seedFor(path), needsFaq: needsFaq(path), checks, score: checks.filter((c) => c.ok).length, total: checks.length, updatedAt: r?.updatedAt ?? null };
+    return { path, default: def, override: r ? { h1: r.h1, title: r.title, description: r.description, keyword: r.keyword, sections: r.sections, faq: r.faq, noindex: r.noindex } : null, h1, title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasSeed: !!seedFor(path), needsFaq: needsFaq(path), checks, score: checks.filter((c) => c.ok).length, total: checks.length, updatedAt: r?.updatedAt ?? null, image: images.has(path) ? imageDto(path, images.get(path)!) : null };
   }) });
 }));
 

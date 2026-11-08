@@ -3,20 +3,28 @@ import { NO_FAQ_PATHS, SEO_SEED_BY_PATH } from './seoSeed.js';
 import type { SeoFaq, SeoSection } from './seoSeed.js';
 
 /** Conteúdo de SEO editado no painel (tabela seo_pages), com cache curto e invalidação ao salvar. */
+export interface SeoImageInfo { mime: string; sizeBytes: number; width: number | null; height: number | null; sha: string; updatedAt: Date }
 export interface SeoRow { path: string; h1: string | null; title: string | null; description: string | null; keyword: string | null; sections: SeoSection[]; faq: SeoFaq[]; noindex: boolean; updatedAt: Date }
-let cache: { at: number; map: Map<string, SeoRow> } | null = null;
+let cache: { at: number; map: Map<string, SeoRow>; images: Map<string, SeoImageInfo> } | null = null;
 export const invalidateSeo = () => { cache = null; };
 
 export async function seoRows(): Promise<Map<string, SeoRow>> {
   if (cache && Date.now() - cache.at < 60_000) return cache.map;
   const map = new Map<string, SeoRow>();
+  const images = new Map<string, SeoImageInfo>();
   try {
     const r = await pool.query('SELECT path,h1,title,description,keyword,sections,faq,noindex,updated_at FROM seo_pages');
     for (const x of r.rows) map.set(x.path, { path: x.path, h1: x.h1 ?? null, title: x.title, description: x.description, keyword: x.keyword, sections: Array.isArray(x.sections) ? x.sections : [], faq: Array.isArray(x.faq) ? x.faq : [], noindex: !!x.noindex, updatedAt: x.updated_at });
   } catch { /* tabela ainda não migrada: segue com os padrões */ }
-  cache = { at: Date.now(), map };
+  try {
+    const im = await pool.query('SELECT path,mime,size_bytes,width,height,sha256,updated_at FROM seo_images');
+    for (const x of im.rows) images.set(x.path, { mime: x.mime, sizeBytes: Number(x.size_bytes), width: x.width ?? null, height: x.height ?? null, sha: x.sha256, updatedAt: x.updated_at });
+  } catch { /* tabela ainda não migrada: sem imagens */ }
+  cache = { at: Date.now(), map, images };
   return map;
 }
+/** Imagens enviadas pelo painel, por página (sem os bytes). */
+export async function seoImages(): Promise<Map<string, SeoImageInfo>> { await seoRows(); return cache?.images ?? new Map(); }
 
 const esc = (t: string) => t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
 

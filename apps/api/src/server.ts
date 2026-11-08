@@ -107,8 +107,8 @@ import { ensureLienDetail } from './lib/lienRefresh.js';
 import { ensureFipeEnrichment, SHEET_PRODUCTS } from './lib/fipeRefresh.js';
 import { checkAd } from './report/adCheck.js';
 import { consumeSecureLink, createSecureLink } from './lib/secureLinks.js';
-import { seoBodyHtml, seoFaqLd, seoRows } from './seoStore.js';
-import { isKnownPath, productImageUrl, renderRobotsTxt, renderSeoHtml, renderSitemapXml, setGoogleTags, type SeoOverride } from './seo.js';
+import { seoBodyHtml, seoFaqLd, seoImages, seoRows } from './seoStore.js';
+import { isKnownPath, pathFromSeoImageSlug, productImageUrl, renderRobotsTxt, renderSeoHtml, renderSitemapXml, seoImageUrl, setGoogleTags, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import { cancelAllProcessing, cancelPaidQuery, cancelProcessingQuery } from './lib/queryCancel.js';
 import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle, VehicleDataProvider } from './types.js';
@@ -3404,6 +3404,22 @@ const adminHtmlPath = path.join(webDist, 'admin.html');
 const adminHtmlTemplate = existsSync(adminHtmlPath) ? readFileSync(adminHtmlPath, 'utf8') : undefined;
 const staticOptions = { index: false, maxAge: env.NODE_ENV === 'production' ? '1h' : 0, etag: true } as const;
 const serveStatic = express.static(webDist, staticOptions);
+// Imagem de cada página, enviada pelo painel de SEO (fica no banco). O ?v= muda a cada troca, então pode ficar em cache.
+app.get('/seo-img/:file', asyncRoute(async (req, res) => {
+  const m = /^([a-z0-9-]+)\.(png|jpg|webp)$/.exec(String(req.params.file));
+  const path = m ? pathFromSeoImageSlug(m[1]!) : null;
+  if (!m || !path) return res.status(404).end();
+  const r = await pool.query('SELECT mime,data,sha256 FROM seo_images WHERE path=$1', [path]);
+  if (!r.rowCount) return res.status(404).end();
+  const row = r.rows[0]!;
+  res.setHeader('Content-Type', String(row.mime));
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('ETag', `"${String(row.sha256).slice(0, 16)}"`);
+  res.setHeader('Cache-Control', req.query.v ? 'public, max-age=2592000' : 'public, max-age=3600');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  if (req.headers['if-none-match'] === `"${String(row.sha256).slice(0, 16)}"`) return res.status(304).end();
+  return res.send(row.data as Buffer);
+}));
 app.get('/robots.txt', (req, res) => { res.type('text/plain').setHeader('Cache-Control', 'public, max-age=3600'); res.send(renderRobotsTxt(env.APP_URL ?? env.WEB_ORIGIN, isAdminHost(req) || isPrelaunch())); });
 app.get('/sitemap.xml', asyncRoute(async (req, res) => {
   if (isAdminHost(req) || isPrelaunch()) return res.status(404).end();
@@ -3412,7 +3428,10 @@ app.get('/sitemap.xml', asyncRoute(async (req, res) => {
   const stores = await pool.query(`SELECT slug,updated_at FROM dealerships WHERE public_enabled AND active AND archived_at IS NULL ORDER BY created_at LIMIT 2000`);
   res.type('application/xml').setHeader('Cache-Control', 'public, max-age=3600');
   const seoPagesMap = await seoRows();
-  return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN, [...articles.map((a) => ({ path: `/blog/${a.slug}`, lastmod: a.updatedAt })), ...vehicles.rows.map((v) => ({ path: `/veiculos/${v.slug}`, lastmod: v.updated_at as Date })), ...stores.rows.map((s) => ({ path: `/loja/${s.slug}`, lastmod: s.updated_at as Date }))], seoPagesMap));
+  const seoImgs = await seoImages();
+  const base = env.APP_URL ?? env.WEB_ORIGIN;
+  const sitemapPages = new Map([...seoPagesMap].map(([k, v]) => [k, { noindex: v.noindex, updatedAt: v.updatedAt, imageUrl: seoImgs.has(k) ? seoImageUrl(base, k, seoImgs.get(k)!.mime, seoImgs.get(k)!.sha) : null }] as const));
+  return res.send(renderSitemapXml(env.APP_URL ?? env.WEB_ORIGIN, [...articles.map((a) => ({ path: `/blog/${a.slug}`, lastmod: a.updatedAt })), ...vehicles.rows.map((v) => ({ path: `/veiculos/${v.slug}`, lastmod: v.updated_at as Date })), ...stores.rows.map((s) => ({ path: `/loja/${s.slug}`, lastmod: s.updated_at as Date }))], sitemapPages));
 }));
 const hasAdminHosts = adminHosts().length > 0;
 // Duas frentes: bundle admin (admin.html + assets/admin-*) só é entregue no host do painel (ou em /painel quando não há host dedicado, apenas dev).
@@ -3498,6 +3517,8 @@ app.get('*', asyncRoute(async (req, res, next) => {
       if (faqLd && !(override.jsonLd ?? []).some((o) => (o as { '@type'?: string })['@type'] === 'FAQPage')) override.jsonLd = [...(override.jsonLd ?? []), faqLd];
       if (seoRow.noindex) override.noindex = true;
     }
+    const seoImg = (await seoImages()).get(req.path.length > 1 ? req.path.replace(/\/$/, '') : req.path);
+    if (seoImg) { override.image = seoImageUrl(baseUrl, req.path.length > 1 ? req.path.replace(/\/$/, '') : req.path, seoImg.mime, seoImg.sha); override.imageWidth = seoImg.width; override.imageHeight = seoImg.height; }
   }
   if (!isKnownPath(req.path)) { res.status(404); override = { notFound: true }; }
   const page = renderSeoHtml(indexHtmlTemplate, req.path, env.APP_URL ?? env.WEB_ORIGIN, override);
