@@ -5,7 +5,7 @@ import { integration, loadCore, useTestEnv } from './helpers/db.mjs';
 import { adminSession, hostRequest, startServer } from './helpers/server.mjs';
 
 useTestEnv();
-const { renderSeoHtml, SITEMAP_PATHS } = await import('../dist/seo.js');
+const { renderSeoHtml, SITEMAP_PATHS, productImageUrl, PRODUCT_IMAGE_FILES } = await import('../dist/seo.js');
 const { placaMigrations } = await import('../dist/migrations.placanamao.js');
 const web = (f) => readFileSync(new URL(`../../web/${f}`, import.meta.url), 'utf8');
 
@@ -29,6 +29,13 @@ describe('cabeçalho de SEO: o que o navegador e o Google recebem', () => {
       assert.equal((h.match(/<meta name="description"/g) ?? []).length, 1, p);
       assert.equal(/"@type":"WebApplication"/.test(h), tools.has(p), `${p}: WebApplication só nas ferramentas`);
     }
+  });
+  it('imagem de cada consulta: arquivo existe e produto sem imagem própria usa a da marca', () => {
+    assert.equal(productImageUrl('https://x.com.br', 'CADASTRAL'), 'https://x.com.br/brand/produtos/consulta-cadastral.jpg');
+    assert.equal(productImageUrl('https://x.com.br', 'COMPLETE'), 'https://x.com.br/brand/produtos/consulta-completa.jpg');
+    assert.equal(productImageUrl('https://x.com.br', 'LIEN'), 'https://x.com.br/brand/produtos/consulta-gravame.jpg');
+    assert.equal(productImageUrl('https://x.com.br', 'PREMIUM'), 'https://x.com.br/brand/og-image.png');
+    for (const f of PRODUCT_IMAGE_FILES) assert.ok(readFileSync(new URL(`../../web/public/brand/produtos/${f}`, import.meta.url)).length > 20000, f);
   });
   it('o app troca canonical, descrição e indexação ao mudar de tela', () => {
     const app = readFileSync(new URL('../../web/src/client/App.tsx', import.meta.url), 'utf8');
@@ -64,7 +71,7 @@ describe('cabeçalho de SEO (integração)', integration, () => {
     const blocks = [...h.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)].map((m) => JSON.parse(m[1]));
     const list = blocks.find((b) => b['@type'] === 'ItemList');
     assert.ok(list && list.itemListElement.length > 0);
-    for (const it of list.itemListElement) { assert.equal(it.item['@type'], 'Product'); assert.match(it.item.image, /^https?:\/\/.+\/brand\/og-image\.png$/); assert.ok(it.item.offers.price); }
+    for (const it of list.itemListElement) { assert.equal(it.item['@type'], 'Product'); assert.match(it.item.image, /^https?:\/\/.+\/brand\/(og-image\.png|produtos\/consulta-[a-z]+\.jpg)$/); assert.ok(it.item.offers.price); }
   });
 
   it('migração 078: corrige a pergunta de leilão só se o texto ainda for o de fábrica', async () => {

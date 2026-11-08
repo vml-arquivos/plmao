@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.44.2 — Imagens das consultas no schema de produto
+
+- **O que é o campo `image`:** é a foto do produto que o Google exige no dado estruturado (schema) para considerar o item válido nas listagens do comerciante. Não aparece na página, só para o Google.
+- As miniaturas das consultas Cadastral, Completa e Gravame (versão com logo, 1200×1200) ficam em `/brand/produtos/` e são usadas como `image` do produto na home. Também ficaram guardadas as versões sem logo e a da Básica.
+- Consultas sem miniatura própria (Avançada, Premium, Leilão e Dados do Veículo) usam por enquanto a imagem padrão da marca. Para trocar, basta colocar o arquivo em `/brand/produtos/` e incluir o código do produto em `PRODUCT_IMAGES` (`seo.ts`).
+- Sem migração e sem variável de ambiente nova. Teste em `test/seo-cabecalho.test.mjs`.
+
 ## 1.44.1 — Schema de produto com imagem (listagens do comerciante)
 
 - **Listagens do comerciante (Search Console):** cada `Product` do schema da home passa a ter `image` (campo que o Google marcava como erro crítico). Os avisos opcionais (`aggregateRating`, `review`, política de devolução, frete) não são preenchidos de propósito: não há avaliações reais cadastradas e o produto é digital.

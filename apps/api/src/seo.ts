@@ -39,6 +39,14 @@ export const pageMeta: Record<string, SeoMeta> = {
 export const SITEMAP_PATHS: string[] = Object.keys(pageMeta).filter((p) => !['/entrar', '/criar-conta'].includes(p));
 const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|contrato|documento-fiscal|validar|validar-relatorio|r|c|convite|descadastrar|parceiro|consultar|veiculos\/frota|desenvolvedores)(\/|$)/;
 
+/** Imagem de cada consulta (em /brand/produtos). Consulta sem imagem própria usa a imagem padrão da marca. */
+const PRODUCT_IMAGES: Record<string, string> = { CADASTRAL: 'consulta-cadastral', COMPLETE: 'consulta-completa', LIEN: 'consulta-gravame' };
+export function productImageUrl(baseUrl: string, productId: string): string {
+  const file = PRODUCT_IMAGES[productId];
+  return file ? `${baseUrl}/brand/produtos/${file}.jpg` : `${baseUrl}/brand/og-image.png`;
+}
+export const PRODUCT_IMAGE_FILES = Object.values(PRODUCT_IMAGES).map((f) => `${f}.jpg`);
+
 export interface GoogleTags { gaId?: string; adsId?: string; adsPurchaseLabel?: string; googleVerification?: string; bingVerification?: string }
 let tags: GoogleTags = {};
 /** Códigos do Google/Bing (variáveis de ambiente). Viram meta tags no HTML; o app só carrega o gtag depois do aceite de cookies. */
