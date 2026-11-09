@@ -56,7 +56,7 @@ export function seoChecks(v: { h1: string; needsFaq: boolean; title: string; des
     if (v.hasContent) checks.push({ ok: text.includes(kw) || norm(v.faq.map((f) => `${f.q} ${f.a}`).join(' ')).includes(kw), label: 'Palavra-chave no texto da página' });
   }
   if (v.needsFaq) checks.push({ ok: v.faq.length >= 3, label: `${v.faq.length} pergunta(s) frequente(s) (ideal: 3 ou mais)` });
-  checks.push({ ok: !v.noindex, label: 'Página liberada para o Google (indexável)' });
+  checks.push({ ok: !v.noindex, label: 'Indexação permitida no site (sem bloqueio). Isso não indica se o Google já indexou' });
   return checks;
 }
 

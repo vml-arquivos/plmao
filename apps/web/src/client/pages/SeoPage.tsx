@@ -57,6 +57,7 @@ export default function SeoPage({ path }: { path: string }) {
       <section className="section alt">
         <div className="container" style={{ maxWidth: 820 }}>
           <div className="alert info"><Icon name="info" /><div><b>“Não informado” não significa “nada consta”.</b> A Placa na Mão diferencia um dado sem ocorrência de um campo que a fonte não retornou, para você nunca tirar uma conclusão errada.</div></div>
+          {seo?.sections.map((s) => <article key={s.h} className="seo-block"><h2>{s.h}</h2><p>{s.p}</p></article>)}
           <div className="section-head" style={{ marginTop: 40 }}><h2>Perguntas frequentes</h2></div>
           <div className="faq" style={{ margin: 0 }}>{faq.map((i) => { const q = 'q' in i ? i.q : ''; const a = 'a' in i ? i.a : ''; return <details key={q}><summary>{q}</summary><p>{a}</p></details>; })}</div>
           <div className="row" style={{ marginTop: 32 }}><LinkButton to="/consultar" variant="primary" size="lg" iconRight="arrow-right">Consultar uma placa</LinkButton><Link to="/planos" className="btn btn-lg">Ver preços</Link></div>

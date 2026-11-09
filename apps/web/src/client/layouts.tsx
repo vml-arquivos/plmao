@@ -9,6 +9,7 @@ import ProfileSwitch from './components/ProfileSwitch';
 import { analyticsConfigured } from './analytics';
 import { InstallButton, InstallLink, InstallPrompt, OfflineBanner } from './components/PwaBits';
 import SupportChannels from './components/SupportChannels';
+import SeoContent, { SeoContentAfterFaqs } from './components/SeoContent';
 
 /* ---------- Rolagem ao navegar ---------- */
 export function ScrollManager() {
@@ -136,13 +137,26 @@ export function PublicFooter() {
   );
 }
 
+/**
+ * Blocos e perguntas do painel (SEO) das páginas públicas que não montam o próprio conteúdo de SEO.
+ * As demais já o fazem: ferramentas (FIPE, combustível, comparar, simulador), páginas de consulta (SeoPage) e a home.
+ */
+const SEO_AFTER_PAGE = new Set(['/instalar', '/contato', '/sobre', '/veiculos', '/veiculos/mais-economicos', '/blog', '/termos', '/privacidade']);
+function RouteSeoContent() {
+  const { pathname } = useLocation();
+  const p = pathname.length > 1 ? pathname.replace(/\/$/, '') : pathname;
+  if (p === '/planos') return <SeoContentAfterFaqs key={p} path={p} limit={6} faqTitle="Mais perguntas sobre preços e pagamento" />;
+  if (p === '/perguntas-frequentes') return <SeoContentAfterFaqs key={p} path={p} faqTitle="Mais perguntas" />;
+  return SEO_AFTER_PAGE.has(p) ? <SeoContent key={p} path={p} /> : null;
+}
+
 export function PublicLayout() {
   return (
     <>
       <a href="#conteudo" className="skip-link">Pular para o conteúdo</a>
       <OfflineBanner />
       <PublicHeader />
-      <main id="conteudo"><Outlet /></main>
+      <main id="conteudo"><Outlet /><RouteSeoContent /></main>
       <PublicFooter />
       <InstallPrompt floating />
     </>

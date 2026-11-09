@@ -10,6 +10,7 @@ import { SECTIONS } from '../report/catalog.js';
 import { sampleSections, samplePdf } from '../report/sample.js';
 import { SITEMAP_PATHS, pageMeta, seoImageUrl } from '../seo.js';
 import { readImageInfo } from '../lib/imageInfo.js';
+import { lastVerification, verifyPublished, type Expected } from '../seoVerify.js';
 import { invalidateSeo, needsFaq, seoChecks, seedFor, seoImages, seoRows, H1_MAX } from '../seoStore.js';
 
 /** Conteúdo público do site: catálogo (produtos, matriz e pacotes), FAQ e artigos. Só leitura, sem dados internos. */
@@ -481,8 +482,25 @@ adminContentRouter.get('/seo/pages', asyncRoute(async (_req, res) => {
     const h1 = r?.h1 || ''; const title = r?.title || def.title; const description = r?.description || def.description;
     const sections = r?.sections ?? []; const faq = r?.faq ?? [];
     const checks = seoChecks({ h1, needsFaq: needsFaq(path), title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasContent: sections.length > 0 || faq.length > 0 });
-    return { path, default: def, override: r ? { h1: r.h1, title: r.title, description: r.description, keyword: r.keyword, sections: r.sections, faq: r.faq, noindex: r.noindex } : null, h1, title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasSeed: !!seedFor(path), needsFaq: needsFaq(path), checks, score: checks.filter((c) => c.ok).length, total: checks.length, updatedAt: r?.updatedAt ?? null, image: images.has(path) ? imageDto(path, images.get(path)!) : null };
+    return { path, default: def, override: r ? { h1: r.h1, title: r.title, description: r.description, keyword: r.keyword, sections: r.sections, faq: r.faq, noindex: r.noindex } : null, h1, title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasSeed: !!seedFor(path), needsFaq: needsFaq(path), checks, score: checks.filter((c) => c.ok).length, total: checks.length, publication: lastVerification(path), updatedAt: r?.updatedAt ?? null, image: images.has(path) ? imageDto(path, images.get(path)!) : null };
   }) });
+}));
+
+/** Verifica se o que está salvo no painel é o que o servidor publica. Uma página (`path`) ou todas as 30. Não consulta o Google. */
+adminContentRouter.post('/seo/pages/verify', asyncRoute(async (req, res) => {
+  const b = z.object({ path: z.string().max(120).optional() }).strict().safeParse(req.body ?? {});
+  if (!b.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  const paths = b.data.path ? [seoPath(b.data.path)] : SITEMAP_PATHS;
+  const rows = await seoRows();
+  const baseUrl = (env.APP_URL ?? env.WEB_ORIGIN ?? '').replace(/\/$/, '');
+  const results = [];
+  for (const path of paths) {
+    const def = pageMeta[path]; const r = rows.get(path);
+    const exp: Expected = { path, baseUrl, title: r?.title || def.title, description: r?.description || def.description, h1: r?.h1 || '', sections: r?.sections ?? [], faq: r?.faq ?? [], noindex: r?.noindex ?? false };
+    results.push(await verifyPublished(exp, env.PORT));
+  }
+  await audit(req.user!.id, 'VERIFY_SEO_PUBLICATION', 'SEO_PAGE', b.data.path ?? 'ALL', { requestId: requestId(req) });
+  res.json({ results });
 }));
 
 adminContentRouter.put('/seo/pages', asyncRoute(async (req, res) => {

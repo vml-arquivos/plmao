@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { simulate, FinancingError, LIMITS, type FinancingInput, type FinancingResult, type Modality, type PersonType } from '../lib/financing.js';
-import { marketRate, type FinancingSettings } from '../financingSettings.js';
+import { marketRate, ratesProvenance, type FinancingSettings } from '../financingSettings.js';
 import { pickBankRate, type BankConfig, type BcbBankRate } from '../lib/bankRates.js';
 
 export const VEHICLE_KINDS = [
@@ -150,6 +150,7 @@ export function simulatorConfig(settings: FinancingSettings) {
     },
     referenceMonth: settings.referenceMonth,
     source: settings.source,
+    ratesStatus: ratesProvenance(settings),
     fees: settings.fees,
     iof: settings.iof,
     updatedAt: settings.refreshedAt ?? settings.updatedAt

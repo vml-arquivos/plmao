@@ -8,8 +8,13 @@ import { Icon } from '../../shared/icons';
 interface Sec { h: string; p: string }
 interface Faq { q: string; a: string }
 interface Check { ok: boolean; label: string }
+interface PubCheck { ok: boolean; label: string; detail?: string }
+interface Pub { path: string; at: string; scope: string; status: 'OK' | 'DIVERGENCIA' | 'ERRO'; checks: PubCheck[]; error?: string }
+const PUB_TONE = { OK: 'ok', DIVERGENCIA: 'warn', ERRO: 'danger' } as const;
+const PUB_LABEL = { OK: 'Confere', DIVERGENCIA: 'Diverge', ERRO: 'Erro' } as const;
+const dt = (iso: string) => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 interface PageImage { url: string; mime: string; sizeBytes: number; width: number | null; height: number | null }
-interface Item { image: PageImage | null; h1: string; needsFaq: boolean; override: { h1: string | null; title: string | null; description: string | null } | null; path: string; default: { title: string; description: string }; title: string; description: string; keyword: string | null; sections: Sec[]; faq: Faq[]; noindex: boolean; hasSeed: boolean; checks: Check[]; score: number; total: number }
+interface Item { publication?: Pub | null; image: PageImage | null; h1: string; needsFaq: boolean; override: { h1: string | null; title: string | null; description: string | null } | null; path: string; default: { title: string; description: string }; title: string; description: string; keyword: string | null; sections: Sec[]; faq: Faq[]; noindex: boolean; hasSeed: boolean; checks: Check[]; score: number; total: number }
 
 const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const SITE = 'placanamao.com.br';
@@ -24,7 +29,7 @@ function liveChecks(v: { h1: string; needsFaq: boolean; title: string; descripti
   ];
   if (kw) { out.push({ ok: norm(v.h1).includes(kw), label: 'Palavra-chave no H1' }, { ok: norm(v.title).includes(kw), label: 'Palavra-chave no título' }, { ok: norm(v.description).includes(kw), label: 'Palavra-chave na descrição' }); if (v.sections.length || v.faq.length) out.push({ ok: body.includes(kw), label: 'Palavra-chave no texto da página' }); }
   if (v.needsFaq) out.push({ ok: v.faq.length >= 3, label: `${v.faq.length} pergunta(s) frequente(s) (ideal: 3 ou mais)` });
-  out.push({ ok: !v.noindex, label: 'Página liberada para o Google (indexável)' });
+  out.push({ ok: !v.noindex, label: 'Indexação permitida no site (sem bloqueio). Isso não indica se o Google já indexou' });
   return out;
 }
 
@@ -62,6 +67,12 @@ function Editor({ item, onSaved, onClose }: { item: Item; onSaved: () => void; o
   };
   const checks = useMemo(() => liveChecks({ h1: h1.trim(), needsFaq: item.needsFaq, title: title || item.default.title, description: description || item.default.description, keyword, sections, faq, noindex }), [h1, title, description, keyword, sections, faq, noindex, item.default, item.needsFaq]);
   const ok = checks.filter((c) => c.ok).length;
+  const [pub, setPub] = useState<Pub | null>(item.publication ?? null); const [verifying, setVerifying] = useState(false);
+  const verify = async () => {
+    setVerifying(true);
+    try { const r = await api.post<{ results: Pub[] }>('/admin/content/seo/pages/verify', { path: item.path }); setPub(r.results[0] ?? null); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setVerifying(false); }
+  };
   const save = async () => {
     setBusy(true);
     try { await api.put('/admin/content/seo/pages', { path: item.path, h1: h1.trim() || null, title: title.trim() || null, description: description.trim() || null, keyword: keyword.trim() || null, sections: sections.filter((s) => s.h.trim() && s.p.trim()), faq: faq.filter((f) => f.q.trim() && f.a.trim()), noindex }); toast.ok('SEO salvo. Já vale no site (até 1 minuto).'); onSaved(); }
@@ -82,8 +93,26 @@ function Editor({ item, onSaved, onClose }: { item: Item; onSaved: () => void; o
           <span className="seo-desc">{description || item.default.description}</span>
         </div>
       </Card>
-      <Card title={`Lista de verificação: ${ok} de ${checks.length}`}>
+      <Card title={`Preenchimento editorial: ${ok} de ${checks.length}`}>
+        <p className="muted" style={{ margin: '0 0 8px', fontSize: 13 }}>Mede se os campos estão bem preenchidos. Não garante que a página foi publicada nem que o Google a indexou, e não é promessa de posição.</p>
         <ul className="plain">{checks.map((c) => <li key={c.label} style={{ color: c.ok ? 'inherit' : 'var(--danger)' }}><Icon name={c.ok ? 'check-circle' : 'alert-triangle'} size={15} /> {c.label}</li>)}</ul>
+      </Card>
+      <Card title="Publicação no site">
+        <div className="stack">
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>Confere se o que está salvo aqui é o que o site entrega nesta página (título, descrição, canonical, indexação, H1, blocos e perguntas). Salve antes de verificar.</p>
+          <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button size="sm" loading={verifying} onClick={verify}>Verificar publicação</Button>
+            {pub ? <><Badge tone={PUB_TONE[pub.status]} dot>{PUB_LABEL[pub.status]}</Badge><span className="muted" style={{ fontSize: 13 }}>verificado em {dt(pub.at)}</span></> : <Badge tone="neutral">Ainda não verificada</Badge>}
+          </div>
+          {pub && <>
+            {pub.error && <Alert tone="danger">{pub.error}</Alert>}
+            <ul className="plain">{pub.checks.map((c) => <li key={c.label} style={{ color: c.ok ? 'inherit' : 'var(--danger)' }}><Icon name={c.ok ? 'check-circle' : 'alert-triangle'} size={15} /> {c.label}{c.detail && <div className="muted" style={{ fontSize: 12, marginLeft: 21 }}>{c.detail}</div>}</li>)}</ul>
+            <p className="muted" style={{ margin: 0, fontSize: 12 }}>Escopo: {pub.scope}. A verificação fica só na memória do servidor e some ao reiniciar.</p>
+          </>}
+        </div>
+      </Card>
+      <Card title="Indexação no Google">
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>{noindex ? 'Esta página está bloqueada para o Google pelo painel.' : 'O site permite a indexação desta página.'} O sistema não consulta o Google, então não sabe se a página já foi indexada. Confira em <b>Search Console → Inspeção de URL</b>, depois de publicar.</p>
       </Card>
       <Card title="Como preencher cada campo">
         <div className="table-wrap"><table className="table">
@@ -150,6 +179,9 @@ export default function Seo() {
   const items = list.data?.items ?? [];
   const current = items.find((i) => i.path === open) ?? null;
   const weak = items.filter((i) => i.score < i.total).length;
+  const toast = useToast(); const [verifyingAll, setVerifyingAll] = useState(false);
+  const verifyAll = async () => { setVerifyingAll(true); try { await api.post('/admin/content/seo/pages/verify', {}); list.reload(); } catch (e) { toast.error(errorMessage(e)); } finally { setVerifyingAll(false); } };
+  const verified = items.filter((i) => i.publication).length;
   return (
     <>
       <PageHead title="SEO" sub="H1, título, descrição, palavra-chave, textos e perguntas de cada página, como no WordPress, sem plugin. Tudo já vem preenchido; edite quando quiser." />
@@ -157,10 +189,11 @@ export default function Seo() {
         <Editor key={current.path + (current.score + current.title + current.h1)} item={current} onSaved={() => { list.reload(); }} onClose={() => setOpen(null)} />
       ) : !items.length ? <EmptyState icon="search" title="Nenhuma página" /> : (
         <>
-          <Alert tone="info">{weak ? `${weak} página(s) com pontos a melhorar na lista de verificação.` : 'Todas as páginas passam na lista de verificação.'} Depois de publicar, envie o sitemap no Search Console: <b>/sitemap.xml</b>. Artigos do blog têm o SEO próprio em "Artigos e blog".</Alert>
+          <Alert tone="info">{weak ? `${weak} página(s) com campos a melhorar.` : 'Todos os campos estão preenchidos.'} A coluna Publicação mostra se o site entrega o que está salvo. Indexação “Permitida” só diz que não há bloqueio; a situação no Google está no Search Console. Depois de publicar, envie o sitemap no Search Console: <b>/sitemap.xml</b>. Artigos do blog têm o SEO próprio em "Artigos e blog".</Alert>
+          <div className="row" style={{ marginTop: 12, gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><Button size="sm" loading={verifyingAll} onClick={verifyAll}>Verificar publicação das {items.length} páginas</Button><span className="muted" style={{ fontSize: 13 }}>{verified ? `${verified} verificada(s) desde que o servidor iniciou` : 'Nenhuma verificada ainda'}</span></div>
           <div className="table-wrap" style={{ marginTop: 12 }}>
             <table className="table">
-              <thead><tr><th>Página</th><th>H1</th><th>Título no Google</th><th>Imagem</th><th>Nota</th><th>Google</th><th /></tr></thead>
+              <thead><tr><th>Página</th><th>H1</th><th>Título no Google</th><th>Imagem</th><th>Preenchimento</th><th>Publicação</th><th>Indexação</th><th /></tr></thead>
               <tbody>{items.map((i) => (
                 <tr key={i.path}>
                   <td><b>{i.path === '/' ? 'Início' : i.path}</b>{i.keyword && <div className="muted" style={{ fontSize: 12 }}>{i.keyword}</div>}</td>
@@ -168,7 +201,8 @@ export default function Seo() {
                   <td style={{ maxWidth: 380 }}>{i.title}</td>
                   <td>{i.image ? <img src={i.image.url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} /> : <span className="muted">sem</span>}</td>
                   <td><Badge tone={i.score === i.total ? 'ok' : i.score >= i.total - 2 ? 'warn' : 'danger'}>{i.score}/{i.total}</Badge></td>
-                  <td>{i.noindex ? <Badge tone="danger">Fora</Badge> : <Badge tone="ok">Indexável</Badge>}</td>
+                  <td>{i.publication ? <Badge tone={PUB_TONE[i.publication.status]}>{PUB_LABEL[i.publication.status]}</Badge> : <span className="muted">não verificada</span>}</td>
+                  <td>{i.noindex ? <Badge tone="danger">Bloqueada</Badge> : <Badge tone="neutral">Permitida</Badge>}</td>
                   <td><Button size="sm" onClick={() => setOpen(i.path)}>Editar</Button></td>
                 </tr>
               ))}</tbody>

@@ -27,6 +27,8 @@ export interface FinancingSettings {
   updatedAt: string;
 }
 
+export const SOURCE_INTERNAL = 'Referência interna (estimativa), ainda não atualizada pelo Banco Central';
+
 const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
 export async function loadFinancingSettings(): Promise<FinancingSettings> {
@@ -36,7 +38,8 @@ export async function loadFinancingSettings(): Promise<FinancingSettings> {
   return {
     rates: { cdcPf: Number(s.cdc_pf_pct), cdcPj: Number(s.cdc_pj_pct), leasingPf: n(s.leasing_pf_pct), leasingPj: Number(s.leasing_pj_pct) },
     referenceMonth: s.rates_reference_month,
-    source: s.rates_source,
+    // taxa que nunca veio do Banco Central é a de fábrica: não pode ser apresentada como se fosse do Banco Central
+    source: !s.rates_refreshed_at && /^Banco Central/i.test(String(s.rates_source)) ? SOURCE_INTERNAL : s.rates_source,
     autoRefresh: s.auto_refresh,
     refreshedAt: s.rates_refreshed_at ? new Date(s.rates_refreshed_at).toISOString() : null,
     refreshError: s.rates_refresh_error,
@@ -205,4 +208,16 @@ export function maybeRefreshInBackground(settings: FinancingSettings): void {
   const day = 24 * 60 * 60 * 1000;
   if ((ageOf(settings.refreshedAt) < day && ageOf(settings.banksRefreshedAt) < day) || Date.now() - lastAttempt < 60 * 60 * 1000) return;
   void refreshRatesFromBcb();
+}
+
+export type RatesOrigin = 'BCB' | 'MANUAL' | 'INTERNAL';
+/**
+ * De onde vem a taxa mostrada e quão velha ela está. `collectedAt` é quando o sistema buscou o dado; `referenceMonth` é o mês a que o dado se refere.
+ * Sem coleta do Banco Central, a taxa é interna (estimativa) e é identificada como tal. Atrasada = 4 meses ou mais (o Banco Central publica com 1 a 2 meses de atraso).
+ */
+export function ratesProvenance(s: FinancingSettings, now: Date = new Date()) {
+  const origin: RatesOrigin = /^informado pela equipe/i.test(s.source) ? 'MANUAL' : s.refreshedAt ? 'BCB' : 'INTERNAL';
+  const [y, m] = s.referenceMonth.split('-').map(Number);
+  const monthsBehind = Number.isFinite(y) && Number.isFinite(m) ? (now.getUTCFullYear() - y!) * 12 + (now.getUTCMonth() + 1 - m!) : 0;
+  return { origin, referenceMonth: s.referenceMonth, collectedAt: s.refreshedAt, monthsBehind, stale: monthsBehind >= 4, refreshFailed: Boolean(s.refreshError) };
 }

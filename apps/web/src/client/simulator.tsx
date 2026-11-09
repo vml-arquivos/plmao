@@ -31,6 +31,7 @@ export interface SimConfig {
   limits: { graceDays: { min: number; max: number }; vehicleMinCents: number; vehicleMaxCents: number; cdcMonths: { min: number; max: number }; leasingMonths: { min: number; max: number }; maxDownPct: number; maxResidualPct: number; ratePct: { min: number; max: number } };
   rates: { cdc: { PF: RateInfo; PJ: RateInfo }; leasing: { PF: RateInfo; PJ: RateInfo } };
   referenceMonth: string; source: string;
+  ratesStatus?: { origin: 'BCB' | 'MANUAL' | 'INTERNAL'; referenceMonth: string; collectedAt: string | null; monthsBehind: number; stale: boolean; refreshFailed: boolean };
   fees: { cadastroCents: number; avaliacaoCents: number; registroCents: number };
   iof: { pfDailyPct: number; pjDailyPct: number; additionalPct: number; capDays: number };
   updatedAt: string;
@@ -118,6 +119,21 @@ export function toBody(s: SimState): Record<string, unknown> {
 
 /* ---------- Formatação ---------- */
 export const pct = (v: number, digits = 2) => `${v.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
+/** Como chamar a taxa mostrada, conforme a origem: só é "do Banco Central" quando o sistema de fato coletou lá. */
+export function ratesLabel(cfg: SimConfig | null | undefined): string {
+  const o = cfg?.ratesStatus?.origin ?? 'BCB';
+  return o === 'BCB' ? 'média de mercado do Banco Central' : o === 'MANUAL' ? 'taxa de referência definida pela equipe' : 'taxa de referência interna (estimativa)';
+}
+/** Aviso honesto quando a taxa é estimativa interna ou está atrasada; vazio quando está em dia. */
+export function ratesNotice(cfg: SimConfig | null | undefined): string {
+  const s = cfg?.ratesStatus; if (!s) return '';
+  const ref = monthRef(s.referenceMonth);
+  const when = s.collectedAt ? `, coletada em ${new Date(s.collectedAt).toLocaleDateString('pt-BR')}` : '';
+  const tail = ' Informe a taxa da proposta do seu banco para um cálculo mais fiel.';
+  if (s.origin === 'INTERNAL') return `Esta taxa é uma referência interna (estimativa) e ainda não foi atualizada com os dados do Banco Central.${tail}`;
+  if (s.stale) return `A taxa de referência é de ${ref}${when} e pode estar desatualizada.${tail}`;
+  return '';
+}
 export const monthRef = (ym: string) => { const [y, m] = ym.split('-'); return m && y ? `${m}/${y}` : ym; };
 export const brl = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 export const reais = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 0 });

@@ -100,6 +100,7 @@ import { simulatorRouter } from './routes/simulator.js';
 import { scoreModelMatch } from './lib/vehicleSpecs.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
+import { loadFinancingSettings, maybeRefreshInBackground } from './financingSettings.js';
 import { DATA_SOURCES, anycarConfigured, sourcesForProduct, validateDataSources } from './lib/dataSources.js';
 import { defaultSourcesFor } from './lib/dataSourceDefaults.js';
 import { scopeForProduct, sectionSellable } from './lib/reportScope.js';
@@ -3512,7 +3513,8 @@ app.get('*', asyncRoute(async (req, res, next) => {
       if (seoRow.h1 && !override.h1) override.h1 = seoRow.h1;
       if (seoRow.title && !override.title) override.title = seoRow.title;
       if (seoRow.description && !override.description) override.description = seoRow.description;
-      if (!override.bodyHtml) override.bodyHtml = seoBodyHtml(seoRow);
+      override.seoData = { h1: seoRow.h1, title: seoRow.title, sections: seoRow.sections, faq: seoRow.faq };
+      override.bodyHtml = `${override.bodyHtml ?? ''}${seoBodyHtml(seoRow)}`; // páginas com conteúdo próprio (ex.: central de perguntas) recebem também os blocos do painel
       const faqLd = seoFaqLd(seoRow);
       if (faqLd && !(override.jsonLd ?? []).some((o) => (o as { '@type'?: string })['@type'] === 'FAQPage')) override.jsonLd = [...(override.jsonLd ?? []), faqLd];
       if (seoRow.noindex) override.noindex = true;
@@ -3531,6 +3533,10 @@ const recoverStuckQueries = () => {
 };
 recoverStuckQueries();
 setInterval(recoverStuckQueries, 2 * 60 * 1000).unref();
+// As taxas do simulador se atualizam também sem ninguém abrir a página: na partida e a cada 6 horas (a regra de 24 h e o botão do painel continuam valendo).
+const keepFinancingRates = () => { void loadFinancingSettings().then(maybeRefreshInBackground).catch((error) => log('warn', 'financing_rates_schedule_failed', { message: error instanceof Error ? error.message : 'unknown' })); };
+setTimeout(keepFinancingRates, 30_000).unref();
+setInterval(keepFinancingRates, 6 * 60 * 60 * 1000).unref();
 setInterval(() => { releaseCommissions().catch((error) => log('error', 'commission_release_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 60 * 60 * 1000).unref();
 setInterval(() => { purgeExpiredRaw(env.RAW_RETENTION_DAYS).catch((error) => log('error', 'raw_retention_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 6 * 60 * 60 * 1000).unref();
 if (env.DATA_PROVIDER === 'real' && env.VEHICLE_API_PROVIDER === 'credify' && env.CREDIFY_CLIENT_ID && env.CREDIFY_CLIENT_SECRET && process.env.NODE_TEST_CONTEXT === undefined) {

@@ -13,7 +13,7 @@ import Testimonials from '../components/Testimonials';
 import { LatestPosts } from './Content';
 import { HomeGuide, HomeSimulator } from '../components/HomeTools';
 import { DetailsButton, PdfModelLink } from '../components/ConsultaDetails';
-import { useSeoH1 } from '../components/SeoContent';
+import { SeoContentAfterFaqs, useSeoH1 } from '../components/SeoContent';
 
 const STEPS = [
   { t: 'Digite a placa', s: 'Aceita placa antiga e Mercosul. Sem cadastro de documentos.' },
@@ -204,6 +204,8 @@ export default function Landing() {
           <div className="row" style={{ justifyContent: 'center', marginTop: 22 }}><Link to="/perguntas-frequentes" className="btn">Ver todas as perguntas</Link></div>
         </div>
       </section>
+
+      <SeoContentAfterFaqs path="/" limit={6} faqTitle="Mais perguntas sobre consulta de placa" />
 
       <section className="section" style={{ paddingTop: 0 }}>
         <div className="container">

@@ -8,7 +8,7 @@ import { FipePicker } from '../fipePicker';
 import { errorMessage } from '../../shared/api';
 import { useSession } from '../session';
 import {
-  KindTabs, KINDS, MoneyInput, brl, defaultState, kindBySlug, kindByKey, monthRef, paramsFromState, pct, reais,
+  KindTabs, KINDS, MoneyInput, brl, defaultState, kindBySlug, kindByKey, monthRef, ratesLabel, ratesNotice, paramsFromState, pct, reais,
   stateFromParams, toBody, useCalculation, useSimConfig, type Kind, type Modality, type SimConfig, type SimState
 } from '../simulator';
 
@@ -75,7 +75,7 @@ export default function Simulator() {
           <SeoH1 path={kindInfo ? `/simulador/${kindInfo.slug}` : '/simulador'} fallback={kindInfo ? `Simule o financiamento ${kindInfo.key === 'MOTORCYCLE' ? 'da sua moto' : kindInfo.key === 'TRUCK' ? 'do seu caminhão' : kindInfo.key === 'UTILITY' ? 'do seu utilitário' : 'do seu carro'}.` : 'Simulador de financiamento'} />
           <p className="lead">{kindInfo ? 'CDC ou leasing, com a taxa média de mercado do Banco Central, IOF e tarifas. Veja a parcela, o CET e o custo total antes de ir ao banco, e baixe o PDF.' : 'Simule gratuitamente o financiamento de um veículo. Informe o valor, a entrada, o prazo e a taxa de juros para comparar parcelas e custos estimados. Você pode ajustar os dados conforme a proposta recebida do banco. A simulação é informativa e não representa aprovação nem oferta de crédito.'}</p>
           <div className="trust-row" style={{ marginTop: 18 }}>
-            <span><Icon name="shield-check" size={16} />Taxas do Banco Central</span>
+            <span><Icon name="shield-check" size={16} />{cfg?.ratesStatus?.origin === 'BCB' ? 'Taxas do Banco Central' : 'Taxas de mercado de referência'}</span>
             <span><Icon name="receipt" size={16} />IOF e tarifas incluídos</span>
             <span><Icon name="file-text" size={16} />PDF para levar ao banco</span>
           </div>
@@ -149,13 +149,16 @@ export default function Simulator() {
                 <Switch checked={state.customRate !== ''} onChange={(e) => set('customRate', e.target.checked ? String(((state.modality === 'LEASING' ? marketLease : marketCdc)?.pct ?? 2).toFixed(2)).replace('.', ',') : '')} label="Tenho a taxa do banco" />
               </div>
               {state.customRate === '' ? (
-                <p className="muted" style={{ fontSize: 13.5 }}>
-                  {cfg ? <>Usamos a <b>média de mercado do Banco Central</b> ({monthRef(cfg.referenceMonth)}):{' '}
-                    {state.modality !== 'LEASING' && marketCdc && <><b>{pct(marketCdc.pct)} a.m.</b> no CDC</>}
-                    {state.modality === 'BOTH' && ' e '}
-                    {state.modality !== 'CDC' && marketLease && <><b>{pct(marketLease.pct)} a.m.</b> no leasing</>}.
-                    {' '}Sua taxa real depende da análise de crédito.</> : 'Carregando a taxa média de mercado…'}
-                </p>
+                <>
+                  <p className="muted" style={{ fontSize: 13.5 }}>
+                    {cfg ? <>Usamos a <b>{ratesLabel(cfg)}</b> ({monthRef(cfg.referenceMonth)}):{' '}
+                      {state.modality !== 'LEASING' && marketCdc && <><b>{pct(marketCdc.pct)} a.m.</b> no CDC</>}
+                      {state.modality === 'BOTH' && ' e '}
+                      {state.modality !== 'CDC' && marketLease && <><b>{pct(marketLease.pct)} a.m.</b> no leasing</>}.
+                      {' '}Sua taxa real depende da análise de crédito.</> : 'Carregando a taxa média de mercado…'}
+                  </p>
+                  {cfg && ratesNotice(cfg) && <p className="muted" role="note" style={{ fontSize: 13.5, fontWeight: 400 }}>{ratesNotice(cfg)}</p>}
+                </>
               ) : (
                 <Field label="Taxa mensal da proposta (% ao mês)">
                   <input className="input" inputMode="decimal" value={state.customRate} onChange={(e) => set('customRate', e.target.value.replace(/[^\d,.]/g, '').slice(0, 6))} aria-label="Taxa mensal em porcentagem" />
@@ -221,7 +224,7 @@ function HowItWorks({ cfg }: { cfg: SimConfig | null }) {
     { q: "O que acontece se eu atrasar as parcelas?", a: "Em qualquer financiamento, o atraso gera multa, juros de mora e correção, e o nome pode ser negativado. No CDC, o veículo é a garantia: se a dívida não for regularizada depois da notificação, o banco pode pedir a busca e apreensão e vender o veículo para abater a dívida. Se sobrar valor, ele volta para você; se faltar, a diferença continua sendo cobrada. No leasing, o veículo é da arrendadora, que pode rescindir o contrato e pedir a reintegração de posse. O que já foi pago e o que ainda é devido seguem o contrato." },
     { q: "E se eu não conseguir continuar pagando?", a: "Procure o banco antes de atrasar. Renegociar o prazo ou vender o veículo para quitar costuma custar menos do que a retomada. Nos dois tipos, você pode antecipar parcelas ou quitar antes, com redução proporcional dos juros (Código de Defesa do Consumidor, art. 52, § 2º)." },
     { q: "Posso vender ou trocar o veículo antes de terminar de pagar?", a: "No CDC, só quitando a dívida ou com a autorização do banco, porque há alienação fiduciária. No leasing, o veículo é da arrendadora até você exercer a compra no final. Nos dois casos, combine com a instituição antes de anunciar." },
-    { q: 'De onde vêm as taxas?', a: `Usamos a taxa média mensal de juros de aquisição de veículos divulgada pelo Banco Central do Brasil${cfg ? ` (referência ${monthRef(cfg.referenceMonth)})` : ''}. É uma média de mercado: a sua taxa pode ser menor ou maior conforme perfil, entrada, prazo e instituição. Se você já tem uma proposta, informe a taxa dela.` },
+    { q: 'De onde vêm as taxas?', a: `${cfg?.ratesStatus && cfg.ratesStatus.origin !== 'BCB' ? 'Usamos uma taxa de referência interna, uma estimativa baseada na média de mercado de juros de aquisição de veículos' : 'Usamos a taxa média mensal de juros de aquisição de veículos divulgada pelo Banco Central do Brasil'}${cfg ? ` (referência ${monthRef(cfg.referenceMonth)})` : ''}${ratesNotice(cfg) ? `. ${ratesNotice(cfg).split(' Informe')[0]}` : ''}. É uma média de mercado: a sua taxa pode ser menor ou maior conforme perfil, entrada, prazo e instituição. Se você já tem uma proposta, informe a taxa dela.` },
     { q: 'Como o IOF é calculado?', a: iof ? `Para pessoa física, ${String(iof.pfDailyPct).replace('.', ',')}% ao dia sobre cada parcela do principal (limitado a ${iof.capDays} dias) mais ${String(iof.additionalPct).replace('.', ',')}% sobre o valor. Para empresas, ${String(iof.pjDailyPct).replace('.', ',')}% ao dia. O IOF é financiado junto com o veículo, por isso entra no valor das parcelas.` : 'Calculamos o IOF de crédito por parcela, com limite de 365 dias, e financiamos junto com o veículo.' },
     { q: 'O simulador é gratuito?', a: 'Sim. Você simula quantas vezes quiser, sem pagar e sem criar conta. Para baixar o PDF da simulação é preciso entrar na sua conta gratuita.' },
     { q: 'Posso usar a taxa da proposta do meu banco?', a: 'Pode. Em "taxa de juros" informe a taxa da proposta que você recebeu e o simulador recalcula a parcela, o CET e o custo total com ela.' },
@@ -278,7 +281,7 @@ export function SimulatorWidget() {
         ) : <Skeleton h={64} r={12} />}
       </div>
       <LinkButton to={`/simulador/${info.slug}?${q}`} variant="primary" block iconRight="arrow-right">Ver simulação completa e PDF</LinkButton>
-      <p className="muted" style={{ fontSize: 12.5 }}>CDC para pessoa física com a taxa média do Banco Central{cfg ? ` (${monthRef(cfg.referenceMonth)})` : ''}, IOF e tarifas. Estimativa, não é oferta de crédito.</p>
+      <p className="muted" style={{ fontSize: 12.5 }}>CDC para pessoa física com a {ratesLabel(cfg)}{cfg ? ` (${monthRef(cfg.referenceMonth)})` : ''}, IOF e tarifas. Estimativa, não é oferta de crédito.</p>
     </div>
   );
 }

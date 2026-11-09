@@ -65,7 +65,7 @@ let tags: GoogleTags = {};
 /** Códigos do Google/Bing (variáveis de ambiente). Viram meta tags no HTML; o app só carrega o gtag depois do aceite de cookies. */
 export function setGoogleTags(next: GoogleTags): void { tags = { ...next }; }
 
-export interface SeoOverride { image?: string; imageWidth?: number | null; imageHeight?: number | null; h1?: string; title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string; noindex?: boolean }
+export interface SeoOverride { image?: string; imageWidth?: number | null; imageHeight?: number | null; h1?: string; title?: string; description?: string; jsonLd?: unknown[]; notFound?: boolean; bodyHtml?: string; noindex?: boolean; seoData?: { h1: string | null; title: string | null; sections: Array<{ h: string; p: string }>; faq: Array<{ q: string; a: string }> } }
 
 /** Rotas que o app conhece, inclusive as dinâmicas. Qualquer outra recebe 404 e noindex. */
 const DYNAMIC = /^\/(blog|veiculos|simulador|validar|validar-relatorio|r|c|convite|descadastrar|parceiro|contrato|documento-fiscal|app|painel|recuperar-senha|consultar|desenvolvedores|loja)(\/|$)/;
@@ -148,5 +148,7 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
     .replace(/<meta name="twitter:card" content="[^"]*"\s*\/>/, (m) => `${m}\n    <meta name="twitter:image" content="${escapeHtml(override.image ?? `${baseUrl}/brand/og-image.png`)}" />`)
     .replace(/<meta name="twitter:title" content="[^"]*"\s*\/>/, `<meta name="twitter:title" content="${title}" />`)
     .replace(/<meta name="twitter:description" content="[^"]*"\s*\/>/, `<meta name="twitter:description" content="${description}" />`)
-    .replace('</head>', `<script id="pnm-route-schema" type="application/ld+json">${routeSchema}</script>${extraLd ? `\n  ${extraLd}` : ''}${metaTags ? `\n  ${metaTags}` : ''}\n  </head>`);
+    .replace('</head>', `<script id="pnm-route-schema" type="application/ld+json">${routeSchema}</script>${extraLd ? `\n  ${extraLd}` : ''}${metaTags ? `\n  ${metaTags}` : ''}\n  </head>`)
+    // mesmos textos do painel para o app mostrar na primeira pintura, sem pedir de novo (evita o salto de layout); marcado com a rota para não valer em outra página
+    .replace('</head>', () => override.seoData && !unknown ? `<script id="seo-data" type="application/json">${JSON.stringify({ path: normalized, ...override.seoData }).replace(/</g, '\\u003c')}</script>\n  </head>` : '</head>');
 }
