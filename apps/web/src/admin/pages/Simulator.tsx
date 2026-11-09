@@ -77,7 +77,6 @@ export default function Simulator() {
   if (settings.loading && !settings.data) return <PageLoading />;
   if (settings.error || !settings.data) return <ErrorState error={settings.error} onRetry={settings.reload} />;
   const s = settings.data.settings;
-  const behind = (() => { const [y, m] = s.referenceMonth.split('-').map(Number); const n = new Date(); return Number.isFinite(y) && Number.isFinite(m) ? (n.getFullYear() - y!) * 12 + (n.getMonth() + 1 - m!) : 0; })();
 
   return (
     <>
@@ -87,10 +86,9 @@ export default function Simulator() {
         <Kpi label="Simulações com PDF" value={num(sims.data?.stats.total ?? 0)} sub="desde o início" />
         <Kpi label="Últimos 30 dias" value={num(sims.data?.stats.last30 ?? 0)} sub="PDFs gerados" />
         <Kpi label="Volume simulado (30 dias)" value={money(sims.data?.stats.volume30Cents ?? 0)} sub="valor financiado" />
-        <Kpi label="Taxas de referência" value={monthLabel(s.referenceMonth)} sub={`${s.source} · ${s.refreshedAt ? `coletado em ${new Date(s.refreshedAt).toLocaleDateString('pt-BR')}` : 'nunca coletado do Banco Central'}`} tone={s.refreshError || !s.refreshedAt || behind >= 4 ? 'warn' : undefined} />
+        <Kpi label="Taxas de referência" value={monthLabel(s.referenceMonth)} sub={`${s.source} · ${s.refreshedAt ? `coletado em ${new Date(s.refreshedAt).toLocaleDateString('pt-BR')}` : 'nunca coletado do Banco Central'}`} tone={s.refreshError || !s.refreshedAt ? 'warn' : undefined} />
       </div>
 
-      {!s.refreshError && behind >= 4 && <Alert tone="warn" icon="alert-triangle" title="As taxas de referência estão atrasadas">O mês de referência é {monthLabel(s.referenceMonth)}, {behind} meses atrás. Confira se a atualização automática está ligada e use o botão de atualizar. O site já avisa os visitantes e sugere informar a taxa da proposta do banco.</Alert>}
       {s.refreshError && <Alert tone="warn" icon="alert-triangle" title="Atualização pelo Banco Central falhou">Motivo: {s.refreshError}. O simulador continua usando as últimas taxas salvas.</Alert>}
 
       <div className="stack">

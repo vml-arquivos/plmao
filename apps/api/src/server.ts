@@ -3536,7 +3536,7 @@ setInterval(recoverStuckQueries, 2 * 60 * 1000).unref();
 // As taxas do simulador se atualizam também sem ninguém abrir a página: na partida e a cada 6 horas (a regra de 24 h e o botão do painel continuam valendo).
 const keepFinancingRates = () => { void loadFinancingSettings().then(maybeRefreshInBackground).catch((error) => log('warn', 'financing_rates_schedule_failed', { message: error instanceof Error ? error.message : 'unknown' })); };
 setTimeout(keepFinancingRates, 30_000).unref();
-setInterval(keepFinancingRates, 6 * 60 * 60 * 1000).unref();
+setInterval(keepFinancingRates, 2 * 60 * 60 * 1000).unref();
 setInterval(() => { releaseCommissions().catch((error) => log('error', 'commission_release_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 60 * 60 * 1000).unref();
 setInterval(() => { purgeExpiredRaw(env.RAW_RETENTION_DAYS).catch((error) => log('error', 'raw_retention_failed', { message: error instanceof Error ? error.message : 'unknown' })); }, 6 * 60 * 60 * 1000).unref();
 if (env.DATA_PROVIDER === 'real' && env.VEHICLE_API_PROVIDER === 'credify' && env.CREDIFY_CLIENT_ID && env.CREDIFY_CLIENT_SECRET && process.env.NODE_TEST_CONTEXT === undefined) {

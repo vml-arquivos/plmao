@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.50.0 — Simulador: coleta diária de todas as instituições e nenhum alerta de taxa atrasada
+
+- **Sem alerta de taxa atrasada em lugar nenhum:** saiu também o alerta amarelo do Painel → Simulador (o painel só avisa se a coleta der erro).
+- **Coleta diária:** o sistema refaz a coleta quando a última passou de 20 horas (verificação a cada 2 horas e também quando alguém usa o simulador), em vez de 24 h verificadas a cada 6 h.
+- **Todas as instituições:** toda instituição que o Banco Central lista com taxa de financiamento de veículos (Santander, C6 Bank, BV Financeira, Bradesco, Itaú, Pan, Safra, bancos de montadora e as demais) entra sozinha na comparação por banco, com a taxa real do período mais recente. Quem já estava cadastrado não duplica; a equipe pode desativar qualquer banco no painel. Os incluídos automaticamente trazem a observação "Incluído automaticamente a partir das taxas do Banco Central."
+- Sem variável de ambiente nova. Sem migração nova (continua em 082). Testes novos em `financing-referencia`.
+
 ## 1.49.1 — Simulador: taxa sempre atual e sem avisos de "desatualizada" para o cliente
 
 - **Causa:** a série mensal do Banco Central usada (SGS 25471, 25447, 25450) estava devolvendo dados só até 02/2026, mesmo com a coleta rodando. Por isso o simulador mostrava o mês de referência antigo e os avisos de taxa desatualizada.

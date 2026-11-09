@@ -2,7 +2,7 @@ import { pool } from './db.js';
 import { env } from './config.js';
 import { log } from './lib/http.js';
 import type { FeeDefaults, IofRates, Modality, PersonType } from './lib/financing.js';
-import { normalizeName, type BcbBankRate } from './lib/bankRates.js';
+import { matchInstitution, normalizeName, type BcbBankRate } from './lib/bankRates.js';
 
 /** Séries do Banco Central (SGS): taxa média mensal de juros, recursos livres, em % ao mês. */
 export const BCB_SERIES = {
@@ -159,6 +159,7 @@ export async function refreshBankRatesFromBcb(fetchImpl: typeof fetch = fetch): 
       await client.query('UPDATE financing_settings SET banks_refreshed_at=now(), banks_refresh_error=NULL WHERE id=1');
       await client.query('COMMIT');
     } catch (e) { await client.query('ROLLBACK').catch(() => undefined); throw e; } finally { client.release(); }
+    await syncBanksFromRates(collected).catch((e) => log('warn', 'financing_banks_sync_failed', { error: e instanceof Error ? e.message : 'unknown' }));
     return { ok: true, count: collected.length, rows: collected };
   } catch (e) {
     const message = e instanceof Error ? e.message : 'BCB_BANKS_ERROR';
@@ -166,6 +167,37 @@ export async function refreshBankRatesFromBcb(fetchImpl: typeof fetch = fetch): 
     await pool.query('UPDATE financing_settings SET banks_refresh_error=$1 WHERE id=1', [message.slice(0, 200)]).catch(() => undefined);
     return { ok: false, count: 0, error: message };
   }
+}
+
+
+export const AUTO_BANK_NOTE = 'Incluído automaticamente a partir das taxas do Banco Central.';
+const NAME_DROP = new Set(['S', 'A', 'SA', 'LTDA', 'CFI', 'EIRELI']);
+
+/** Nome para exibir de uma instituição do Banco Central: "BCO C6 S.A." → "C6 Bank"; "BV FINANCEIRA S.A. CFI" → "BV Financeira". */
+export function bankDisplayName(institution: string): string {
+  const tokens = normalizeName(institution).split(' ').filter((t) => t && !NAME_DROP.has(t));
+  if (tokens.includes('C6')) return 'C6 Bank';
+  const pretty = tokens.map((t) => (t === 'BCO' ? 'Banco' : t === 'FINANC' ? 'Financeira' : t.length <= 3 ? t : t[0]! + t.slice(1).toLowerCase()));
+  return pretty.join(' ').slice(0, 120) || institution.slice(0, 120);
+}
+
+/**
+ * Toda instituição que o Banco Central lista com taxa de veículos entra na comparação, sem a equipe precisar cadastrar uma a uma.
+ * Quem já tem banco cadastrado (ativo ou não) não é duplicado; a equipe pode desativar qualquer um no painel.
+ */
+export async function syncBanksFromRates(rows: BcbBankRate[]): Promise<number> {
+  const banks = (await pool.query('SELECT bcb_match FROM financing_banks')).rows as Array<{ bcb_match: string }>;
+  let order = Number((await pool.query('SELECT COALESCE(MAX(display_order),0)+1 AS n FROM financing_banks')).rows[0].n);
+  let added = 0;
+  for (const institution of [...new Set(rows.map((r) => r.institution))].sort()) {
+    if (banks.some((b) => b.bcb_match && matchInstitution(b.bcb_match, institution))) continue;
+    const r = await pool.query(
+      'INSERT INTO financing_banks(name,bcb_match,notes,active,display_order) VALUES($1,$2,$3,true,$4) ON CONFLICT DO NOTHING',
+      [bankDisplayName(institution), normalizeName(institution), AUTO_BANK_NOTE, order]
+    );
+    if (r.rowCount) { added++; order++; banks.push({ bcb_match: normalizeName(institution) }); }
+  }
+  return added;
 }
 
 let lastAttempt = 0;
@@ -265,7 +297,7 @@ export function maybeRefreshInBackground(settings: FinancingSettings): void {
   if (env.NODE_ENV === 'test' || !settings.autoRefresh) return;
   if (process.env.FINANCING_AUTO_REFRESH === 'false') return;
   const ageOf = (iso: string | null) => (iso ? Date.now() - new Date(iso).getTime() : Infinity);
-  const day = 24 * 60 * 60 * 1000;
+  const day = 20 * 60 * 60 * 1000; // diária: refaz quando a última coleta passa de 20 h
   if ((ageOf(settings.refreshedAt) < day && ageOf(settings.banksRefreshedAt) < day) || Date.now() - lastAttempt < 60 * 60 * 1000) return;
   void refreshRatesFromBcb();
 }

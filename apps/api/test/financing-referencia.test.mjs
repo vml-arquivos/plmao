@@ -4,7 +4,7 @@ import { integration, loadCore, useTestEnv } from './helpers/db.mjs';
 import { hostRequest, startServer } from './helpers/server.mjs';
 
 useTestEnv();
-const { ratesProvenance, SOURCE_INTERNAL, refreshRatesFromBcb, loadFinancingSettings, chooseRates, marketAveragesFromBankRows } = await import('../dist/financingSettings.js');
+const { ratesProvenance, SOURCE_INTERNAL, refreshRatesFromBcb, loadFinancingSettings, chooseRates, marketAveragesFromBankRows, syncBanksFromRates, bankDisplayName, AUTO_BANK_NOTE } = await import('../dist/financingSettings.js');
 const base = { rates: { cdcPf: 1.97, cdcPj: 1.45, leasingPf: null, leasingPj: 1.37 }, referenceMonth: '2026-08', source: 'Banco Central do Brasil (SGS 25471, 25447, 25450)', autoRefresh: true, refreshedAt: null, refreshError: null, banksRefreshedAt: null, banksRefreshError: null, fees: {}, iof: {}, updatedAt: '' };
 const NOW = new Date('2026-11-09T12:00:00Z');
 
@@ -53,6 +53,14 @@ describe('taxa atual: série mensal parada x taxas por instituição do Banco Ce
   });
 });
 
+describe('todas as instituições do Banco Central entram na comparação', () => {
+  it('nomes para exibir', () => {
+    assert.equal(bankDisplayName('BCO C6 S.A.'), 'C6 Bank');
+    assert.equal(bankDisplayName('BV FINANCEIRA S.A. CFI'), 'BV Financeira');
+    assert.equal(bankDisplayName('BCO DAYCOVAL S.A.'), 'Banco Daycoval');
+  });
+});
+
 describe('simulador: referência de taxa na API pública', integration, () => {
   let server, pool;
   before(async () => { ({ pool } = await loadCore()); server = await startServer(); });
@@ -98,6 +106,18 @@ describe('simulador: referência de taxa na API pública', integration, () => {
     assert.equal(c.referenceMonth, '2026-11');
     assert.equal(c.rates.cdc.PF.pct, 2);
     assert.match(c.source, /^Banco Central/);
+  });
+
+  it('instituição nova do Banco Central vira banco da comparação (C6 Bank) sem duplicar as já cadastradas', async () => {
+    const mk = (institution) => ({ segment: 'PF', modality: 'CDC', institution, monthlyPct: 1.9, annualPct: 25, position: 1, period: '2026-11-02' });
+    const rows = [mk('BCO C6 S.A.'), mk('BV FINANCEIRA S.A. CFI'), mk('BCO SANTANDER (BRASIL) S.A.')];
+    try {
+      assert.equal(await syncBanksFromRates(rows), 1);
+      const c6 = (await pool.query(`SELECT name, active, notes FROM financing_banks WHERE name='C6 Bank'`)).rows[0];
+      assert.deepEqual([c6.active, c6.notes], [true, AUTO_BANK_NOTE]);
+      assert.equal((await pool.query(`SELECT count(*)::int AS n FROM financing_banks WHERE name ILIKE '%BV%' OR name ILIKE '%Santander%'`)).rows[0].n, 2, 'BV e Santander já existiam');
+      assert.equal(await syncBanksFromRates(rows), 0, 'segunda coleta não duplica');
+    } finally { await pool.query(`DELETE FROM financing_banks WHERE name='C6 Bank'`); }
   });
 
   it('falha do Banco Central preserva a última taxa e o período real, avisa sem expor o motivo e não inventa data', async () => {
