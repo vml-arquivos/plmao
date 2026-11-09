@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.53.0 — Entrar com Google (cadastro e login)
+
+- **Botão "Continuar com Google"** nas telas Entrar e Criar conta. Aparece sozinho quando `OAUTH_GOOGLE_CLIENT_ID` e `OAUTH_GOOGLE_CLIENT_SECRET` estão preenchidas; sem elas, nada muda.
+- **Cliente novo pelo Google:** conta criada como cliente, com carteira e e-mail já verificado pelo Google. O aceite dos Termos de Uso e da Política de Privacidade fica registrado (origem `oauth_google`; marketing fica desligado) e o aviso aparece junto do botão. Telefone, CPF e cidade continuam sendo pedidos no primeiro uso, como em qualquer conta.
+- **Cliente que já tem conta** com o mesmo e-mail entra na conta existente, sem duplicar.
+- **Entra no CRM** como cadastro novo, igual ao cadastro por e-mail.
+- **Contas da equipe não entram nem são ligadas pelo Google** (continuam só pelo painel, com os controles de segurança). Conta desativada também não entra.
+- Variáveis novas: `OAUTH_GOOGLE_CLIENT_ID`, `OAUTH_GOOGLE_CLIENT_SECRET`. URI de redirecionamento no Google Cloud: `https://placanamao.com.br/api/auth/oauth/google/callback`. Testes novos: `google-login`.
+
 ## 1.52.0 — Pacotes de saldo calculados
 
 - **Pacotes por quantidade de consultas:** Inicial = 3 consultas Completas, Plus = 10, Pro = 30. O saldo é o menor valor em reais que cobre as consultas e o cliente paga com desconto crescente (cerca de 4%, 8% e 12%). O valor sempre termina em ,90 e nunca dá mais desconto do que o calculado. Os destaques de cada pacote mostram "Equivale a N× Consulta Completa" e a economia em reais e em %.

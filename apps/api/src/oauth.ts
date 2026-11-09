@@ -2,11 +2,13 @@ import crypto from 'node:crypto';
 import { SignJWT, createRemoteJWKSet, importPKCS8, jwtVerify } from 'jose';
 import { env, oauthCallbackUrl, publicAppUrl } from './config.js';
 import { pool, tx } from './db.js';
-import { type AuthUser } from './auth.js';
+import { isTeamRole, type AuthUser } from './auth.js';
+import { upsertLead } from './lib/leads.js';
+import { log } from './lib/http.js';
 
 export type OAuthProvider = 'google' | 'microsoft' | 'apple';
 
-type ProviderConfig = {
+export type ProviderConfig = {
   id: OAuthProvider;
   displayName: string;
   clientId: string;
@@ -20,7 +22,7 @@ type ProviderConfig = {
   authorizationParams?: Record<string, string>;
 };
 
-type OidcIdentity = { providerAccountId: string; email: string; name: string; emailVerified: boolean; profile: Record<string, unknown> };
+export type OidcIdentity = { providerAccountId: string; email: string; name: string; emailVerified: boolean; profile: Record<string, unknown> };
 
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
@@ -123,7 +125,12 @@ export async function completeAuthorization(provider: OAuthProvider, input: { co
   const state = await consumeState(provider, input.state);
   const tokens = await exchangeCode(config, input.code, state.code_verifier);
   const identity = await verifyIdentity(config, tokens.idToken, state.nonce, input.appleUser);
-  const user = await upsertSocialUser(provider, config, identity);
+  const { user, created } = await upsertSocialUser(provider, config, identity);
+  // CRM: conta nova pelo Google entra na esteira como as demais. Falha aqui nunca derruba o acesso.
+  if (created) {
+    try { await upsertLead({ userId: user.id, email: user.email, name: user.name, source: 'CADASTRO', stage: 'CADASTRADO' }); }
+    catch (leadError) { log('warn', 'lead_oauth_sync_failed', { reason: leadError instanceof Error ? leadError.message : 'unknown' }); }
+  }
   const ticket = await issueLoginTicket(user.id);
   return { ticket };
 }
@@ -214,17 +221,18 @@ function parseAppleUser(value?: string): string | null {
   } catch { return null; }
 }
 
-async function upsertSocialUser(provider: OAuthProvider, config: ProviderConfig, identity: OidcIdentity): Promise<AuthUser> {
+export async function upsertSocialUser(provider: OAuthProvider, config: ProviderConfig, identity: OidcIdentity): Promise<{ user: AuthUser; created: boolean }> {
   return tx(async (client) => {
+    let created = false;
     const linked = await client.query(`SELECT u.id,u.email,u.name,u.role,u.active FROM user_identities i
       JOIN users u ON u.id=i.user_id WHERE i.provider=$1 AND i.provider_account_id=$2 FOR UPDATE`, [provider, identity.providerAccountId]);
     if (linked.rowCount) {
       const row = linked.rows[0];
-      if (!row.active) throw oauthError('OAUTH_ACCOUNT_UNAVAILABLE', 401);
+      if (!row.active || isTeamRole(String(row.role))) throw oauthError('OAUTH_ACCOUNT_UNAVAILABLE', 401);
       await client.query(`UPDATE user_identities SET email_at_provider=$3,profile=$4::jsonb,last_used_at=now(),updated_at=now()
         WHERE provider=$1 AND provider_account_id=$2`, [provider, identity.providerAccountId, identity.email, JSON.stringify(identity.profile)]);
       await client.query('UPDATE users SET last_login_at=now() WHERE id=$1', [row.id]);
-      return { id: row.id, email: row.email, name: row.name, role: row.role };
+      return { user: { id: row.id, email: row.email, name: row.name, role: row.role }, created };
     }
 
     let user = await client.query('SELECT id,email,name,role,active FROM users WHERE lower(email)=lower($1) FOR UPDATE', [identity.email]);
@@ -235,13 +243,17 @@ async function upsertSocialUser(provider: OAuthProvider, config: ProviderConfig,
         VALUES($1,$2,$3,'CLIENTE',false,now()) RETURNING id,email,name,role,active`, [identity.email, passwordHash, identity.name]);
       await client.query('INSERT INTO wallets(user_id,balance) VALUES($1,0)', [user.rows[0].id]);
       await client.query('INSERT INTO user_profiles(user_id) VALUES($1) ON CONFLICT(user_id) DO NOTHING', [user.rows[0].id]);
+      // A tela mostra o aviso "ao continuar você aceita os Termos e a Política" ao lado do botão: o aceite fica registrado com a origem.
+      await client.query(`INSERT INTO user_consents(user_id,consent_type,granted,policy_version,source)
+        VALUES($1,'TERMS_OF_SERVICE',true,'2026-08',$2),($1,'PRIVACY_POLICY',true,'2026-08',$2),($1,'MARKETING_EMAIL',false,'2026-08',$2)`, [user.rows[0].id, `oauth_${provider}`]);
+      created = true;
     }
     const row = user.rows[0];
-    if (!row.active) throw oauthError('OAUTH_ACCOUNT_UNAVAILABLE', 401);
+    if (!row.active || isTeamRole(String(row.role))) throw oauthError('OAUTH_ACCOUNT_UNAVAILABLE', 401);
     await client.query(`INSERT INTO user_identities(user_id,provider,provider_account_id,issuer,email_at_provider,email_verified_at,profile,last_used_at)
       VALUES($1,$2,$3,$4,$5,now(),$6::jsonb,now())`, [row.id, provider, identity.providerAccountId, Array.isArray(config.issuer) ? config.issuer[0] : config.issuer, identity.email, JSON.stringify(identity.profile)]);
     await client.query('UPDATE users SET last_login_at=now(), email_verified_at=COALESCE(email_verified_at,now()) WHERE id=$1', [row.id]);
-    return { id: row.id, email: row.email, name: row.name, role: row.role };
+    return { user: { id: row.id, email: row.email, name: row.name, role: row.role }, created };
   });
 }
 

@@ -122,6 +122,7 @@ export default function Auth({ initial }: { initial: Mode }) {
           {(mode === 'login' || mode === 'register') && providers.length > 0 && (
             <>
               <div className="social-row">{providers.map((p) => <a key={p.id} className="social-btn" href={`/api/auth/oauth/${p.id}/start`}><span aria-hidden="true">{PROVIDER_ICON[p.id]}</span> Continuar com {p.label}</a>)}</div>
+              {mode === 'register' && <p className="muted" style={{ fontSize: 12.5, textAlign: 'center', margin: '8px 0 0' }}>Ao continuar com o Google, você aceita os <Link to="/termos">Termos de Uso</Link> e a <Link to="/privacidade">Política de Privacidade</Link>.</p>}
               <div className="or-sep">ou use seu e-mail</div>
             </>
           )}
