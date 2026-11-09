@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Alert, Badge, Button, Check, ConfirmDialog, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Select, Switch, Tabs, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
@@ -17,6 +17,8 @@ interface AdminProduct {
 interface Feature { id: string; key: string; label: string; description: string; displayOrder: number; active: boolean }
 interface MatrixRes { features: Feature[]; products: Array<{ id: string; name: string; cells: Record<string, { status: string; note: string | null }> }> }
 interface Pack { slug: string; name: string; description: string; tagline: string; badge: string | null; highlights: string[]; credits: number; priceCents: number; displayOrder: number; active: boolean }
+interface PlanTier { slug: string; units: number; faceCredits: number; priceCents: number; savingsCents: number; requestedDiscountBps: number; effectiveDiscountBps: number; capped: boolean; worstMarginBps: number; worstProduct: string | null; equivalents: Array<{ id: string; name: string; count: number }>; highlights: string[] }
+interface PackPlan { referenceName: string; referencePriceCents: number; marginFloorBps: number; capBps: number; limitingProduct: string | null; tiers: PlanTier[]; warnings: string[] }
 interface Section { key: string; label: string; description: string }
 interface DataSource { key: string; label: string; description: string; provider: string; configured: boolean; note: string | null }
 interface DataSourcesRes { sources: DataSource[]; defaults: Record<string, string[]> }
@@ -327,11 +329,12 @@ function FeatureModal({ feature, onClose }: { feature: Feature | null; onClose: 
 function PackagesTab() {
   const res = useAsync(() => api.get<Pack[]>('/admin/content/packages'));
   const [edit, setEdit] = useState<Pack | 'new' | null>(null);
+  const [calc, setCalc] = useState(false);
   if (res.loading && !res.data) return <PageLoading />;
   if (res.error || !res.data) return <ErrorState error={res.error} onRetry={res.reload} />;
   return (
     <div className="stack">
-      <div className="toolbar"><span className="muted grow">Pacotes são saldo pré-pago: o cliente paga o valor e recebe o saldo em consultas. Quando o saldo é maior que o valor, a diferença é o bônus.</span><Button variant="primary" icon="plus" onClick={() => setEdit('new')}>Novo pacote</Button></div>
+      <div className="toolbar"><Button onClick={() => setCalc(true)}>Calcular pacotes</Button><span className="muted grow">Pacotes são saldo pré-pago: o cliente paga o valor e recebe o saldo em consultas. Quando o saldo é maior que o valor, a diferença é o bônus.</span><Button variant="primary" icon="plus" onClick={() => setEdit('new')}>Novo pacote</Button></div>
       <div className="table-wrap"><table className="table"><thead><tr><th>Pacote</th><th className="r">Valor pago</th><th className="r">Saldo</th><th className="r">Bônus</th><th>Selo</th><th>Status</th><th /></tr></thead><tbody>
         {res.data.map((p) => (
           <tr key={p.slug}>
@@ -343,8 +346,72 @@ function PackagesTab() {
           </tr>
         ))}
       </tbody></table></div>
+      {calc && <PlanModal packs={res.data} onClose={(c) => { setCalc(false); if (c) res.reload(); }} />}
       {edit && <PackModal p={edit === 'new' ? null : edit} onClose={(c) => { setEdit(null); if (c) res.reload(); }} />}
     </div>
+  );
+}
+
+/** Calculadora: o desconto de cada pacote nunca passa do que mantém a margem mínima em todas as consultas. */
+function PlanModal({ packs, onClose }: { packs: Pack[]; onClose: (changed: boolean) => void }) {
+  const toast = useToast();
+  const [plan, setPlan] = useState<PackPlan | null>(null);
+  const [units, setUnits] = useState<Record<string, string>>({});
+  const [disc, setDisc] = useState<Record<string, string>>({});
+  const [floor, setFloor] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const num = (v: string) => Number(v.replace(',', '.'));
+  const body = () => {
+    const slugs = plan ? plan.tiers.map((t) => t.slug) : null;
+    const tiers = slugs && slugs.every((k) => units[k] && disc[k]) ? slugs.map((k) => ({ slug: k, units: Math.round(num(units[k]!)), discountPct: num(disc[k]!) })) : undefined;
+    return { ...(tiers ? { tiers } : {}), ...(floor ? { marginFloorPct: num(floor) } : {}) };
+  };
+  const calculate = async (initial = false) => {
+    setBusy(true);
+    try {
+      const p = await api.post<PackPlan>('/admin/content/packages/plan', initial ? {} : body());
+      setPlan(p);
+      if (initial) { setUnits(Object.fromEntries(p.tiers.map((t) => [t.slug, String(t.units)]))); setDisc(Object.fromEntries(p.tiers.map((t) => [t.slug, String(t.requestedDiscountBps / 100)]))); setFloor(String(p.marginFloorBps / 100)); }
+    } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  };
+  useEffect(() => { void calculate(true); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  const apply = async () => {
+    setBusy(true);
+    try { await api.post('/admin/content/packages/plan/apply', body()); toast.ok('Pacotes atualizados com os valores calculados.'); onClose(true); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); setConfirm(false); }
+  };
+  const nameOf = (slug: string) => packs.find((p) => p.slug === slug)?.name ?? slug;
+  const pct = (bps: number) => `${(bps / 100).toFixed(1).replace('.', ',')}%`;
+  return (
+    <Modal title="Calcular pacotes" wide onClose={() => onClose(false)} footer={<><Button variant="ghost" onClick={() => onClose(false)}>Fechar</Button><Button disabled={busy} onClick={() => void calculate()}>Recalcular</Button><Button variant="primary" disabled={busy || !plan?.tiers.length} onClick={() => setConfirm(true)}>Aplicar nos pacotes</Button></>}>
+      {!plan ? <PageLoading /> : (
+        <div className="stack">
+          <p className="muted" style={{ margin: 0 }}>
+            Cada pacote vale uma quantidade de {plan.referenceName} ({money(plan.referencePriceCents)}). O desconto máximo é o maior que ainda deixa todas as consultas com a margem mínima, já descontados impostos e taxa do meio de pagamento. Limite atual: <b>{pct(plan.capBps)}</b>{plan.limitingProduct ? ` (quem limita: ${plan.limitingProduct})` : ''}.
+          </p>
+          <div className="form-grid cols-3"><Field label="Margem mínima sobre o custo (%)" hint="Em qualquer consulta e forma de pagamento."><Input inputMode="decimal" value={floor} onChange={(e) => setFloor(e.target.value)} /></Field></div>
+          <div className="table-wrap"><table className="table"><thead><tr><th>Pacote</th><th className="r">Consultas</th><th className="r">Desconto (%)</th><th className="r">Saldo</th><th className="r">Valor</th><th className="r">Economia</th><th className="r">Desconto real</th><th className="r">Pior margem</th></tr></thead><tbody>
+            {plan.tiers.map((t) => (
+              <tr key={t.slug}>
+                <td><b>{nameOf(t.slug)}</b>{t.capped && <div><Badge tone="warn">Reduzido ao limite</Badge></div>}</td>
+                <td className="r"><Input inputMode="numeric" style={{ width: 70, textAlign: 'right' }} value={units[t.slug] ?? ''} onChange={(e) => setUnits({ ...units, [t.slug]: e.target.value.replace(/\D/g, '') })} /></td>
+                <td className="r"><Input inputMode="decimal" style={{ width: 70, textAlign: 'right' }} value={disc[t.slug] ?? ''} onChange={(e) => setDisc({ ...disc, [t.slug]: e.target.value })} /></td>
+                <td className="r num">{money(t.faceCredits * 100)}</td>
+                <td className="r num"><b>{money(t.priceCents)}</b></td>
+                <td className="r num">{money(t.savingsCents)}</td>
+                <td className="r num">{pct(t.effectiveDiscountBps)}</td>
+                <td className="r num">{pct(t.worstMarginBps)}</td>
+              </tr>
+            ))}
+          </tbody></table></div>
+          {plan.tiers.map((t) => <p key={t.slug} className="muted" style={{ margin: 0, fontSize: 13 }}><b>{nameOf(t.slug)}</b>: o saldo paga {t.equivalents.map((e) => `${e.count}× ${e.name}`).join(', ')}.</p>)}
+          {plan.warnings.map((w) => <Alert key={w} tone="warn">{w}</Alert>)}
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>O valor sempre termina em ,90 e nunca dá mais desconto do que o calculado. O saldo é em reais inteiros (o menor valor que cobre as consultas).</p>
+        </div>
+      )}
+      {confirm && <ConfirmDialog title="Aplicar nos pacotes?" confirmLabel="Aplicar" message="Troca saldo, valor e destaques dos pacotes Inicial, Plus e Pro. Quem já comprou não é afetado." onConfirm={apply} onClose={() => setConfirm(false)} />}
+    </Modal>
   );
 }
 

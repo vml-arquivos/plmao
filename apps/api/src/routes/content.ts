@@ -11,6 +11,8 @@ import { sampleSections, samplePdf } from '../report/sample.js';
 import { SITEMAP_PATHS, pageMeta, seoImageUrl } from '../seo.js';
 import { FIN_PREFIX, financingInfo, invalidateFinancingPages, isCustomFinancingPath, slugify, syncFinancingPages } from '../financingPages.js';
 import { readImageInfo } from '../lib/imageInfo.js';
+import { loadPaymentSettings } from '../pricing/settings.js';
+import { DEFAULT_TIERS, planPackages, type PackagePlan } from '../pricing/packagePlanner.js';
 import { lastVerification, verifyPublished, type Expected } from '../seoVerify.js';
 import { invalidateSeo, needsFaq, seoChecks, seedFor, seoImages, seoRows, H1_MAX } from '../seoStore.js';
 
@@ -230,6 +232,44 @@ const presentPackage = (r: Record<string, unknown>) => ({ slug: r.slug, name: r.
 adminContentRouter.get('/packages', asyncRoute(async (_req, res) => {
   const rows = await pool.query('SELECT slug,name,description,tagline,badge,highlights,credits,price_cents,display_order,active FROM credit_packages ORDER BY display_order,price_cents');
   res.json(rows.rows.map(presentPackage));
+}));
+
+// ---- calculadora de pacotes: preço e desconto calculados pelo preço das consultas, impostos, taxas e margem
+const planBody = z.object({
+  marginFloorPct: z.number().min(0).max(100).optional(),
+  tiers: z.array(z.object({ slug: z.string().trim().min(2).max(60), units: z.number().int().min(1).max(500), discountPct: z.number().min(0).max(50) }).strict()).min(1).max(8).optional()
+}).strict();
+const pricingGuard = requirePermission('MANAGE_PRICING');
+
+async function buildPlan(input: z.infer<typeof planBody>): Promise<PackagePlan> {
+  const settings = await loadPaymentSettings();
+  const rows = (await pool.query(`SELECT id,name,price_cents,provider_cost_cents FROM query_products WHERE active=true AND COALESCE(is_free,false)=false AND price_cents>0`)).rows as Array<{ id: string; name: string; price_cents: number; provider_cost_cents: number | null }>;
+  const products = rows.map((p) => ({ id: p.id, name: p.name, priceCents: Number(p.price_cents), providerCostCents: Number(p.provider_cost_cents ?? 0) }));
+  return planPackages(settings, products, {
+    tiers: input.tiers?.map((t) => ({ slug: t.slug, units: t.units, discountBps: Math.round(t.discountPct * 100) })) ?? DEFAULT_TIERS,
+    marginFloorBps: input.marginFloorPct != null ? Math.round(input.marginFloorPct * 100) : undefined
+  });
+}
+
+adminContentRouter.post('/packages/plan', pricingGuard, asyncRoute(async (req, res) => {
+  const b = planBody.safeParse(req.body ?? {});
+  if (!b.success) throw bad();
+  res.json(await buildPlan(b.data));
+}));
+
+/** Aplica o plano calculado: o servidor refaz a conta (não confia em número vindo da tela) e só altera pacotes que existem. */
+adminContentRouter.post('/packages/plan/apply', pricingGuard, asyncRoute(async (req, res) => {
+  const b = planBody.safeParse(req.body ?? {});
+  if (!b.success) throw bad();
+  const plan = await buildPlan(b.data);
+  if (!plan.tiers.length) throw appError('PLAN_EMPTY', { code: 'PLAN_EMPTY', http: 422, expose: true });
+  const existing = (await pool.query('SELECT slug FROM credit_packages WHERE slug = ANY($1)', [plan.tiers.map((t) => t.slug)])).rows.map((r) => r.slug as string);
+  if (existing.length !== plan.tiers.length) throw appError('PACKAGE_NOT_FOUND', { code: 'PACKAGE_NOT_FOUND', http: 404, expose: true });
+  await tx(async (client) => {
+    for (const t of plan.tiers) await client.query('UPDATE credit_packages SET credits=$2, price_cents=$3, highlights=$4::jsonb, updated_at=now() WHERE slug=$1', [t.slug, t.faceCredits, t.priceCents, JSON.stringify(t.highlights)]);
+  });
+  await audit(req.user!.id, 'APPLY_PACKAGE_PLAN', 'CREDIT_PACKAGE', plan.tiers.map((t) => t.slug).join(','), { requestId: requestId(req), tiers: plan.tiers.map((t) => ({ slug: t.slug, credits: t.faceCredits, priceCents: t.priceCents })) });
+  res.json(plan);
 }));
 
 adminContentRouter.post('/packages', asyncRoute(async (req, res) => {

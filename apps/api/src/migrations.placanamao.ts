@@ -10,6 +10,7 @@ import { CONSUMPTION_SEED, HONDA_CIVIC_OBS, COROLLA_HYBRID_VERSION, CIVIC_MODEL,
 import { VEHICLE_PHOTOS, photoPage, photoUrl } from './data/vehiclePhotos.js';
 import { readBundledSnapshot, upsertCatalog, rematchCatalog } from './lib/catalog.js';
 import { FIELD_CATALOG, VT_CATALOG } from './report/catalog.js';
+import { planPackages } from './pricing/packagePlanner.js';
 import { loadPaymentSettings } from './pricing/settings.js';
 import { floorPriceFor } from './pricing/productPricing.js';
 import { FINANCING_FAQS, SEED_ARTICLES, SUPPORT_FAQS, SEED_FAQS, SEED_FEATURES, SEED_MATRIX } from './content.seed.js';
@@ -3023,6 +3024,24 @@ export const placaMigrations: Migration[] = [
       }
     },
     down: async () => { /* só ajuste de texto; nada a desfazer */ }
+  }
+  ,
+  {
+    id: '083_pacotes_calculados',
+    name: 'Pacotes de saldo calculados pelos preços das consultas e pela margem; só troca se ainda estiverem com os valores de fábrica',
+    up: async (client) => {
+      const fabrica: Record<string, [number, number]> = { essencial: [60, 6000], completo: [130, 12000], profissional: [350, 30000] };
+      const atuais = (await client.query(`SELECT slug,credits,price_cents FROM credit_packages WHERE slug = ANY($1)`, [Object.keys(fabrica)])).rows as Array<{ slug: string; credits: number; price_cents: number }>;
+      if (atuais.length !== 3 || atuais.some((p) => fabrica[p.slug]![0] !== Number(p.credits) || fabrica[p.slug]![1] !== Number(p.price_cents))) return;
+      const produtos = (await client.query(`SELECT id,name,price_cents,provider_cost_cents FROM query_products WHERE active=true AND COALESCE(is_free,false)=false AND price_cents>0`)).rows
+        .map((p: { id: string; name: string; price_cents: number; provider_cost_cents: number | null }) => ({ id: p.id, name: p.name, priceCents: Number(p.price_cents), providerCostCents: Number(p.provider_cost_cents ?? 0) }));
+      const plano = planPackages(await loadPaymentSettings(client), produtos);
+      if (plano.tiers.length !== 3 || plano.tiers.some((t) => t.priceCents <= 0 || t.faceCredits <= 0)) return;
+      for (const t of plano.tiers) {
+        await client.query(`UPDATE credit_packages SET credits=$2, price_cents=$3, highlights=$4::jsonb, updated_at=now() WHERE slug=$1`, [t.slug, t.faceCredits, t.priceCents, JSON.stringify(t.highlights)]);
+      }
+    },
+    down: async () => { /* valores de pacote são dado comercial; nada a desfazer */ }
   }
 
 ];
