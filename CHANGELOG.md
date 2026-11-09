@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.52.0 — Pacotes de saldo calculados
+
+- **Pacotes por quantidade de consultas:** Inicial = 3 consultas Completas, Plus = 10, Pro = 30. O saldo é o menor valor em reais que cobre as consultas e o cliente paga com desconto crescente (cerca de 4%, 8% e 12%). O valor sempre termina em ,90 e nunca dá mais desconto do que o calculado. Os destaques de cada pacote mostram "Equivale a N× Consulta Completa" e a economia em reais e em %.
+- **Sem prejuízo:** o desconto máximo é o maior que ainda mantém, em todas as consultas pagas e em todas as formas de pagamento habilitadas, a margem mínima sobre o custo (margem mínima das configurações + 5 pontos, no mínimo 15%), já descontados impostos e taxas. Se algum produto já estiver abaixo da margem, a calculadora avisa e não dá desconto.
+- **Painel → Catálogo → Pacotes → Calcular pacotes:** mostra saldo, valor, economia, desconto real e a pior margem de cada pacote; dá para mudar quantidade, desconto e margem mínima, recalcular e aplicar. O servidor refaz a conta ao aplicar. Exige a permissão de preços.
+- Migração 083: troca os três pacotes pelos valores calculados só se ainda estiverem com os valores de fábrica; pacotes já editados não são tocados. Quem já comprou não é afetado.
+- Sem variável de ambiente nova. Testes novos: `pacotes-calculados`.
+
 ## 1.51.0 — SEO: páginas "Financiamento de carro {banco}" e páginas novas criadas no painel
 
 - **Uma página por banco, sozinha:** cada banco ativo com taxa (Banco Central ou cadastrada pela equipe) ganha `/financiamento/<banco>` (ex.: `/financiamento/bradesco`, `/financiamento/santander`, `/financiamento/c6-bank`), com título "Financiamento de carro {banco}: taxa e simulação", descrição, H1, a taxa real com o período, um exemplo de parcela (carro de R$ 60.000, entrada de R$ 12.000, 48 meses), perguntas frequentes, dados estruturados e links para os outros bancos. Entram no sitemap.
