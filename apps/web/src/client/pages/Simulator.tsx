@@ -155,7 +155,7 @@ export default function Simulator() {
                       {state.modality !== 'LEASING' && marketCdc && <><b>{pct(marketCdc.pct)} a.m.</b> no CDC</>}
                       {state.modality === 'BOTH' && ' e '}
                       {state.modality !== 'CDC' && marketLease && <><b>{pct(marketLease.pct)} a.m.</b> no leasing</>}.
-                      {' '}Sua taxa real depende da análise de crédito.</> : 'Carregando a taxa média de mercado…'}
+                      {' '}Sua taxa real depende da análise de crédito.{cfg.financingHub && <> <Link to="/financiamento">Veja a taxa de cada banco.</Link></>}</> : 'Carregando a taxa média de mercado…'}
                   </p>
                 </>
               ) : (

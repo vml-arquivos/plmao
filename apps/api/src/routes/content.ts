@@ -9,6 +9,7 @@ import { requirePermission } from '../permissions.js';
 import { SECTIONS } from '../report/catalog.js';
 import { sampleSections, samplePdf } from '../report/sample.js';
 import { SITEMAP_PATHS, pageMeta, seoImageUrl } from '../seo.js';
+import { FIN_PREFIX, financingInfo, invalidateFinancingPages, isCustomFinancingPath, slugify, syncFinancingPages } from '../financingPages.js';
 import { readImageInfo } from '../lib/imageInfo.js';
 import { lastVerification, verifyPublished, type Expected } from '../seoVerify.js';
 import { invalidateSeo, needsFaq, seoChecks, seedFor, seoImages, seoRows, H1_MAX } from '../seoStore.js';
@@ -451,6 +452,7 @@ const imageDto = (path: string, i: { mime: string; sizeBytes: number; width: num
 
 /** Imagem da página (miniatura): vale como foto no Google, WhatsApp e redes e entra no sitemap. Fica no banco para sobreviver a cada deploy. */
 adminContentRouter.post('/seo/pages/image', seoImageUpload, asyncRoute(async (req, res) => {
+  await syncFinancingPages();
   const path = seoPath(String(req.query.path ?? '').slice(0, 120));
   const data = req.body as Buffer;
   if (!Buffer.isBuffer(data) || !data.length) throw appError('SEO_IMAGE_TYPE', { code: 'SEO_IMAGE_TYPE', http: 415, expose: true });
@@ -468,6 +470,7 @@ adminContentRouter.post('/seo/pages/image', seoImageUpload, asyncRoute(async (re
   res.json({ ok: true, image: imageDto(path, { mime: info.mime, sizeBytes: data.length, width: info.width, height: info.height, sha }) });
 }));
 adminContentRouter.delete('/seo/pages/image', asyncRoute(async (req, res) => {
+  await syncFinancingPages();
   const path = seoPath(String(req.query.path ?? '').slice(0, 120));
   await pool.query('DELETE FROM seo_images WHERE path=$1', [path]);
   invalidateSeo();
@@ -476,18 +479,21 @@ adminContentRouter.delete('/seo/pages/image', asyncRoute(async (req, res) => {
 }));
 
 adminContentRouter.get('/seo/pages', asyncRoute(async (_req, res) => {
+  await syncFinancingPages();
   const rows = await seoRows(); const images = await seoImages();
   res.json({ items: SITEMAP_PATHS.map((path) => {
     const def = pageMeta[path]; const r = rows.get(path);
-    const h1 = r?.h1 || ''; const title = r?.title || def.title; const description = r?.description || def.description;
+    const fin = financingInfo(path);
+    const h1 = r?.h1 || fin?.defaultH1 || ''; const title = r?.title || def.title; const description = r?.description || def.description;
     const sections = r?.sections ?? []; const faq = r?.faq ?? [];
-    const checks = seoChecks({ h1, needsFaq: needsFaq(path), title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasContent: sections.length > 0 || faq.length > 0 });
-    return { path, default: def, override: r ? { h1: r.h1, title: r.title, description: r.description, keyword: r.keyword, sections: r.sections, faq: r.faq, noindex: r.noindex } : null, h1, title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasSeed: !!seedFor(path), needsFaq: needsFaq(path), checks, score: checks.filter((c) => c.ok).length, total: checks.length, publication: lastVerification(path), updatedAt: r?.updatedAt ?? null, image: images.has(path) ? imageDto(path, images.get(path)!) : null };
+    const checks = seoChecks({ h1, h1Max: fin ? 50 : undefined, needsFaq: needsFaq(path), title, description, keyword: r?.keyword || fin?.keyword || null, sections, faq, noindex: r?.noindex ?? false, hasContent: sections.length > 0 || faq.length > 0 });
+    return { path, default: def, override: r ? { h1: r.h1, title: r.title, description: r.description, keyword: r.keyword, sections: r.sections, faq: r.faq, noindex: r.noindex } : null, h1, title, description, keyword: r?.keyword ?? null, sections, faq, noindex: r?.noindex ?? false, hasSeed: !!seedFor(path), needsFaq: needsFaq(path), checks, score: checks.filter((c) => c.ok).length, total: checks.length, kind: fin?.kind ?? null, defaultKeyword: fin?.keyword ?? null, publication: lastVerification(path), updatedAt: r?.updatedAt ?? null, image: images.has(path) ? imageDto(path, images.get(path)!) : null };
   }) });
 }));
 
 /** Verifica se o que está salvo no painel é o que o servidor publica. Uma página (`path`) ou todas as 30. Não consulta o Google. */
 adminContentRouter.post('/seo/pages/verify', asyncRoute(async (req, res) => {
+  await syncFinancingPages();
   const b = z.object({ path: z.string().max(120).optional() }).strict().safeParse(req.body ?? {});
   if (!b.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const paths = b.data.path ? [seoPath(b.data.path)] : SITEMAP_PATHS;
@@ -504,6 +510,7 @@ adminContentRouter.post('/seo/pages/verify', asyncRoute(async (req, res) => {
 }));
 
 adminContentRouter.put('/seo/pages', asyncRoute(async (req, res) => {
+  await syncFinancingPages();
   const b = seoBody.safeParse(req.body);
   if (!b.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const v = b.data; seoPath(v.path);
@@ -511,23 +518,60 @@ adminContentRouter.put('/seo/pages', asyncRoute(async (req, res) => {
     `INSERT INTO seo_pages(path,title,description,keyword,sections,faq,noindex,updated_by,h1,updated_at) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,now())
      ON CONFLICT (path) DO UPDATE SET title=$2,description=$3,keyword=$4,sections=$5::jsonb,faq=$6::jsonb,noindex=$7,updated_by=$8,h1=$9,updated_at=now()`,
     [v.path, v.title || null, v.description || null, v.keyword || null, JSON.stringify(v.sections), JSON.stringify(v.faq), v.noindex, req.user!.id, v.h1 || null]);
-  invalidateSeo();
+  invalidateSeo(); invalidateFinancingPages();
   await audit(req.user!.id, 'UPDATE_SEO_PAGE', 'SEO_PAGE', v.path, { noindex: v.noindex, requestId: requestId(req) });
+  res.json({ ok: true });
+}));
+
+
+const customBody = z.object({
+  slug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).min(3).max(60),
+  h1: z.string().trim().min(3).max(70),
+  title: z.string().trim().min(10).max(120),
+  description: z.string().trim().min(20).max(300),
+  keyword: z.string().trim().max(80).nullable().default(null)
+}).strict();
+
+/** Nova página de SEO criada no painel, sempre em /financiamento/<nome>. Aparece no sitemap e no site assim que salva. */
+adminContentRouter.post('/seo/pages/custom', asyncRoute(async (req, res) => {
+  const b = customBody.safeParse(req.body);
+  if (!b.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
+  await syncFinancingPages(true);
+  const v = b.data; const path = `${FIN_PREFIX}${v.slug}`;
+  if (path in pageMeta || (await pool.query('SELECT 1 FROM seo_pages WHERE path=$1', [path])).rowCount) throw appError('SEO_PAGE_EXISTS', { code: 'SEO_PAGE_EXISTS', http: 409, expose: true });
+  await pool.query(`INSERT INTO seo_pages(path,title,description,keyword,sections,faq,noindex,updated_by,h1,updated_at) VALUES($1,$2,$3,$4,'[]'::jsonb,'[]'::jsonb,false,$5,$6,now())`,
+    [path, v.title, v.description, v.keyword || null, req.user!.id, v.h1]);
+  invalidateSeo(); invalidateFinancingPages(); await syncFinancingPages(true);
+  await audit(req.user!.id, 'CREATE_SEO_PAGE', 'SEO_PAGE', path, { requestId: requestId(req) });
+  res.status(201).json({ ok: true, path });
+}));
+
+/** Exclui só páginas criadas à mão. As páginas dos bancos e as de fábrica não se excluem (a de banco some sozinha se o banco ficar sem taxa ou for desativado). */
+adminContentRouter.delete('/seo/pages/custom', asyncRoute(async (req, res) => {
+  await syncFinancingPages(true);
+  const path = String(req.query.path ?? '').slice(0, 120);
+  if (!isCustomFinancingPath(path)) throw appError('SEO_PATH_INVALID', { code: 'SEO_PATH_INVALID', http: 422, expose: true });
+  await pool.query('DELETE FROM seo_images WHERE path=$1', [path]);
+  await pool.query('DELETE FROM seo_pages WHERE path=$1', [path]);
+  invalidateSeo(); invalidateFinancingPages(); await syncFinancingPages(true);
+  await audit(req.user!.id, 'DELETE_SEO_PAGE', 'SEO_PAGE', path, { requestId: requestId(req) });
   res.json({ ok: true });
 }));
 
 /** Restaurar padrão: devolve o texto de fábrica da página (ou limpa a edição, se não houver texto de fábrica). */
 adminContentRouter.post('/seo/pages/reset', asyncRoute(async (req, res) => {
+  await syncFinancingPages();
   const b = z.object({ path: z.string().max(120) }).strict().safeParse(req.body);
   if (!b.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const path = seoPath(b.data.path); const seed = seedFor(path);
+  if (isCustomFinancingPath(path)) throw appError('SEO_CUSTOM_NO_RESET', { code: 'SEO_CUSTOM_NO_RESET', http: 422, expose: true });
   if (seed) {
     await pool.query(
       `INSERT INTO seo_pages(path,title,description,keyword,sections,faq,noindex,updated_by,h1,updated_at) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,false,$7,$8,now())
        ON CONFLICT (path) DO UPDATE SET title=$2,description=$3,keyword=$4,sections=$5::jsonb,faq=$6::jsonb,noindex=false,updated_by=$7,h1=$8,updated_at=now()`,
       [path, seed.title ?? null, seed.description ?? null, seed.keyword, JSON.stringify(seed.sections ?? []), JSON.stringify(seed.faq), req.user!.id, seed.h1]);
   } else await pool.query('DELETE FROM seo_pages WHERE path=$1', [path]);
-  invalidateSeo();
+  invalidateSeo(); invalidateFinancingPages();
   await audit(req.user!.id, 'RESET_SEO_PAGE', 'SEO_PAGE', path, { requestId: requestId(req) });
   res.json({ ok: true });
 }));

@@ -40,11 +40,11 @@ const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCa
 export interface SeoCheck { ok: boolean; label: string }
 /** Lista de verificação no estilo dos plugins de SEO: o que está bom e o que ajustar. */
 export const H1_MAX = 30;
-export function seoChecks(v: { h1: string; needsFaq: boolean; title: string; description: string; keyword: string | null; sections: SeoSection[]; faq: SeoFaq[]; noindex: boolean; hasContent: boolean }): SeoCheck[] {
+export function seoChecks(v: { h1Max?: number; h1: string; needsFaq: boolean; title: string; description: string; keyword: string | null; sections: SeoSection[]; faq: SeoFaq[]; noindex: boolean; hasContent: boolean }): SeoCheck[] {
   const kw = v.keyword ? norm(v.keyword).trim() : '';
   const text = norm(v.sections.map((s) => `${s.h} ${s.p}`).join(' '));
   const checks: SeoCheck[] = [
-    { ok: v.h1.length > 0 && v.h1.length <= H1_MAX, label: v.h1 ? `H1 com ${v.h1.length} caracteres (ideal: até ${H1_MAX})` : `H1 não definido (ideal: até ${H1_MAX} caracteres)` },
+    { ok: v.h1.length > 0 && v.h1.length <= (v.h1Max ?? H1_MAX), label: v.h1 ? `H1 com ${v.h1.length} caracteres (ideal: até ${v.h1Max ?? H1_MAX})` : `H1 não definido (ideal: até ${v.h1Max ?? H1_MAX} caracteres)` },
     { ok: v.title.length >= 30 && v.title.length <= 65, label: `Título com ${v.title.length} caracteres (ideal: 30 a 65)` },
     { ok: v.description.length >= 70 && v.description.length <= 165, label: `Descrição com ${v.description.length} caracteres (ideal: 70 a 165)` },
     { ok: !!kw, label: 'Palavra-chave principal definida' }
@@ -60,5 +60,5 @@ export function seoChecks(v: { h1: string; needsFaq: boolean; title: string; des
   return checks;
 }
 
-export const needsFaq = (path: string) => !NO_FAQ_PATHS.has(path);
+export const needsFaq = (path: string) => !NO_FAQ_PATHS.has(path) && !path.startsWith('/financiamento');
 export const seedFor = (path: string) => SEO_SEED_BY_PATH.get(path) ?? null;

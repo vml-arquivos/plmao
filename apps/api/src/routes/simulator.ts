@@ -10,6 +10,8 @@ import { runBankComparison, runSimulation, simulationBody, simulatorConfig, type
 import { loadBanks, loadBcbBankRates } from '../financingBanks.js';
 import { renderSimulationPdf } from '../simulator/pdf.js';
 import { publicAppUrl } from '../config.js';
+import { FIN_HUB, financingContent, financingInfo, syncFinancingPages } from '../financingPages.js';
+import { seoRows } from '../seoStore.js';
 
 /**
  * Simulador de financiamento (CDC e leasing) para qualquer tipo de veículo.
@@ -35,11 +37,23 @@ function run(body: ReturnType<typeof parseBody>, settings: Awaited<ReturnType<ty
   }
 }
 
+/** Página "Financiamento de carro {banco}" (ou o índice): blocos gerados com as taxas reais, mais o que o painel de SEO definir. */
+simulatorRouter.get('/simulator/financing-page', asyncRoute(async (req, res) => {
+  const raw = String(req.query.path ?? '').slice(0, 120);
+  const path = raw.length > 1 ? raw.replace(/\/$/, '') : raw;
+  const c = await financingContent(path);
+  if (!c) throw appError('Página não encontrada.', { code: 'NOT_FOUND', http: 404, expose: true });
+  const row = (await seoRows()).get(path);
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.json({ ...c, h1: row?.h1 || c.h1, title: row?.title || c.title, description: row?.description || c.description, faq: row && row.faq.length ? [] : c.faq });
+}));
+
 simulatorRouter.get('/simulator/config', asyncRoute(async (_req, res) => {
   const settings = await loadFinancingSettings();
   maybeRefreshInBackground(settings);
+  await syncFinancingPages();
   res.setHeader('Cache-Control', 'public, max-age=300');
-  res.json(simulatorConfig(settings));
+  res.json({ ...simulatorConfig(settings), financingHub: Boolean(financingInfo(FIN_HUB)) });
 }));
 
 simulatorRouter.post('/simulator/calculate', calcLimiter, asyncRoute(async (req, res) => {

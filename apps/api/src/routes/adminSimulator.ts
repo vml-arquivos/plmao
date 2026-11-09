@@ -6,6 +6,7 @@ import { appError, asyncRoute, audit } from '../lib/http.js';
 import { requirePermission } from '../permissions.js';
 import { loadBanks, loadBcbBankRates } from '../financingBanks.js';
 import { pickBankRate } from '../lib/bankRates.js';
+import { invalidateFinancingPages } from '../financingPages.js';
 import { BCB_SERIES, loadFinancingSettings, refreshRatesFromBcb } from '../financingSettings.js';
 
 /** Painel: taxas de referência (Banco Central), tarifas de referência, IOF e simulações feitas pelos clientes. */
@@ -52,6 +53,7 @@ adminSimulatorRouter.put('/settings', asyncRoute(async (req, res) => {
 
 adminSimulatorRouter.post('/refresh', asyncRoute(async (req, res) => {
   const r = await refreshRatesFromBcb();
+  invalidateFinancingPages();
   await audit(req.user!.id, 'FINANCING_RATES_REFRESHED', 'financing_settings', '1', { ok: r.ok, error: r.error ?? null });
   if (!r.ok) throw appError('BCB_UNAVAILABLE', { code: 'BCB_UNAVAILABLE', http: 502, expose: true });
   res.json({ settings: await loadFinancingSettings() });
@@ -124,6 +126,7 @@ adminSimulatorRouter.post('/banks', asyncRoute(async (req, res) => {
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
     [d.name, d.bcbMatch, d.cdcPfPct, d.cdcPjPct, d.leasingPjPct, d.feeCadastroCents, d.feeAvaliacaoCents, d.feeRegistroCents, d.notes, d.active, d.displayOrder]);
   await audit(req.user!.id, 'FINANCING_BANK_CREATED', 'financing_bank', r.rows[0].id, { name: d.name });
+  invalidateFinancingPages();
   res.status(201).json({ id: r.rows[0].id });
 }));
 
@@ -148,6 +151,7 @@ adminSimulatorRouter.put('/banks/:id', asyncRoute(async (req, res) => {
   const r = await pool.query(`UPDATE financing_banks SET ${sets.join(', ')}, updated_at=now() WHERE id=$${vals.length} RETURNING id`, vals);
   if (!r.rowCount) throw appError('BANK_NOT_FOUND', { code: 'BANK_NOT_FOUND', http: 404, expose: true });
   await audit(req.user!.id, 'FINANCING_BANK_UPDATED', 'financing_bank', id, { fields: Object.keys(d) });
+  invalidateFinancingPages();
   res.json({ ok: true });
 }));
 
@@ -157,5 +161,6 @@ adminSimulatorRouter.delete('/banks/:id', asyncRoute(async (req, res) => {
   const r = await pool.query('DELETE FROM financing_banks WHERE id=$1 RETURNING name', [id]);
   if (!r.rowCount) throw appError('BANK_NOT_FOUND', { code: 'BANK_NOT_FOUND', http: 404, expose: true });
   await audit(req.user!.id, 'FINANCING_BANK_DELETED', 'financing_bank', id, { name: r.rows[0].name });
+  invalidateFinancingPages();
   res.json({ ok: true });
 }));

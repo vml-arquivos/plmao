@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { api } from '../api';
-import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, PageLoading, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { Alert, Badge, Button, ConfirmDialog, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { Card, PageHead } from '../parts';
 import { Icon } from '../../shared/icons';
@@ -14,15 +14,15 @@ const PUB_TONE = { OK: 'ok', DIVERGENCIA: 'warn', ERRO: 'danger' } as const;
 const PUB_LABEL = { OK: 'Confere', DIVERGENCIA: 'Diverge', ERRO: 'Erro' } as const;
 const dt = (iso: string) => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 interface PageImage { url: string; mime: string; sizeBytes: number; width: number | null; height: number | null }
-interface Item { publication?: Pub | null; image: PageImage | null; h1: string; needsFaq: boolean; override: { h1: string | null; title: string | null; description: string | null } | null; path: string; default: { title: string; description: string }; title: string; description: string; keyword: string | null; sections: Sec[]; faq: Faq[]; noindex: boolean; hasSeed: boolean; checks: Check[]; score: number; total: number }
+interface Item { kind?: 'bank' | 'hub' | 'custom' | null; defaultKeyword?: string | null; publication?: Pub | null; image: PageImage | null; h1: string; needsFaq: boolean; override: { h1: string | null; title: string | null; description: string | null } | null; path: string; default: { title: string; description: string }; title: string; description: string; keyword: string | null; sections: Sec[]; faq: Faq[]; noindex: boolean; hasSeed: boolean; checks: Check[]; score: number; total: number }
 
 const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const SITE = 'placanamao.com.br';
-function liveChecks(v: { h1: string; needsFaq: boolean; title: string; description: string; keyword: string; sections: Sec[]; faq: Faq[]; noindex: boolean }): Check[] {
+function liveChecks(v: { h1Max?: number; h1: string; needsFaq: boolean; title: string; description: string; keyword: string; sections: Sec[]; faq: Faq[]; noindex: boolean }): Check[] {
   const kw = norm(v.keyword).trim();
   const body = norm(`${v.sections.map((s) => `${s.h} ${s.p}`).join(' ')} ${v.faq.map((f) => `${f.q} ${f.a}`).join(' ')}`);
   const out: Check[] = [
-    { ok: v.h1.length > 0 && v.h1.length <= 30, label: v.h1 ? `H1 com ${v.h1.length} caracteres (ideal: até 30)` : 'H1 não definido (ideal: até 30 caracteres)' },
+    { ok: v.h1.length > 0 && v.h1.length <= (v.h1Max ?? 30), label: v.h1 ? `H1 com ${v.h1.length} caracteres (ideal: até ${v.h1Max ?? 30})` : `H1 não definido (ideal: até ${v.h1Max ?? 30} caracteres)` },
     { ok: v.title.length >= 30 && v.title.length <= 65, label: `Título com ${v.title.length} caracteres (ideal: 30 a 65)` },
     { ok: v.description.length >= 70 && v.description.length <= 165, label: `Descrição com ${v.description.length} caracteres (ideal: 70 a 165)` },
     { ok: !!kw, label: 'Palavra-chave principal definida' }
@@ -32,6 +32,8 @@ function liveChecks(v: { h1: string; needsFaq: boolean; title: string; descripti
   out.push({ ok: !v.noindex, label: 'Indexação permitida no site (sem bloqueio). Isso não indica se o Google já indexou' });
   return out;
 }
+
+const KIND_LABEL = { bank: 'Página do banco (automática)', hub: 'Índice de bancos (automática)', custom: 'Criada no painel' } as const;
 
 const GUIDE: Array<[string, string, string, string]> = [
   ['Imagem da página', '1200×1200 (consultas) ou 1200×630', 'Miniatura que aparece no Google, WhatsApp e redes. Use a arte da própria consulta, com o nome bem legível e sem texto colado nas bordas. PNG, JPG ou WebP, de preferência até 300 KB.', 'Consulta Gravame, 1200×1200'],
@@ -47,7 +49,7 @@ const GUIDE: Array<[string, string, string, string]> = [
 function Editor({ item, onSaved, onClose }: { item: Item; onSaved: () => void; onClose: () => void }) {
   const toast = useToast();
   const [h1, setH1] = useState(item.h1 ?? ''); const [title, setTitle] = useState(item.override?.title ?? ''); const [description, setDescription] = useState(item.override?.description ?? '');
-  const [keyword, setKeyword] = useState(item.keyword ?? ''); const [noindex, setNoindex] = useState(item.noindex);
+  const [keyword, setKeyword] = useState(item.keyword || item.defaultKeyword || ''); const [noindex, setNoindex] = useState(item.noindex);
   const [sections, setSections] = useState<Sec[]>(item.sections); const [faq, setFaq] = useState<Faq[]>(item.faq);
   const [busy, setBusy] = useState(false);
   const [image, setImage] = useState<PageImage | null>(item.image);
@@ -65,7 +67,7 @@ function Editor({ item, onSaved, onClose }: { item: Item; onSaved: () => void; o
     try { await api.del(`/admin/content/seo/pages/image`, { query: { path: item.path } }); setImage(null); toast.ok('Imagem removida. A página volta a usar a imagem padrão da marca.'); onSaved(); }
     catch (e) { toast.error(errorMessage(e)); } finally { setImgBusy(false); }
   };
-  const checks = useMemo(() => liveChecks({ h1: h1.trim(), needsFaq: item.needsFaq, title: title || item.default.title, description: description || item.default.description, keyword, sections, faq, noindex }), [h1, title, description, keyword, sections, faq, noindex, item.default, item.needsFaq]);
+  const checks = useMemo(() => liveChecks({ h1Max: item.kind ? 50 : undefined, h1: h1.trim(), needsFaq: item.needsFaq, title: title || item.default.title, description: description || item.default.description, keyword, sections, faq, noindex }), [h1, title, description, keyword, sections, faq, noindex, item.default, item.needsFaq]);
   const ok = checks.filter((c) => c.ok).length;
   const [pub, setPub] = useState<Pub | null>(item.publication ?? null); const [verifying, setVerifying] = useState(false);
   const verify = async () => {
@@ -78,12 +80,13 @@ function Editor({ item, onSaved, onClose }: { item: Item; onSaved: () => void; o
     try { await api.put('/admin/content/seo/pages', { path: item.path, h1: h1.trim() || null, title: title.trim() || null, description: description.trim() || null, keyword: keyword.trim() || null, sections: sections.filter((s) => s.h.trim() && s.p.trim()), faq: faq.filter((f) => f.q.trim() && f.a.trim()), noindex }); toast.ok('SEO salvo. Já vale no site (até 1 minuto).'); onSaved(); }
     catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
   };
+  const [askDelete, setAskDelete] = useState(false);
   const reset = async () => { setBusy(true); try { await api.post('/admin/content/seo/pages/reset', { path: item.path }); toast.ok('Texto padrão restaurado.'); onSaved(); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); } };
   const shown = `${SITE}${item.path === '/' ? '' : item.path}`.replace(/\//g, ' › ').replace(' › ', '/').replace(/ › $/, '');
   return (
     <div className="stack">
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-        <h2 style={{ fontSize: 20 }}>{item.path === '/' ? 'Página inicial' : item.path}</h2>
+        <h2 style={{ fontSize: 20 }}>{item.path === '/' ? 'Página inicial' : item.path} {item.kind && <Badge tone="neutral">{KIND_LABEL[item.kind]}</Badge>}</h2>
         <Button variant="ghost" onClick={onClose}>Voltar à lista</Button>
       </div>
       <Card title="Como vai aparecer no Google">
@@ -137,7 +140,7 @@ function Editor({ item, onSaved, onClose }: { item: Item; onSaved: () => void; o
       </Card>
       <Card title="Dados da página">
         <div className="stack">
-          <Field label="H1 (título que aparece no topo da página)" hint={`${h1.length} de 30 caracteres. Um só por página, curto, com a palavra-chave. Ex.: Tabela FIPE grátis`} error={h1.length > 30 ? 'Acima de 30 caracteres: o ideal é encurtar.' : undefined}><Input value={h1} maxLength={70} onChange={(e) => setH1(e.target.value)} placeholder="Ex.: Consulta de placa" /></Field>
+          <Field label="H1 (título que aparece no topo da página)" hint={`${h1.length} de ${item.kind ? 50 : 30} caracteres. Um só por página, curto, com a palavra-chave. Ex.: Tabela FIPE grátis`} error={h1.length > (item.kind ? 50 : 30) ? `Acima de ${item.kind ? 50 : 30} caracteres: o ideal é encurtar.` : undefined}><Input value={h1} maxLength={70} onChange={(e) => setH1(e.target.value)} placeholder="Ex.: Consulta de placa" /></Field>
           <Field label="Título do Google (title)" hint={`${title.length} caracteres. Deixe vazio para usar o padrão.`}><Input value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder={item.default.title} /></Field>
           <Field label="Descrição" hint={`${description.length} caracteres. É o texto que aparece abaixo do título no Google.`}><Textarea rows={3} value={description} maxLength={300} onChange={(e) => setDescription(e.target.value)} placeholder={item.default.description} /></Field>
           <Field label="Palavra-chave principal" hint="O que as pessoas digitam para achar esta página. Use no título, na descrição e no texto."><Input value={keyword} maxLength={80} onChange={(e) => setKeyword(e.target.value)} /></Field>
@@ -165,10 +168,35 @@ function Editor({ item, onSaved, onClose }: { item: Item; onSaved: () => void; o
       </Card>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <Button variant="primary" loading={busy} onClick={() => void save()}>Salvar</Button>
-        <Button variant="ghost" disabled={busy} onClick={() => void reset()}>{item.hasSeed ? 'Restaurar texto padrão' : 'Limpar edição'}</Button>
+        {item.kind === 'custom' ? <Button variant="danger" disabled={busy} onClick={() => setAskDelete(true)}>Excluir página</Button> : <Button variant="ghost" disabled={busy} onClick={() => void reset()}>{item.hasSeed ? 'Restaurar texto padrão' : 'Limpar edição'}</Button>}
         <a className="btn btn-ghost" href={item.path} target="_blank" rel="noreferrer">Abrir página</a>
       </div>
+      {askDelete && <ConfirmDialog danger title="Excluir esta página?" confirmLabel="Excluir" message={`${item.path} sai do site e do sitemap, com o texto e a imagem. Não dá para desfazer.`} onConfirm={async () => { try { await api.del('/admin/content/seo/pages/custom', { query: { path: item.path } }); toast.ok('Página excluída.'); onSaved(); onClose(); } catch (e) { toast.error(errorMessage(e)); throw e; } }} onClose={() => setAskDelete(false)} />}
     </div>
+  );
+}
+
+function NewPage({ onClose, onCreated }: { onClose: () => void; onCreated: (path: string) => void }) {
+  const toast = useToast();
+  const [slug, setSlug] = useState(''); const [h1, setH1] = useState(''); const [title, setTitle] = useState(''); const [description, setDescription] = useState(''); const [keyword, setKeyword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const clean = slug.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const create = async () => {
+    setBusy(true);
+    try { const r = await api.post<{ path: string }>('/admin/content/seo/pages/custom', { slug: clean, h1: h1.trim(), title: title.trim(), description: description.trim(), keyword: keyword.trim() || null }); toast.ok('Página criada. Já está no site e no sitemap.'); onCreated(r.path); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title="Nova página de financiamento" onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={busy} disabled={clean.length < 3 || h1.trim().length < 3 || title.trim().length < 10 || description.trim().length < 20} onClick={() => void create()}>Criar página</Button></>}>
+      <div className="stack">
+        <Field label="Endereço" hint={`placanamao.com.br/financiamento/${clean || 'nome-da-pagina'}`}><Input value={slug} maxLength={60} onChange={(e) => setSlug(e.target.value)} placeholder="financiamento-de-carro-usado-itau" /></Field>
+        <Field label="H1 (título no topo da página)"><Input value={h1} maxLength={70} onChange={(e) => setH1(e.target.value)} placeholder="Financiamento de carro usado Itaú" /></Field>
+        <Field label="Título do Google" hint={`${title.length} caracteres (ideal: 30 a 65)`}><Input value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder="Financiamento de carro usado Itaú: taxa e simulação | Placa na Mão" /></Field>
+        <Field label="Descrição" hint={`${description.length} caracteres (ideal: 70 a 165)`}><Textarea rows={3} value={description} maxLength={300} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <Field label="Palavra-chave principal"><Input value={keyword} maxLength={80} onChange={(e) => setKeyword(e.target.value)} placeholder="financiamento de carro usado itaú" /></Field>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>Depois de criar, abra a página para escrever os textos e as perguntas. As páginas dos bancos já nascem sozinhas.</p>
+      </div>
+    </Modal>
   );
 }
 
@@ -176,6 +204,7 @@ export default function Seo() {
   usePageTitle('SEO');
   const list = useAsync(() => api.get<{ items: Item[] }>('/admin/content/seo/pages'));
   const [open, setOpen] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const items = list.data?.items ?? [];
   const current = items.find((i) => i.path === open) ?? null;
   const weak = items.filter((i) => i.score < i.total).length;
@@ -184,7 +213,8 @@ export default function Seo() {
   const verified = items.filter((i) => i.publication).length;
   return (
     <>
-      <PageHead title="SEO" sub="H1, título, descrição, palavra-chave, textos e perguntas de cada página, como no WordPress, sem plugin. Tudo já vem preenchido; edite quando quiser." />
+      <PageHead title="SEO" sub="H1, título, descrição, palavra-chave, textos e perguntas de cada página, como no WordPress, sem plugin. Tudo já vem preenchido; edite quando quiser. Cada banco com taxa ganha sozinho a página “Financiamento de carro {banco}”." actions={<Button icon="plus" onClick={() => setCreating(true)}>Nova página de financiamento</Button>} />
+      {creating && <NewPage onClose={() => setCreating(false)} onCreated={(p) => { setCreating(false); list.reload(); setOpen(p); }} />}
       {list.loading && !list.data ? <PageLoading /> : list.error && !list.data ? <ErrorState error={list.error} onRetry={list.reload} /> : current ? (
         <Editor key={current.path + (current.score + current.title + current.h1)} item={current} onSaved={() => { list.reload(); }} onClose={() => setOpen(null)} />
       ) : !items.length ? <EmptyState icon="search" title="Nenhuma página" /> : (
@@ -196,7 +226,7 @@ export default function Seo() {
               <thead><tr><th>Página</th><th>H1</th><th>Título no Google</th><th>Imagem</th><th>Preenchimento</th><th>Publicação</th><th>Indexação</th><th /></tr></thead>
               <tbody>{items.map((i) => (
                 <tr key={i.path}>
-                  <td><b>{i.path === '/' ? 'Início' : i.path}</b>{i.keyword && <div className="muted" style={{ fontSize: 12 }}>{i.keyword}</div>}</td>
+                  <td><b>{i.path === '/' ? 'Início' : i.path}</b>{i.kind && <> <Badge tone="neutral">{i.kind === 'bank' ? 'Banco' : i.kind === 'hub' ? 'Índice' : 'Criada'}</Badge></>}{i.keyword && <div className="muted" style={{ fontSize: 12 }}>{i.keyword}</div>}</td>
                   <td style={{ maxWidth: 200 }}>{i.h1 || <span className="muted">sem H1</span>}</td>
                   <td style={{ maxWidth: 380 }}>{i.title}</td>
                   <td>{i.image ? <img src={i.image.url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} /> : <span className="muted">sem</span>}</td>

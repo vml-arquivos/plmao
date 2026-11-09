@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.51.0 — SEO: páginas "Financiamento de carro {banco}" e páginas novas criadas no painel
+
+- **Uma página por banco, sozinha:** cada banco ativo com taxa (Banco Central ou cadastrada pela equipe) ganha `/financiamento/<banco>` (ex.: `/financiamento/bradesco`, `/financiamento/santander`, `/financiamento/c6-bank`), com título "Financiamento de carro {banco}: taxa e simulação", descrição, H1, a taxa real com o período, um exemplo de parcela (carro de R$ 60.000, entrada de R$ 12.000, 48 meses), perguntas frequentes, dados estruturados e links para os outros bancos. Entram no sitemap.
+- **Índice `/financiamento`:** tabela com a taxa de cada banco; o simulador ganha o link "Veja a taxa de cada banco".
+- **Painel de SEO:** as páginas dos bancos aparecem na lista (selo "Banco") e podem ter título, descrição, H1, palavra-chave, textos, perguntas, imagem e indexação editados como as demais. Novo botão **Nova página de financiamento** cria uma página em `/financiamento/<nome>` com título e descrição próprios (ex.: "Financiamento de carro usado Caixa"); páginas criadas à mão podem ser excluídas. A página de um banco some sozinha se o banco for desativado ou ficar sem taxa.
+- Sem variável de ambiente nova. Sem migração nova (continua em 082). Testes novos: `seo-financiamento-bancos`.
+
 ## 1.50.0 — Simulador: coleta diária de todas as instituições e nenhum alerta de taxa atrasada
 
 - **Sem alerta de taxa atrasada em lugar nenhum:** saiu também o alerta amarelo do Painel → Simulador (o painel só avisa se a coleta der erro).

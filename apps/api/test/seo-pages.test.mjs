@@ -61,7 +61,7 @@ describe('SEO por página (integração)', integration, () => {
   it('painel: lista com nota, edita, reflete no HTML e no sitemap, exclui da indexação e restaura o padrão', async () => {
     const call = (path, opts = {}) => adm.call(`/api${path}`, opts);
     const list = await call('/admin/content/seo/pages'); assert.equal(list.status, 200);
-    assert.equal(list.json.items.length, SITEMAP_PATHS.length);
+    assert.equal(list.json.items.filter((i) => !i.kind).length, SITEMAP_PATHS.length, 'as páginas de fábrica; as de banco (kind) vêm além delas');
     const fipe = list.json.items.find((i) => i.path === '/fipe'); assert.ok(fipe.score >= fipe.total - 1, 'FIPE pronta de fábrica');
     for (const it of list.json.items) assert.equal(it.score, it.total, `${it.path} deveria vir 100% de fábrica: ${it.checks.filter((c) => !c.ok).map((c) => c.label).join('; ')}`);
     assert.equal(fipe.h1, 'Tabela FIPE grátis');

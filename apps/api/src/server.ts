@@ -109,6 +109,7 @@ import { ensureFipeEnrichment, SHEET_PRODUCTS } from './lib/fipeRefresh.js';
 import { checkAd } from './report/adCheck.js';
 import { consumeSecureLink, createSecureLink } from './lib/secureLinks.js';
 import { seoBodyHtml, seoFaqLd, seoImages, seoRows } from './seoStore.js';
+import { financingBodyHtml, financingContent, isFinancingPath, syncFinancingPages } from './financingPages.js';
 import { isKnownPath, pathFromSeoImageSlug, productImageUrls, renderRobotsTxt, renderSeoHtml, renderSitemapXml, seoImageUrl, setGoogleTags, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import { cancelAllProcessing, cancelPaidQuery, cancelProcessingQuery } from './lib/queryCancel.js';
@@ -3408,6 +3409,7 @@ const serveStatic = express.static(webDist, staticOptions);
 // Imagem de cada página, enviada pelo painel de SEO (fica no banco). O ?v= muda a cada troca, então pode ficar em cache.
 app.get('/seo-img/:file', asyncRoute(async (req, res) => {
   const m = /^([a-z0-9-]+)\.(png|jpg|webp)$/.exec(String(req.params.file));
+  await syncFinancingPages();
   const path = m ? pathFromSeoImageSlug(m[1]!) : null;
   if (!m || !path) return res.status(404).end();
   const r = await pool.query('SELECT mime,data,sha256 FROM seo_images WHERE path=$1', [path]);
@@ -3424,6 +3426,7 @@ app.get('/seo-img/:file', asyncRoute(async (req, res) => {
 app.get('/robots.txt', (req, res) => { res.type('text/plain').setHeader('Cache-Control', 'public, max-age=3600'); res.send(renderRobotsTxt(env.APP_URL ?? env.WEB_ORIGIN, isAdminHost(req) || isPrelaunch())); });
 app.get('/sitemap.xml', asyncRoute(async (req, res) => {
   if (isAdminHost(req) || isPrelaunch()) return res.status(404).end();
+  await syncFinancingPages();
   const articles = await publishedArticleSlugs();
   const vehicles = await pool.query(`SELECT slug,updated_at FROM vehicle_models WHERE status='PUBLISHED' AND archived_at IS NULL ORDER BY brand,name LIMIT 5000`);
   const stores = await pool.query(`SELECT slug,updated_at FROM dealerships WHERE public_enabled AND active AND archived_at IS NULL ORDER BY created_at LIMIT 2000`);
@@ -3507,6 +3510,18 @@ app.get('*', asyncRoute(async (req, res, next) => {
     const faqs = await pool.query('SELECT question,answer FROM faqs WHERE active=true ORDER BY display_order,created_at LIMIT 60');
     if (faqs.rowCount) override = { bodyHtml: `<section>${faqs.rows.slice(0, 30).map((f) => `<h2>${escapeHtmlText(f.question)}</h2><p>${escapeHtmlText(f.answer)}</p>`).join('')}</section>`, jsonLd: [{ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.rows.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })) }] };
   }
+  let finH1: string | null = null;
+  const finPath = req.path.length > 1 ? req.path.replace(/\/$/, '') : req.path;
+  if (isFinancingPath(finPath)) {
+    const fin = await financingContent(finPath);
+    if (!fin) { res.status(404); override = { notFound: true }; }
+    else {
+      const rowFaq = ((await seoRows()).get(finPath)?.faq ?? []).length > 0;
+      finH1 = fin.h1;
+      override = { bodyHtml: financingBodyHtml(fin, !rowFaq) };
+      if (!rowFaq && fin.faq.length) override.jsonLd = [{ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: fin.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) }];
+    }
+  }
   if (!override.notFound) {
     const seoRow = (await seoRows()).get(req.path.length > 1 ? req.path.replace(/\/$/, '') : req.path);
     if (seoRow) {
@@ -3519,6 +3534,7 @@ app.get('*', asyncRoute(async (req, res, next) => {
       if (faqLd && !(override.jsonLd ?? []).some((o) => (o as { '@type'?: string })['@type'] === 'FAQPage')) override.jsonLd = [...(override.jsonLd ?? []), faqLd];
       if (seoRow.noindex) override.noindex = true;
     }
+    if (finH1 && !override.h1) override.h1 = finH1;
     const seoImg = (await seoImages()).get(req.path.length > 1 ? req.path.replace(/\/$/, '') : req.path);
     if (seoImg) { override.image = seoImageUrl(baseUrl, req.path.length > 1 ? req.path.replace(/\/$/, '') : req.path, seoImg.mime, seoImg.sha); override.imageWidth = seoImg.width; override.imageHeight = seoImg.height; }
   }

@@ -30,7 +30,7 @@ export interface SimConfig {
   vehicleKinds: Array<{ key: Kind; label: string }>;
   limits: { graceDays: { min: number; max: number }; vehicleMinCents: number; vehicleMaxCents: number; cdcMonths: { min: number; max: number }; leasingMonths: { min: number; max: number }; maxDownPct: number; maxResidualPct: number; ratePct: { min: number; max: number } };
   rates: { cdc: { PF: RateInfo; PJ: RateInfo }; leasing: { PF: RateInfo; PJ: RateInfo } };
-  referenceMonth: string; source: string;
+  referenceMonth: string; source: string; financingHub?: boolean;
   ratesStatus?: { origin: 'BCB' | 'MANUAL' | 'INTERNAL'; referenceMonth: string; collectedAt: string | null; monthsBehind: number; stale: boolean; refreshFailed: boolean };
   fees: { cadastroCents: number; avaliacaoCents: number; registroCents: number };
   iof: { pfDailyPct: number; pjDailyPct: number; additionalPct: number; capDays: number };

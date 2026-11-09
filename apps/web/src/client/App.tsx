@@ -67,6 +67,7 @@ const ContractCopy = lazy(() => import('./pages/ContractSign').then((m) => ({ de
 const SharedReport = lazy(() => import('./pages/SharedReport'));
 const named = (key: string) => lazy(() => import('./pages/Public').then((m) => ({ default: (m as unknown as Record<string, React.ComponentType>)[key] })));
 const GuestQuery = named('GuestQuery'); const PlansPage = named('PlansPage'); const ValidatePage = named('ValidatePage'); const About = named('About'); const InstallApp = named('InstallApp'); const Contact = named('Contact'); const NotFound = named('NotFound');
+const FinancingBank = lazy(() => import('./pages/FinancingBank'));
 const Legal = lazy(() => import('./pages/Public').then((m) => ({ default: m.Legal })));
 
 /** Trata retornos que chegam na raiz: login social, redefinição de senha e retorno do checkout. */
@@ -126,6 +127,8 @@ export default function App() {
             <Route path="/comparar" element={<><Compare /><SeoContent path="/comparar" /></>} />
             <Route path="/simulador" element={<><Simulator /><SeoContent path="/simulador" faqTitle="Perguntas sobre financiamento" /></>} />
             <Route path="/simulador/:tipo" element={<SimulatorKind />} />
+            <Route path="/financiamento" element={<FinancingBank />} />
+            <Route path="/financiamento/:slug" element={<FinancingBank />} />
             <Route path="/planos" element={<PlansPage />} />
             <Route path="/desenvolvedores" element={<Navigate to="/" replace />} />
             <Route path="/perguntas-frequentes" element={<FaqPage />} />
