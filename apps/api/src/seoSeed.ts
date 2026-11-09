@@ -32,8 +32,8 @@ export const SEO_SEED: SeoSeed[] = [
   },
   {
     path: '/simulador', h1: 'Simulador de financiamento', keyword: 'simulador de financiamento',
-    title: 'Simulador de financiamento de veículo | Placa na Mão',
-    description: 'Use o simulador de financiamento para ver parcela, CET e custo total em CDC ou leasing, com a taxa média do Banco Central e o IOF. Grátis, em segundos.',
+    title: 'Simulador de financiamento de veículos grátis | Placa na Mão',
+    description: 'Use o simulador de financiamento de veículos grátis. Ajuste entrada, prazo e juros para estimar parcelas, CET e custo total de carros e motos.',
     sections: [
       { h: 'Como funciona o simulador de financiamento', p: 'Informe o valor do veículo, a entrada e o prazo. O simulador calcula a parcela, o CET (custo efetivo total) e o valor total pago, usando a taxa média de mercado divulgada pelo Banco Central, o IOF e as tarifas. Você compara CDC e leasing lado a lado e baixa a simulação em PDF.' },
       { h: 'CDC ou leasing: qual compensa?', p: 'No CDC (crédito direto ao consumidor) o veículo fica em seu nome com alienação fiduciária até a quitação. No leasing, a instituição é a dona do bem durante o contrato e você tem a opção de compra no fim. O custo total muda conforme prazo, entrada e tributos, por isso vale simular os dois.' },
@@ -47,7 +47,10 @@ export const SEO_SEED: SeoSeed[] = [
       { q: 'Qual a diferença entre CDC e leasing?', a: 'No CDC o veículo é seu e fica com alienação fiduciária até a quitação. No leasing a instituição é dona do bem durante o contrato e você pode comprá-lo no fim. O custo e os tributos mudam, por isso simule os dois.' },
       { q: 'Quanto preciso dar de entrada?', a: 'Depende da instituição e do seu perfil. Quanto maior a entrada, menor a parcela e o total de juros. Simule valores diferentes para ver o efeito.' },
       { q: 'Dá para financiar carro usado?', a: 'Sim. As instituições costumam definir uma idade máxima do veículo e exigem que ele esteja sem restrições. Consulte débitos, gravame e histórico antes de financiar.' },
-      { q: 'O simulador serve para moto, caminhão e utilitário?', a: 'Sim. Há simulação para carro, moto, caminhão e utilitário, cada uma com atalhos e valores de referência próprios.' }
+      { q: 'O simulador serve para moto, caminhão e utilitário?', a: 'Sim. Há simulação para carro, moto, caminhão e utilitário, cada uma com atalhos e valores de referência próprios.' },
+      { q: 'O simulador é gratuito?', a: 'Sim. Você simula quantas vezes quiser, sem pagar e sem precisar criar conta. Para baixar o PDF da simulação é preciso entrar na sua conta.' },
+      { q: 'Posso usar a taxa da proposta do meu banco?', a: 'Pode. Informe a taxa de juros da proposta que você recebeu e o simulador recalcula a parcela, o CET e o custo total com ela.' },
+      { q: 'A simulação consulta ofertas de todos os bancos?', a: 'Não. O simulador calcula cenários com os dados informados e não consulta nem garante ofertas de todos os bancos. Você pode inserir a taxa de uma proposta recebida para estimar seus custos.' }
     ]
   },
   {

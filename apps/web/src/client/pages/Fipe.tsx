@@ -127,6 +127,7 @@ export default function Fipe() {
               <ul className="stack-sm" style={{ listStyle: 'none', margin: 0, padding: 0 }}>{quote.blocks.map((b) => <li key={b.key} className="alert"><Icon name="info" /><div><b>{b.label}.</b> {b.message}</div></li>)}</ul>
               <div className="row">
                 {status === 'authed' ? <Button icon="download" onClick={pdf}>Baixar PDF</Button> : <><Link className="btn" to="/criar-conta?next=/fipe" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'fipe-result-pdf', destination: 'register' })}><Icon name="download" size={18} /> Criar conta para baixar PDF ou imprimir</Link><Link className="btn btn-ghost" to="/entrar?next=/fipe">Já tenho conta</Link></>}
+                <LinkButton to={`/simulador?v=${Math.round(quote.valueCents / 100)}`} onClick={() => trackFunnel('CTA_CLICKED', { placement: 'fipe-result-simulator', destination: 'simulator' })}>Simular o financiamento</LinkButton>
                 <LinkButton to={`/consultar${quote.plate ? `?placa=${quote.plate}` : ''}`} variant="primary" iconRight="arrow-right">Ver situação do veículo (débitos e restrições)</LinkButton>
               </div>
             </div>

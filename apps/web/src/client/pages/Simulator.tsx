@@ -72,8 +72,8 @@ export default function Simulator() {
       <section className="page-hero sim-hero">
         <div className="container">
           <span className="eyebrow">Simulador de financiamento</span>
-          <SeoH1 path={kindInfo ? `/simulador/${kindInfo.slug}` : '/simulador'} fallback={kindInfo ? `Simule o financiamento ${kindInfo.key === 'MOTORCYCLE' ? 'da sua moto' : kindInfo.key === 'TRUCK' ? 'do seu caminhão' : kindInfo.key === 'UTILITY' ? 'do seu utilitário' : 'do seu carro'}.` : 'Simule o financiamento do seu veículo.'} />
-          <p className="lead">CDC ou leasing, com a taxa média de mercado do Banco Central, IOF e tarifas. Veja a parcela, o CET e o custo total antes de ir ao banco, e baixe o PDF.</p>
+          <SeoH1 path={kindInfo ? `/simulador/${kindInfo.slug}` : '/simulador'} fallback={kindInfo ? `Simule o financiamento ${kindInfo.key === 'MOTORCYCLE' ? 'da sua moto' : kindInfo.key === 'TRUCK' ? 'do seu caminhão' : kindInfo.key === 'UTILITY' ? 'do seu utilitário' : 'do seu carro'}.` : 'Simulador de financiamento'} />
+          <p className="lead">{kindInfo ? 'CDC ou leasing, com a taxa média de mercado do Banco Central, IOF e tarifas. Veja a parcela, o CET e o custo total antes de ir ao banco, e baixe o PDF.' : 'Simule gratuitamente o financiamento de um veículo. Informe o valor, a entrada, o prazo e a taxa de juros para comparar parcelas e custos estimados. Você pode ajustar os dados conforme a proposta recebida do banco. A simulação é informativa e não representa aprovação nem oferta de crédito.'}</p>
           <div className="trust-row" style={{ marginTop: 18 }}>
             <span><Icon name="shield-check" size={16} />Taxas do Banco Central</span>
             <span><Icon name="receipt" size={16} />IOF e tarifas incluídos</span>
@@ -223,6 +223,9 @@ function HowItWorks({ cfg }: { cfg: SimConfig | null }) {
     { q: "Posso vender ou trocar o veículo antes de terminar de pagar?", a: "No CDC, só quitando a dívida ou com a autorização do banco, porque há alienação fiduciária. No leasing, o veículo é da arrendadora até você exercer a compra no final. Nos dois casos, combine com a instituição antes de anunciar." },
     { q: 'De onde vêm as taxas?', a: `Usamos a taxa média mensal de juros de aquisição de veículos divulgada pelo Banco Central do Brasil${cfg ? ` (referência ${monthRef(cfg.referenceMonth)})` : ''}. É uma média de mercado: a sua taxa pode ser menor ou maior conforme perfil, entrada, prazo e instituição. Se você já tem uma proposta, informe a taxa dela.` },
     { q: 'Como o IOF é calculado?', a: iof ? `Para pessoa física, ${String(iof.pfDailyPct).replace('.', ',')}% ao dia sobre cada parcela do principal (limitado a ${iof.capDays} dias) mais ${String(iof.additionalPct).replace('.', ',')}% sobre o valor. Para empresas, ${String(iof.pjDailyPct).replace('.', ',')}% ao dia. O IOF é financiado junto com o veículo, por isso entra no valor das parcelas.` : 'Calculamos o IOF de crédito por parcela, com limite de 365 dias, e financiamos junto com o veículo.' },
+    { q: 'O simulador é gratuito?', a: 'Sim. Você simula quantas vezes quiser, sem pagar e sem criar conta. Para baixar o PDF da simulação é preciso entrar na sua conta gratuita.' },
+    { q: 'Posso usar a taxa da proposta do meu banco?', a: 'Pode. Em "taxa de juros" informe a taxa da proposta que você recebeu e o simulador recalcula a parcela, o CET e o custo total com ela.' },
+    { q: 'A simulação consulta ofertas de todos os bancos?', a: 'Não. O simulador calcula cenários com os dados informados e não consulta nem garante ofertas de todos os bancos. Você pode inserir a taxa de uma proposta recebida para estimar seus custos.' },
     { q: 'O que é o CET?', a: 'Custo Efetivo Total: a taxa que reúne juros, IOF, tarifas e seguros. É o número certo para comparar propostas. Peça sempre o CET no contrato.' },
     { q: 'Quais tarifas entram?', a: 'Cadastro, avaliação do bem (usados) e registro do contrato/gravame, com valores de referência que você pode ajustar. Os valores reais variam por banco e estado: confirme na proposta.' },
   ], [cfg, iof]);
@@ -230,7 +233,7 @@ function HowItWorks({ cfg }: { cfg: SimConfig | null }) {
     <section className="card card-pad stack" aria-labelledby="how-h">
       <h3 id="how-h">Perguntas e respostas</h3>
       {items.map((i) => <details key={i.q} className="faq-item"><summary>{i.q}</summary><p className="muted">{i.a}</p></details>)}
-      <p className="muted" style={{ fontSize: 13 }}>Simulação informativa. Não é proposta nem oferta de crédito. A Placa na Mão não é instituição financeira. <Link to="/consultar">Consulte a placa</Link> do veículo antes de fechar negócio.</p>
+      <p className="muted" style={{ fontSize: 13 }}>Simulação informativa. Não é proposta nem oferta de crédito. A Placa na Mão não é instituição financeira. Veja quanto vale o veículo na <Link to="/fipe">Tabela FIPE grátis</Link> e <Link to="/consultar">consulte a placa</Link> antes de fechar negócio.</p>
     </section>
   );
 }

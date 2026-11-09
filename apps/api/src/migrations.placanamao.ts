@@ -2998,5 +2998,31 @@ export const placaMigrations: Migration[] = [
     },
     down: async () => { /* só ajuste de conteúdo; as imagens podem ser trocadas ou removidas pelo painel */ }
   }
+  ,
+  {
+    id: '082_seo_simulador_texto',
+    name: 'SEO: título, descrição e 3 perguntas novas do /simulador; só troca o que ainda é o texto de fábrica',
+    up: async (client) => {
+      const campos: Array<[string, string, string]> = [
+        ['title', 'Simulador de financiamento de veículo | Placa na Mão', 'Simulador de financiamento de veículos grátis | Placa na Mão'],
+        ['description', 'Use o simulador de financiamento para ver parcela, CET e custo total em CDC ou leasing, com a taxa média do Banco Central e o IOF. Grátis, em segundos.', 'Use o simulador de financiamento de veículos grátis. Ajuste entrada, prazo e juros para estimar parcelas, CET e custo total de carros e motos.']
+      ];
+      for (const [col, antigo, novo] of campos) {
+        await client.query(`UPDATE seo_pages SET ${col}=$2, updated_at=now() WHERE path='/simulador' AND ${col}=$1`, [antigo, novo]);
+      }
+      const novas = [
+        { q: 'O simulador é gratuito?', a: 'Sim. Você simula quantas vezes quiser, sem pagar e sem precisar criar conta. Para baixar o PDF da simulação é preciso entrar na sua conta.' },
+        { q: 'Posso usar a taxa da proposta do meu banco?', a: 'Pode. Informe a taxa de juros da proposta que você recebeu e o simulador recalcula a parcela, o CET e o custo total com ela.' },
+        { q: 'A simulação consulta ofertas de todos os bancos?', a: 'Não. O simulador calcula cenários com os dados informados e não consulta nem garante ofertas de todos os bancos. Você pode inserir a taxa de uma proposta recebida para estimar seus custos.' }
+      ];
+      for (const f of novas) {
+        await client.query(
+          `UPDATE seo_pages SET faq=COALESCE(faq,'[]'::jsonb) || $2::jsonb, updated_at=now()
+            WHERE path='/simulador' AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(faq,'[]'::jsonb)) AS x(e) WHERE x.e->>'q'=$1)`,
+          [f.q, JSON.stringify([f])]);
+      }
+    },
+    down: async () => { /* só ajuste de texto; nada a desfazer */ }
+  }
 
 ];

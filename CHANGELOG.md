@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.48.0 — Simulador: texto para buscas, perguntas novas, links entre FIPE e simulador
+
+- **Simulador (/simulador):** título "Simulador de financiamento de veículos grátis | Placa na Mão", descrição nova (entrada, prazo e juros; parcelas, CET e custo total de carros e motos) e texto de abertura mais claro, dizendo que é grátis, que dá para usar a taxa da proposta do banco e que não é aprovação nem oferta de crédito. Migração 082: só troca título e descrição se ainda forem os de fábrica; o que a equipe escreveu no painel fica como está.
+- **3 perguntas novas** no painel de SEO e na própria página: "O simulador é gratuito?", "Posso usar a taxa da proposta do meu banco?" e "A simulação consulta ofertas de todos os bancos?" (resposta: não, calcula com os dados informados).
+- **Links entre as ferramentas:** o resultado da FIPE ganhou o botão "Simular o financiamento" (já com o valor do veículo preenchido) e o rodapé do simulador leva para a Tabela FIPE grátis.
+- **Acessibilidade e velocidade:** cinza dos textos de apoio escurecido (contraste passa de 4,48 para 5,0) e logos com largura e altura declaradas, para a tela não "pular" ao carregar.
+- Conferido: o servidor já entrega `canonical` do simulador apontando para `/simulador` (inclusive com `?v=…&e=…&m=…`) e a descrição certa. O H1 continua "Simulador de financiamento" (regra do painel de até 30 caracteres).
+- Sem variável de ambiente nova. `test/seo-simulador.test.mjs` novo; `migration-rollback` com 56 migrações.
+
 ## 1.47.1 — FIPE e Simulador sempre à mostra, página da FIPE mais limpa
 
 - **Menu do topo:** "Tabela FIPE" e "Simulador" ficam como os demais links (sem destaque nem etiqueta). "Veículos" reúne guia, comparar, mais econômicos e etanol ou gasolina; "Ajuda" reúne blog, perguntas frequentes, sobre e contato.

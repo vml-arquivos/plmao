@@ -11,11 +11,11 @@ export function Logo({ mark = false, forceDark = false, className = '', height }
   return (
     <span className={`logo ${forceDark ? 'force-dark' : ''} ${className}`}>
       {mark ? (
-        <img className="on-light on-dark" src="/brand/logo-app-icon.svg" alt="Placa na Mão" style={style} />
+        <img className="on-light on-dark" src="/brand/logo-app-icon.svg" alt="Placa na Mão" width={256} height={256} style={style} />
       ) : (
         <>
-          <img className="on-light" src="/brand/logo-horizontal.svg" alt="Placa na Mão" style={style} />
-          <img className="on-dark" src="/brand/logo-horizontal-dark.svg" alt="" aria-hidden="true" style={style} />
+          <img className="on-light" src="/brand/logo-horizontal.svg" alt="Placa na Mão" width={624} height={128} style={style} />
+          <img className="on-dark" src="/brand/logo-horizontal-dark.svg" alt="" aria-hidden="true" width={624} height={128} style={style} />
         </>
       )}
     </span>
