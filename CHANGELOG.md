@@ -1,11 +1,13 @@
 # Changelog
 
-## 1.47.0 — Ferramentas grátis em destaque (FIPE, simulador, etanol ou gasolina, comparar)
+## 1.47.1 — FIPE e Simulador sempre à mostra, página da FIPE mais limpa
 
-- **Menu do topo:** "Tabela FIPE" e "Simulador" saem do menu "Ferramentas" (escondido) e ficam direto no topo, com contorno e a etiqueta "Grátis". "Veículos" agora reúne guia, comparar, mais econômicos e etanol ou gasolina; "Ajuda" reúne blog, perguntas frequentes, sobre e contato. No celular, as duas ferramentas aparecem em destaque no topo do menu.
-- **Home, logo abaixo do campo da placa:** linha "Grátis:" com FIPE grátis, Simulador de financiamento e Etanol ou gasolina?.
-- **Home, logo depois do topo:** nova faixa "Ferramentas grátis" com 4 cartões (Tabela FIPE, Simulador de financiamento, Etanol ou gasolina?, Comparar carros) e botão "Usar grátis". Os cliques entram no funil como `hero_tools` e `home_tools`.
+- **Menu do topo:** "Tabela FIPE" e "Simulador" ficam como os demais links (sem destaque nem etiqueta). "Veículos" reúne guia, comparar, mais econômicos e etanol ou gasolina; "Ajuda" reúne blog, perguntas frequentes, sobre e contato.
+- **Home:** abaixo do campo da placa, dois atalhos discretos ("FIPE grátis" e "Simulador de financiamento"), e uma faixa curta "Ferramentas grátis para decidir melhor" com os dois cartões. Etanol ou gasolina e Comparar não aparecem mais nesses atalhos. Cliques medidos como `hero_tools` e `home_tools`.
+- **Página da FIPE:** sem aviso de cadastro e sem "(com conta)" na aba — abas "Por placa" e "Por marca e modelo", e o botão Consultar FIPE sempre visível. Quem digita a placa e clica em Consultar sem estar logado vê só "Crie ou entre na sua conta para consultar pela placa", com **Criar conta** e **Já tenho conta**; depois do login volta para a FIPE com a placa preenchida. O texto "sem cadastro" saiu da abertura.
+- **Resultado por marca e modelo:** o valor aparece na tela para todos; baixar PDF ou imprimir exige conta ("Criar conta para baixar PDF ou imprimir" / "Já tenho conta"). A API já exigia login para salvar, gerar PDF e imprimir.
 - Só layout e textos: nenhuma rota, API ou migração mudou. Sem variável de ambiente nova.
+- Substitui o destaque no menu da 1.47.0 (etiqueta "Grátis", faixa de 4 ferramentas), que saiu.
 
 ## 1.46.0 — Capas de todas as páginas e imagens de todas as consultas
 

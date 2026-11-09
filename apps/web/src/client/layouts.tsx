@@ -24,15 +24,14 @@ export function ScrollManager() {
 }
 
 /* ---------- Site público ---------- */
-type PubLink = { to: string; label: string; hl?: boolean; full?: string };
+type PubLink = { to: string; label: string };
 type PubItem = PubLink | { label: string; children: PubLink[] };
 /** Menu do site: poucos itens no topo; o que tem o mesmo assunto fica agrupado. */
 const NAV: PubItem[] = [
   { to: '/', label: 'Início' },
   { to: '/planos', label: 'Consultas e preços' },
-  // Ferramentas grátis em destaque no topo: são a porta de entrada de quem ainda não consultou.
-  { to: '/fipe', label: 'Tabela FIPE', full: 'FIPE grátis', hl: true },
-  { to: '/simulador', label: 'Simulador', full: 'Simulador de financiamento (grátis)', hl: true },
+  { to: '/fipe', label: 'Tabela FIPE' },
+  { to: '/simulador', label: 'Simulador' },
   { label: 'Veículos', children: [
     { to: '/veiculos', label: 'Guia de veículos' },
     { to: '/comparar', label: 'Comparar veículos' },
@@ -85,7 +84,7 @@ export function PublicHeader({ overHero = false }: { overHero?: boolean }) {
           <nav className="pub-links" aria-label="Principal">
             {NAV.map((n) => 'children' in n
               ? <PubDropdown key={n.label} label={n.label} children={n.children} pathname={pathname} />
-              : <Link key={n.to} to={n.to} className={n.hl ? 'hl' : undefined} aria-current={n.to === pathname ? 'page' : undefined}>{n.label}{n.hl && <span className="pub-free">Grátis</span>}</Link>)}
+              : <Link key={n.to} to={n.to} aria-current={n.to === pathname ? 'page' : undefined}>{n.label}</Link>)}
           </nav>
           <div className="pub-cta">
             <ThemeSwitch />
@@ -105,7 +104,7 @@ export function PublicHeader({ overHero = false }: { overHero?: boolean }) {
             <div className="row-between" style={{ marginBottom: 10 }}><Logo /><button type="button" className="icon-btn" aria-label="Fechar menu" onClick={() => setOpen(false)}><Icon name="x" /></button></div>
             {NAV.map((n) => 'children' in n
               ? <div key={n.label} className="dgroup"><span className="dgroup-t">{n.label}</span>{n.children.map((c) => <Link key={c.to} to={c.to} className="dl">{c.label}</Link>)}</div>
-              : <Link key={n.to} to={n.to} className={n.hl ? 'dl dl-hl' : 'dl'}>{n.full ?? n.label}</Link>)}
+              : <Link key={n.to} to={n.to} className="dl">{n.label}</Link>)}
             <div style={{ marginTop: 6 }}><InstallButton block label="Instalar o app" /></div>
             <hr className="divider" style={{ margin: '10px 0' }} />
             {status === 'authed' ? <LinkButton to="/app" variant="primary" block>Minha área</LinkButton> : <><LinkButton to="/criar-conta" variant="primary" block>Criar conta</LinkButton><LinkButton to="/entrar" block>Entrar</LinkButton></>}

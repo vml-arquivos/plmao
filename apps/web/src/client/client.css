@@ -1213,14 +1213,7 @@ a.kind-tab { text-decoration: none; box-sizing: border-box; }
 .lead-cap { position: relative; border-style: dashed; }
 .lead-cap .check { font-size: 13.5px; }
 
-/* ---------- Ferramentas grátis em destaque (topo do site e home) ---------- */
-.pub-links a.hl { display: inline-flex; align-items: center; gap: 7px; border: 1px solid color-mix(in srgb, var(--primary) 45%, transparent); background: var(--primary-soft); color: var(--primary-ink); font-weight: 500; }
-.pub-links a.hl:hover, .pub-links a.hl[aria-current='page'] { background: color-mix(in srgb, var(--primary) 22%, var(--surface)); }
-.pub-free { font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px; background: var(--primary); color: #fff; line-height: 1.3; }
-.pub-nav.over-hero .pub-links a.hl { border-color: rgba(125, 185, 255, .55); background: rgba(59, 130, 246, .2); color: #fff; }
-.pub-nav.over-hero .pub-links a.hl:hover { background: rgba(59, 130, 246, .34); }
-.drawer-panel a.dl.dl-hl { border: 1px solid color-mix(in srgb, var(--primary) 45%, transparent); background: var(--primary-soft); color: var(--primary-ink); font-weight: 500; }
-@media (max-width: 1180px) { .pub-links a.hl .pub-free { display: none; } }
+/* ---------- Atalhos das ferramentas grátis (home) ---------- */
 
 .hero2-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 2px 0 16px; }
 .hero2-tools > span { color: #B7C7E6; font-size: 13.5px; font-family: var(--font-display); }
@@ -1229,12 +1222,11 @@ a.kind-tab { text-decoration: none; box-sizing: border-box; }
 .hero2-tools a .ico { color: #7CB9FF; }
 
 .tools-strip { padding-top: clamp(36px, 5vw, 60px); padding-bottom: clamp(30px, 4vw, 48px); }
-.tools-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.tools-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .tool-card { display: grid; align-content: start; gap: 8px; padding: 22px; border-radius: 18px; border: 1px solid var(--border); background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); transition: transform .15s, border-color .15s, box-shadow .15s; }
 .tool-card:hover { transform: translateY(-3px); border-color: var(--primary); box-shadow: var(--shadow); text-decoration: none; }
 .tool-card .wi { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; background: var(--primary-soft); color: var(--primary); }
 .tool-card h3 { font-size: 18px; margin: 6px 0 0; }
 .tool-card p { margin: 0; color: var(--text-2); font-size: 14.5px; }
 .tool-go { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--primary-ink); font-family: var(--font-display); font-weight: 500; font-size: 14.5px; }
-@media (max-width: 980px) { .tools-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .tools-grid { grid-template-columns: 1fr; } .hero2-tools a { flex: 1 1 auto; justify-content: center; } .hero2-tools > span { flex: 0 0 100%; } }
