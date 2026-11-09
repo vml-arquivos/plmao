@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.46.0 — Capas de todas as páginas e imagens de todas as consultas
+
+- **29 páginas já vêm com capa** (migração 081), em WebP 1200×630: início, FIPE, consulta de placa, consulta veicular, gravame, sinistro, leilão, débitos, multas, recall, histórico, planos, lojistas, concessionárias, sobre, instalar, contato, guia de veículos, mais econômicos, combustível, simulador (e os 4 tipos), comparar, blog, termos e privacidade. Só a página de perguntas frequentes ficou sem capa (usa a imagem da marca). A migração só troca imagem que veio de fábrica: o que a equipe enviar pelo painel nunca é sobrescrito. Para trocar, use Painel → SEO.
+- **As 6 consultas têm imagem** (Cadastral, Leilão e Dados do Veículo, Gravame, Completa, Avançada, Premium). No schema de produto da home, a imagem quadrada (quando existe) vai primeiro e a de capa depois.
+- As capas ficam em `/brand/capas` e `/brand/produtos` (fonte das imagens iniciais); a cópia em uso vem do banco (`seo_images`). A capa repetida da Premium (outro estilo) não foi usada.
+- Sem variável de ambiente nova. `test/seo-imagens.test.mjs` confere as 29 capas (WebP 1200×630); `migration-rollback` com 55 migrações.
+
 ## 1.45.1 — Imagens iniciais das páginas e limpeza das repetidas
 
 - **Já vêm com imagem** (migração 080): `/consulta-veicular` (arte da Consulta Completa) e `/consultar-gravame` (arte da Consulta Gravame), 1200×1200. Só entra se a página ainda não tiver imagem; o que a equipe enviar pelo painel nunca é sobrescrito. Para trocar, use Painel → SEO.

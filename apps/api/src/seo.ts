@@ -39,13 +39,20 @@ export const pageMeta: Record<string, SeoMeta> = {
 export const SITEMAP_PATHS: string[] = Object.keys(pageMeta).filter((p) => !['/entrar', '/criar-conta'].includes(p));
 const NOINDEX = /^\/(entrar|criar-conta|recuperar-senha|app|painel|contrato|documento-fiscal|validar|validar-relatorio|r|c|convite|descadastrar|parceiro|consultar|veiculos\/frota|desenvolvedores)(\/|$)/;
 
-/** Imagem de cada consulta (em /brand/produtos). Consulta sem imagem própria usa a imagem padrão da marca. */
-const PRODUCT_IMAGES: Record<string, string> = { CADASTRAL: 'consulta-cadastral', COMPLETE: 'consulta-completa', LIEN: 'consulta-gravame' };
-export function productImageUrl(baseUrl: string, productId: string): string {
-  const file = PRODUCT_IMAGES[productId];
-  return file ? `${baseUrl}/brand/produtos/${file}.jpg` : `${baseUrl}/brand/og-image.png`;
+/** Imagens de cada consulta (em /brand/produtos): a quadrada (1200×1200) vem primeiro, depois a de capa (1200×630). Sem imagem própria, usa a da marca. */
+const PRODUCT_IMAGES: Record<string, string[]> = {
+  CADASTRAL: ['consulta-cadastral.jpg', 'consulta-cadastral.webp'],
+  COMPLETE: ['consulta-completa.jpg', 'consulta-completa.webp'],
+  LIEN: ['consulta-gravame.jpg', 'consulta-gravame.webp'],
+  AUCTION: ['leilao-e-dados-do-veiculo.webp'],
+  BASIC: ['consulta-avancada.webp'],
+  PREMIUM: ['consulta-premium.webp']
+};
+export function productImageUrls(baseUrl: string, productId: string): string[] {
+  const files = PRODUCT_IMAGES[productId];
+  return files ? files.map((f) => `${baseUrl}/brand/produtos/${f}`) : [`${baseUrl}/brand/og-image.png`];
 }
-export const PRODUCT_IMAGE_FILES = Object.values(PRODUCT_IMAGES).map((f) => `${f}.jpg`);
+export const PRODUCT_IMAGE_FILES = [...new Set(Object.values(PRODUCT_IMAGES).flat())];
 
 /** Endereço da imagem de uma página: /seo-img/<nome>.<extensão>?v=<versão>. O nome vem do caminho (início, fipe, simulador-carro...). */
 export const seoImageSlug = (path: string): string => (path === '/' ? 'inicio' : path.replace(/^\//, '').replace(/\//g, '-'));

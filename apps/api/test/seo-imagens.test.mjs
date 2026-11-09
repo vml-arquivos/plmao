@@ -76,9 +76,11 @@ describe('imagens do SEO (integração)', integration, () => {
     // lista do painel e rota pública
     const list = await adm.call('/api/admin/content/seo/pages');
     assert.equal(list.json.items.find((i) => i.path === '/fipe').image.url, j.image.url);
-    assert.equal(list.json.items.find((i) => i.path === '/planos').image, null);
-    // imagens iniciais da migração 080
-    for (const p of ['/consulta-veicular', '/consultar-gravame']) { const im = list.json.items.find((i) => i.path === p).image; assert.ok(im, p); assert.equal(im.width, 1200); assert.equal(im.mime, 'image/jpeg'); }
+    assert.equal(list.json.items.find((i) => i.path === '/perguntas-frequentes').image, null, 'única página sem capa');
+    // capas de fábrica (migração 081): 29 páginas, WebP 1200×630
+    const comCapa = list.json.items.filter((i) => i.image);
+    assert.equal(comCapa.length, 29);
+    for (const i of comCapa.filter((x) => x.path !== '/fipe')) { assert.equal(i.image.mime, 'image/webp', i.path); assert.equal(i.image.width, 1200, i.path); assert.equal(i.image.height, 630, i.path); }
     assert.equal((await hostRequest(server.base, '/api/seo/page?path=/fipe')).json.image, j.image.url);
     // HTML inicial e sitemap
     const html = await (await fetch(`${server.base}/fipe`, { headers: { accept: 'text/html' } })).text();
@@ -100,6 +102,7 @@ describe('imagens do SEO (integração)', integration, () => {
   });
 
   it('recusa arquivo falso, imagem pequena, tipo errado, página inventada e quem não é do painel', async () => {
+    const antes = (await pool.query(`SELECT path,sha256 FROM seo_images WHERE path IN ('/fipe','/pagina-inventada')`)).rows;
     assert.equal((await up('/fipe', Buffer.from('%PDF-1.7 ' + 'x'.repeat(2000)), 'image/png')).status, 415);
     assert.equal((await up('/fipe', fakeJpeg(800, 800), 'image/png')).status, 415, 'tipo declarado diferente do real');
     assert.equal((await up('/fipe', fakePng(200, 200))).status, 422, 'menor que 300 px');
@@ -107,7 +110,8 @@ describe('imagens do SEO (integração)', integration, () => {
     assert.equal((await up('/pagina-inventada', fakePng(800, 800))).status, 422);
     assert.equal((await up('/fipe', Buffer.alloc(3.5 * 1024 * 1024, 1), 'image/png')).status, 413);
     assert.equal((await fetch(`${server.base}/api/admin/content/seo/pages/image?path=/fipe`, { method: 'POST', headers: { 'content-type': 'image/png' }, body: fakePng(800, 800) })).status, 401);
-    const n = (await pool.query(`SELECT count(*)::int AS n FROM seo_images WHERE path IN ('/fipe','/pagina-inventada')`)).rows[0].n;
-    assert.equal(n, 0, 'nada foi gravado');
+    const depois = (await pool.query(`SELECT path,sha256 FROM seo_images WHERE path IN ('/fipe','/pagina-inventada')`)).rows;
+    assert.ok(!depois.some((r) => r.path === '/pagina-inventada'), 'página inventada não grava');
+    assert.deepEqual(depois.map((r) => r.sha256), antes.map((r) => r.sha256), 'nada foi alterado');
   });
 });

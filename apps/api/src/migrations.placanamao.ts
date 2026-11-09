@@ -2975,5 +2975,28 @@ export const placaMigrations: Migration[] = [
     },
     down: async (client) => { await client.query(`DELETE FROM seo_images WHERE path IN ('/consulta-veicular','/consultar-gravame') AND updated_by IS NULL`); }
   }
+  ,
+  {
+    id: '081_seo_capas_das_paginas',
+    name: 'SEO: capas 1200×630 (WebP) de 29 páginas; troca só imagem que veio de fábrica, nunca a enviada pela equipe',
+    up: async (client) => {
+      const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web');
+      const paginas = ['/', '/fipe', '/consulta-placa', '/consulta-veicular', '/consultar-gravame', '/consultar-sinistro-veiculo', '/consultar-leilao-veiculo', '/consultar-debitos-veiculo', '/consultar-multas-veiculo', '/consultar-recall', '/historico-veicular', '/planos', '/para-lojistas', '/para-concessionarias', '/sobre', '/instalar', '/contato', '/veiculos', '/veiculos/mais-economicos', '/combustivel', '/simulador', '/simulador/carro', '/simulador/moto', '/simulador/caminhao', '/simulador/utilitario', '/comparar', '/blog', '/termos', '/privacidade'];
+      for (const pagina of paginas) {
+        const nome = (pagina === '/' ? 'inicio' : pagina.replace(/^\//, '').replace(/\//g, '-')) + '.webp';
+        const file = [path.join(dir, 'dist/brand/capas', nome), path.join(dir, 'public/brand/capas', nome)].find((f) => existsSync(f));
+        if (!file) continue; // build do front ausente neste ambiente: a equipe envia pelo painel
+        const data = readFileSync(file);
+        const info = readImageInfo(data);
+        if (!info) continue;
+        await client.query(
+          `INSERT INTO seo_images(path,mime,size_bytes,width,height,sha256,data) VALUES($1,$2,$3,$4,$5,$6,$7)
+           ON CONFLICT (path) DO UPDATE SET mime=EXCLUDED.mime,size_bytes=EXCLUDED.size_bytes,width=EXCLUDED.width,height=EXCLUDED.height,sha256=EXCLUDED.sha256,data=EXCLUDED.data,updated_at=now()
+             WHERE seo_images.updated_by IS NULL`,
+          [pagina, info.mime, data.length, info.width, info.height, createHash('sha256').update(data).digest('hex'), data]);
+      }
+    },
+    down: async () => { /* só ajuste de conteúdo; as imagens podem ser trocadas ou removidas pelo painel */ }
+  }
 
 ];

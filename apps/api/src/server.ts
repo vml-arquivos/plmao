@@ -108,7 +108,7 @@ import { ensureFipeEnrichment, SHEET_PRODUCTS } from './lib/fipeRefresh.js';
 import { checkAd } from './report/adCheck.js';
 import { consumeSecureLink, createSecureLink } from './lib/secureLinks.js';
 import { seoBodyHtml, seoFaqLd, seoImages, seoRows } from './seoStore.js';
-import { isKnownPath, pathFromSeoImageSlug, productImageUrl, renderRobotsTxt, renderSeoHtml, renderSitemapXml, seoImageUrl, setGoogleTags, type SeoOverride } from './seo.js';
+import { isKnownPath, pathFromSeoImageSlug, productImageUrls, renderRobotsTxt, renderSeoHtml, renderSitemapXml, seoImageUrl, setGoogleTags, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import { cancelAllProcessing, cancelPaidQuery, cancelProcessingQuery } from './lib/queryCancel.js';
 import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle, VehicleDataProvider } from './types.js';
@@ -3474,7 +3474,7 @@ app.get('*', asyncRoute(async (req, res, next) => {
       { '@context': 'https://schema.org', '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/`, logo: `${baseUrl}/brand/og-image.png` },
       { '@context': 'https://schema.org', '@type': 'WebSite', name: 'Placa na Mão', url: `${baseUrl}/`, inLanguage: 'pt-BR', potentialAction: { '@type': 'SearchAction', target: { '@type': 'EntryPoint', urlTemplate: `${baseUrl}/consultar?placa={placa}` }, 'query-input': 'required name=placa' } }
     ];
-    if (prods.rowCount) jsonLd.push({ '@context': 'https://schema.org', '@type': 'ItemList', name: 'Consultas veiculares', itemListElement: prods.rows.map((p, i) => ({ '@type': 'ListItem', position: i + 1, item: { '@type': 'Product', name: p.name, description: p.description, image: productImageUrl(baseUrl, String(p.id)), brand: { '@type': 'Brand', name: 'Placa na Mão' }, offers: { '@type': 'Offer', priceCurrency: 'BRL', price: money(Number(p.price_cents)), availability: 'https://schema.org/InStock', url: `${baseUrl}/planos` } } })) });
+    if (prods.rowCount) jsonLd.push({ '@context': 'https://schema.org', '@type': 'ItemList', name: 'Consultas veiculares', itemListElement: prods.rows.map((p, i) => ({ '@type': 'ListItem', position: i + 1, item: { '@type': 'Product', name: p.name, description: p.description, image: productImageUrls(baseUrl, String(p.id)), brand: { '@type': 'Brand', name: 'Placa na Mão' }, offers: { '@type': 'Offer', priceCurrency: 'BRL', price: money(Number(p.price_cents)), availability: 'https://schema.org/InStock', url: `${baseUrl}/planos` } } })) });
     if (faqs.rowCount) jsonLd.push({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.rows.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })) });
     const list = prods.rows.map((p) => `<li><h3>${escapeHtmlText(p.name)} · ${brl(Number(p.price_cents))}</h3><p>${escapeHtmlText(p.description)}</p></li>`).join('');
     override = { jsonLd, bodyHtml: `<section><h2>Consultas veiculares por placa</h2><ul>${list}</ul><p>Sem mensalidade: você paga só pela consulta que fizer, com preço visível antes do pagamento e relatório em PDF com código de validação.</p><p><a href="/planos">Compare as consultas e os preços</a> · <a href="/simulador">Simulador de financiamento</a> · <a href="/veiculos">Guia de veículos</a></p></section>` };
