@@ -56,6 +56,13 @@ function HeroTitle() {
   return <><h1 id="hero-title">{h1}</h1><p className="hero-tag">Saiba tudo sobre o carro <span className="grad-text">antes de fechar negócio.</span></p></>;
 }
 
+const FREE_TOOLS: Array<{ to: string; icon: IconName; title: string; short: string; text: string }> = [
+  { to: '/fipe', icon: 'trending-up', title: 'Tabela FIPE grátis', short: 'FIPE grátis', text: 'Preço médio de carro, moto e caminhão por marca, modelo e ano.' },
+  { to: '/simulador', icon: 'calculator', title: 'Simulador de financiamento', short: 'Simulador de financiamento', text: 'Parcela, CET e custo total do financiamento, com PDF para levar ao banco.' },
+  { to: '/combustivel', icon: 'dollar', title: 'Etanol ou gasolina?', short: 'Etanol ou gasolina?', text: 'Descubra qual combustível compensa para o seu carro e quanto você gasta por mês.' },
+  { to: '/comparar', icon: 'bar-chart', title: 'Comparar carros', short: 'Comparar carros', text: 'Ficha técnica, consumo e nota dos donos de até 3 veículos lado a lado.' }
+];
+
 export default function Landing() {
   usePageTitle('');
   const { status } = useSession();
@@ -71,6 +78,10 @@ export default function Landing() {
             <HeroTitle />
             <p className="hero-lead">Débitos, multas, restrições, gravame, histórico e valor FIPE em um relatório claro, em segundos. Sem mensalidade: você paga só pela consulta que fizer.</p>
             <PlateSearch authed={status === 'authed'} placement="hero" />
+            <div className="hero2-tools" aria-label="Ferramentas grátis">
+              <span>Grátis:</span>
+              {FREE_TOOLS.slice(0, 3).map((t) => <Link key={t.to} to={t.to} onClick={() => trackFunnel('CTA_CLICKED', { placement: 'hero_tools', target: t.to, landing: '/' })}><Icon name={t.icon} size={16} />{t.short}</Link>)}
+            </div>
             <div className="hero2-links">
               <a className="btn btn-lg btn-outline-light" href="#consultas">Ver as consultas</a>
               <DetailsButton className="linkbtn light" icon={false}>O que vem em cada uma</DetailsButton>
@@ -93,6 +104,22 @@ export default function Landing() {
             </div>
             <div className="hv-float"><Icon name="file-text" size={18} /><div><b>Relatório em PDF</b><small>com código de validação</small></div></div>
             <span className="hv-sample">Exemplo ilustrativo, com dados fictícios</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="section tools-strip" id="ferramentas-gratis" aria-labelledby="tools-title">
+        <div className="container stack-lg">
+          <div className="section-head" style={{ marginBottom: 0 }}><span className="eyebrow">Ferramentas grátis</span><h2 id="tools-title">Comece de graça e decida com mais segurança.</h2><p>Use quando quiser. Quando precisar do histórico completo de um veículo, é só fazer a consulta por placa.</p></div>
+          <div className="tools-grid">
+            {FREE_TOOLS.map((t) => (
+              <Link key={t.to} to={t.to} className="tool-card" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'home_tools', target: t.to, landing: '/' })}>
+                <span className="wi"><Icon name={t.icon} size={26} /></span>
+                <h3>{t.title}</h3>
+                <p>{t.text}</p>
+                <span className="tool-go">Usar grátis <Icon name="arrow-right" size={16} /></span>
+              </Link>
+            ))}
           </div>
         </div>
       </section>
