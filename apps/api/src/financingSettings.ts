@@ -130,7 +130,7 @@ export function latestBankRows(rows: Array<Record<string, unknown>>, segment: Pe
 }
 
 /** Taxas médias por instituição (Banco Central, "Taxas de juros por instituição financeira"). Falha nunca afeta as taxas gerais: só registra o erro. */
-export async function refreshBankRatesFromBcb(fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; count: number; error?: string }> {
+export async function refreshBankRatesFromBcb(fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; count: number; error?: string; rows?: BcbBankRate[] }> {
   try {
     const params = await olindaRows(fetchImpl, 'ParametrosConsulta?$format=json&$top=3000');
     const targets = pickBankTargets(params);
@@ -159,7 +159,7 @@ export async function refreshBankRatesFromBcb(fetchImpl: typeof fetch = fetch): 
       await client.query('UPDATE financing_settings SET banks_refreshed_at=now(), banks_refresh_error=NULL WHERE id=1');
       await client.query('COMMIT');
     } catch (e) { await client.query('ROLLBACK').catch(() => undefined); throw e; } finally { client.release(); }
-    return { ok: true, count: collected.length };
+    return { ok: true, count: collected.length, rows: collected };
   } catch (e) {
     const message = e instanceof Error ? e.message : 'BCB_BANKS_ERROR';
     log('warn', 'financing_bank_rates_refresh_failed', { error: message });
@@ -171,22 +171,82 @@ export async function refreshBankRatesFromBcb(fetchImpl: typeof fetch = fetch): 
 let lastAttempt = 0;
 let refreshing: Promise<{ ok: boolean; error?: string }> | null = null;
 
+const MIN_INSTITUTIONS = 3;
+const SGS_SOURCE = 'Banco Central do Brasil (SGS 25471, 25447, 25450)';
+const BANKS_SOURCE = 'Banco Central do Brasil (taxas por instituição financeira, média das instituições)';
+const MIXED_SOURCE = 'Banco Central do Brasil (SGS e taxas por instituição financeira)';
+
+const monthIndex = (ym: string) => { const [y, m] = ym.split('-').map(Number); return Number.isFinite(y) && Number.isFinite(m) ? y! * 12 + m! : NaN; };
+/** Diferença em meses entre dois "AAAA-MM" (a - b). */
+export const monthsApart = (a: string, b: string) => monthIndex(a) - monthIndex(b);
+
+/**
+ * Média simples das taxas das instituições no período mais recente publicado pelo Banco Central (por modalidade).
+ * Só vale com pelo menos 3 instituições, para uma única taxa não virar "a média do mercado".
+ */
+export function marketAveragesFromBankRows(rows: BcbBankRate[]): Partial<Record<SeriesKey, BcbPoint>> {
+  const out: Partial<Record<SeriesKey, BcbPoint>> = {};
+  const keyOf = (r: BcbBankRate): SeriesKey => (r.modality === 'CDC' ? (r.segment === 'PF' ? 'cdcPf' : 'cdcPj') : r.segment === 'PF' ? 'leasingPf' : 'leasingPj');
+  const groups = new Map<SeriesKey, BcbBankRate[]>();
+  for (const r of rows) {
+    if (!r.period || !Number.isFinite(r.monthlyPct) || r.monthlyPct <= 0.05 || r.monthlyPct >= 15) continue;
+    const k = keyOf(r);
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
+  for (const [k, list] of groups) {
+    if (list.length < MIN_INSTITUTIONS) continue;
+    const date = list.map((r) => r.period!.slice(0, 7)).sort().pop()!;
+    const same = list.filter((r) => r.period!.slice(0, 7) === date);
+    if (same.length < MIN_INSTITUTIONS) continue;
+    out[k] = { date, value: Math.round((same.reduce((s, r) => s + r.monthlyPct, 0) / same.length) * 100) / 100 };
+  }
+  return out;
+}
+
+/**
+ * Escolhe, série a série, o dado oficial mais recente. A série mensal oficial (SGS) vale quando está em dia (até 2 meses do dado mais novo);
+ * quando ela está parada ou atrasada, usa a média das taxas que as instituições informam ao Banco Central, que é publicada com poucos dias de atraso.
+ */
+export function chooseRates(sgs: Record<SeriesKey, BcbPoint | null>, banks: Partial<Record<SeriesKey, BcbPoint>>) {
+  const pick = {} as Record<SeriesKey, (BcbPoint & { from: 'SGS' | 'BANKS' }) | null>;
+  for (const k of Object.keys(BCB_SERIES) as SeriesKey[]) {
+    const s = sgs[k]; const b = banks[k];
+    if (s && b) pick[k] = monthsApart(b.date, s.date) > 2 ? { ...b, from: 'BANKS' } : { ...s, from: 'SGS' };
+    else if (b) pick[k] = { ...b, from: 'BANKS' };
+    else if (s) pick[k] = { ...s, from: 'SGS' };
+    else pick[k] = null;
+  }
+  const required = [pick.cdcPf, pick.cdcPj, pick.leasingPj];
+  if (required.some((p) => !p)) return null;
+  const month = required.map((p) => p!.date).sort().pop()!;
+  // leasing de PF: série parada há mais de 2 meses do mês de referência não serve (cai para a média de leasing de PJ, com aviso)
+  const lpf = pick.leasingPf && monthsApart(month, pick.leasingPf.date) <= 2 ? pick.leasingPf.value : null;
+  const froms = new Set([pick.cdcPf!.from, pick.cdcPj!.from, pick.leasingPj!.from]);
+  const source = froms.size > 1 ? MIXED_SOURCE : froms.has('BANKS') ? BANKS_SOURCE : SGS_SOURCE;
+  return { cdcPf: pick.cdcPf!.value, cdcPj: pick.cdcPj!.value, leasingPj: pick.leasingPj!.value, leasingPf: lpf, month, source };
+}
+
 /** Atualiza as taxas pelo Banco Central. Falha de rede nunca derruba o simulador: mantém o último valor e registra o erro. */
 export function refreshRatesFromBcb(fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; error?: string }> {
   if (refreshing) return refreshing;
   lastAttempt = Date.now();
   refreshing = (async () => {
     try {
-      const entries = await Promise.all((Object.keys(BCB_SERIES) as SeriesKey[]).map(async (k) => [k, await fetchBcbSeries(BCB_SERIES[k].code, fetchImpl)] as const));
-      const got = Object.fromEntries(entries) as Record<SeriesKey, BcbPoint | null>;
-      if (!got.cdcPf || !got.cdcPj || !got.leasingPj) throw new Error('BCB_MISSING_SERIES');
-      const month = [got.cdcPf, got.cdcPj, got.leasingPj].map((p) => p!.date).sort().pop()!;
+      let sgsError = '';
+      const entries = await Promise.all((Object.keys(BCB_SERIES) as SeriesKey[]).map(async (k) => {
+        try { return [k, await fetchBcbSeries(BCB_SERIES[k].code, fetchImpl)] as const; }
+        catch (e) { sgsError = e instanceof Error ? e.message : 'BCB_ERROR'; return [k, null] as const; }
+      }));
+      const sgs = Object.fromEntries(entries) as Record<SeriesKey, BcbPoint | null>;
+      const bankRefresh = await refreshBankRatesFromBcb(fetchImpl);
+      const banks = bankRefresh.ok && bankRefresh.rows ? marketAveragesFromBankRows(bankRefresh.rows) : {};
+      const chosen = chooseRates(sgs, banks);
+      if (!chosen) throw new Error(sgsError || bankRefresh.error || 'BCB_MISSING_SERIES');
       await pool.query(
         `UPDATE financing_settings SET cdc_pf_pct=$1, cdc_pj_pct=$2, leasing_pj_pct=$3, leasing_pf_pct=$4, rates_reference_month=$5,
-           rates_source='Banco Central do Brasil (SGS 25471, 25447, 25450)', rates_refreshed_at=now(), rates_refresh_error=NULL, updated_at=now() WHERE id=1`,
-        [got.cdcPf.value, got.cdcPj.value, got.leasingPj.value, got.leasingPf?.value ?? null, month]
+           rates_source=$6, rates_refreshed_at=now(), rates_refresh_error=NULL, updated_at=now() WHERE id=1`,
+        [chosen.cdcPf, chosen.cdcPj, chosen.leasingPj, chosen.leasingPf, chosen.month, chosen.source]
       );
-      await refreshBankRatesFromBcb(fetchImpl);
       return { ok: true };
     } catch (e) {
       const message = e instanceof Error ? e.message : 'BCB_ERROR';

@@ -12,7 +12,7 @@ export const lastOf = (r: SimResult) => r.lastInstallmentCents ?? r.installmentC
 /* ========================================================================== */
 /*  Resultado                                                                  */
 /* ========================================================================== */
-export function ResultCard({ r, rate, month, best, title, expanded }: { r: SimResult; rate?: RateInfo; month: string; best?: boolean; title: string; expanded?: boolean }) {
+export function ResultCard({ r, rate, month, best, title, expanded, bcb = true }: { r: SimResult; rate?: RateInfo; month: string; best?: boolean; title: string; expanded?: boolean; bcb?: boolean }) {
   const [openState, setOpen] = useState(false);
   const open = expanded || openState;
   const interest = Math.max(0, r.totalPaidCents - r.vehicleValueCents - r.iofCents - r.feesTotalCents);
@@ -43,7 +43,7 @@ export function ResultCard({ r, rate, month, best, title, expanded }: { r: SimRe
         <div className="total"><dt>Valor total financiado</dt><dd>{brl(r.principalCents)}</dd></div>
       </dl>
       <p className="sim-rate-src muted">
-        {rate?.custom ? 'Taxa informada por você.' : `Taxa média de mercado (Banco Central, ${monthRef(month)}).`}
+        {rate?.custom ? 'Taxa informada por você.' : `Taxa média de mercado (${bcb ? 'Banco Central, ' : 'referência, '}${monthRef(month)}).`}
         {r.firstInstallmentDays > 30 ? ` Primeira parcela em ${r.firstInstallmentDays} dias (carência).` : ''}
       </p>
       {rate?.note && <Alert tone="info" icon="info">{rate.note}</Alert>}
@@ -134,14 +134,13 @@ export function Results({ data, loading, error, onAmortization, onCopied, expand
   const cheaper = both ? (cdc!.totalPaidCents <= leasing!.totalPaidCents ? 'cdc' : 'leasing') : null;
   return (
     <div className={`stack ${loading ? 'sim-busy' : ''}`} aria-busy={loading}>
-      {rateAge(data.referenceMonth) > 3 && <Alert tone="warn" icon="info" title="Taxas desatualizadas">As taxas médias usadas são de {monthRef(data.referenceMonth)}. Confirme a taxa com o banco antes de decidir, ou informe a taxa da sua proposta.</Alert>}
       {error && <Alert tone="warn" icon="alert-triangle">{error}</Alert>}
       {data.errors.leasing && <Alert tone="warn" icon="info" title="Leasing não disponível neste cenário">{data.errors.leasing}</Alert>}
       {data.errors.cdc && <Alert tone="warn" icon="info" title="CDC não disponível neste cenário">{data.errors.cdc}</Alert>}
       {both && <Versus cdc={cdc!} leasing={leasing!} onAmortization={onAmortization} onCopied={onCopied} />}
       <div className={both ? 'sim-two' : undefined}>
-        {cdc && <ResultCard r={cdc} rate={data.rates.cdc} month={data.referenceMonth} title="Financiamento CDC" best={cheaper === 'cdc'} expanded={expanded} />}
-        {leasing && <ResultCard r={leasing} rate={data.rates.leasing} month={data.referenceMonth} title="Leasing" best={cheaper === 'leasing'} expanded={expanded} />}
+        {cdc && <ResultCard r={cdc} rate={data.rates.cdc} month={data.referenceMonth} bcb={/^Banco Central/i.test(data.source)} title="Financiamento CDC" best={cheaper === 'cdc'} expanded={expanded} />}
+        {leasing && <ResultCard r={leasing} rate={data.rates.leasing} month={data.referenceMonth} bcb={/^Banco Central/i.test(data.source)} title="Leasing" best={cheaper === 'leasing'} expanded={expanded} />}
       </div>
     </div>
   );

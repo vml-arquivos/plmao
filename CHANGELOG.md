@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.49.1 — Simulador: taxa sempre atual e sem avisos de "desatualizada" para o cliente
+
+- **Causa:** a série mensal do Banco Central usada (SGS 25471, 25447, 25450) estava devolvendo dados só até 02/2026, mesmo com a coleta rodando. Por isso o simulador mostrava o mês de referência antigo e os avisos de taxa desatualizada.
+- **Correção:** a atualização agora também calcula a média das taxas que as instituições informam ao Banco Central (publicadas com poucos dias de atraso, as mesmas já usadas na comparação por banco). Para cada taxa, vale a série mensal oficial quando ela está em dia (até 2 meses de diferença) e, quando está parada, vale a média das instituições do período mais recente (mínimo de 3 instituições). Nenhum valor é inventado: sem dado oficial, a última taxa é mantida.
+- A origem aparece de forma honesta ("Banco Central do Brasil (taxas por instituição financeira, média das instituições)" ou "SGS e taxas por instituição") e o mês de referência passa a ser o do dado real.
+- **Site:** saíram os avisos de "taxa desatualizada" / "referência interna" da tela do simulador e dos resultados. O controle da idade da taxa continua só no painel (Simulador).
+- Sem variável de ambiente nova. Sem migração nova (continua em 082). Testes novos em `financing-referencia`.
+
 ## 1.49.0 — Blocos de SEO visíveis em todas as páginas, taxas do simulador honestas e verificação de publicação
 
 - **Blocos e perguntas do painel de SEO agora aparecem no site.** Causa confirmada: o servidor já enviava esses textos no HTML inicial, mas o app só os mostrava em FIPE, combustível, comparar e simulador; a home, `/sobre`, `/planos`, `/instalar`, `/contato`, `/perguntas-frequentes`, o guia, o blog e as páginas legais ignoravam os blocos, e as páginas de consulta (gravame, sinistro, leilão…) mostravam só as perguntas, não os blocos. Agora todas mostram, como texto visível (`h2` + parágrafo), o que está salvo no painel. O texto continua vindo do painel, nada foi copiado para o código.

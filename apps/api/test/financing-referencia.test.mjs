@@ -4,7 +4,7 @@ import { integration, loadCore, useTestEnv } from './helpers/db.mjs';
 import { hostRequest, startServer } from './helpers/server.mjs';
 
 useTestEnv();
-const { ratesProvenance, SOURCE_INTERNAL, refreshRatesFromBcb, loadFinancingSettings } = await import('../dist/financingSettings.js');
+const { ratesProvenance, SOURCE_INTERNAL, refreshRatesFromBcb, loadFinancingSettings, chooseRates, marketAveragesFromBankRows } = await import('../dist/financingSettings.js');
 const base = { rates: { cdcPf: 1.97, cdcPj: 1.45, leasingPf: null, leasingPj: 1.37 }, referenceMonth: '2026-08', source: 'Banco Central do Brasil (SGS 25471, 25447, 25450)', autoRefresh: true, refreshedAt: null, refreshError: null, banksRefreshedAt: null, banksRefreshError: null, fees: {}, iof: {}, updatedAt: '' };
 const NOW = new Date('2026-11-09T12:00:00Z');
 
@@ -19,6 +19,37 @@ describe('origem e idade da taxa de referência do simulador', () => {
     assert.deepEqual([fresh.monthsBehind, fresh.stale, fresh.collectedAt], [2, false, '2026-11-08T10:00:00Z']);
     const old = ratesProvenance({ ...base, referenceMonth: '2026-02', refreshedAt: '2026-02-20T10:00:00Z', refreshError: 'BCB_HTTP_503' }, NOW);
     assert.deepEqual([old.monthsBehind, old.stale, old.refreshFailed], [9, true, true]);
+  });
+});
+
+const row = (segment, modality, institution, monthlyPct, period = '2026-11-02') => ({ segment, modality, institution, monthlyPct, annualPct: null, position: 1, period });
+const pt = (date, value) => ({ date, value });
+
+describe('taxa atual: série mensal parada x taxas por instituição do Banco Central', () => {
+  it('média das instituições do período mais recente; menos de 3 instituições não vira média de mercado', () => {
+    const avg = marketAveragesFromBankRows([
+      row('PF', 'CDC', 'A', 1.8), row('PF', 'CDC', 'B', 2.0), row('PF', 'CDC', 'C', 2.2), row('PF', 'CDC', 'D', 9, '2026-10-05'),
+      row('PJ', 'CDC', 'A', 1.5), row('PJ', 'CDC', 'B', 1.6),
+      row('PJ', 'LEASING', 'A', 1.3), row('PJ', 'LEASING', 'B', 1.4), row('PJ', 'LEASING', 'C', 1.5)
+    ]);
+    assert.deepEqual(avg.cdcPf, { date: '2026-11', value: 2 });
+    assert.equal(avg.cdcPj, undefined);
+    assert.deepEqual(avg.leasingPj, { date: '2026-11', value: 1.4 });
+  });
+  it('série oficial parada em 02/2026: usa a média das instituições e o mês de referência fica atual', () => {
+    const c = chooseRates(
+      { cdcPf: pt('2026-02', 1.9), cdcPj: pt('2026-02', 1.4), leasingPj: pt('2026-02', 1.3), leasingPf: pt('2026-02', 1.8) },
+      { cdcPf: pt('2026-11', 2.05), cdcPj: pt('2026-11', 1.55), leasingPj: pt('2026-11', 1.35) });
+    assert.deepEqual([c.cdcPf, c.cdcPj, c.leasingPj, c.month], [2.05, 1.55, 1.35, '2026-11']);
+    assert.equal(c.leasingPf, null, 'leasing PF parado não é reaproveitado');
+    assert.match(c.source, /instituição/);
+  });
+  it('série oficial em dia continua sendo a escolhida; sem nenhum dado, não inventa', () => {
+    const c = chooseRates(
+      { cdcPf: pt('2026-09', 1.97), cdcPj: pt('2026-09', 1.45), leasingPj: pt('2026-09', 1.37), leasingPf: null },
+      { cdcPf: pt('2026-11', 2.05), cdcPj: pt('2026-11', 1.55), leasingPj: pt('2026-11', 1.35) });
+    assert.deepEqual([c.cdcPf, c.month, c.source], [1.97, '2026-09', 'Banco Central do Brasil (SGS 25471, 25447, 25450)']);
+    assert.equal(chooseRates({ cdcPf: null, cdcPj: null, leasingPj: null, leasingPf: null }, {}), null);
   });
 });
 
@@ -46,6 +77,26 @@ describe('simulador: referência de taxa na API pública', integration, () => {
     assert.equal(c.ratesStatus.origin, 'BCB');
     assert.equal(c.referenceMonth, '2026-09');
     assert.ok(c.ratesStatus.collectedAt);
+    assert.match(c.source, /^Banco Central/);
+  });
+
+  it('coleta com a série oficial parada usa as taxas por instituição e o mês de referência fica atual', async () => {
+    await new Promise((r) => setTimeout(r, 20));
+    const json = (value) => new Response(JSON.stringify({ value }), { status: 200 });
+    const fake = async (url) => {
+      const u = decodeURIComponent(String(url));
+      if (u.includes('sgs.')) return new Response(JSON.stringify([{ data: '01/02/2026', valor: '1.90' }]), { status: 200 });
+      if (u.includes('ParametrosConsulta')) return json([
+        { segmento: 'PESSOA FÍSICA', modalidade: 'Aquisição de veículos - Prefixado' },
+        { segmento: 'PESSOA JURÍDICA', modalidade: 'Aquisição de veículos - Prefixado' },
+        { segmento: 'PESSOA JURÍDICA', modalidade: 'Arrendamento mercantil de veículos - Prefixado' }]);
+      const v = /PESSOA JURÍDICA/.test(u) ? (/Arrendamento/.test(u) ? [1.3, 1.4, 1.5] : [1.5, 1.6, 1.7]) : [1.9, 2.0, 2.1];
+      return json(v.map((x, i) => ({ InicioPeriodo: '2026-11-02', InstituicaoFinanceira: `BANCO ${i}`, TaxaJurosAoMes: x, TaxaJurosAoAno: 20, Posicao: i + 1 })));
+    };
+    assert.equal((await refreshRatesFromBcb(fake)).ok, true);
+    const c = await config();
+    assert.equal(c.referenceMonth, '2026-11');
+    assert.equal(c.rates.cdc.PF.pct, 2);
     assert.match(c.source, /^Banco Central/);
   });
 

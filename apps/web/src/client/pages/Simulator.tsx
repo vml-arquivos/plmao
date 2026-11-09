@@ -8,7 +8,7 @@ import { FipePicker } from '../fipePicker';
 import { errorMessage } from '../../shared/api';
 import { useSession } from '../session';
 import {
-  KindTabs, KINDS, MoneyInput, brl, defaultState, kindBySlug, kindByKey, monthRef, ratesLabel, ratesNotice, paramsFromState, pct, reais,
+  KindTabs, KINDS, MoneyInput, brl, defaultState, kindBySlug, kindByKey, monthRef, ratesLabel, paramsFromState, pct, reais,
   stateFromParams, toBody, useCalculation, useSimConfig, type Kind, type Modality, type SimConfig, type SimState
 } from '../simulator';
 
@@ -157,7 +157,6 @@ export default function Simulator() {
                       {state.modality !== 'CDC' && marketLease && <><b>{pct(marketLease.pct)} a.m.</b> no leasing</>}.
                       {' '}Sua taxa real depende da análise de crédito.</> : 'Carregando a taxa média de mercado…'}
                   </p>
-                  {cfg && ratesNotice(cfg) && <p className="muted" role="note" style={{ fontSize: 13.5, fontWeight: 400 }}>{ratesNotice(cfg)}</p>}
                 </>
               ) : (
                 <Field label="Taxa mensal da proposta (% ao mês)">
@@ -224,7 +223,7 @@ function HowItWorks({ cfg }: { cfg: SimConfig | null }) {
     { q: "O que acontece se eu atrasar as parcelas?", a: "Em qualquer financiamento, o atraso gera multa, juros de mora e correção, e o nome pode ser negativado. No CDC, o veículo é a garantia: se a dívida não for regularizada depois da notificação, o banco pode pedir a busca e apreensão e vender o veículo para abater a dívida. Se sobrar valor, ele volta para você; se faltar, a diferença continua sendo cobrada. No leasing, o veículo é da arrendadora, que pode rescindir o contrato e pedir a reintegração de posse. O que já foi pago e o que ainda é devido seguem o contrato." },
     { q: "E se eu não conseguir continuar pagando?", a: "Procure o banco antes de atrasar. Renegociar o prazo ou vender o veículo para quitar costuma custar menos do que a retomada. Nos dois tipos, você pode antecipar parcelas ou quitar antes, com redução proporcional dos juros (Código de Defesa do Consumidor, art. 52, § 2º)." },
     { q: "Posso vender ou trocar o veículo antes de terminar de pagar?", a: "No CDC, só quitando a dívida ou com a autorização do banco, porque há alienação fiduciária. No leasing, o veículo é da arrendadora até você exercer a compra no final. Nos dois casos, combine com a instituição antes de anunciar." },
-    { q: 'De onde vêm as taxas?', a: `${cfg?.ratesStatus && cfg.ratesStatus.origin !== 'BCB' ? 'Usamos uma taxa de referência interna, uma estimativa baseada na média de mercado de juros de aquisição de veículos' : 'Usamos a taxa média mensal de juros de aquisição de veículos divulgada pelo Banco Central do Brasil'}${cfg ? ` (referência ${monthRef(cfg.referenceMonth)})` : ''}${ratesNotice(cfg) ? `. ${ratesNotice(cfg).split(' Informe')[0]}` : ''}. É uma média de mercado: a sua taxa pode ser menor ou maior conforme perfil, entrada, prazo e instituição. Se você já tem uma proposta, informe a taxa dela.` },
+    { q: 'De onde vêm as taxas?', a: `${cfg?.ratesStatus && cfg.ratesStatus.origin !== 'BCB' ? 'Usamos uma taxa média de mercado de referência para juros de aquisição de veículos' : 'Usamos a taxa média mensal de juros de aquisição de veículos divulgada pelo Banco Central do Brasil'}${cfg ? ` (referência ${monthRef(cfg.referenceMonth)})` : ''}. É uma média de mercado: a sua taxa pode ser menor ou maior conforme perfil, entrada, prazo e instituição. Se você já tem uma proposta, informe a taxa dela.` },
     { q: 'Como o IOF é calculado?', a: iof ? `Para pessoa física, ${String(iof.pfDailyPct).replace('.', ',')}% ao dia sobre cada parcela do principal (limitado a ${iof.capDays} dias) mais ${String(iof.additionalPct).replace('.', ',')}% sobre o valor. Para empresas, ${String(iof.pjDailyPct).replace('.', ',')}% ao dia. O IOF é financiado junto com o veículo, por isso entra no valor das parcelas.` : 'Calculamos o IOF de crédito por parcela, com limite de 365 dias, e financiamos junto com o veículo.' },
     { q: 'O simulador é gratuito?', a: 'Sim. Você simula quantas vezes quiser, sem pagar e sem criar conta. Para baixar o PDF da simulação é preciso entrar na sua conta gratuita.' },
     { q: 'Posso usar a taxa da proposta do meu banco?', a: 'Pode. Em "taxa de juros" informe a taxa da proposta que você recebeu e o simulador recalcula a parcela, o CET e o custo total com ela.' },
