@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.47.0 — Ferramentas grátis em destaque (FIPE, simulador, etanol ou gasolina, comparar)
+
+- **Menu do topo:** "Tabela FIPE" e "Simulador" saem do menu "Ferramentas" (escondido) e ficam direto no topo, com contorno e a etiqueta "Grátis". "Veículos" agora reúne guia, comparar, mais econômicos e etanol ou gasolina; "Ajuda" reúne blog, perguntas frequentes, sobre e contato. No celular, as duas ferramentas aparecem em destaque no topo do menu.
+- **Home, logo abaixo do campo da placa:** linha "Grátis:" com FIPE grátis, Simulador de financiamento e Etanol ou gasolina?.
+- **Home, logo depois do topo:** nova faixa "Ferramentas grátis" com 4 cartões (Tabela FIPE, Simulador de financiamento, Etanol ou gasolina?, Comparar carros) e botão "Usar grátis". Os cliques entram no funil como `hero_tools` e `home_tools`.
+- Só layout e textos: nenhuma rota, API ou migração mudou. Sem variável de ambiente nova.
+
 ## 1.46.0 — Capas de todas as páginas e imagens de todas as consultas
 
 - **29 páginas já vêm com capa** (migração 081), em WebP 1200×630: início, FIPE, consulta de placa, consulta veicular, gravame, sinistro, leilão, débitos, multas, recall, histórico, planos, lojistas, concessionárias, sobre, instalar, contato, guia de veículos, mais econômicos, combustível, simulador (e os 4 tipos), comparar, blog, termos e privacidade. Só a página de perguntas frequentes ficou sem capa (usa a imagem da marca). A migração só troca imagem que veio de fábrica: o que a equipe enviar pelo painel nunca é sobrescrito. Para trocar, use Painel → SEO.
