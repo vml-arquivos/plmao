@@ -98,6 +98,7 @@ import { startGarageAlerts } from './lib/garageAlerts.js';
 import { apiKeyAuth, apiKeyRateLimit, apiKeysRouter, requirePublicApiEnabled } from './routes/apiKeys.js';
 import { simulatorRouter } from './routes/simulator.js';
 import { scoreModelMatch } from './lib/vehicleSpecs.js';
+import { articleBodyHtml, plansBodyHtml, vehicleBodyHtml } from './seoBodies.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
 import { loadFinancingSettings, maybeRefreshInBackground } from './financingSettings.js';
@@ -3467,6 +3468,7 @@ app.get('*', asyncRoute(async (req, res, next) => {
     const meta = await articleSeo(article[1]);
     if (!meta) { res.status(404); override = { notFound: true }; }
     else override = { title: `${meta.title} | Placa na Mão`, description: meta.description, jsonLd: [{ '@context': 'https://schema.org', '@type': 'Article', headline: meta.title, description: meta.description, datePublished: meta.publishedAt, dateModified: meta.updatedAt, inLanguage: 'pt-BR', author: { '@type': 'Organization', name: meta.author }, publisher: { '@type': 'Organization', name: 'Placa na Mão', url: `${baseUrl}/` }, mainEntityOfPage: `${baseUrl}/blog/${article[1]}` }] };
+    if (!override.notFound) { const body = await articleBodyHtml(article[1]!); if (body) override.bodyHtml = body; }
   } else if (req.path === '/') {
     const [prods, faqs] = await Promise.all([
       pool.query(`SELECT id,name,description,price_cents FROM query_products WHERE active=true AND commercial_status='ACTIVE' AND NOT is_free ORDER BY display_order,price_cents`),
@@ -3482,6 +3484,8 @@ app.get('*', asyncRoute(async (req, res, next) => {
     if (faqs.rowCount) jsonLd.push({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.rows.map((f) => ({ '@type': 'Question', name: f.question, acceptedAnswer: { '@type': 'Answer', text: f.answer } })) });
     const list = prods.rows.map((p) => `<li><h3>${escapeHtmlText(p.name)} · ${brl(Number(p.price_cents))}</h3><p>${escapeHtmlText(p.description)}</p></li>`).join('');
     override = { jsonLd, bodyHtml: `<section><h2>Consultas veiculares por placa</h2><ul>${list}</ul><p>Sem mensalidade: você paga só pela consulta que fizer, com preço visível antes do pagamento e relatório em PDF com código de validação.</p><p><a href="/planos">Compare as consultas e os preços</a> · <a href="/simulador">Simulador de financiamento</a> · <a href="/veiculos">Guia de veículos</a></p></section>` };
+  } else if (req.path.replace(/\/$/, '') === '/planos') {
+    const plansBody = await plansBodyHtml(); if (plansBody) override = { bodyHtml: plansBody };
   } else if (req.path.replace(/\/$/, '') === '/veiculos/mais-economicos') {
     // Rota estática do ranking; não consultar como se fosse slug de modelo.
   } else if (/^\/veiculos\/[a-z0-9-]+\/?$/.test(req.path)) {
@@ -3491,6 +3495,7 @@ app.get('*', asyncRoute(async (req, res, next) => {
       const m = v.rows[0]!;
       const years = m.year_from ? ` (${m.year_from}${m.year_to && m.year_to !== m.year_from ? `–${m.year_to}` : ''})` : '';
       override = { title: `${m.brand} ${m.name}${years}: ficha técnica e opinião dos donos | Placa na Mão`, description: String(m.summary || `Ficha técnica, consumo, nota e opinião de donos do ${m.brand} ${m.name}.`).slice(0, 160) };
+      const vehicleBody = await vehicleBodyHtml(req.path.split('/')[2]!); if (vehicleBody) override.bodyHtml = vehicleBody;
     }
   } else if (/^\/loja\/[a-z0-9-]+(\/veiculo\/[0-9a-f-]{36})?\/?$/.test(req.path)) {
     const parts = req.path.split('/');

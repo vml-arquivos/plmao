@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.54.0 — Conteúdo real no HTML das páginas de veículo, blog e planos (soft 404)
+
+- **Motivo do alerta "Erro soft 404" no Search Console:** nas páginas `/veiculos/<modelo>`, `/blog/<artigo>` e `/planos` o servidor entregava só título, uma frase e o menu; o conteúdo vinha depois, pelo JavaScript. O Google leu a página como vazia.
+- **Agora o servidor já entrega o conteúdo:** artigo com o texto completo; modelo com resumo, prévia da análise, nota dos donos, 2 pontos fortes e 2 de atenção e versões com destaques (o mesmo que o visitante sem conta vê, o restante continua restrito); `/planos` com consultas, preços e pacotes. Sem custo, margem ou dado de conta.
+- Rascunho de artigo e modelo inexistente continuam 404. O visual do site não muda.
+- Depois do deploy: Search Console → Indexação de páginas → Erro soft 404 → **Validar correção**.
+- Sem variável de ambiente nova. Testes novos: `seo-conteudo-servidor`.
+
 ## 1.53.0 — Entrar com Google (cadastro e login)
 
 - **Botão "Continuar com Google"** nas telas Entrar e Criar conta. Aparece sozinho quando `OAUTH_GOOGLE_CLIENT_ID` e `OAUTH_GOOGLE_CLIENT_SECRET` estão preenchidas; sem elas, nada muda.
