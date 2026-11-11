@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { api, CUSTOMER_TYPE, PAYMENT_STATUS } from '../api';
-import { Badge, Button, EmptyState, ErrorState, Input, PageLoading, Select, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { Badge, Button, ConfirmDialog, EmptyState, ErrorState, Input, PageLoading, Select, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { useAdminSession } from '../session';
 import { dateTime, formatPlate, money } from '../../shared/format';
@@ -12,7 +12,9 @@ interface P { id: string; orderId: string | null; status: string; amountCents: n
 export default function Payments() {
   usePageTitle('Pagamentos');
   const toast = useToast();
-  const { can } = useAdminSession();
+  const { can, user } = useAdminSession();
+  const [wipe, setWipe] = useState<P | null>(null);
+  const isSuper = user?.role === 'SUPER_ADMIN';
   async function op(p: P, kind: 'reconcile' | 'refund') {
     if (!p.orderId) return;
     try {
@@ -48,11 +50,12 @@ export default function Payments() {
               <td>{p.purchaseType === 'QUERY' ? <>Consulta {p.plate && <b className="mono">{formatPlate(p.plate)}</b>}</> : <Badge>Saldo</Badge>}</td>
               <td><PaymentStatusBadge status={p.status} /></td><td className="r num">{money(p.amountCents)}</td>
               <td>{p.provider}{p.externalId && <div className="muted mono" style={{ fontSize: 11.5 }}>{p.externalId.slice(0, 18)}</div>}</td><td>{dateTime(p.createdAt)}</td><td>{dateTime(p.paidAt)}</td><td>{p.status !== 'PAID' ? '—' : p.fiscalStatus ? <Badge tone={FISCAL_STATUS[p.fiscalStatus]?.tone}>{FISCAL_STATUS[p.fiscalStatus]?.label}</Badge> : <Badge tone="warn">Sem nota</Badge>}</td>
-              <td>{p.provider === 'mercadopago' && p.orderId && can('MANAGE_BILLING') && (p.status === 'PAID' ? <Button variant="ghost" onClick={() => void op(p, 'refund')}>Estornar</Button> : p.status === 'PENDING' ? <Button variant="ghost" onClick={() => void op(p, 'reconcile')}>Conciliar</Button> : null)}</td>
+              <td>{p.provider === 'mercadopago' && p.orderId && can('MANAGE_BILLING') && (p.status === 'PAID' ? <Button variant="ghost" onClick={() => void op(p, 'refund')}>Estornar</Button> : p.status === 'PENDING' ? <Button variant="ghost" onClick={() => void op(p, 'reconcile')}>Conciliar</Button> : null)}{isSuper && p.orderId && <Button variant="ghost" icon="trash" onClick={() => setWipe(p)} aria-label="Apagar pagamento de teste">Apagar</Button>}</td>
             </tr>
           ))}
         </tbody></table></div>
       )}
+      {wipe && wipe.orderId && <ConfirmDialog danger title="Apagar pagamento de teste" confirmLabel="Apagar para sempre" message={<><p>Apagar este pagamento de <b>{money(wipe.amountCents)}</b> de {wipe.customer.name}, com recibo e eventos dele?</p><p className="muted">Não dá para desfazer. Só apaga o registro aqui: não devolve dinheiro, não mexe no Mercado Pago e não ajusta o saldo da carteira.</p></>} onClose={() => setWipe(null)} onConfirm={async () => { try { await api.post(`/admin/data-reset/payment-orders/${wipe.orderId}/delete`, { confirm: true }); toast.ok('Pagamento apagado.'); list.reload(); } catch (e) { toast.error(errorMessage(e)); } }} />}
     </>
   );
 }

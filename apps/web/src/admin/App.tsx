@@ -29,6 +29,7 @@ import Articles from './pages/Articles';
 import Seo from './pages/Seo';
 import Partners from './pages/Partners';
 import System from './pages/System';
+import DataReset from './pages/DataReset';
 import Account from './pages/Account';
 import ResultsPage from './pages/Results';
 
@@ -72,6 +73,7 @@ export default function App() {
         <Route path="parceiros" element={<Partners />} />
         <Route path="auditoria" element={<Audit />} />
         <Route path="sistema" element={<System />} />
+        <Route path="dados-de-teste" element={<DataReset />} />
         <Route path="conta" element={<Account />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

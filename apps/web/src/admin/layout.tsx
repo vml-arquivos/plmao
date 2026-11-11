@@ -6,7 +6,7 @@ import { initials } from '../shared/format';
 import { ROLE_LABEL, type Permission } from './api';
 import { useAdminSession } from './session';
 
-interface NavItem { to: string; label: string; icon: IconName; perm: Permission; end?: boolean }
+interface NavItem { to: string; label: string; icon: IconName; perm: Permission; end?: boolean; superOnly?: boolean }
 export const GROUPS: Array<{ title: string; items: NavItem[] }> = [
   { title: 'Visão geral', items: [
     { to: '/', label: 'Painel', icon: 'dashboard', perm: 'VIEW_DASHBOARD', end: true },
@@ -47,7 +47,8 @@ export const GROUPS: Array<{ title: string; items: NavItem[] }> = [
     { to: '/equipe', label: 'Equipe e acessos', icon: 'key', perm: 'MANAGE_TEAM' },
     { to: '/integracoes', label: 'Integrações', icon: 'settings', perm: 'MANAGE_PROVIDERS' },
     { to: '/auditoria', label: 'Auditoria', icon: 'shield-check', perm: 'VIEW_AUDIT' },
-    { to: '/sistema', label: 'Sistema', icon: 'settings', perm: 'VIEW_AUDIT' }
+    { to: '/sistema', label: 'Sistema', icon: 'settings', perm: 'VIEW_AUDIT' },
+    { to: '/dados-de-teste', label: 'Limpar dados de teste', icon: 'trash', perm: 'VIEW_AUDIT', superOnly: true }
   ] }
 ];
 
@@ -76,7 +77,7 @@ export default function AdminLayout() {
         <span className="adm-badge">Painel da equipe</span>
         <nav className="adm-nav">
           {GROUPS.map((g) => {
-            const items = g.items.filter((i) => can(i.perm));
+            const items = g.items.filter((i) => can(i.perm) && (!i.superOnly || user?.role === 'SUPER_ADMIN'));
             if (!items.length) return null;
             return <div key={g.title} style={{ display: 'contents' }}><span className="group">{g.title}</span>{items.map((i) => (
               <NavLink key={i.to} to={i.to} end={i.end} className={({ isActive }) => (isActive ? 'active' : '')}><Icon name={i.icon} size={18} />{i.label}</NavLink>

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, CUSTOMER_TYPE } from '../api';
 import { useAdminSession } from '../session';
-import { Alert, Badge, Button, CopyField, EmptyState, ErrorState, Field, Input, Modal, PageLoading, PlateBadge, Select, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { Alert, Badge, Button, ConfirmDialog, CopyField, EmptyState, ErrorState, Field, Input, Modal, PageLoading, PlateBadge, Select, Textarea, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { dateTime, formatPlate, isValidPlate, money, normalizePlate } from '../../shared/format';
 import ReportView from '../../shared/ReportView';
@@ -21,9 +21,11 @@ const GROUPS: Record<'ok' | 'refunded' | 'issues' | 'all', { label: string; matc
 
 export function QueriesList() {
   usePageTitle('Consultas');
-  const { can } = useAdminSession();
+  const { can, user } = useAdminSession();
   const nav = useNavigate();
   const list = useAsync(() => api.get<Row[]>('/admin/queries'));
+  const [wipe, setWipe] = useState<Row | null>(null);
+  const isSuper = user?.role === 'SUPER_ADMIN';
   const [q, setQ] = useState('');
   const [group, setGroup] = useState<'ok' | 'refunded' | 'issues' | 'all'>('ok');
   const [type, setType] = useState('');
@@ -57,11 +59,12 @@ export function QueriesList() {
               <td>{r.customer.name} <TypeBadge type={r.customerType} /><div className="muted" style={{ fontSize: 12.5 }}>{r.customer.email}</div></td>
               <td><QueryStatusBadge status={r.status} />{r.errorCode && <div className="muted" style={{ fontSize: 12 }} title={r.errorMessage ?? undefined}>{r.errorCode}</div>}</td>
               <td className="r num">{r.source === 'ADMIN' ? '—' : money(r.priceCents)}</td><td>{r.source === 'ADMIN' ? <Badge tone="info">{r.sentToCustomer ? 'Enviada ao cliente' : 'Interna'}</Badge> : <Badge>{r.chargeSource}</Badge>}</td><td>{dateTime(r.createdAt)}</td>
-              <td className="r" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>{r.status === 'SUCCESS' && <span className="row" style={{ gap: 4, justifyContent: 'flex-end', flexWrap: 'nowrap' }}><Button size="sm" variant="ghost" icon="file-text" onClick={() => void openPdf(r.id)}>PDF</Button>{can('VIEW_SENSITIVE_DATA') && <><Button size="sm" variant="ghost" icon="link" onClick={() => setDeliver({ id: r.id, plate: r.plate, mode: 'link' })}>Link</Button><Button size="sm" variant="ghost" icon="send" onClick={() => setDeliver({ id: r.id, plate: r.plate, mode: 'send' })}>Enviar</Button></>}</span>}</td>
+              <td className="r" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>{isSuper && <Button size="sm" variant="ghost" icon="trash" onClick={() => setWipe(r)} aria-label={`Apagar consulta ${formatPlate(r.plate)}`}>Apagar</Button>}{r.status === 'SUCCESS' && <span className="row" style={{ gap: 4, justifyContent: 'flex-end', flexWrap: 'nowrap' }}><Button size="sm" variant="ghost" icon="file-text" onClick={() => void openPdf(r.id)}>PDF</Button>{can('VIEW_SENSITIVE_DATA') && <><Button size="sm" variant="ghost" icon="link" onClick={() => setDeliver({ id: r.id, plate: r.plate, mode: 'link' })}>Link</Button><Button size="sm" variant="ghost" icon="send" onClick={() => setDeliver({ id: r.id, plate: r.plate, mode: 'send' })}>Enviar</Button></>}</span>}</td>
             </tr>
           ))}
         </tbody></table></div>
       )}
+      {wipe && <ConfirmDialog danger title="Apagar consulta de teste" confirmLabel="Apagar para sempre" message={<><p>Apagar a consulta da placa <b>{formatPlate(wipe.plate)}</b> e o resultado dela?</p><p className="muted">Não dá para desfazer. Não devolve valor ao cliente nem mexe no Mercado Pago.</p></>} onClose={() => setWipe(null)} onConfirm={async () => { try { await api.post(`/admin/data-reset/queries/${wipe.id}/delete`, { confirm: true }); toast.ok('Consulta apagada.'); list.reload(); } catch (e) { toast.error(errorMessage(e)); } }} />}
       {lookup && <LookupModal onClose={() => { setLookup(false); list.reload(); }} />}
       {lien && <LienRefreshModal onClose={() => { setLien(false); list.reload(); }} />}
       {clean && <CleanupModal onClose={() => { setClean(false); list.reload(); }} />}

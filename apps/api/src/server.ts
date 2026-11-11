@@ -82,6 +82,7 @@ import { adminEmailRouter, emailWebhookRouter } from './routes/adminEmail.js';
 import { accountCnpjRouter, adminCnpjRouter } from './routes/cnpj.js';
 import { adminContractsRouter, contractsPublicRouter } from './routes/contracts.js';
 import { adminPaymentOpsRouter } from './routes/adminPaymentOps.js';
+import { adminDataResetRouter } from './routes/adminDataReset.js';
 import { adminFiscalQueueRouter, fiscalPublicRouter } from './routes/adminFiscalQueue.js';
 import { startFiscalWorker } from './lib/fiscal.js';
 import { startFiscalAuto } from './lib/fiscalAuto.js';
@@ -146,6 +147,7 @@ api.use('/admin', adminEmailRouter);
 api.use('/admin', adminCnpjRouter);
 api.use('/admin', adminContractsRouter);
 api.use('/admin', adminPaymentOpsRouter);
+api.use('/admin', adminDataResetRouter);
 api.use('/admin', adminDealersRouter);
 api.use('/admin', adminResultsRouter);
 api.use('/admin', adminFiscalQueueRouter);
@@ -2548,8 +2550,8 @@ api.get('/admin/settings', adminAuth, requirePermission('VIEW_AUDIT'), asyncRout
       logLevel: env.LOG_LEVEL
     },
     configured: {
-      payment: Boolean(env.PAYMENT_API_KEY),
-      vehicleProvider: Boolean(env.VEHICLE_API_BASE_URL),
+      payment: (env.PAYMENT_PROVIDER === 'mercadopago' && Boolean(env.MP_ACCESS_TOKEN)) || Boolean(env.PAYMENT_API_KEY),
+      vehicleProvider: env.DATA_PROVIDER === 'real' && ((env.VEHICLE_API_PROVIDER === 'credify' && Boolean(env.CREDIFY_CLIENT_ID) && Boolean(env.CREDIFY_CLIENT_SECRET)) || (env.VEHICLE_API_PROVIDER === 'consultarplaca' && Boolean(env.CONSULTARPLACA_API_KEY)) || Boolean(env.VEHICLE_API_BASE_URL)),
       email: isEmailConfigured(),
       fipe: Boolean(env.FIPE_PRIMARY_BASE_URL)
     },

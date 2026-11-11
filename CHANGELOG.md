@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.57.0 — Super admin: limpar dados de teste e conserto da tela Sistema
+
+- **Painel → Sistema → Limpar dados de teste (só SUPER_ADMIN):** apaga consultas, pagamentos e carteira, contas de clientes e leads/atendimento/e-mails de teste. Exige senha do super admin e a frase `APAGAR DADOS DE TESTE`; tudo roda numa única transação (se algo falhar, nada é apagado). Mostra antes quantos registros existem em cada grupo.
+- **Nunca apaga:** produtos, preços, pacotes, cupons (só zera o contador de uso), SEO, textos, guia de veículos, simulador, permissões, equipe, integrações, configurações, auditoria, cache dos provedores e notas fiscais já emitidas. A conta do super admin e a equipe nunca são apagadas.
+- **Apagar um item:** botão "Apagar" (só super admin) em cada linha de Consultas e de Pagamentos.
+- **Trava:** depois de abrir o site para clientes reais, o super admin pode travar a função com a senha; travada, nenhuma limpeza roda até liberar. Cada limpeza fica na auditoria (sem dados pessoais).
+- Só limpa registros daqui: não devolve dinheiro, não mexe no Mercado Pago nem na Credify.
+- **Tela Sistema:** "Gateway de pagamento" e "Provedor de consulta veicular" apareciam "Não configurado" mesmo com Mercado Pago e Credify prontos (lia variáveis antigas). Agora usa `MP_ACCESS_TOKEN` e as credenciais do provedor ativo.
+- Sem variável de ambiente nova e sem migração. Testes: `data-reset`.
+
 ## 1.56.0 — SEO: textos das páginas de consulta e conserto das páginas de banco
 
 - **Páginas de banco (`/financiamento/<banco>`):** o título passava de 65 caracteres em nomes longos (ex.: Banco Hyundai Capital Brasil) e a descrição era cortada no meio da palavra ("compare com outr"). Agora o título e a descrição sempre cabem nos limites e terminam em palavra inteira.
