@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.55.0 — Revisão editorial de SEO: sem promessa sem prova e textos que faltavam
+
+- **Tirado o que não tem prova:** "em segundos" (home e simuladores de carro, moto e caminhão), "poucos segundos" (pergunta de consulta de placa) e "em tempo real" (título de reserva da FIPE, que é mensal).
+- **Leilão:** a pergunta "já está disponível?" deixou de afirmar que está ativa e passou a apontar para a página de preços, que mostra o status atual de cada consulta.
+- **Textos novos (português simples, sem número inventado):** home, Sobre, Planos e Gravame. O de Gravame explica gravame, alienação fiduciária e Renajud.
+- **Painel:** páginas que você editou à mão não são alteradas. As demais recebem o texto novo, e o valor anterior fica guardado na tabela `seo_pages_history` (para voltar, copie de lá ou use "Restaurar padrão").
+- Sem variável de ambiente nova. Testes novos: `seo-revisao-editorial`.
+
 ## 1.54.0 — Conteúdo real no HTML das páginas de veículo, blog e planos (soft 404)
 
 - **Motivo do alerta "Erro soft 404" no Search Console:** nas páginas `/veiculos/<modelo>`, `/blog/<artigo>` e `/planos` o servidor entregava só título, uma frase e o menu; o conteúdo vinha depois, pelo JavaScript. O Google leu a página como vazia.

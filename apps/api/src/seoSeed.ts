@@ -9,6 +9,34 @@ export interface SeoSeed { path: string; h1: string; keyword: string; title?: st
 
 const caution = 'O relatório mostra o que a fonte de dados retorna para a placa e não substitui vistoria nem consulta aos órgãos competentes.';
 
+
+const HOME_SECTIONS: SeoSection[] = [
+  { h: 'Como fazer a consulta de placa', p: 'Digite a placa na página inicial e escolha a consulta. O relatório reúne o que a fonte de dados retorna para o veículo, como situação, débitos, multas, restrições, gravame e Tabela FIPE, conforme a cobertura de cada consulta. Cada informação mostra a fonte e a data. Você paga só pela consulta que fizer, com o preço visível antes do pagamento.' },
+  { h: 'Consulta de placa antes de comprar um usado', p: 'Antes de pagar por um carro ou uma moto usada, confira débitos, multas e restrições, veja se há gravame (o registro de que o veículo é garantia de um financiamento) e compare o preço anunciado com a Tabela FIPE. A cobertura varia conforme a fonte. Por isso o relatório diferencia um campo sem ocorrência de um dado não informado.' },
+  { h: 'O que é grátis e o que é consulta paga', p: 'A Tabela FIPE e o simulador de financiamento são grátis. A consulta de placa com relatório é paga por unidade, sem mensalidade. O simulador estima parcelas com os dados que você informa e com taxas de referência do Banco Central. Ele é uma simulação, não uma oferta nem uma aprovação de crédito.' },
+  { h: 'O que o relatório não substitui', p: caution + ' Quando a fonte não retorna um dado, o relatório mostra “não informado”, e isso não é o mesmo que “nada consta”.' }
+];
+
+const SOBRE_SECTIONS: SeoSection[] = [
+  { h: 'O que é a Placa na Mão', p: 'A Placa na Mão é uma plataforma de consulta veicular por placa. Ela reúne em um relatório o que as fontes de dados retornam sobre o veículo e organiza o resultado para apoiar a decisão de quem compra ou vende.' },
+  { h: 'Fonte, data e cobertura de cada informação', p: 'Cada informação do relatório indica a fonte e a data da consulta. Quando uma fonte não responde ou não cobre aquele dado, o relatório mostra “não informado”, em vez de sugerir que não há ocorrência. A cobertura varia conforme a consulta e o veículo.' },
+  { h: 'Para quem a Placa na Mão serve', p: 'Para quem compra ou vende um veículo, para lojistas e para concessionárias. A conta guarda o histórico das consultas e permite baixar o relatório em PDF, com código de validação.' },
+  { h: 'Ferramentas grátis e consultas pagas', p: 'A Tabela FIPE e o simulador de financiamento são grátis. A consulta de placa com relatório é paga por unidade, sem mensalidade. Dúvidas, privacidade e parcerias: use a página de contato.' }
+];
+
+const PLANOS_SECTIONS: SeoSection[] = [
+  { h: 'Preço de consulta de placa: como funciona', p: 'O preço de cada consulta aparece nesta página e no checkout, antes do pagamento. Não há mensalidade obrigatória: você paga pela consulta que fizer.' },
+  { h: 'Consulta avulsa ou pacote de saldo', p: 'O pacote de saldo entrega crédito em reais para usar em qualquer consulta, com desconto sobre o preço avulso. O valor e o desconto de cada pacote aparecem antes da compra.' },
+  { h: 'Como escolher a consulta', p: 'Para conferir só pendências, uma consulta mais simples pode bastar. Para negociar um usado, compare a cobertura de cada consulta na tabela desta página. A cobertura varia por produto e por veículo.' },
+  { h: 'Pagamento e consulta não concluída', p: 'O pagamento é por Pix ou cartão, conforme a disponibilidade do checkout. Se a consulta falhar, o valor volta para o seu saldo.' }
+];
+
+const GRAVAME_SECTIONS: SeoSection[] = [
+  { h: 'O que é gravame', p: 'Gravame é o registro de que o veículo foi dado como garantia de um financiamento. Na prática, é a marca da alienação fiduciária: a financeira mantém a propriedade fiduciária até o contrato ser quitado, enquanto o devedor usa o veículo. Com o gravame ativo, o veículo não pode ser transferido sem a baixa.' },
+  { h: 'Gravame, alienação fiduciária e Renajud: qual a diferença', p: 'A alienação fiduciária é o tipo de garantia do financiamento, e o gravame é o seu registro no veículo. O Renajud é um sistema do Judiciário usado para registrar restrições judiciais, como o bloqueio de transferência por decisão de um juiz. São situações diferentes: o veículo pode ter uma, outra, as duas ou nenhuma, e a cobertura de cada uma depende da fonte consultada.' },
+  { h: 'Como consultar gravame antes de comprar', p: 'Informe a placa e confira o que a fonte retorna, como instituição financeira, contrato e data de inclusão, quando informados. Peça ao vendedor o comprovante de quitação e de baixa. Se houver gravame, combine a quitação ou a baixa antes de pagar e confirme com a financeira.' }
+];
+
 export const SEO_SEED: SeoSeed[] = [
   {
     path: '/fipe', h1: 'Tabela FIPE grátis', keyword: 'tabela fipe',
@@ -56,7 +84,7 @@ export const SEO_SEED: SeoSeed[] = [
   {
     path: '/simulador/carro', h1: 'Financiamento de carro', keyword: 'financiamento de carro',
     title: 'Simulador de financiamento de carro | Placa na Mão',
-    description: 'Simule o financiamento de carro, novo ou usado: parcela, CET e custo total em CDC ou leasing, com entrada e prazo à sua escolha. Grátis, em segundos.',
+    description: 'Simule o financiamento de carro, novo ou usado: parcela, CET e custo total em CDC ou leasing, com entrada e prazo à sua escolha. Grátis.',
     sections: [
       { h: 'Financiamento de carro: simule antes de ir ao banco', p: 'Escolha o carro pela Tabela FIPE ou informe o valor, defina a entrada e o prazo e veja a parcela, o CET e o total pago em CDC e leasing. Chegar ao banco sabendo o custo real ajuda a negociar e a recusar propostas caras.' },
       { h: 'Carro novo ou usado', p: 'Para carro usado, confira também a situação do veículo: débitos, restrições, gravame e histórico. Um financiamento só é aprovado se o carro estiver apto à alienação, e problemas descobertos depois da compra saem caros.' }
@@ -71,7 +99,7 @@ export const SEO_SEED: SeoSeed[] = [
   {
     path: '/simulador/moto', h1: 'Financiamento de moto', keyword: 'financiamento de moto',
     title: 'Simulador de financiamento de moto | Placa na Mão',
-    description: 'Simule o financiamento de moto: parcela, CET e custo total em CDC ou leasing, com entrada e prazo à sua escolha. Grátis, em segundos.',
+    description: 'Simule o financiamento de moto: parcela, CET e custo total em CDC ou leasing, com entrada e prazo à sua escolha. Grátis.',
     sections: [
       { h: 'Financiamento de moto: veja a parcela antes de decidir', p: 'Informe o valor da moto, a entrada e o prazo. O simulador mostra parcela, CET e total pago, para você comparar propostas das concessionárias e dos bancos.' }
     ],
@@ -84,7 +112,7 @@ export const SEO_SEED: SeoSeed[] = [
   {
     path: '/simulador/caminhao', h1: 'Financiamento de caminhão', keyword: 'financiamento de caminhão',
     title: 'Simulador de financiamento de caminhão | Placa na Mão',
-    description: 'Simule o financiamento de caminhão em CDC ou leasing: parcela, CET e custo total, com entrada e prazo ajustáveis. Grátis, em segundos.',
+    description: 'Simule o financiamento de caminhão em CDC ou leasing: parcela, CET e custo total, com entrada e prazo ajustáveis. Grátis.',
     sections: [
       { h: 'Financiamento de caminhão', p: 'Caminhões envolvem valores maiores e condições próprias de entrada e prazo, e algumas linhas de financiamento têm regras específicas. Use a simulação como referência para comparar propostas e confirme as condições com a instituição.' }
     ],
@@ -144,7 +172,7 @@ export const SEO_SEED: SeoSeed[] = [
       { q: 'Preciso informar o Renavam?', a: 'Não. A consulta é feita pela placa.' },
       { q: 'Serve para placa antiga e Mercosul?', a: 'Sim. Aceitamos os dois padrões de placa usados no Brasil.' },
       { q: 'O que aparece na consulta de placa?', a: 'Depende do tipo de consulta: dados do veículo, débitos, restrições, gravame, histórico e FIPE. Veja o detalhe de cada uma em Consultas e preços.' },
-      { q: 'Quanto tempo leva para receber o resultado?', a: 'Em geral, poucos segundos. O relatório fica no seu histórico e pode ser baixado em PDF com código de validação.' },
+      { q: 'Quanto tempo leva para receber o resultado?', a: 'Depende da fonte de dados de cada consulta. O resultado aparece na tela quando a fonte responde. O relatório fica no seu histórico e pode ser baixado em PDF com código de validação.' },
       { q: 'O relatório é garantia de negócio seguro?', a: caution }
     ]
   },
@@ -162,6 +190,7 @@ export const SEO_SEED: SeoSeed[] = [
     path: '/consultar-gravame', h1: 'Consultar gravame', keyword: 'consultar gravame',
     title: 'Consultar gravame do veículo pela placa | Placa na Mão',
     description: 'Consultar gravame pela placa mostra se o veículo tem financiamento ou alienação fiduciária registrada antes de comprar. Veja o resultado com a fonte.',
+    sections: GRAVAME_SECTIONS,
     faq: [
       { q: 'O que é gravame de veículo?', a: 'É o registro de que o veículo foi dado como garantia de um financiamento (alienação fiduciária). Enquanto o gravame existe, o veículo não pode ser transferido sem a baixa.' },
       { q: 'Como consultar gravame pela placa?', a: 'Informe a placa na consulta de gravame ou na consulta completa. O relatório mostra, quando a fonte retorna, a instituição financeira, o contrato e a data de inclusão.' },
@@ -212,7 +241,7 @@ export const SEO_SEED: SeoSeed[] = [
       { q: 'Como consultar leilão de veículo?', a: 'Informe a placa e escolha a consulta com passagem por leilão. O relatório mostra o que a fonte retorna e diferencia um campo sem ocorrência de um dado não informado.' },
       { q: 'Por que verificar a passagem por leilão?', a: 'Veículos de leilão podem vir de seguradoras, financeiras ou órgãos públicos. Pode haver bom preço, mas também histórico que pede atenção.' },
       { q: 'Carro de leilão é ruim?', a: 'Não necessariamente. O importante é saber da passagem por leilão, avaliar o preço e fazer uma vistoria antes de comprar.' },
-      { q: 'A consulta de leilão já está disponível?', a: 'Sim. A consulta Leilão e Dados do Veículo está ativa e mostra a passagem por leilão, com nível de risco quando a fonte informa. A passagem por leilão também vem dentro das consultas Completa e Premium. Nada é cobrado por informação que não possa ser entregue.' }
+      { q: 'A consulta de leilão já está disponível?', a: 'A página de preços mostra o status atual de cada consulta. Quando a consulta de leilão está ativa, o relatório mostra a passagem por leilão e o nível de risco, se a fonte informar. Um campo sem retorno aparece como "não informado", nunca como "nada consta".' }
     ]
   },
   {
@@ -240,6 +269,7 @@ export const SEO_SEED: SeoSeed[] = [
     path: '/planos', h1: 'Preço de consulta de placa', keyword: 'preço de consulta de placa',
     title: 'Preço de consulta de placa e veicular | Placa na Mão',
     description: 'Veja o preço de consulta de placa e de cada relatório antes de pagar. Sem mensalidade: pague só o que consultar, com Pix ou cartão.',
+    sections: PLANOS_SECTIONS,
     faq: [
       { q: 'Qual o preço de consulta de placa?', a: 'O preço aparece antes do pagamento e muda conforme a consulta escolhida. Não há mensalidade: você paga só pelo que consultar.' },
       { q: 'Existe mensalidade?', a: 'Não. Você paga só pela consulta que fizer, com o preço visível antes do pagamento.' },
@@ -249,7 +279,7 @@ export const SEO_SEED: SeoSeed[] = [
     ]
   },
   // Páginas sem perguntas frequentes próprias: título, descrição, palavra-chave e H1 já definidos.
-  { path: '/', h1: 'Consulta de placa online', keyword: 'consulta de placa', title: 'Consulta de placa, FIPE grátis e simulador | Placa na Mão', description: 'Faça a consulta de placa e receba o relatório do veículo em segundos: débitos, multas, restrições, gravame e histórico. FIPE e simulador grátis, sem mensalidade.', faq: [] },
+  { path: '/', h1: 'Consulta de placa online', keyword: 'consulta de placa', title: 'Consulta de placa, FIPE grátis e simulador | Placa na Mão', description: 'Faça a consulta de placa e veja o relatório do veículo: débitos, multas, restrições, gravame e histórico, conforme a fonte. FIPE e simulador grátis, sem mensalidade.', sections: HOME_SECTIONS, faq: [] },
   { path: '/veiculos', h1: 'Guia de veículos', keyword: 'guia de veículos', title: 'Guia de veículos: ficha técnica e opinião de donos | Placa na Mão', description: 'No guia de veículos, veja ficha técnica, consumo oficial, nota e opinião de quem tem o carro, dicas de cuidados e compare lado a lado antes de comprar.', faq: [] },
   { path: '/veiculos/mais-economicos', h1: 'Carros mais econômicos', keyword: 'carros mais econômicos', title: 'Carros mais econômicos: ranking de consumo | Placa na Mão', description: 'Veja os carros mais econômicos por versão: consumo em km/l na cidade e na estrada, com a fonte à vista (Inmetro e fichas de referência).', faq: [] },
   { path: '/para-lojistas', h1: 'Consulta para lojistas', keyword: 'consulta para lojistas', title: 'Consulta para lojistas: placa e histórico | Placa na Mão', description: 'Consulta para lojistas: centralize consultas de placa, histórico e relatórios para comprar e vender veículos com segurança. Pague só pelo que consultar.', faq: [
@@ -264,7 +294,7 @@ export const SEO_SEED: SeoSeed[] = [
     { q: 'Várias pessoas da equipe podem usar a mesma conta?', a: 'Sim. O pacote para lojas permite equipe, estoque, propostas e vitrine. Fale com a equipe para ajustar o acesso ao seu volume.' },
     { q: 'O relatório pode ser compartilhado com o cliente?', a: 'Sim. O PDF tem código de validação, e o cliente pode conferir a autenticidade do relatório na página de validação.' }
   ] },
-  { path: '/sobre', h1: 'Sobre a Placa na Mão', keyword: 'placa na mão', title: 'Sobre a Placa na Mão | Consulta veicular por placa', description: 'Conheça a Placa na Mão: consulta veicular por placa com transparência sobre a fonte, a data e a cobertura de cada informação do relatório.', faq: [] },
+  { path: '/sobre', h1: 'Sobre a Placa na Mão', keyword: 'placa na mão', title: 'Sobre a Placa na Mão | Consulta veicular por placa', description: 'Conheça a Placa na Mão: consulta veicular por placa com transparência sobre a fonte, a data e a cobertura de cada informação do relatório.', sections: SOBRE_SECTIONS, faq: [] },
   { path: '/instalar', h1: 'Instalar o app', keyword: 'instalar o app', title: 'Instalar o app Placa na Mão | Android e iPhone', description: 'Veja como instalar o app Placa na Mão na tela inicial do Android ou do iPhone, sem loja de aplicativos, e abra em tela cheia com acesso rápido.', faq: [] },
   { path: '/contato', h1: 'Contato e suporte', keyword: 'contato e suporte', title: 'Contato e suporte | Placa na Mão', description: 'Contato e suporte da Placa na Mão: fale com a equipe sobre suporte, privacidade (LGPD) e parcerias comerciais, pelo chat ou pelo formulário.', faq: [] },
   { path: '/perguntas-frequentes', h1: 'Perguntas frequentes', keyword: 'perguntas frequentes', title: 'Perguntas frequentes sobre consulta veicular | Placa na Mão', description: 'Perguntas frequentes sobre consulta de placa, pagamento, estorno, privacidade e o que cada relatório mostra, com respostas diretas e sem enrolação.', faq: [] },

@@ -19,7 +19,7 @@ test('/comparar é indexável: está no sitemap, fora do Disallow e sem noindex;
 
 test('HTML inicial traz conteúdo semântico (h1, descrição, navegação) para quem não executa JavaScript', () => {
   const html = renderSeoHtml(tpl, '/fipe', base);
-  assert.match(html, /<div id="root"><main><h1>Consulta FIPE grátis e em tempo real<\/h1><p>/);
+  assert.match(html, /<div id="root"><main><h1>Consulta FIPE grátis: valor médio vigente<\/h1><p>/);
   assert.match(html, /<nav aria-label="Principal"><ul><li><a href="\/fipe">/);
   const withBody = renderSeoHtml(tpl, '/perguntas-frequentes', base, { bodyHtml: '<section><h2>Custa R$ 5?</h2><p>Sim, $& vale.</p></section>' });
   assert.match(withBody, /Custa R\$ 5\?/); assert.match(withBody, /Sim, \$& vale\./);

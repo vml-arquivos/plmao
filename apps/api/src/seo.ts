@@ -1,8 +1,8 @@
 type SeoMeta = { title: string; description: string };
 
 export const pageMeta: Record<string, SeoMeta> = {
-  '/': { title: 'Consulta de placa: débitos, multas, gravame e histórico | Placa na Mão', description: 'Consulte a placa e receba o relatório do veículo em segundos: débitos, multas, restrições, gravame, histórico e FIPE. Sem mensalidade, com PDF.' },
-  '/fipe': { title: 'Consulta FIPE grátis e em tempo real | Placa na Mão', description: 'Consulte gratuitamente o valor médio FIPE vigente por tipo, marca, modelo e ano.' },
+  '/': { title: 'Consulta de placa: débitos, multas, gravame e histórico | Placa na Mão', description: 'Consulte a placa e veja o relatório do veículo: débitos, multas, restrições, gravame, histórico e FIPE, conforme a fonte. Sem mensalidade, com PDF.' },
+  '/fipe': { title: 'Consulta FIPE grátis: valor médio vigente | Placa na Mão', description: 'Consulte gratuitamente o valor médio FIPE vigente por tipo, marca, modelo e ano.' },
   '/consulta-placa': { title: 'Consulta de placa veicular online | Placa na Mão', description: 'Consulte a placa, compare a cobertura disponível e receba um relatório veicular organizado para apoiar sua decisão.' },
   '/consulta-veicular': { title: 'Consulta veicular completa online | Placa na Mão', description: 'Entenda o que uma consulta veicular pode verificar e escolha a cobertura adequada para sua negociação.' },
   '/consultar-gravame': { title: 'Consultar gravame de veículo | Placa na Mão', description: 'Saiba o que é gravame, por que verificar financiamento e como consultar a cobertura disponível para o veículo.' },
