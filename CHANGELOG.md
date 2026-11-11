@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.56.0 — SEO: textos das páginas de consulta e conserto das páginas de banco
+
+- **Páginas de banco (`/financiamento/<banco>`):** o título passava de 65 caracteres em nomes longos (ex.: Banco Hyundai Capital Brasil) e a descrição era cortada no meio da palavra ("compare com outr"). Agora o título e a descrição sempre cabem nos limites e terminam em palavra inteira.
+- **Textos novos em 10 páginas que estavam sem texto no painel:** consulta de placa, consulta veicular, histórico veicular, sinistro, leilão, débitos, multas, recall, lojistas e concessionárias. Cada uma com 3 blocos.
+- **Leitura fácil:** frases curtas e termos explicados na primeira vez (gravame, sinistro, recall, IPVA, Renajud). Os textos de home, Sobre, Planos e Gravame foram reescritos no mesmo estilo. Os títulos dos blocos usam o jeito comum de pesquisar ("como saber se o carro é de leilão", "consultar placa antes de comprar", "carro com dívida").
+- Páginas editadas à mão no painel não são alteradas; o valor anterior das demais fica em `seo_pages_history`.
+- Sem variável de ambiente nova. Testes: `seo-revisao-editorial` ampliado.
+
 ## 1.55.0 — Revisão editorial de SEO: sem promessa sem prova e textos que faltavam
 
 - **Tirado o que não tem prova:** "em segundos" (home e simuladores de carro, moto e caminhão), "poucos segundos" (pergunta de consulta de placa) e "em tempo real" (título de reserva da FIPE, que é mensal).

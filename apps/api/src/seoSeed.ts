@@ -11,33 +11,88 @@ const caution = 'O relatório mostra o que a fonte de dados retorna para a placa
 
 
 const HOME_SECTIONS: SeoSection[] = [
-  { h: 'Como fazer a consulta de placa', p: 'Digite a placa na página inicial e escolha a consulta. O relatório reúne o que a fonte de dados retorna para o veículo, como situação, débitos, multas, restrições, gravame e Tabela FIPE, conforme a cobertura de cada consulta. Cada informação mostra a fonte e a data. Você paga só pela consulta que fizer, com o preço visível antes do pagamento.' },
-  { h: 'Consulta de placa antes de comprar um usado', p: 'Antes de pagar por um carro ou uma moto usada, confira débitos, multas e restrições, veja se há gravame (o registro de que o veículo é garantia de um financiamento) e compare o preço anunciado com a Tabela FIPE. A cobertura varia conforme a fonte. Por isso o relatório diferencia um campo sem ocorrência de um dado não informado.' },
-  { h: 'O que é grátis e o que é consulta paga', p: 'A Tabela FIPE e o simulador de financiamento são grátis. A consulta de placa com relatório é paga por unidade, sem mensalidade. O simulador estima parcelas com os dados que você informa e com taxas de referência do Banco Central. Ele é uma simulação, não uma oferta nem uma aprovação de crédito.' },
-  { h: 'O que o relatório não substitui', p: caution + ' Quando a fonte não retorna um dado, o relatório mostra “não informado”, e isso não é o mesmo que “nada consta”.' }
+  { h: 'Como fazer a consulta de placa', p: 'Digite a placa na página inicial. Escolha a consulta e veja o relatório. Ele mostra o que as fontes de dados retornam para o veículo, como débitos, multas, restrições e gravame. Cada informação traz a fonte e a data. O que aparece depende da consulta escolhida. Você paga só pela consulta que fizer, e o preço aparece antes do pagamento.' },
+  { h: 'Consultar placa antes de comprar carro ou moto usada', p: 'Antes de pagar, veja se o veículo tem débitos, multas ou restrições. Veja também se há gravame, que é o registro de financiamento no veículo. Depois, compare o preço anunciado com a Tabela FIPE. Assim você negocia com mais segurança e evita surpresa na hora de transferir.' },
+  { h: 'O que é grátis e o que é consulta paga', p: 'A Tabela FIPE e o simulador de financiamento são grátis. A consulta de placa com relatório é paga por consulta, sem mensalidade. O simulador calcula uma estimativa da parcela com as taxas de referência do Banco Central. Ele não é uma oferta de crédito e não garante aprovação.' },
+  { h: 'O que o relatório não faz', p: caution + ' Quando a fonte não retorna um dado, o relatório mostra “não informado”. Isso não quer dizer “nada consta”.' }
 ];
 
 const SOBRE_SECTIONS: SeoSection[] = [
-  { h: 'O que é a Placa na Mão', p: 'A Placa na Mão é uma plataforma de consulta veicular por placa. Ela reúne em um relatório o que as fontes de dados retornam sobre o veículo e organiza o resultado para apoiar a decisão de quem compra ou vende.' },
-  { h: 'Fonte, data e cobertura de cada informação', p: 'Cada informação do relatório indica a fonte e a data da consulta. Quando uma fonte não responde ou não cobre aquele dado, o relatório mostra “não informado”, em vez de sugerir que não há ocorrência. A cobertura varia conforme a consulta e o veículo.' },
-  { h: 'Para quem a Placa na Mão serve', p: 'Para quem compra ou vende um veículo, para lojistas e para concessionárias. A conta guarda o histórico das consultas e permite baixar o relatório em PDF, com código de validação.' },
-  { h: 'Ferramentas grátis e consultas pagas', p: 'A Tabela FIPE e o simulador de financiamento são grátis. A consulta de placa com relatório é paga por unidade, sem mensalidade. Dúvidas, privacidade e parcerias: use a página de contato.' }
+  { h: 'O que é a Placa na Mão', p: 'A Placa na Mão é um site de consulta de veículo pela placa. Você digita a placa e recebe um relatório com o que as fontes de dados retornam sobre o carro ou a moto. O objetivo é ajudar quem compra ou vende a decidir com mais segurança.' },
+  { h: 'Fonte, data e cobertura de cada informação', p: 'Cada informação do relatório mostra a fonte e a data da consulta. Se uma fonte não responde, o relatório mostra “não informado”. Ele não diz que não há ocorrência. A cobertura muda conforme a consulta e o veículo.' },
+  { h: 'Para quem a Placa na Mão serve', p: 'Para quem vai comprar ou vender um veículo, para lojistas e para concessionárias. Sua conta guarda o histórico das consultas. Você pode baixar o relatório em PDF, com código de validação.' },
+  { h: 'Ferramentas grátis e consultas pagas', p: 'A Tabela FIPE e o simulador de financiamento são grátis. A consulta de placa com relatório é paga por consulta, sem mensalidade. Para tirar dúvidas, falar de privacidade ou propor parceria, use a página de contato.' }
 ];
 
 const PLANOS_SECTIONS: SeoSection[] = [
-  { h: 'Preço de consulta de placa: como funciona', p: 'O preço de cada consulta aparece nesta página e no checkout, antes do pagamento. Não há mensalidade obrigatória: você paga pela consulta que fizer.' },
-  { h: 'Consulta avulsa ou pacote de saldo', p: 'O pacote de saldo entrega crédito em reais para usar em qualquer consulta, com desconto sobre o preço avulso. O valor e o desconto de cada pacote aparecem antes da compra.' },
-  { h: 'Como escolher a consulta', p: 'Para conferir só pendências, uma consulta mais simples pode bastar. Para negociar um usado, compare a cobertura de cada consulta na tabela desta página. A cobertura varia por produto e por veículo.' },
-  { h: 'Pagamento e consulta não concluída', p: 'O pagamento é por Pix ou cartão, conforme a disponibilidade do checkout. Se a consulta falhar, o valor volta para o seu saldo.' }
+  { h: 'Preço de consulta de placa: como funciona', p: 'O preço de cada consulta aparece nesta página e no pagamento, antes de você pagar. Não existe mensalidade obrigatória. Você paga só pela consulta que fizer.' },
+  { h: 'Consulta avulsa ou pacote de saldo', p: 'O pacote de saldo dá crédito em reais para usar em qualquer consulta, com desconto sobre o preço avulso. O valor e o desconto de cada pacote aparecem antes da compra.' },
+  { h: 'Como escolher a consulta', p: 'Se você só quer ver pendências, uma consulta mais simples pode bastar. Para negociar um usado, compare o que cada consulta inclui na tabela desta página. O que cada uma inclui pode variar conforme o veículo.' },
+  { h: 'Pagamento e consulta que não termina', p: 'O pagamento é por Pix ou cartão, conforme o que o pagamento oferecer no momento. Se a consulta der erro, o valor volta para o seu saldo.' }
 ];
 
 const GRAVAME_SECTIONS: SeoSection[] = [
-  { h: 'O que é gravame', p: 'Gravame é o registro de que o veículo foi dado como garantia de um financiamento. Na prática, é a marca da alienação fiduciária: a financeira mantém a propriedade fiduciária até o contrato ser quitado, enquanto o devedor usa o veículo. Com o gravame ativo, o veículo não pode ser transferido sem a baixa.' },
-  { h: 'Gravame, alienação fiduciária e Renajud: qual a diferença', p: 'A alienação fiduciária é o tipo de garantia do financiamento, e o gravame é o seu registro no veículo. O Renajud é um sistema do Judiciário usado para registrar restrições judiciais, como o bloqueio de transferência por decisão de um juiz. São situações diferentes: o veículo pode ter uma, outra, as duas ou nenhuma, e a cobertura de cada uma depende da fonte consultada.' },
-  { h: 'Como consultar gravame antes de comprar', p: 'Informe a placa e confira o que a fonte retorna, como instituição financeira, contrato e data de inclusão, quando informados. Peça ao vendedor o comprovante de quitação e de baixa. Se houver gravame, combine a quitação ou a baixa antes de pagar e confirme com a financeira.' }
+  { h: 'O que é gravame', p: 'Gravame é o registro de que o veículo foi dado como garantia de um financiamento. Esse tipo de garantia se chama alienação fiduciária. Enquanto o contrato não é pago, a financeira continua sendo dona da garantia e quem financiou usa o veículo. Com o gravame ativo, o veículo não pode ser transferido.' },
+  { h: 'Gravame, alienação fiduciária e Renajud: qual a diferença', p: 'A alienação fiduciária é a garantia do financiamento. O gravame é o registro dela no veículo. O Renajud é um sistema da Justiça que registra bloqueios feitos por decisão de um juiz. São coisas diferentes. O veículo pode ter uma, outra, as duas ou nenhuma. O que aparece depende da fonte consultada.' },
+  { h: 'Como consultar gravame antes de comprar', p: 'Digite a placa e veja o que a fonte retorna, como o banco, o contrato e a data, quando informados. Peça ao vendedor o comprovante de quitação e da baixa do gravame. Se houver gravame, combine a quitação antes de pagar e confirme com a financeira.' }
 ];
 
-export const SEO_SEED: SeoSeed[] = [
+
+/** Textos das páginas de consulta e de lojistas/concessionárias. Sem número, prazo ou cobertura que dependa de fonte: o que varia fica dito como varia. */
+const EXTRA_SECTIONS: Record<string, SeoSection[]> = {
+  '/consulta-placa': [
+    { h: 'Como fazer a consulta de placa', p: 'Digite a placa do carro ou da moto e escolha a consulta. O resultado mostra o que as fontes de dados retornam para o veículo, como situação, débitos, multas, restrições e gravame. Cada informação traz a fonte e a data. O relatório fica no seu histórico e pode ser baixado em PDF, com código de validação.' },
+    { h: 'Consultar placa antes de comprar: o que ver', p: 'Faça a consulta antes de fechar negócio. Veja se o que o vendedor contou bate com os registros. Veja se há débitos ou restrições, que são bloqueios como os de roubo, furto ou ordem judicial, quando a fonte informa. Com o relatório, você negocia o preço com mais informação.' },
+    { h: 'O que a consulta de placa não garante', p: caution + ' Se a fonte não retorna um dado, o relatório mostra “não informado”. Isso não quer dizer “nada consta”. Na dúvida, confirme no órgão responsável antes de pagar.' }
+  ],
+  '/consulta-veicular': [
+    { h: 'O que é consulta veicular', p: 'A consulta veicular junta, em um só relatório, informações de um veículo. Você não precisa olhar débitos, multas, restrições e histórico em sites diferentes. O relatório mostra a fonte e a data de cada dado. O que aparece depende da consulta escolhida e da fonte.' },
+    { h: 'Consulta veicular simples ou completa', p: 'A consulta mais simples responde a uma dúvida só, como débitos ou gravame. A consulta mais completa usa mais fontes e ajuda mais a negociar um usado. Veja o que cada uma inclui na página de preços antes de pagar.' },
+    { h: 'Como ler o resultado', p: 'Quando há ocorrência, o relatório mostra o detalhe e a data. Quando a fonte não retorna o dado, aparece “não informado”. Isso não é o mesmo que “nada consta”. O relatório ajuda a decidir, mas não substitui a vistoria do veículo nem a conferência dos documentos.' }
+  ],
+  '/historico-veicular': [
+    { h: 'O que é histórico veicular', p: 'O histórico veicular mostra o que as fontes registram sobre a vida do veículo. Pode ter passagem por leilão, indício de sinistro, recall e restrições. Sinistro é um acidente com acionamento do seguro. Recall é o chamado do fabricante para consertar um defeito. O que aparece muda conforme a fonte e o veículo.' },
+    { h: 'Histórico do veículo: por que olhar antes de comprar', p: 'Um carro pode parecer ótimo e já ter passado por leilão ou por um acidente grave. Isso reduz o valor de revenda e pode afetar a segurança. Ver o histórico antes ajuda a pedir um desconto justo ou a desistir do negócio.' },
+    { h: 'O que o histórico não mostra', p: 'Ele não substitui a vistoria. Um conserto feito fora da seguradora pode não aparecer em nenhuma base. Use o relatório junto com uma vistoria cautelar e a conferência dos documentos. “Não informado” quer dizer que a fonte não retornou o dado. Não quer dizer que não há ocorrência.' }
+  ],
+  '/consultar-sinistro-veiculo': [
+    { h: 'Como consultar sinistro de veículo antes de comprar', p: 'Digite a placa e veja se alguma fonte registra indício de sinistro. Sinistro é um acidente com acionamento do seguro, como perda total ou dano grave. O relatório mostra o que foi encontrado, com a fonte e a data. Faça isso antes de pagar, quando ainda dá para negociar.' },
+    { h: 'Carro batido: por que o sinistro pesa no preço', p: 'Um carro que já teve dano grave pode valer menos na revenda. Também pede mais atenção à estrutura e à segurança, mesmo depois de consertado. Compare o preço pedido com a Tabela FIPE e veja se o desconto compensa o risco.' },
+    { h: 'Limites da consulta de sinistro', p: 'A consulta mostra só o que as fontes registram. Uma batida sem acionamento do seguro pode não aparecer. Então, não achar registro não prova que o carro nunca bateu. Faça também uma vistoria cautelar com um profissional.' }
+  ],
+  '/consultar-leilao-veiculo': [
+    { h: 'Como saber se o carro é de leilão', p: 'Digite a placa e veja se alguma fonte registra passagem por leilão, com o nível de risco quando a fonte informa. Veja na página de preços se a consulta está disponível agora. O resultado mostra a fonte e a data de cada informação.' },
+    { h: 'Consultar leilão de veículo: por que isso muda o preço', p: 'Muitos carros de leilão vêm de seguradoras, financeiras ou órgãos públicos. Vários têm histórico de dano ou de reparo. Isso tende a baixar o valor de revenda e pode afetar a segurança. Saber antes evita pagar preço de carro sem histórico por um que tem.' },
+    { h: 'O que a consulta de leilão não garante', p: 'Se a fonte não retornar a informação, o relatório mostra “não informado”. Isso não quer dizer “nunca foi a leilão”. Use a consulta junto com a vistoria e a conferência dos documentos antes de fechar o negócio.' }
+  ],
+  '/consultar-debitos-veiculo': [
+    { h: 'Como consultar débitos de veículo antes de comprar', p: 'Digite a placa e veja os débitos que a fonte retorna, como IPVA, licenciamento e multas. IPVA é o imposto estadual sobre veículos. O relatório mostra o valor e a data da consulta. Faça isso antes de pagar, para saber o que ainda precisa ser quitado.' },
+    { h: 'Carro com dívida: por que olhar os débitos', p: 'Débitos ligados ao veículo podem impedir o licenciamento ou a transferência. Isso vira problema para quem compra. Com os valores em mãos, você combina com o vendedor quem paga o quê antes de fechar o negócio.' },
+    { h: 'Limites da consulta de débitos', p: 'Débito novo pode demorar a aparecer na fonte, e cada estado atualiza no seu ritmo. Antes de pagar, confirme o valor atualizado no órgão responsável. “Não informado” quer dizer que a fonte não retornou o dado. Não quer dizer que o veículo está sem débitos.' }
+  ],
+  '/consultar-multas-veiculo': [
+    { h: 'Como consultar multas de veículo antes de comprar', p: 'Digite a placa e veja as multas que a fonte retorna, com data, local e valor quando informados. O relatório mostra a fonte e a data da consulta. Faça isso antes de pagar, para saber se há multa em aberto no veículo.' },
+    { h: 'Multa em aberto: o que fazer', p: 'Multa pendente pode travar o licenciamento e a transferência. Combine com o vendedor a quitação antes de fechar o negócio. Os pontos na carteira (CNH) ficam com quem cometeu a infração. A multa em si fica ligada ao veículo até ser paga.' },
+    { h: 'Limites da consulta de multas', p: 'Multa recente pode demorar a aparecer, porque cada órgão de trânsito atualiza no seu prazo. Antes de pagar, confirme no órgão responsável. “Não informado” quer dizer que a fonte não retornou o dado. Não quer dizer que não há multas.' }
+  ],
+  '/consultar-recall': [
+    { h: 'Como consultar recall do seu veículo', p: 'Recall é o chamado do fabricante para consertar um defeito que pode afetar a segurança. Digite a placa e veja se a fonte registra campanhas para o veículo. O relatório mostra a fonte e a data. Assim você sabe se vale ir à concessionária.' },
+    { h: 'Recall do carro: por que fazer o reparo', p: 'O conserto da campanha é feito na rede autorizada do fabricante, sem custo para o dono. Ao comprar um usado, saber se há recall em aberto ajuda a combinar o reparo com o vendedor. Assim você evita rodar com um defeito já conhecido.' },
+    { h: 'Limites da consulta de recall', p: 'A consulta mostra o que a fonte registra e pode não ter campanhas muito recentes. Para ter certeza, confira também no site do fabricante ou na concessionária, com o chassi do veículo. “Não informado” não quer dizer “sem recall”.' }
+  ],
+  '/para-lojistas': [
+    { h: 'Consulta para lojistas: como funciona', p: 'O lojista digita a placa e recebe o relatório com a fonte e a data de cada dado. Tudo fica no histórico da conta. Você abre o relatório de novo quando quiser e baixa o PDF, com código de validação, para mostrar ao cliente. Paga só pelas consultas que fizer, com o preço à vista antes do pagamento.' },
+    { h: 'Consultar placa antes de comprar para o estoque', p: 'Veja débitos, restrições, gravame e histórico antes de comprar um veículo para a loja. Assim você reduz o risco de ficar com um carro que não consegue transferir ou revender. O relatório ajuda a negociar o preço, mas não substitui a vistoria nem a conferência dos documentos.' },
+    { h: 'Custo para quem consulta muito', p: 'Não existe mensalidade obrigatória. Quem faz muitas consultas pode usar pacotes de saldo, que dão crédito em reais com desconto sobre o preço avulso. O valor e o desconto de cada pacote aparecem na página de preços, antes da compra.' }
+  ],
+  '/para-concessionarias': [
+    { h: 'Consulta para concessionárias: como funciona', p: 'A equipe digita a placa do seminovo e recebe o relatório com a fonte e a data de cada dado. O histórico fica guardado na conta da loja. O PDF tem código de validação e pode ser mostrado ao cliente. O pagamento é por consulta, com o preço à vista antes de cada uma.' },
+    { h: 'Consulta ao avaliar seminovos', p: 'Na entrada do seminovo, o relatório junta situação, débitos, restrições, gravame e histórico, conforme a fonte. Isso ajuda a definir quanto pagar e a evitar surpresa na transferência. O relatório ajuda na avaliação, mas não substitui a vistoria técnica.' },
+    { h: 'Mais segurança para o cliente na venda', p: 'Mostrar ao cliente o relatório do seminovo, com a fonte e a data de cada informação, passa confiança e tira dúvidas na negociação. Quando a fonte não retorna um dado, o relatório diz “não informado”. Ele não afirma que não há ocorrência.' }
+  ]
+};
+
+const SEO_SEED_BASE: SeoSeed[] = [
   {
     path: '/fipe', h1: 'Tabela FIPE grátis', keyword: 'tabela fipe',
     title: 'Tabela FIPE grátis: preço de carro e moto | Placa na Mão',
@@ -304,6 +359,8 @@ export const SEO_SEED: SeoSeed[] = [
 ];
 
 /** Páginas em que perguntas frequentes não são exigidas (a página não exibe esse bloco). */
+export const SEO_SEED: SeoSeed[] = SEO_SEED_BASE.map((r) => ((r.sections?.length ?? 0) === 0 && EXTRA_SECTIONS[r.path] ? { ...r, sections: EXTRA_SECTIONS[r.path] } : r));
+
 export const NO_FAQ_PATHS = new Set(['/', '/veiculos', '/veiculos/mais-economicos', '/sobre', '/instalar', '/contato', '/perguntas-frequentes', '/blog', '/termos', '/privacidade']);
 
 export const SEO_SEED_BY_PATH = new Map(SEO_SEED.map((s) => [s.path, s]));

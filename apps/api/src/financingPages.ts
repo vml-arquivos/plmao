@@ -30,11 +30,22 @@ export const isFinancingPath = (p: string) => p === FIN_HUB || p.startsWith(FIN_
 export const financingInfo = (path: string): Registered | null => registry.get(path) ?? null;
 export const isCustomFinancingPath = (path: string) => registry.get(path)?.kind === 'custom';
 
-function bankMeta(name: string): { title: string; description: string } {
-  const long = `Financiamento de carro ${name}: taxa e simulação | ${SITE}`;
+/** Primeiro candidato que cabe em `max`; nunca corta no meio da palavra. */
+const firstFit = (max: number, candidates: string[]): string => candidates.find((c) => c.length <= max) ?? candidates[candidates.length - 1]!.slice(0, max).replace(/\s+\S*$/, '').trimEnd();
+
+export function bankMeta(name: string): { title: string; description: string } {
   return {
-    title: long.length <= 65 ? long : `Financiamento de carro ${name} | ${SITE}`,
-    description: `Financiamento de carro ${name}: veja a taxa de juros ${de(name)}, simule a parcela, o CET e o custo total e compare com outros bancos. Grátis.`.slice(0, 165)
+    title: firstFit(65, [
+      `Financiamento de carro ${name}: taxa e simulação | ${SITE}`,
+      `Financiamento de carro ${name} | ${SITE}`,
+      `Financiamento de carro ${name}`
+    ]),
+    description: firstFit(165, [
+      `Financiamento de carro ${name}: veja a taxa de juros ${de(name)}, simule a parcela, o CET e o custo total e compare com outros bancos. Grátis.`,
+      `Financiamento de carro ${name}: veja a taxa de juros ${de(name)}, simule a parcela e o CET e compare com outros bancos. Grátis.`,
+      `Financiamento de carro ${name}: veja a taxa, simule a parcela e o CET e compare com outros bancos. Grátis.`,
+      `Financiamento de carro ${name}: veja a taxa, simule a parcela e compare com outros bancos.`
+    ])
   };
 }
 

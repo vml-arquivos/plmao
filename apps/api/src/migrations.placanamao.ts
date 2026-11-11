@@ -20,6 +20,41 @@ import { FINANCING_FAQS, SEED_ARTICLES, SUPPORT_FAQS, SEED_FAQS, SEED_FEATURES, 
  * preços de referência, API pública, dados sensíveis em repouso e auditoria de revelação de PII.
  * Dinheiro: centavos inteiros · percentuais: basis points.
  */
+/** Aplica o padrão do código nas páginas de SEO nunca editadas no painel, guardando o valor anterior em seo_pages_history. */
+async function reviewSeoRows(client: Parameters<Migration['up']>[0], reason: string): Promise<void> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS seo_pages_history (
+      id bigserial PRIMARY KEY,
+      path text NOT NULL,
+      h1 text, title text, description text, keyword text,
+      sections jsonb NOT NULL DEFAULT '[]'::jsonb,
+      faq jsonb NOT NULL DEFAULT '[]'::jsonb,
+      reason text NOT NULL,
+      saved_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_seo_pages_history_path ON seo_pages_history(path, saved_at DESC);
+  `);
+      const { SEO_SEED } = await import('./seoSeed.js');
+      const canon = (v: unknown) => JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
+      for (const r of SEO_SEED) {
+        const cur = await client.query('SELECT h1,title,description,keyword,sections,faq,updated_by FROM seo_pages WHERE path=$1', [r.path]);
+        const sections = JSON.stringify(r.sections ?? []); const faq = JSON.stringify(r.faq);
+        if (!cur.rowCount) {
+          await client.query(`INSERT INTO seo_pages(path,h1,title,description,keyword,sections,faq) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb) ON CONFLICT (path) DO NOTHING`, [r.path, r.h1, r.title ?? null, r.description ?? null, r.keyword, sections, faq]);
+          continue;
+        }
+        const row = cur.rows[0]!;
+        if (row.updated_by) continue; // editado no painel: nunca é sobrescrito
+        const same = (row.title ?? null) === (r.title ?? null) && (row.description ?? null) === (r.description ?? null)
+          && canon(row.sections ?? []) === canon(r.sections ?? []) && canon(row.faq ?? []) === canon(r.faq);
+        if (same) continue;
+        await client.query(`INSERT INTO seo_pages_history(path,h1,title,description,keyword,sections,faq,reason) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)`,
+          [r.path, row.h1, row.title, row.description, row.keyword, JSON.stringify(row.sections ?? []), JSON.stringify(row.faq ?? []), reason]);
+        await client.query(`UPDATE seo_pages SET title=COALESCE($2,title), description=COALESCE($3,description), sections=$4::jsonb, faq=$5::jsonb WHERE path=$1 AND updated_by IS NULL`,
+          [r.path, r.title ?? null, r.description ?? null, sections, faq]);
+      }
+}
+
 export const placaMigrations: Migration[] = [
   {
     id: '010_payment_settings',
@@ -3046,39 +3081,13 @@ export const placaMigrations: Migration[] = [
   {
     id: '084_seo_revisao_editorial',
     name: 'SEO: revisão editorial (sem promessa sem prova, textos de home, Sobre, Planos e Gravame) com histórico dos valores anteriores',
-    up: async (client) => {
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS seo_pages_history (
-          id bigserial PRIMARY KEY,
-          path text NOT NULL,
-          h1 text, title text, description text, keyword text,
-          sections jsonb NOT NULL DEFAULT '[]'::jsonb,
-          faq jsonb NOT NULL DEFAULT '[]'::jsonb,
-          reason text NOT NULL,
-          saved_at timestamptz NOT NULL DEFAULT now()
-        );
-        CREATE INDEX IF NOT EXISTS idx_seo_pages_history_path ON seo_pages_history(path, saved_at DESC);
-      `);
-      const { SEO_SEED } = await import('./seoSeed.js');
-      const canon = (v: unknown) => JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
-      for (const r of SEO_SEED) {
-        const cur = await client.query('SELECT h1,title,description,keyword,sections,faq,updated_by FROM seo_pages WHERE path=$1', [r.path]);
-        const sections = JSON.stringify(r.sections ?? []); const faq = JSON.stringify(r.faq);
-        if (!cur.rowCount) {
-          await client.query(`INSERT INTO seo_pages(path,h1,title,description,keyword,sections,faq) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb) ON CONFLICT (path) DO NOTHING`, [r.path, r.h1, r.title ?? null, r.description ?? null, r.keyword, sections, faq]);
-          continue;
-        }
-        const row = cur.rows[0]!;
-        if (row.updated_by) continue; // editado no painel: nunca é sobrescrito
-        const same = (row.title ?? null) === (r.title ?? null) && (row.description ?? null) === (r.description ?? null)
-          && canon(row.sections ?? []) === canon(r.sections ?? []) && canon(row.faq ?? []) === canon(r.faq);
-        if (same) continue;
-        await client.query(`INSERT INTO seo_pages_history(path,h1,title,description,keyword,sections,faq,reason) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,'revisao_editorial_1_55')`,
-          [r.path, row.h1, row.title, row.description, row.keyword, JSON.stringify(row.sections ?? []), JSON.stringify(row.faq ?? [])]);
-        await client.query(`UPDATE seo_pages SET title=COALESCE($2,title), description=COALESCE($3,description), sections=$4::jsonb, faq=$5::jsonb WHERE path=$1 AND updated_by IS NULL`,
-          [r.path, r.title ?? null, r.description ?? null, sections, faq]);
-      }
-    },
+    up: async (client) => { await reviewSeoRows(client, 'revisao_editorial_1_55'); },
+    down: async () => { /* o histórico fica guardado em seo_pages_history */ }
+  },
+  {
+    id: '085_seo_textos_das_consultas',
+    name: 'SEO: textos das páginas de consulta e de lojistas e concessionárias, com histórico dos valores anteriores',
+    up: async (client) => { await reviewSeoRows(client, 'revisao_editorial_1_56'); },
     down: async () => { /* o histórico fica guardado em seo_pages_history */ }
   }
 
