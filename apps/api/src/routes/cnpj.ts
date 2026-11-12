@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { adminAuth, auth } from '../auth.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import { CnpjError, cnpjLookupEnabled, lookupCnpj } from '../lib/cnpj.js';
+import { CepError, cepLookupEnabled, lookupCep } from '../lib/cep.js';
 import { requirePermission } from '../permissions.js';
 
 const HTTP: Record<CnpjError['code'], number> = { CNPJ_INVALID: 400, CNPJ_NOT_FOUND: 404, CNPJ_LOOKUP_DISABLED: 503, CNPJ_RATE_LIMITED: 429, CNPJ_UNAVAILABLE: 502 };
@@ -10,9 +11,24 @@ const wrap = (e: unknown): never => {
   if (e instanceof CnpjError) throw appError(e.code, { code: e.code, http: HTTP[e.code], expose: true });
   throw e;
 };
+const CEP_HTTP: Record<CepError['code'], number> = { CEP_INVALID: 400, CEP_NOT_FOUND: 404, CEP_LOOKUP_DISABLED: 503, CEP_RATE_LIMITED: 429, CEP_UNAVAILABLE: 502 };
+const CEP_TEXT: Record<CepError['code'], string> = {
+  CEP_INVALID: 'CEP inválido. Confira os 8 números.', CEP_NOT_FOUND: 'CEP não encontrado. Preencha o endereço à mão.', CEP_LOOKUP_DISABLED: 'A busca de CEP está desligada. Preencha o endereço à mão.',
+  CEP_RATE_LIMITED: 'Muitas buscas de CEP em pouco tempo. Aguarde um instante.', CEP_UNAVAILABLE: 'Não foi possível buscar o CEP agora. Preencha o endereço à mão.'
+};
 const confirmBody = z.object({ edited: z.boolean(), fetchedAt: z.string().max(40), source: z.string().max(40) }).strict();
 
 function build(router: Router, guards: Array<import('express').RequestHandler>, actorAudit: (req: import('express').Request) => string) {
+  router.get('/cep/status', ...guards, (_req, res) => { res.json({ enabled: cepLookupEnabled() }); });
+  router.get('/cep/:cep', ...guards, asyncRoute(async (req, res) => {
+    try {
+      const r = await lookupCep(String(req.params.cep), { requester: req.user!.id });
+      res.json({ ...r, note: 'Endereço do CEP pré-preenchido. Confira o número e o complemento.' });
+    } catch (e) {
+      if (e instanceof CepError) throw appError(CEP_TEXT[e.code], { code: e.code, http: CEP_HTTP[e.code], expose: true, showMessage: true });
+      throw e;
+    }
+  }));
   router.get('/cnpj/status', ...guards, (_req, res) => { res.json({ enabled: cnpjLookupEnabled() }); });
   router.get('/cnpj/:cnpj', ...guards, asyncRoute(async (req, res) => {
     try {

@@ -6,7 +6,7 @@ export interface Profile { id: string; email: string; name: string; role: string
 export interface StoreAccess { name: string; role: 'OWNER' | 'MANAGER' | 'SELLER'; active: boolean }
 export type UsageProfile = 'CLIENTE' | 'LOJISTA' | 'AFILIADO';
 export const PROFILE_LABEL: Record<UsageProfile, string> = { CLIENTE: 'Cliente', LOJISTA: 'Lojista', AFILIADO: 'Afiliado' };
-export interface Me { profiles?: UsageProfile[]; activeProfile?: UsageProfile; storeAccess?: StoreAccess | null; user: { id: string; email: string; name: string; role: string }; balanceCents: number; permissions: string[]; sandbox: boolean; identities: string[]; profile: Profile }
+export interface Me { features?: Record<string, boolean>; profiles?: UsageProfile[]; activeProfile?: UsageProfile; storeAccess?: StoreAccess | null; user: { id: string; email: string; name: string; role: string }; balanceCents: number; permissions: string[]; sandbox: boolean; identities: string[]; profile: Profile }
 
 interface SessionState { status: 'loading' | 'anon' | 'authed'; me: Me | null; login: (token: string) => Promise<void>; logout: () => Promise<void>; refresh: () => Promise<void>; setBalance: (cents: number) => void; switchProfile: (profile: UsageProfile) => Promise<void> }
 const Ctx = createContext<SessionState | null>(null);

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { auth } from '../auth.js';
 import { appError, asyncRoute } from '../lib/http.js';
+import { requireFeature } from '../lib/access.js';
 import { env } from '../config.js';
 
 /**
@@ -16,7 +17,7 @@ export const garageRouter = Router();
 const MAX_VEHICLES = 10;
 const MAX_ITEMS = 200;
 const limiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false, message: { error: 'TOO_MANY_ATTEMPTS', message: 'Muitas ações em pouco tempo. Aguarde um instante.' } });
-garageRouter.use('/garage', limiter, auth);
+garageRouter.use('/garage', limiter, auth, requireFeature('GARAGE'));
 
 const bad = (message: string, code = 'INVALID_INPUT') => appError(message, { code, http: 400, expose: true });
 const notFound = () => appError('Não encontrado.', { code: 'GARAGE_NOT_FOUND', http: 404, expose: true });

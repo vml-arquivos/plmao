@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.59.0 — Painel do administrador: loja e acessos por cliente, CNPJ e CEP automáticos
+
+- **Loja por cliente, valendo na hora.** Na ficha do cliente (Clientes → cliente) há o bloco **Pacote e acessos**: ativar a loja (cria ou reativa, com os dados do cadastro), suspender, ligar ou desligar a vitrine pública e alterar os limites de veículos e de equipe. Ao ativar, a conta passa ao perfil de lojista e a pessoa vê o menu da loja (Minha loja, Meus veículos, Em lote) ao recarregar a página, sem sair da conta. Suspender guarda veículos e equipe; ativar de novo traz tudo de volta.
+- **Nova loja (Lojas → Nova loja) deixou de pedir e-mail à mão:** escolhe-se o cliente já cadastrado (busca por nome, e-mail, CPF ou CNPJ) ou cadastra-se um novo ali mesmo, e os dados da loja vêm do cadastro dele (empresa ou nome, cidade, UF, WhatsApp) ou de uma empresa cadastrada. Avisa quando o cliente já tem loja.
+- **Recursos por conta:** o administrador liga ou desliga **Minha garagem** e **Monitoramento** para cada cliente. Desligado, o item some do menu e o servidor bloqueia (403 `FEATURE_DISABLED`). Conta sem nada guardado continua com tudo liberado, como antes (migração 086, coluna `users.access_overrides`).
+- **CNPJ automático:** ao completar um CNPJ válido no cadastro de cliente ou de empresa, preenche razão social, nome fantasia e endereço (e troca o tipo de particular para empresa). Antes era só um botão e vinha **desligado**; agora `CNPJ_PROVIDER` é `brasilapi` por padrão.
+- **CEP automático:** ao completar o CEP preenche rua, bairro, cidade e UF (BrasilAPI, com ViaCEP de reserva; cache de 24 h e limite por solicitante). Novas variáveis opcionais `CEP_PROVIDER`, `CEP_BASE_URL`, `CEP_FALLBACK_BASE_URL`, `CEP_API_TIMEOUT_MS`.
+- Tudo é pré-preenchimento: a pessoa revisa e edita antes de salvar. Abrir um cadastro já existente não busca nada de novo.
+- Testes: `admin-acessos-cep` (CEP com reserva, loja e acessos pela API, permissões, auditoria) e `admin-acessos-web`.
+
 ## 1.58.1 — FIPE por placa: erro mais claro e motivo real no log
 
 - **Resposta de sucesso que não dá para ler não vira mais "placa não encontrada".** Se a fonte responde com sucesso mas sem o registro da FIPE (ou com campos faltando), o cliente vê "Não foi possível identificar os dados do veículo para esta placa" (422). "Não identificamos um veículo" só aparece quando a fonte diz que não achou (código 2, status diferente de 1 ou erro 404).

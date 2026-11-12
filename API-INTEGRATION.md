@@ -64,7 +64,8 @@ Documentação voltada ao cliente em `/desenvolvedores`.
 |---|---|---|
 | Consulta veicular Credify | `VEHICLE_API_PROVIDER=credify`, `CREDIFY_*` | Adaptador do Veículo Total (`POST /veiculototal`) pronto; falta só `CREDIFY_CLIENT_ID`/`CREDIFY_CLIENT_SECRET`, preço e a validação com consulta real. |
 | Consulta veicular ConsultarPlaca (teste) | `VEHICLE_API_PROVIDER=consultarplaca`, `CONSULTARPLACA_EMAIL`, `CONSULTARPLACA_API_KEY` | Pronto. Placa de teste `AAA0000` (sem custo). Só dados do veículo; débitos e restrições ficam "não fornecido". |
-| CNPJ | `CNPJ_PROVIDER=brasilapi` | Pronto; ativar após conferir os termos de uso da fonte. |
+| CNPJ | `CNPJ_PROVIDER=brasilapi` (padrão) | Ligado por padrão (BrasilAPI, gratuita, dados da Receita). Preenche o cadastro ao digitar o CNPJ no painel. Para desligar: `CNPJ_PROVIDER=disabled`. |
+| CEP | `CEP_PROVIDER=brasilapi` (padrão) | Ligado por padrão (BrasilAPI, com ViaCEP de reserva; ambas gratuitas). Preenche rua, bairro, cidade e UF ao digitar o CEP no painel. Para desligar: `CEP_PROVIDER=disabled`. |
 | E-mail | `EMAIL_PROVIDER=smtp`, `EMAIL_WEBHOOK_SECRET` | Fila pronta; falta SMTP e mapear o webhook de entrega do provedor. |
 | Assinatura | `ESIGN_PROVIDER=internal` | Aceite eletrônico simples com trilha. Assinatura avançada/qualificada exige provedor e validação jurídica. |
 | Fiscal | `FISCAL_PROVIDER=manual` | Fila para emissão externa e registro do resultado. Não há adaptador de NFS-e. |

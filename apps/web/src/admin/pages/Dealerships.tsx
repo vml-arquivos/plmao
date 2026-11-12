@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { api } from '../api';
-import { Badge, Button, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Switch, useAsync, usePageTitle, useToast } from '../../shared/ui';
+import { Alert, Badge, Button, EmptyState, ErrorState, Field, Input, Modal, PageLoading, Select, Switch, useAsync, usePageTitle, useToast } from '../../shared/ui';
 import { errorMessage } from '../../shared/api';
 import { dateOnly, num } from '../../shared/format';
 import { PageHead } from '../parts';
 import { useAdminSession } from '../session';
+import { CustomerPicker, type Company, type Customer, type PickedCustomer } from '../people';
+import { CustomerForm } from './Customers';
 
 interface D { id: string; name: string; slug: string; city: string | null; state: string | null; active: boolean; archived: boolean; publicEnabled: boolean; vehicleLimit: number; memberLimit: number; vehicles: number; members: number; leads: number; ownerName: string; ownerEmail: string; createdAt: string }
 
@@ -71,32 +73,71 @@ function Edit({ d, onClose }: { d: D; onClose: () => void }) {
   );
 }
 
+const digits = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
+
+/**
+ * Nova loja: o dono é um cliente já cadastrado (busca por nome, e-mail, CPF ou CNPJ) ou um cliente novo cadastrado aqui mesmo.
+ * Os dados da loja vêm do cadastro do cliente, ou de uma empresa cadastrada, e dá para ajustar antes de criar.
+ */
 function NewStore({ onClose }: { onClose: () => void }) {
   const toast = useToast();
-  const [f, setF] = useState({ ownerEmail: '', name: '', slug: '', whatsapp: '', city: '', state: '' });
+  const [owner, setOwner] = useState<PickedCustomer | null>(null);
+  const [hasStore, setHasStore] = useState<string | null>(null);
+  const [newCustomer, setNewCustomer] = useState(false);
+  const [f, setF] = useState({ name: '', slug: '', whatsapp: '', city: '', state: '' });
   const [pub, setPub] = useState(true); const [busy, setBusy] = useState(false);
+  const companies = useAsync(() => api.get<{ items: Company[] }>('/admin/companies').then((r) => r.items).catch(() => [] as Company[]), []);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
+
+  /** Escolheu o cliente: traz do cadastro dele o nome (empresa ou pessoa), a cidade, a UF e o WhatsApp, e avisa se ele já tem loja. */
+  async function pick(c: PickedCustomer | null) {
+    setOwner(c); setHasStore(null);
+    if (!c) return;
+    try {
+      const [d, acc] = await Promise.all([
+        api.get<{ customer: Customer }>(`/admin/customers/${c.id}`),
+        api.get<{ store: { name: string } | null }>(`/admin/customers/${c.id}/access`)
+      ]);
+      const x = d.customer;
+      setF((s) => ({ ...s, name: s.name || x.companyName || x.legalName || x.name, whatsapp: s.whatsapp || digits(x.phone), city: s.city || (x.city ?? ''), state: s.state || (x.state ?? '') }));
+      setHasStore(acc.store?.name ?? null);
+    } catch { /* o cadastro continua preenchível à mão */ }
+  }
+  function useCompany(id: string) {
+    const co = (companies.data ?? []).find((x) => x.id === id);
+    if (!co) return;
+    setF((s) => ({ ...s, name: co.name, whatsapp: digits(co.phone) || s.whatsapp, city: co.city ?? s.city, state: co.state ?? s.state }));
+  }
   async function save() {
+    if (!owner) return;
     setBusy(true);
     try {
-      await api.post('/admin/dealerships', { ownerEmail: f.ownerEmail, name: f.name, slug: f.slug || undefined, whatsapp: f.whatsapp || null, city: f.city || null, state: f.state || null, publicEnabled: pub });
-      toast.ok('Loja criada.'); onClose();
+      const wa = digits(f.whatsapp);
+      await api.post(`/admin/customers/${owner.id}/store`, { name: f.name.trim(), slug: f.slug || undefined, whatsapp: wa.length >= 10 && wa.length <= 13 ? wa : null, city: f.city.trim() || null, state: f.state.trim() || null, publicEnabled: pub });
+      toast.ok('Loja criada. O cliente já pode usar o menu de lojista.'); onClose();
     } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
   }
   return (
-    <Modal title="Nova loja" onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={busy} disabled={!f.ownerEmail || f.name.trim().length < 2} onClick={() => void save()}>Criar</Button></>}>
-      <div className="stack">
-        <Field label="E-mail do dono" hint="Conta de cliente já cadastrada. Ele edita o resto em Minha loja."><Input type="email" value={f.ownerEmail} onChange={set('ownerEmail')} autoFocus /></Field>
-        <Field label="Nome da loja"><Input value={f.name} onChange={set('name')} maxLength={80} /></Field>
-        <Field label="Endereço da vitrine" hint={`/loja/${f.slug || 'nome-da-loja'}. Em branco gera pelo nome.`}><Input value={f.slug} onChange={(e) => setF((s) => ({ ...s, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))} maxLength={40} /></Field>
-        <div className="grid-2">
-          <Field label="WhatsApp"><Input inputMode="tel" value={f.whatsapp} onChange={set('whatsapp')} /></Field>
-          <Field label="Cidade"><Input value={f.city} onChange={set('city')} /></Field>
+    <>
+      <Modal title="Nova loja" onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={busy} disabled={!owner || Boolean(hasStore) || f.name.trim().length < 2} onClick={() => void save()}>Criar</Button></>}>
+        <div className="stack">
+          <Field label="Dono da loja" hint="Escolha um cliente já cadastrado. Os dados da loja vêm do cadastro dele."><CustomerPicker value={owner} onChange={(c) => void pick(c)} placeholder="Digite o nome, e-mail, CPF ou CNPJ do cliente" /></Field>
+          {!owner && <div><Button variant="ghost" size="sm" icon="plus" onClick={() => setNewCustomer(true)}>Cadastrar novo cliente</Button></div>}
+          {hasStore && <Alert tone="warn" title="Este cliente já tem loja">A loja “{hasStore}” já existe para ele. Para ativar, suspender ou liberar recursos, abra a ficha dele em Clientes (bloco Pacote e acessos) ou edite a loja na lista.</Alert>}
+          <Field label="Preencher com uma empresa já cadastrada" hint="Opcional. Copia nome, cidade, UF e telefone da empresa."><Select defaultValue="" onChange={(e) => useCompany(e.target.value)} aria-label="Empresa cadastrada"><option value="">Não usar</option>{(companies.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>
+          <Field label="Nome da loja"><Input value={f.name} onChange={set('name')} maxLength={80} /></Field>
+          <Field label="Endereço da vitrine" hint={`/loja/${f.slug || 'nome-da-loja'}. Em branco gera pelo nome.`}><Input value={f.slug} onChange={(e) => setF((s) => ({ ...s, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))} maxLength={40} /></Field>
+          <div className="grid-2">
+            <Field label="WhatsApp"><Input inputMode="tel" value={f.whatsapp} onChange={set('whatsapp')} /></Field>
+            <Field label="Cidade"><Input value={f.city} onChange={set('city')} /></Field>
+          </div>
+          <Field label="UF"><Input value={f.state} maxLength={2} onChange={(e) => setF((s) => ({ ...s, state: e.target.value.toUpperCase() }))} style={{ maxWidth: 90 }} /></Field>
+          <Switch label="Vitrine pública ligada" checked={pub} onChange={(e) => setPub(e.target.checked)} />
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>Também dá para ativar a loja direto na ficha do cliente (Clientes → cliente → Pacote e acessos).</p>
         </div>
-        <Field label="UF"><Input value={f.state} maxLength={2} onChange={(e) => setF((s) => ({ ...s, state: e.target.value.toUpperCase() }))} style={{ maxWidth: 90 }} /></Field>
-        <Switch label="Vitrine pública ligada" checked={pub} onChange={(e) => setPub(e.target.checked)} />
-      </div>
-    </Modal>
+      </Modal>
+      {newCustomer && <CustomerForm onClose={() => setNewCustomer(false)} onCreated={(c) => void pick({ id: c.id, name: c.name, email: c.email, type: c.type })} />}
+    </>
   );
 }
 

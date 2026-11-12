@@ -164,7 +164,7 @@ export function PublicLayout() {
 }
 
 /* ---------- Área logada ---------- */
-type NavItem = { to: string; label: string; icon: IconName; end?: boolean; only?: UsageProfile[] };
+type NavItem = { to: string; label: string; icon: IconName; end?: boolean; only?: UsageProfile[]; feature?: string };
 type NavSection = { title?: string; items: NavItem[] };
 /**
  * Menu por perfil de uso, em grupos pelo assunto. Cliente vê o essencial para consultar; lojista ganha a loja, a consulta em lote
@@ -178,11 +178,11 @@ const SECTIONS: NavSection[] = [
   ] },
   { title: 'Acompanhar', items: [
     { to: '/app/historico', label: 'Consultas', icon: 'clock' },
-    { to: '/app/monitoramento', label: 'Monitoramento', icon: 'eye', only: ['CLIENTE', 'LOJISTA'] },
+    { to: '/app/monitoramento', label: 'Monitoramento', icon: 'eye', only: ['CLIENTE', 'LOJISTA'], feature: 'WATCHES' },
     { to: '/app/lote', label: 'Em lote', icon: 'list', only: ['LOJISTA'] }
   ] },
   { title: 'Garagem', items: [
-    { to: '/app/garagem', label: 'Minha garagem', icon: 'car', only: ['CLIENTE', 'LOJISTA'] },
+    { to: '/app/garagem', label: 'Minha garagem', icon: 'car', only: ['CLIENTE', 'LOJISTA'], feature: 'GARAGE' },
     { to: '/app/simulacoes', label: 'Simulações', icon: 'calculator', only: ['CLIENTE', 'LOJISTA'] }
   ] },
   { title: 'Loja', items: [
@@ -199,8 +199,10 @@ const SECTIONS: NavSection[] = [
   ] }
 ];
 
-function sectionsFor(profile: UsageProfile): NavSection[] {
-  return SECTIONS.map((sec) => ({ ...sec, items: sec.items.filter((i) => !i.only || i.only.includes(profile)) })).filter((sec) => sec.items.length > 0);
+function sectionsFor(profile: UsageProfile, features?: Record<string, boolean>): NavSection[] {
+  // Recurso desligado pelo administrador some do menu; só um "false" explícito esconde (sem a informação, tudo aparece como antes).
+  const allowed = (i: NavItem) => !i.feature || features?.[i.feature] !== false;
+  return SECTIONS.map((sec) => ({ ...sec, items: sec.items.filter((i) => (!i.only || i.only.includes(profile)) && allowed(i)) })).filter((sec) => sec.items.length > 0);
 }
 
 export function RequireAuth({ children }: { children: ReactNode }) {
@@ -237,7 +239,7 @@ export function AppLayout() {
   }, [menu]);
   if (!me) return null;
   const profile = useActiveProfile();
-  const sections = sectionsFor(profile);
+  const sections = sectionsFor(profile, me.features);
   const homeTo = profile === 'AFILIADO' ? '/app/parceiro' : '/app';
   const out = async () => { await logout(); nav('/', { replace: true }); };
   return (

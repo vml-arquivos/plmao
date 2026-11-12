@@ -73,7 +73,7 @@ describe('API de CNPJ (integração)', integration, () => {
   before(async () => { ({ pool } = await loadCore()); server = await startServer({ CNPJ_PROVIDER: 'disabled' }); });
   after(async () => { await server.stop(); await pool.end(); });
 
-  it('desligada por padrão: status false e busca responde 503 sem chamada externa', async () => {
+  it('desligada por configuração (CNPJ_PROVIDER=disabled): status false e busca responde 503 sem chamada externa', async () => {
     const adm = await adminSession({ server, pool, role: 'ADMIN' });
     assert.equal((await adm.call('/api/admin/cnpj/status')).json.enabled, false);
     const r = await adm.call(`/api/admin/cnpj/${VALID}`);

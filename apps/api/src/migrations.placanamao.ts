@@ -3089,6 +3089,12 @@ export const placaMigrations: Migration[] = [
     name: 'SEO: textos das páginas de consulta e de lojistas e concessionárias, com histórico dos valores anteriores',
     up: async (client) => { await reviewSeoRows(client, 'revisao_editorial_1_56'); },
     down: async () => { /* o histórico fica guardado em seo_pages_history */ }
+  },
+  {
+    id: '086_acessos_por_conta',
+    name: 'Acessos por conta: o administrador liga ou desliga recursos (garagem, monitoramento) para cada cliente; vazio = tudo liberado como antes',
+    up: async (client) => { await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS access_overrides jsonb NOT NULL DEFAULT '{}'::jsonb`); },
+    down: async (client) => { await client.query('ALTER TABLE users DROP COLUMN IF EXISTS access_overrides'); }
   }
 
 ];

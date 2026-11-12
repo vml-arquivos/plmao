@@ -13,6 +13,7 @@ import { WATCH_INTERVALS, WATCH_MAX_PER_USER } from '../lib/plateWatch.js';
 import { scopeForProduct } from '../lib/reportScope.js';
 import { tierForProductCode, viewReport } from '../report/normalizeV2.js';
 import type { NormalizedVehicle } from '../types.js';
+import { requireFeature } from '../lib/access.js';
 
 /**
  * Monitoramento de placa e lista "Meus veículos" (tudo que a pessoa já consultou, uma linha por placa).
@@ -20,7 +21,7 @@ import type { NormalizedVehicle } from '../types.js';
  */
 export const watchesRouter = Router();
 const limiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false, message: { error: 'TOO_MANY_ATTEMPTS', message: 'Muitas ações em pouco tempo. Aguarde um instante.' } });
-watchesRouter.use(['/watches', '/portfolio'], limiter, auth, requirePermission('QUERY_VEHICLE'));
+watchesRouter.use(['/watches', '/portfolio'], limiter, auth, requirePermission('QUERY_VEHICLE'), requireFeature('WATCHES'));
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const notFound = () => appError('Monitoramento não encontrado.', { code: 'WATCH_NOT_FOUND', http: 404, expose: true, showMessage: true });

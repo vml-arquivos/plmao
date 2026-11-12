@@ -8,6 +8,8 @@ import { dateOnly, dateTime, formatPlate, money, num, parseMoneyToCents } from '
 import { Card, Kpi, PageHead, PaymentStatusBadge, QueryStatusBadge } from '../parts';
 import { CompanySelect, FISCAL_STATUS, SITUATION, TypeBadge, TypeCards, type Customer } from '../people';
 import { ChargeModal } from './Charges';
+import { LookupNote, useCepAutofill, useCnpjAutofill } from '../lookups';
+import { CustomerAccessCard } from './CustomerAccess';
 
 function useDebounced<T>(value: T, ms = 300): T {
   const [v, setV] = useState(value);
@@ -100,7 +102,7 @@ const blank = (c: Customer | null) => ({
 });
 const nz = (s: string): string | null => (s.trim() ? s.trim() : null);
 
-export function CustomerForm({ customer, onClose }: { customer?: Customer; onClose: (changed: boolean) => void }) {
+export function CustomerForm({ customer, onClose, onCreated }: { customer?: Customer; onClose: (changed: boolean) => void; onCreated?: (c: Customer) => void }) {
   const toast = useToast();
   const [f, setF] = useState(blank(customer ?? null));
   const [busy, setBusy] = useState(false);
@@ -108,6 +110,16 @@ export function CustomerForm({ customer, onClose }: { customer?: Customer; onClo
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
   const docLabel = f.type === 'EMPRESA' ? 'CNPJ' : f.type === 'PARTICULAR' ? 'CPF' : 'CPF ou CNPJ';
   const valid = f.name.trim().length >= 2 && /^\S+@\S+\.\S+$/.test(f.email.trim());
+  // Ao completar o CEP (8 números) preenche rua, bairro, cidade e UF; ao completar um CNPJ válido preenche a empresa e o endereço.
+  const cep = useCepAutofill(f.zip, (a) => setF((p) => ({ ...p, street: a.street ?? p.street, district: a.district ?? p.district, city: a.city ?? p.city, state: a.state ?? p.state })));
+  const cnpj = useCnpjAutofill(f.cpfCnpj, (c) => {
+    cep.mark(c.address.zip ?? '');
+    setF((p) => ({
+      ...p, type: p.type === 'PARTICULAR' ? 'EMPRESA' : p.type, legalName: c.legalName ?? p.legalName, companyName: c.tradeName ?? c.legalName ?? p.companyName,
+      zip: c.address.zip ? maskZip(c.address.zip) : p.zip, street: c.address.street ?? p.street, streetNumber: c.address.number ?? p.streetNumber, complement: c.address.complement ?? p.complement,
+      district: c.address.district ?? p.district, city: c.address.city ?? p.city, state: c.address.state ?? p.state
+    }));
+  });
 
   async function save() {
     const body = {
@@ -120,6 +132,7 @@ export function CustomerForm({ customer, onClose }: { customer?: Customer; onClo
       if (customer) { await api.patch(`/admin/customers/${customer.id}`, body); toast.ok('Cadastro atualizado.'); onClose(true); return; }
       const r = await api.post<{ customer: Customer; inviteSent: boolean }>('/admin/customers', { ...body, portalAccess: f.portalAccess });
       setCreated({ name: r.customer.name, email: r.customer.email, invited: f.portalAccess, sent: r.inviteSent });
+      onCreated?.(r.customer);
     } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
   }
 
@@ -147,7 +160,7 @@ export function CustomerForm({ customer, onClose }: { customer?: Customer; onClo
         <div className="form-grid cols-2">
           <Field label={f.type === 'EMPRESA' ? 'Nome do responsável' : 'Nome completo'}><Input value={f.name} onChange={(e) => set('name', e.target.value)} maxLength={120} autoComplete="off" /></Field>
           <Field label="E-mail" hint="Também é o login do cliente no site."><Input type="email" value={f.email} onChange={(e) => set('email', e.target.value)} maxLength={254} autoComplete="off" /></Field>
-          <Field label={docLabel} hint="Necessário para emitir nota fiscal."><Input inputMode="numeric" value={f.cpfCnpj} onChange={(e) => set('cpfCnpj', maskDocument(e.target.value))} placeholder={f.type === 'EMPRESA' ? '00.000.000/0000-00' : '000.000.000-00'} /></Field>
+          <Field label={docLabel} hint="Necessário para emitir nota fiscal."><Input inputMode="numeric" value={f.cpfCnpj} onChange={(e) => set('cpfCnpj', maskDocument(e.target.value))} placeholder={f.type === 'EMPRESA' ? '00.000.000/0000-00' : '000.000.000-00'} /><LookupNote status={cnpj.status} /></Field>
           <Field label="Telefone / WhatsApp"><Input inputMode="tel" value={f.phone} onChange={(e) => set('phone', maskPhone(e.target.value))} placeholder="(00) 00000-0000" /></Field>
           {f.type !== 'PARTICULAR' && (
             <Field label="Segmento" hint="Como esse cliente trabalha. Serve de filtro nas listas."><Input list="seg-list" value={f.segment} onChange={(e) => set('segment', e.target.value)} maxLength={60} /><datalist id="seg-list">{SEGMENT_SUGGESTIONS.map((s) => <option key={s} value={s} />)}</datalist></Field>
@@ -167,7 +180,7 @@ export function CustomerForm({ customer, onClose }: { customer?: Customer; onClo
             )}
             <div className="form-grid cols-2">
               <Field label="E-mail para envio da nota" hint="Se vazio, usa o e-mail de acesso."><Input type="email" value={f.billingEmail} onChange={(e) => set('billingEmail', e.target.value)} maxLength={254} /></Field>
-              <Field label="CEP"><Input inputMode="numeric" value={f.zip} onChange={(e) => set('zip', maskZip(e.target.value))} placeholder="00000-000" /></Field>
+              <Field label="CEP"><Input inputMode="numeric" value={f.zip} onChange={(e) => set('zip', maskZip(e.target.value))} placeholder="00000-000" /><LookupNote status={cep.status} /></Field>
               <Field label="Rua / avenida"><Input value={f.street} onChange={(e) => set('street', e.target.value)} maxLength={160} /></Field>
               <Field label="Número"><Input value={f.streetNumber} onChange={(e) => set('streetNumber', e.target.value)} maxLength={20} /></Field>
               <Field label="Complemento"><Input value={f.complement} onChange={(e) => set('complement', e.target.value)} maxLength={80} /></Field>
@@ -315,6 +328,7 @@ export function CustomerDetail() {
           )}
         </Card>
       )}
+      <CustomerAccessCard customerId={c.id} customerName={c.name} canManage={manage} />
       {manage && (
         <Card title="Acesso e cadastro">
           <div className="row" style={{ flexWrap: 'wrap' }}>

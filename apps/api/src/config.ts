@@ -268,11 +268,17 @@ const envSchema = z.object({
   PUBLIC_API_ENABLED: booleanFromEnv.default(false),
   PUBLIC_API_RATE_LIMIT_MAX: z.coerce.number().int().positive().max(10000).default(60),
 
-  // Consulta de CNPJ no servidor (pré-preenchimento revisável). disabled = nenhuma chamada externa.
-  CNPJ_PROVIDER: z.enum(['disabled', 'brasilapi']).default('disabled'),
+  // Consulta de CNPJ no servidor (pré-preenchimento revisável). Ligada por padrão (BrasilAPI, gratuita); disabled = nenhuma chamada externa.
+  CNPJ_PROVIDER: z.enum(['disabled', 'brasilapi']).default('brasilapi'),
   CNPJ_BASE_URL: optionalUrl,
   CNPJ_API_TIMEOUT_MS: z.coerce.number().int().positive().max(30000).default(8000),
   CNPJ_CACHE_TTL_HOURS: z.coerce.number().int().min(0).max(720).default(24),
+
+  // Consulta de CEP no servidor (preenche rua, bairro, cidade e UF). Ligada por padrão (BrasilAPI, com ViaCEP de reserva); disabled = nenhuma chamada externa.
+  CEP_PROVIDER: z.enum(['disabled', 'brasilapi']).default('brasilapi'),
+  CEP_BASE_URL: optionalUrl,
+  CEP_FALLBACK_BASE_URL: optionalUrl,
+  CEP_API_TIMEOUT_MS: z.coerce.number().int().positive().max(30000).default(6000),
 
   // Fila de e-mails transacionais (outbox com retries e idempotência) e links seguros de documentos.
   EMAIL_OUTBOX_WORKER: booleanFromEnv.default(true),

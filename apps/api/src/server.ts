@@ -78,6 +78,8 @@ import { dealerLeadsRouter } from './routes/dealerLeads.js';
 import { dealerOpsRouter } from './routes/dealerOps.js';
 import { dealerPublicRouter } from './routes/dealerPublic.js';
 import { adminDealersRouter } from './routes/adminDealers.js';
+import { adminAccessRouter } from './routes/adminAccess.js';
+import { resolveAccess } from './lib/access.js';
 import { adminReportScopeRouter } from './routes/adminReportScope.js';
 import { adminEmailRouter, emailWebhookRouter } from './routes/adminEmail.js';
 import { accountCnpjRouter, adminCnpjRouter } from './routes/cnpj.js';
@@ -150,6 +152,7 @@ api.use('/admin', adminContractsRouter);
 api.use('/admin', adminPaymentOpsRouter);
 api.use('/admin', adminDataResetRouter);
 api.use('/admin', adminDealersRouter);
+api.use('/admin', adminAccessRouter);
 api.use('/admin', adminResultsRouter);
 api.use('/admin', adminFiscalQueueRouter);
 api.use('/fiscal', fiscalPublicRouter);
@@ -893,7 +896,7 @@ api.put('/me/profile', auth, asyncRoute(async (req, res) => {
 
 api.get('/me', auth, asyncRoute(async (req, res) => {
   const [account, wallet, identities] = await Promise.all([
-    pool.query(`SELECT u.id,u.email,u.name,u.role,u.password_enabled,p.*
+    pool.query(`SELECT u.id,u.email,u.name,u.role,u.password_enabled,u.access_overrides,p.*
       FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=$1 AND u.active=true`, [req.user!.id]),
     pool.query('SELECT balance_cents FROM wallets WHERE user_id=$1', [req.user!.id]),
     pool.query('SELECT provider FROM user_identities WHERE user_id=$1 ORDER BY provider', [req.user!.id])
@@ -904,7 +907,7 @@ api.get('/me', auth, asyncRoute(async (req, res) => {
   const membership = await loadMembership(user.id).catch(() => null);
   const storeAccess = membership ? { name: membership.store.name, role: membership.role, active: membership.store.active && !membership.store.archivedAt } : null;
   const profileState = await loadProfileState(user.id, { hasStore: Boolean(storeAccess?.active) });
-  res.json({ user, storeAccess, profiles: profileState.profiles, activeProfile: profileState.activeProfile, balanceCents: Number(wallet.rows[0]?.balance_cents ?? 0), permissions: permissionsFor(user.role), sandbox: env.DATA_PROVIDER === 'mock', identities: identities.rows.map((identity) => identity.provider), profile: profileDto({ id: user.id, email: user.email, name: user.name, role: user.role, passwordEnabled: Boolean(row.password_enabled) }, row) });
+  res.json({ user, storeAccess, features: resolveAccess(row.access_overrides), profiles: profileState.profiles, activeProfile: profileState.activeProfile, balanceCents: Number(wallet.rows[0]?.balance_cents ?? 0), permissions: permissionsFor(user.role), sandbox: env.DATA_PROVIDER === 'mock', identities: identities.rows.map((identity) => identity.provider), profile: profileDto({ id: user.id, email: user.email, name: user.name, role: user.role, passwordEnabled: Boolean(row.password_enabled) }, row) });
 }));
 
 function fipeUnavailable(): AppError {

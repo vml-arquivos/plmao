@@ -8,6 +8,7 @@ import { dateOnly, money, num } from '../../shared/format';
 import { Card, Kpi, PageHead } from '../parts';
 import { CustomerPicker, TypeBadge, type Company, type PickedCustomer } from '../people';
 import { ChargeModal } from './Charges';
+import { LookupNote, useCepAutofill, useCnpjAutofill } from '../lookups';
 
 export default function Companies() {
   usePageTitle('Empresas');
@@ -64,17 +65,17 @@ function CompanyForm({ company, onClose }: { company?: Company; onClose: (create
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
   const [lookup, setLookup] = useState<{ cnpj: string; source: string; fetchedAt: string; situation: string | null; prefilled: Partial<typeof f> } | null>(null);
-  const [searching, setSearching] = useState(false);
-  async function searchCnpj() {
-    setSearching(true);
-    try {
-      const r = await api.get<{ data: { cnpj: string; legalName: string | null; tradeName: string | null; situation: string | null; address: { zip: string | null; street: string | null; number: string | null; complement: string | null; district: string | null; city: string | null; state: string | null } }; source: string; fetchedAt: string }>(`/admin/cnpj/${f.document.replace(/\D/g, '')}`);
-      const a = r.data.address;
-      const prefilled: Partial<typeof f> = { legalName: r.data.legalName ?? '', zip: a.zip ?? '', street: a.street ?? '', streetNumber: a.number ?? '', complement: a.complement ?? '', district: a.district ?? '', city: a.city ?? '', state: a.state ?? '', ...(f.name.trim() ? {} : { name: r.data.tradeName ?? r.data.legalName ?? '' }) };
-      setF((p) => ({ ...p, ...prefilled }));
-      setLookup({ cnpj: r.data.cnpj, source: r.source, fetchedAt: r.fetchedAt, situation: r.data.situation, prefilled });
-    } catch (e) { toast.error(errorMessage(e)); } finally { setSearching(false); }
-  }
+  const cep = useCepAutofill(f.zip, (x) => setF((p) => ({ ...p, street: x.street ?? p.street, district: x.district ?? p.district, city: x.city ?? p.city, state: x.state ?? p.state })));
+  // Ao completar um CNPJ válido, preenche razão social, nome e endereço. O que foi preenchido vai para o registro de auditoria quando a pessoa salva.
+  const cnpj = useCnpjAutofill(f.document, (c, meta) => {
+    const ad = c.address;
+    cep.mark(ad.zip ?? '');
+    const prefilled: Partial<typeof f> = { legalName: c.legalName ?? '', zip: ad.zip ? maskZip(ad.zip) : '', street: ad.street ?? '', streetNumber: ad.number ?? '', complement: ad.complement ?? '', district: ad.district ?? '', city: ad.city ?? '', state: ad.state ?? '', ...(f.name.trim() ? {} : { name: c.tradeName ?? c.legalName ?? '' }) };
+    setF((p) => ({ ...p, ...prefilled }));
+    setLookup({ cnpj: c.cnpj, source: meta.source, fetchedAt: meta.fetchedAt, situation: c.situation, prefilled });
+  });
+  const searching = cnpj.busy;
+  const searchCnpj = () => cnpj.run();
   async function save() {
     const body = { name: f.name.trim(), kind: f.kind, segment: nz(f.segment), document: nz(f.document), legalName: nz(f.legalName), contactName: nz(f.contactName), email: nz(f.email), phone: nz(f.phone),
       stateRegistration: nz(f.stateRegistration), municipalRegistration: nz(f.municipalRegistration), zip: nz(f.zip), street: nz(f.street), streetNumber: nz(f.streetNumber), complement: nz(f.complement), district: nz(f.district), city: nz(f.city), state: nz(f.state), notes: nz(f.notes) };
@@ -103,7 +104,7 @@ function CompanyForm({ company, onClose }: { company?: Company; onClose: (create
               <Input inputMode="numeric" value={f.document} onChange={(e) => set('document', maskDocument(e.target.value))} placeholder="00.000.000/0000-00" />
               <Button variant="ghost" loading={searching} disabled={f.document.replace(/\D/g, '').length !== 14} onClick={() => void searchCnpj()}>Buscar CNPJ</Button>
             </div>
-            {lookup && <small className="muted" role="status">Preenchido com dados públicos ({lookup.source}, {new Date(lookup.fetchedAt).toLocaleDateString('pt-BR')}){lookup.situation ? ` · situação: ${lookup.situation}` : ''}. Revise antes de salvar.</small>}
+            <LookupNote status={cnpj.status} />
           </Field>
           <Field label="Razão social"><Input value={f.legalName} onChange={(e) => set('legalName', e.target.value)} maxLength={160} /></Field>
           <Field label="Segmento"><Input list="seg-co" value={f.segment} onChange={(e) => set('segment', e.target.value)} maxLength={60} /><datalist id="seg-co">{SEGMENT_SUGGESTIONS.map((s) => <option key={s} value={s} />)}</datalist></Field>
@@ -116,7 +117,7 @@ function CompanyForm({ company, onClose }: { company?: Company; onClose: (create
           <div className="form-grid cols-2" style={{ marginTop: 12 }}>
             <Field label="Inscrição estadual"><Input value={f.stateRegistration} onChange={(e) => set('stateRegistration', e.target.value)} maxLength={30} /></Field>
             <Field label="Inscrição municipal"><Input value={f.municipalRegistration} onChange={(e) => set('municipalRegistration', e.target.value)} maxLength={30} /></Field>
-            <Field label="CEP"><Input inputMode="numeric" value={f.zip} onChange={(e) => set('zip', maskZip(e.target.value))} /></Field>
+            <Field label="CEP"><Input inputMode="numeric" value={f.zip} onChange={(e) => set('zip', maskZip(e.target.value))} /><LookupNote status={cep.status} /></Field>
             <Field label="Rua / avenida"><Input value={f.street} onChange={(e) => set('street', e.target.value)} maxLength={160} /></Field>
             <Field label="Número"><Input value={f.streetNumber} onChange={(e) => set('streetNumber', e.target.value)} maxLength={20} /></Field>
             <Field label="Complemento"><Input value={f.complement} onChange={(e) => set('complement', e.target.value)} maxLength={80} /></Field>
