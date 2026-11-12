@@ -351,7 +351,8 @@ const adminUserUpdateSchema = z.object({
     supportEmail: z.string().trim().email().max(254).nullable().optional(),
     maintenanceNotice: z.string().trim().max(280).nullable().optional(),
     defaultAffiliateRateBps: z.number().int().min(0).max(5000).optional(),
-    fipeGuestDailyLimit: z.number().int().min(1).max(100000).optional()
+    fipeGuestDailyLimit: z.number().int().min(1).max(100000).optional(),
+    fipeAuthDailyLimit: z.number().int().min(1).max(100000).optional()
   }).refine((input) => Object.keys(input).length > 0, 'EMPTY_UPDATE');
 
 type RawBodyRequest = Request & { rawBody?: Buffer };
@@ -1341,11 +1342,17 @@ api.post('/fipe/quote', optionalAuth, asyncRoute(async (req, res) => {
   }
   // O prefixo v2 isola contadores criados antes da correção de proxy e evita
   // que um IP compartilhado do Cloudflare consuma a cota de todos os visitantes.
-  const scopeKey = `v2:ip:${hashIp(requestSourceIp(req)) ?? 'unknown'}`;
+  // Visitante sem conta: limite por IP. Quem está logado: limite próprio da conta (definido pelo administrador) ou o padrão do sistema, contado por usuário.
   const safeBusiness = await safeBusinessSettings();
-  const configuredGuestLimit = safeBusiness.fipeGuestDailyLimit;
-  const guestLimit = typeof configuredGuestLimit === 'number' && Number.isInteger(configuredGuestLimit) && configuredGuestLimit > 0 ? configuredGuestLimit : env.FIPE_GUEST_DAILY_LIMIT;
-  await reserveFipeQuota(scopeKey, guestLimit);
+  const positive = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : fallback);
+  let scopeKey = `v2:ip:${hashIp(requestSourceIp(req)) ?? 'unknown'}`;
+  let dailyLimit = positive(safeBusiness.fipeGuestDailyLimit, env.FIPE_GUEST_DAILY_LIMIT);
+  if (req.user) {
+    const own = await pool.query('SELECT fipe_daily_limit FROM users WHERE id=$1', [req.user.id]);
+    scopeKey = `v2:user:${req.user.id}`;
+    dailyLimit = positive(own.rows[0]?.fipe_daily_limit, positive(safeBusiness.fipeAuthDailyLimit, env.FIPE_AUTH_DAILY_LIMIT));
+  }
+  await reserveFipeQuota(scopeKey, dailyLimit);
   let quotaReserved = true;
   let input: { vehicleType: FipeVehicleType; brand: FipeSelectionItem; model: FipeSelectionItem; year: FipeSelectionItem };
   let vehicleDetails: FipeVehicleDetails | undefined;
@@ -2603,7 +2610,8 @@ api.get('/admin/settings', adminAuth, requirePermission('VIEW_AUDIT'), asyncRout
       supportEmail: typeof value.supportEmail === 'string' ? value.supportEmail : null,
       maintenanceNotice: typeof value.maintenanceNotice === 'string' ? value.maintenanceNotice : null,
       defaultAffiliateRateBps: typeof value.defaultAffiliateRateBps === 'number' ? value.defaultAffiliateRateBps : 1000,
-      fipeGuestDailyLimit: typeof value.fipeGuestDailyLimit === 'number' ? value.fipeGuestDailyLimit : env.FIPE_GUEST_DAILY_LIMIT
+      fipeGuestDailyLimit: typeof value.fipeGuestDailyLimit === 'number' ? value.fipeGuestDailyLimit : env.FIPE_GUEST_DAILY_LIMIT,
+      fipeAuthDailyLimit: typeof value.fipeAuthDailyLimit === 'number' ? value.fipeAuthDailyLimit : env.FIPE_AUTH_DAILY_LIMIT
     }
   });
 }));

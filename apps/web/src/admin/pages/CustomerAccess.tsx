@@ -11,6 +11,7 @@ export interface AccessState {
   features: Array<{ key: string; label: string; enabled: boolean }>;
   store: { id: string; name: string; slug: string; active: boolean; archived: boolean; publicEnabled: boolean; vehicleLimit: number; memberLimit: number; vehicles: number; role: string; city: string | null; state: string | null } | null;
   profiles: string[]; activeProfile: string; suggestedStoreName: string;
+  fipeDailyLimit: number | null; fipeDefaultLimit: number; fipeUsedToday: number;
 }
 
 /** Endereço público da vitrine: o painel fica em admin.<domínio> e o site no domínio principal. */
@@ -26,6 +27,7 @@ export function CustomerAccessCard({ customerId, customerName, canManage }: { cu
   const [busy, setBusy] = useState(false);
   const [enable, setEnable] = useState(false);
   const [limits, setLimits] = useState<{ vehicleLimit: string; memberLimit: string } | null>(null);
+  const [fipe, setFipe] = useState<string | null>(null);
   if (res.loading && !res.data) return <Card title="Pacote e acessos"><PageLoading /></Card>;
   if (res.error || !res.data) return <Card title="Pacote e acessos"><ErrorState error={res.error} onRetry={res.reload} /></Card>;
   const a = res.data; const s = a.store;
@@ -66,6 +68,17 @@ export function CustomerAccessCard({ customerId, customerName, canManage }: { cu
             </div>
           )}
           {canManage && !s && <div><Button variant="primary" icon="building" onClick={() => setEnable(true)}>Ativar loja para este cliente</Button></div>}
+        </div>
+        <div className="stack-sm">
+          <span className="section-title">FIPE grátis por dia</span>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>Hoje: {num(a.fipeUsedToday)} consulta(s) usada(s). {a.fipeDailyLimit === null ? `Esta conta usa o padrão do sistema (${num(a.fipeDefaultLimit)} por dia).` : `Limite próprio desta conta: ${num(a.fipeDailyLimit)} por dia.`}</p>
+          {fipe === null ? (canManage && <div><Button variant="ghost" size="sm" onClick={() => setFipe(a.fipeDailyLimit === null ? '' : String(a.fipeDailyLimit))}>Alterar limite desta conta</Button></div>) : (
+            <div className="row" style={{ flexWrap: 'wrap', alignItems: 'end' }}>
+              <Field label="Consultas por dia" hint={`Vazio = padrão (${num(a.fipeDefaultLimit)})`}><Input inputMode="numeric" value={fipe} onChange={(e) => setFipe(e.target.value.replace(/\D/g, ''))} style={{ maxWidth: 140 }} /></Field>
+              <Button variant="primary" loading={busy} disabled={fipe !== '' && (Number(fipe) < 1 || Number(fipe) > 100000)} onClick={() => void run(async () => { await api.put(`/admin/customers/${customerId}/fipe-limit`, { limit: fipe === '' ? null : Number(fipe) }); setFipe(null); }, 'Limite de FIPE salvo.')}>Salvar</Button>
+              <Button variant="ghost" onClick={() => setFipe(null)}>Cancelar</Button>
+            </div>
+          )}
         </div>
         <div className="stack-sm">
           <span className="section-title">Recursos da conta</span>

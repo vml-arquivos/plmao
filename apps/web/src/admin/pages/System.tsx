@@ -8,7 +8,7 @@ import { Card, PageHead } from '../parts';
 
 interface Sys {
   environment: Record<string, string | number | boolean>; configured: { payment: boolean; vehicleProvider: boolean; email: boolean; fipe: boolean };
-  safe: { siteTagline: string; supportEmail: string | null; maintenanceNotice: string | null; defaultAffiliateRateBps: number; fipeGuestDailyLimit: number };
+  safe: { siteTagline: string; supportEmail: string | null; maintenanceNotice: string | null; defaultAffiliateRateBps: number; fipeGuestDailyLimit: number; fipeAuthDailyLimit: number };
 }
 const ENV_LABEL: Record<string, string> = { appName: 'Nome do app', appUrl: 'URL pública', webOrigin: 'Origem web', nodeEnv: 'Ambiente', paymentProvider: 'Provedor de pagamento', dataProvider: 'Provedor de dados', featureFreeFipe: 'FIPE grátis', featureReportPdf: 'PDF do relatório', queryCacheEnabled: 'Cache de consultas', queryCacheTtlSeconds: 'TTL do cache (s)', queryRequestTimeoutMs: 'Timeout do provedor (ms)', rateLimitEnabled: 'Rate limit', auditLogEnabled: 'Auditoria', logLevel: 'Nível de log' };
 
@@ -17,16 +17,16 @@ export default function System() {
   const { can } = useAdminSession();
   const toast = useToast();
   const res = useAsync(() => api.get<Sys>('/admin/settings'));
-  const [tag, setTag] = useState(''); const [email, setEmail] = useState(''); const [notice, setNotice] = useState(''); const [rate, setRate] = useState(''); const [limit, setLimit] = useState('');
+  const [tag, setTag] = useState(''); const [email, setEmail] = useState(''); const [notice, setNotice] = useState(''); const [rate, setRate] = useState(''); const [limit, setLimit] = useState(''); const [authLimit, setAuthLimit] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { const s = res.data?.safe; if (!s) return; setTag(s.siteTagline); setEmail(s.supportEmail ?? ''); setNotice(s.maintenanceNotice ?? ''); setRate(String(s.defaultAffiliateRateBps / 100).replace('.', ',')); setLimit(String(s.fipeGuestDailyLimit)); }, [res.data]);
+  useEffect(() => { const s = res.data?.safe; if (!s) return; setTag(s.siteTagline); setEmail(s.supportEmail ?? ''); setNotice(s.maintenanceNotice ?? ''); setRate(String(s.defaultAffiliateRateBps / 100).replace('.', ',')); setLimit(String(s.fipeGuestDailyLimit)); setAuthLimit(String(s.fipeAuthDailyLimit)); }, [res.data]);
   if (res.loading && !res.data) return <PageLoading />;
   if (res.error || !res.data) return <ErrorState error={res.error} onRetry={res.reload} />;
   const { environment, configured } = res.data;
   const canEdit = can('MANAGE_PROVIDERS');
   async function save() {
     setBusy(true);
-    try { await api.patch('/admin/settings', { siteTagline: tag.trim() || null, supportEmail: email.trim() || null, maintenanceNotice: notice.trim() || null, defaultAffiliateRateBps: percentToBps(rate), fipeGuestDailyLimit: Number(limit) }); toast.ok('Configurações salvas.'); res.reload(); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+    try { await api.patch('/admin/settings', { siteTagline: tag.trim() || null, supportEmail: email.trim() || null, maintenanceNotice: notice.trim() || null, defaultAffiliateRateBps: percentToBps(rate), fipeGuestDailyLimit: Number(limit), fipeAuthDailyLimit: Number(authLimit) }); toast.ok('Configurações salvas.'); res.reload(); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
   }
   const prod = environment.nodeEnv === 'production';
   return (
@@ -50,7 +50,8 @@ export default function System() {
           <Field label="Chamada do site"><Input value={tag} onChange={(e) => setTag(e.target.value)} maxLength={180} disabled={!canEdit} /></Field>
           <Field label="E-mail de suporte"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!canEdit} /></Field>
           <Field label="Comissão padrão de novos parceiros (%)" hint={`Atual: ${bpsToPercent(res.data.safe.defaultAffiliateRateBps)}`}><Input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} disabled={!canEdit} /></Field>
-          <Field label="Limite diário de FIPE grátis por visitante"><Input inputMode="numeric" value={limit} onChange={(e) => setLimit(e.target.value.replace(/\D/g, ''))} disabled={!canEdit} /></Field>
+          <Field label="Limite diário de FIPE grátis por visitante (sem conta, por IP)"><Input inputMode="numeric" value={limit} onChange={(e) => setLimit(e.target.value.replace(/\D/g, ''))} disabled={!canEdit} /></Field>
+          <Field label="Limite diário de FIPE grátis por usuário (com conta)" hint="Padrão de todas as contas. Cada cliente pode ter um valor próprio na ficha dele."><Input inputMode="numeric" value={authLimit} onChange={(e) => setAuthLimit(e.target.value.replace(/\D/g, ''))} disabled={!canEdit} /></Field>
         </div>
         <Field label="Aviso de manutenção" hint="Vazio = sem aviso."><Textarea rows={2} value={notice} onChange={(e) => setNotice(e.target.value)} maxLength={280} disabled={!canEdit} /></Field>
         {canEdit && <div><Button variant="primary" loading={busy} onClick={() => void save()}>Salvar</Button></div>}

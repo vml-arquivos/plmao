@@ -3095,6 +3095,12 @@ export const placaMigrations: Migration[] = [
     name: 'Acessos por conta: o administrador liga ou desliga recursos (garagem, monitoramento) para cada cliente; vazio = tudo liberado como antes',
     up: async (client) => { await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS access_overrides jsonb NOT NULL DEFAULT '{}'::jsonb`); },
     down: async (client) => { await client.query('ALTER TABLE users DROP COLUMN IF EXISTS access_overrides'); }
+  },
+  {
+    id: '087_limite_fipe_por_usuario',
+    name: 'Limite diário de FIPE grátis por usuário: valor próprio de cada conta (vazio = usa o padrão do sistema)',
+    up: async (client) => { await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS fipe_daily_limit integer CHECK (fipe_daily_limit IS NULL OR (fipe_daily_limit >= 1 AND fipe_daily_limit <= 100000))'); },
+    down: async (client) => { await client.query('ALTER TABLE users DROP COLUMN IF EXISTS fipe_daily_limit'); }
   }
 
 ];

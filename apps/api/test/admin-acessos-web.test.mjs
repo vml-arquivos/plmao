@@ -32,3 +32,9 @@ test('menu do cliente esconde o recurso desligado e mantém tudo quando não há
   assert.match(layouts, /features\?\.\[i\.feature\] !== false/);
   assert.match(layouts, /sectionsFor\(profile, me\.features\)/);
 });
+
+test('limite de FIPE grátis por usuário: campo no Sistema e na ficha do cliente', async () => {
+  const [system, access] = await Promise.all([web('admin/pages/System.tsx'), web('admin/pages/CustomerAccess.tsx')]);
+  assert.match(system, /fipeAuthDailyLimit/); assert.match(system, /por usuário \(com conta\)/);
+  assert.match(access, /\/fipe-limit`/); assert.match(access, /fipeDefaultLimit/);
+});

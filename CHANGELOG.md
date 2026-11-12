@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.59.1 — FIPE grátis: limite diário por usuário
+
+- **Correção:** quem estava logado usava o limite de visitante (3 por dia, contado por IP), e o limite de usuário que existia na configuração nunca era aplicado. Agora a consulta de FIPE grátis de quem tem conta é contada **por usuário**, com padrão de **10 por dia**. Visitante sem conta segue por IP (consulta por marca, modelo e ano).
+- **Editável:** em Sistema → configurações há "Limite diário de FIPE grátis por usuário (com conta)" (padrão de todas as contas), e na ficha do cliente (Pacote e acessos) há o limite próprio daquela conta, com o uso de hoje. Vazio = usa o padrão. Vale na hora, para mais ou para menos. Faixa de 1 a 100000.
+- Migração 087 (coluna `users.fipe_daily_limit`, vazia por padrão). Sem variável de ambiente nova (`FIPE_AUTH_DAILY_LIMIT` passa a valer como padrão inicial, 10).
+
 ## 1.59.0 — Painel do administrador: loja e acessos por cliente, CNPJ e CEP automáticos
 
 - **Loja por cliente, valendo na hora.** Na ficha do cliente (Clientes → cliente) há o bloco **Pacote e acessos**: ativar a loja (cria ou reativa, com os dados do cadastro), suspender, ligar ou desligar a vitrine pública e alterar os limites de veículos e de equipe. Ao ativar, a conta passa ao perfil de lojista e a pessoa vê o menu da loja (Minha loja, Meus veículos, Em lote) ao recarregar a página, sem sair da conta. Suspender guarda veículos e equipe; ativar de novo traz tudo de volta.

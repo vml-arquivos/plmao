@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { adminAuth } from '../auth.js';
+import { env } from '../config.js';
 import { pool, tx } from '../db.js';
 import { appError, asyncRoute, audit, requestId } from '../lib/http.js';
 import { ACCESS_FEATURES, ACCESS_LABEL, resolveAccess, type AccessFeature } from '../lib/access.js';
@@ -43,9 +44,14 @@ async function present(c: Awaited<ReturnType<typeof customer>>) {
   const storeActive = Boolean(store && store.active && !store.archived_at);
   const profile = await loadProfileState(c.id, { hasStore: storeActive });
   const access = resolveAccess(c.accessOverrides);
+  const lim = await pool.query('SELECT u.fipe_daily_limit, (SELECT value FROM platform_settings WHERE key=\'safe_business\') AS safe FROM users u WHERE u.id=$1', [c.id]);
+  const configured = (lim.rows[0]?.safe as Record<string, unknown> | null)?.fipeAuthDailyLimit;
+  const fipeDefaultLimit = typeof configured === 'number' && configured > 0 ? configured : env.FIPE_AUTH_DAILY_LIMIT;
+  const used = await pool.query('SELECT count FROM fipe_usage WHERE scope_key=$1 AND bucket_date=$2', [`v2:user:${c.id}`, new Date().toISOString().slice(0, 10)]);
   const vehicles = store ? Number((await pool.query(`SELECT count(*)::int AS n FROM stock_vehicles WHERE dealership_id=$1 AND status IN ('AVAILABLE','RESERVED')`, [store.id])).rows[0].n) : 0;
   return {
     customerId: c.id,
+    fipeDailyLimit: lim.rows[0]?.fipe_daily_limit === null || lim.rows[0]?.fipe_daily_limit === undefined ? null : Number(lim.rows[0].fipe_daily_limit), fipeDefaultLimit, fipeUsedToday: Number(used.rows[0]?.count ?? 0),
     features: ACCESS_FEATURES.map((key) => ({ key, label: ACCESS_LABEL[key], enabled: access[key] })),
     store: store ? {
       id: String(store.id), name: String(store.name), slug: String(store.slug), active: Boolean(store.active), archived: Boolean(store.archived_at), publicEnabled: Boolean(store.public_enabled),
@@ -74,6 +80,18 @@ adminAccessRouter.put('/customers/:id/access', requirePermission('MANAGE_CUSTOME
   await pool.query('UPDATE users SET access_overrides=$2::jsonb WHERE id=$1', [c.id, JSON.stringify(current)]);
   await audit(req.user!.id, 'ADMIN_ACCESS_UPDATED', 'USER', c.id, { features: Object.fromEntries(changes), requestId: requestId(req) });
   res.json(await present({ ...c, accessOverrides: current }));
+}));
+
+const fipeLimitBody = z.object({ limit: z.number().int().min(1).max(100000).nullable() }).strict();
+
+/** Limite diário de FIPE grátis desta conta. Vazio (null) = usa o padrão do sistema (Sistema → configurações). */
+adminAccessRouter.put('/customers/:id/fipe-limit', requirePermission('MANAGE_CUSTOMERS'), asyncRoute(async (req, res) => {
+  const c = await customer(String(req.params.id));
+  const body = fipeLimitBody.safeParse(req.body);
+  if (!body.success) throw bad('Informe um número de 1 a 100000, ou deixe vazio para usar o padrão.');
+  await pool.query('UPDATE users SET fipe_daily_limit=$2 WHERE id=$1', [c.id, body.data.limit]);
+  await audit(req.user!.id, 'ADMIN_FIPE_LIMIT_UPDATED', 'USER', c.id, { limit: body.data.limit, requestId: requestId(req) });
+  res.json(await present(c));
 }));
 
 const storeBody = z.object({
