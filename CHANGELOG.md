@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.61.1 — Documento do cliente sem assunto interno
+
+- **O PDF, a impressão e o dossiê que vão ao cliente mostram só consulta e análise.** Saíram: "Não incluído neste produto…", "pontos de atenção fora do plano contratado", "Sem dados retornados pela fonte…", "Itens que a fonte não retornou foram omitidos", "Não fornecido pelo provedor…", itens "Não informado pela fonte…" e as verificações "Não consultado neste pacote ou a fonte não retornou" no "Antes de pagar". Ícones do topo sem informação também não aparecem.
+- Quando há ponto de atenção que o produto não detalha, o parecer diz apenas que há pontos de atenção neste veículo e pede vistoria; sem citar plano.
+- O texto do parecer não fala mais em "provedor": passa a dizer "bases consultadas".
+- O relatório de tela e a API continuam com todos os dados e avisos como antes; só o documento enviado ao cliente é filtrado (`report/clientDoc.ts`).
+- Testes: `documento-cliente` (novo) e ajuste em `report-scope`.
+
 ## 1.61.0 — PDF da consulta na identidade visual da plataforma
 
 - **PDF da consulta redesenhado com as cores e a marca do site:** faixa superior azul-marinho com a marca e o QR de validação, faixa do veículo em azul com a placa em destaque, títulos de seção em azul claro com filete azul, rótulos em azul-marinho e rodapé com filete azul. Antes era cinza e preto.

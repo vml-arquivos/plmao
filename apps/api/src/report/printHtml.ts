@@ -2,6 +2,7 @@ import type { ReportItem, ReportV2 } from './normalizeV2.js';
 import { brlFromCents } from './format.js';
 import { ownerIdentityEnabled } from './mask.js';
 import type { ReportMeta } from './pdf.js';
+import { forClientDocument } from './clientDoc.js';
 
 const esc = (v: unknown) => String(v ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 const VERDICT = { CLEAR: ['ok', 'Sem alertas'], ATTENTION: ['warn', 'Atenção'], HIGH_RISK: ['bad', 'Alto risco'], INCONCLUSIVE: ['neutral', 'Análise limitada'] } as const;
@@ -17,7 +18,8 @@ function cell(i: ReportItem) {
 }
 
 /** Página de impressão autocontida (sem script inline: a CSP bloqueia). O botão é ligado por /print-helper.js. */
-export function renderVehicleHtml(report: ReportV2, meta: ReportMeta): string {
+export function renderVehicleHtml(fullReport: ReportV2, meta: ReportMeta): string {
+  const report = forClientDocument(fullReport);
   const [vcls, vlabel] = VERDICT[report.verdict.level];
   const hl = report.headline;
   const title = [hl.brand, hl.model].filter(Boolean).join(' ') || hl.fullModel || 'Veículo';
@@ -28,9 +30,9 @@ export function renderVehicleHtml(report: ReportV2, meta: ReportMeta): string {
     : '';
   const sections = report.sections.map((s) => {
     const shown = s.items.filter((i) => i.state !== 'NOT_PROVIDED' && !(s.key === 'DEBITOS' && i.kind === 'money' && i.state === 'CLEAR'));
-    const missing = s.items.filter((i) => i.state === 'NOT_PROVIDED');
-    if (!shown.length && !missing.length) return '';
-    return `<section><h2><b class="dot ${s.status === 'ALERT' ? 'bad' : s.status === 'CLEAR' ? 'ok' : ''}"></b>${esc(s.label)}</h2>${shown.length ? `<div class="grid">${shown.map(cell).join('')}</div>` : '<p class="note">O provedor não retornou informações desta categoria para esta consulta.</p>'}${missing.length && shown.length ? `<p class="note">Não fornecido pelo provedor nesta consulta: ${esc(missing.map((m) => m.label).join(', '))}.</p>` : ''}</section>`;
+    // Só o que veio na consulta: categoria sem dado e item que a fonte não trouxe ficam de fora, sem aviso.
+    if (!shown.length) return '';
+    return `<section><h2><b class="dot ${s.status === 'ALERT' ? 'bad' : s.status === 'CLEAR' ? 'ok' : ''}"></b>${esc(s.label)}</h2><div class="grid">${shown.map(cell).join('')}</div></section>`;
   }).join('');
   const locked = report.lockedAlertCount ? `<div class="locked">Há ${report.lockedAlertCount} ponto(s) de atenção fora do plano contratado.</div>` : '';
   const outside = report.scope?.notIncluded.length ? `<p class="note">Não incluído neste produto: ${esc(report.scope.notIncluded.map((n) => n.label).join(', '))}. Isso não significa ausência de ocorrências.</p>` : '';

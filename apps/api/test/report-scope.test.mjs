@@ -112,7 +112,7 @@ describe('escopo por produto ponta a ponta: relatório, API pública, HTML, PDF,
     assert.deepEqual(fieldKeys(rep.json.report).sort(), ['DEBIPVA', 'MARCA', 'PLACA']);
     assert.equal(rep.json.report.scope.templateVersion, created.json.version);
     const html = await call(`/api/queries/${q.json.id}/report/print`);
-    assert.match(html.text, /Não incluído neste produto/); assert.ok(!/Furto|Restrição judicial/i.test(html.text));
+    assert.doesNotMatch(html.text, /Não incluído|fora do plano|neste pacote/i); assert.ok(!/Furto|Restrição judicial/i.test(html.text));
     const pdf = await fetch(`${server.base}/api/queries/${q.json.id}/report/pdf`, { headers: { authorization: `Bearer ${token}` } });
     assert.equal(pdf.status, 200); assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString(), '%PDF-');
     const api = await hostRequest(server.base, '/api/v1/vehicles', { method: 'POST', token: key, body: { plate: 'DEV1B11', product: 'COMPLETE' } });

@@ -1,3 +1,4 @@
+import { forClientDocument } from './clientDoc.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { PDFDocument, degrees, rgb, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
@@ -177,7 +178,7 @@ function summaryBadges(d: Doc, report: ReportV2) {
     { label: 'Leilão', state: fromItems(['VT_LEILAO', 'AU_LEILAO']) },
     { label: 'Recall', state: fromItems(['VT_RECALL', 'RECALL']) }
   ];
-  const shown = badges.filter((b): b is { label: string; state: BadgeState } => b.state !== null);
+  const shown = badges.filter((b): b is { label: string; state: BadgeState } => b.state !== null && b.state !== 'na');
   if (!shown.length) return;
   const perRow = 4; const cw = CW / perRow; const rowH = 66;
   for (let i = 0; i < shown.length; i += perRow) {
@@ -413,7 +414,7 @@ function adviceBlock(d: Doc, report: ReportV2) {
 const CONSIDERATIONS = [
   'Informações de multas, débitos e restrições vêm de bases de terceiros e podem divergir dos critérios de cada Detran e Secretaria da Fazenda. Confira sempre no site do órgão antes de fechar negócio.',
   'Indício de sinistro, leilão e roubo/furto indicam possibilidade, não certeza. Confirme com vistoria física e com os órgãos competentes.',
-  'Valores de multas e débitos podem ser lançados depois da consulta. Item marcado como não informado não significa "nada consta": apenas não veio nesta consulta.',
+  'Valores de multas e débitos podem ser lançados depois da consulta.',
   'Saldo devedor, valor financiado, parcelas e prazo restante de financiamento não constam das bases oficiais; peça o contrato ao vendedor e confirme a quitação com o banco.',
   'A consulta vale para o momento em que foi feita. Quem consulta responde pelo uso das informações, conforme o contrato aceito.'
 ];
@@ -438,7 +439,8 @@ function noteLines(d: Doc, text: string) {
   d.y -= 6;
 }
 
-export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Promise<Buffer> {
+export async function renderVehiclePdf(fullReport: ReportV2, meta: ReportMeta): Promise<Buffer> {
+  const report = forClientDocument(fullReport);
   const d = await Doc.create();
   d.pdf.setTitle(`Relatório de consulta veicular - ${report.plate}`);
   d.pdf.setAuthor(meta.brandName ?? 'Placa na Mão');
@@ -450,12 +452,9 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
   verdictBox(d, report);
   debtsBlock(d, report);
 
-  const empty: string[] = [];
-  let omitted = false;
   for (const s of report.sections) {
     const shown = s.items.filter((i) => i.state !== 'NOT_PROVIDED' && !(s.key === 'DEBITOS' && i.kind === 'money' && i.state === 'CLEAR'));
-    if (s.items.some((i) => i.state === 'NOT_PROVIDED')) omitted = true;
-    if (!shown.length) { if (s.items.length) empty.push(s.label); continue; }
+    if (!shown.length) continue;
     const series = shown.find((i) => i.key === 'EN_FIPE_SERIE');
     const grid = shown.filter((i) => i !== series);
     bandTitle(d, s.label, `${shown.length} informações`);
@@ -465,14 +464,6 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
   for (const block of sheetBlocks(report.sheet)) {
     bandTitle(d, block.title, `${block.items.length} informações`);
     itemsGrid(d, block.items);
-  }
-  if (empty.length || omitted) noteLines(d, [empty.length ? `Sem dados retornados pela fonte nesta consulta: ${empty.join(', ')}.` : '', omitted ? 'Itens que a fonte não retornou foram omitidos.' : ''].filter(Boolean).join(' '));
-  if (report.scope?.notIncluded.length) noteLines(d, `Não incluído neste produto: ${report.scope.notIncluded.map((n) => n.label).join(', ')}. Isso não significa ausência de ocorrências.`);
-  if (report.lockedAlertCount) {
-    d.ensure(40);
-    d.page.drawRectangle({ x: M, y: d.y - 30, width: CW, height: 30, color: N.soft, borderColor: N.line, borderWidth: 0.8 });
-    d.text(`Há ${report.lockedAlertCount} ponto(s) de atenção fora do plano contratado. Consulte um plano com mais detalhes para ver.`, M + 10, d.y - 19, 8.5, d.dm700, N.ink, { maxWidth: CW - 20 });
-    d.y -= 42;
   }
   adviceBlock(d, report);
   if (!meta.sample) considerations(d);

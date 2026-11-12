@@ -47,7 +47,7 @@ export async function renderDossierPdf(input: DossierInput): Promise<Buffer> {
   }
 
   // resumo das verificações (pior situação entre as consultas)
-  const checks = worstChecks(input.entries);
+  const checks = worstChecks(input.entries).filter((c) => c.status !== 'NOT_CHECKED');
   if (checks.length) {
     d.y -= 10; d.ensure(40);
     d.text('Situação das verificações', M, d.y, 11, d.jx800, INK); d.y -= 6;
