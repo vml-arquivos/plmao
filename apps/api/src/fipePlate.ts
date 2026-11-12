@@ -4,8 +4,8 @@ import type { FipeProviderResult } from './types.js';
  * FIPE grátis pela placa: UMA consulta da Credify (código 454, só a FIPE) e nada mais.
  * Este arquivo só lê a resposta dessa consulta. Não mostra chassi, Renavam, proprietário, restrições nem outro dado do cadastro.
  */
-export type FipePlateError = Error & { code: string; http: number };
-const fail = (code: string, http: number): FipePlateError => Object.assign(new Error(code), { code, http });
+export type FipePlateError = Error & { code: string; http: number; detail?: string };
+const fail = (code: string, http: number, detail?: string): FipePlateError => Object.assign(new Error(code), { code, http, ...(detail ? { detail } : {}) });
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -51,23 +51,48 @@ function modelYear(v: string, now = new Date()): number | undefined {
   return undefined;
 }
 
+/**
+ * Descreve só a ESTRUTURA da resposta (nomes dos campos, códigos e descrição curta), para o log. Nunca inclui valores
+ * do veículo (chassi, Renavam, proprietário, preço): serve para entender por que a resposta não pôde ser lida.
+ */
+export function describeFipePlateShape(raw: unknown): string {
+  const data = isRec(raw) && isRec(raw.data) ? raw.data : raw;
+  if (!isRec(data)) return `resposta ${typeof data}`;
+  const resposta = isRec(data.RESPOSTA) ? data.RESPOSTA : undefined;
+  if (!resposta) return `sem RESPOSTA (campos: ${Object.keys(data).slice(0, 8).join(', ') || 'nenhum'})`;
+  const parts: string[] = [`CODIGO ${JSON.stringify(resposta.CODIGO ?? null)}`];
+  for (const [k, v] of Object.entries(resposta).slice(0, 8)) {
+    if (k === 'CODIGO') continue;
+    if (isRec(v)) {
+      const desc = text(v.DESCRICAORETORNO ?? v.MSG).replace(/\s+/g, ' ').slice(0, 40);
+      const inner = Object.entries(v).filter(([, x]) => isRec(x)).map(([ik, x]) => `${ik}{${Object.keys(x as Rec).slice(0, 14).join(',')}}`).slice(0, 3);
+      parts.push(`${k}[${Object.keys(v).slice(0, 8).join(',')}]${desc ? ` "${desc}"` : ''}${inner.length ? ` ${inner.join(' ')}` : ''}`);
+    } else parts.push(`${k}=${typeof v === 'string' ? JSON.stringify(v.slice(0, 40)) : typeof v}`);
+  }
+  return parts.join('; ').slice(0, 500);
+}
+
 /** Lê a resposta da consulta 454. Lança FIPE_PLATE_NOT_FOUND (404) ou FIPE_PLATE_DATA_INVALID (422); nunca devolve dado do cadastro. */
 export function parseFipeByPlate(raw: unknown, plate: string, now = new Date()): FipeProviderResult {
   const data = isRec(raw) && isRec(raw.data) ? raw.data : raw;
   const resposta = isRec(data) && isRec(data.RESPOSTA) ? data.RESPOSTA : data;
   const code = isRec(resposta) ? text(resposta.CODIGO) : '';
-  if (code === '2') throw fail('FIPE_PLATE_NOT_FOUND', 404);
+  if (code === '2') throw fail('FIPE_PLATE_NOT_FOUND', 404, 'CODIGO 2 (a fonte não achou a placa)');
   const record = findRecord(resposta);
-  if (!record) throw fail('FIPE_PLATE_NOT_FOUND', 404);
+  // Resposta de sucesso sem o registro da FIPE: a fonte respondeu, mas não pudemos ler. Não é "placa não encontrada".
+  if (!record) throw fail('FIPE_PLATE_DATA_INVALID', 422, `sem registro com CODIGOFIPE. ${describeFipePlateShape(raw)}`);
   const status = pick(record, 'STATUS');
-  if (status && status !== '1') throw fail('FIPE_PLATE_NOT_FOUND', 404);
+  if (status && status !== '1') throw fail('FIPE_PLATE_NOT_FOUND', 404, `STATUS ${status} no registro da FIPE`);
   const fipeCode = pick(record, 'CODIGOFIPE');
   const valueCents = fipeMoneyToCents(pick(record, 'PRECOFIPE')) || fipeMoneyToCents(pick(record, 'PRECOMEDIO'));
   const brandName = pick(record, 'FABRICANTEFIPE');
   const modelName = pick(record, 'MODELOFIPE');
   const reference = fipeReference(pick(record, 'VIGENCIA'));
   const year = modelYear(pick(record, 'ANOMODELOFIPE'), now);
-  if (!fipeCode || !valueCents || !brandName || !modelName || !reference || !year) throw fail('FIPE_PLATE_DATA_INVALID', 422);
+  if (!fipeCode || !valueCents || !brandName || !modelName || !reference || !year) {
+    const missing = [['CODIGOFIPE', fipeCode], ['PRECOFIPE/PRECOMEDIO', valueCents], ['FABRICANTEFIPE', brandName], ['MODELOFIPE', modelName], ['VIGENCIA', reference], ['ANOMODELOFIPE', year]].filter(([, v]) => !v).map(([k]) => k);
+    throw fail('FIPE_PLATE_DATA_INVALID', 422, `campos ausentes ou ilegíveis: ${missing.join(', ')}. Campos do registro: ${Object.keys(record).join(',')}`);
+  }
   const fuel = fuelName(pick(record, 'COMBUSTIVELFIPE'));
   return {
     provider: 'credify',

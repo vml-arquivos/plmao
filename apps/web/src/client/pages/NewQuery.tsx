@@ -185,6 +185,12 @@ export default function NewQuery() {
             {loading && <div className="prod-list"><Skeleton h={84} r={16} /><Skeleton h={84} r={16} /></div>}
             {loadErr != null && <Alert tone="danger" title="Não foi possível carregar as consultas.">{errorMessage(loadErr)} <button className="btn btn-sm" onClick={reload}>Tentar de novo</button></Alert>}
             {data && !products.length && <div className="card"><EmptyState icon="tag" title="Nenhuma consulta disponível">Volte em instantes ou fale com o suporte.</EmptyState></div>}
+            <div className="prod-list" aria-label="Consulta grátis">
+              <div className="prod" style={{ gridTemplateColumns: '1fr auto', cursor: 'default' }}>
+                <span><b>Tabela FIPE grátis<Badge tone="ok">Grátis</Badge></b><p>Só o valor da Tabela FIPE do veículo: marca, modelo, ano, combustível e código FIPE. Sem custo, não usa seu saldo.</p></span>
+                <Link className="btn" to={`/app/fipe${kind === 'PLATE' && valid ? `?placa=${plate}` : ''}`}>Consultar FIPE grátis</Link>
+              </div>
+            </div>
             <div className="prod-list" role="radiogroup" aria-label="Tipo de consulta">
               {products.map((p) => {
                 const off = p.commercialStatus !== 'ACTIVE';

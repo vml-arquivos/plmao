@@ -173,7 +173,8 @@ type NavSection = { title?: string; items: NavItem[] };
 const SECTIONS: NavSection[] = [
   { items: [
     { to: '/app', label: 'Painel', icon: 'home', end: true, only: ['CLIENTE', 'LOJISTA'] },
-    { to: '/app/parceiro', label: 'Indicações', icon: 'users', only: ['AFILIADO'] }
+    { to: '/app/parceiro', label: 'Indicações', icon: 'users', only: ['AFILIADO'] },
+    { to: '/app/fipe', label: 'FIPE grátis', icon: 'tag' }
   ] },
   { title: 'Acompanhar', items: [
     { to: '/app/historico', label: 'Consultas', icon: 'clock' },

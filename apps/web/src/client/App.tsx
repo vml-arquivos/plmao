@@ -158,6 +158,7 @@ export default function App() {
           <Route path="/app" element={<RequireAuth><AppLayout /></RequireAuth>}>
             <Route index element={<AppHome />} />
             <Route path="consultar" element={<NewQuery />} />
+            <Route path="fipe" element={<Fipe inApp />} />
             <Route path="consultar/pedido/:orderId" element={<PaidQueryReturn />} />
             <Route path="historico" element={<History />} />
             <Route path="lote" element={<Batch />} />

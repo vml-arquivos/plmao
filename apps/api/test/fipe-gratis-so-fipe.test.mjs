@@ -92,7 +92,19 @@ describe('leitura da resposta da FIPE (só FIPE, sem dado de cadastro)', () => {
     assert.throws(() => parseFipeByPlate({ data: { CONSULTA: consulta('454'), RESPOSTA: { CODIGO: '2' } } }, 'AAA0000'), (e) => e.code === 'FIPE_PLATE_NOT_FOUND');
     assert.throws(() => parseFipeByPlate({ data: fipeOk({ STATUS: '0' }) }, 'AAA0000'), (e) => e.code === 'FIPE_PLATE_NOT_FOUND');
     assert.throws(() => parseFipeByPlate({ data: fipeOk({ PRECOFIPE: '', PRECOMEDIO: '' }) }, 'AAA0000'), (e) => e.code === 'FIPE_PLATE_DATA_INVALID');
-    assert.throws(() => parseFipeByPlate({ data: { RESPOSTA: { CODIGO: '1', VEICULOSBDRP: { RETORNO: { PLACA: 'AAA0000' } } } } }, 'AAA0000'), (e) => e.code === 'FIPE_PLATE_NOT_FOUND', 'resposta de outra consulta não vira FIPE');
+    assert.throws(() => parseFipeByPlate({ data: { RESPOSTA: { CODIGO: '1', VEICULOSBDRP: { RETORNO: { PLACA: 'AAA0000', CHASSI: '9BWZZZ377VT004251' } } } } }, 'AAA0000'), (e) => e.code === 'FIPE_PLATE_DATA_INVALID', 'resposta de outra consulta não vira FIPE nem "placa não encontrada"');
+  });
+  it('quando não consegue ler, o motivo vai para o log só com a estrutura (nomes de campos), nunca com valores do veículo', () => {
+    let err;
+    try { parseFipeByPlate({ data: { RESPOSTA: { CODIGO: ['1'], PRECIFICADORFIPE: { DESCRICAORETORNO: 'SUCESSO', REGISTRO_1: { STATUS: '1', CHASSI: '9BWZZZ377VT004251', CODIGO_FIPE_NOVO: '005843-1', PRECO: '32.500,00' } } } } }, 'AAA0000'); } catch (e) { err = e; }
+    assert.equal(err.code, 'FIPE_PLATE_DATA_INVALID');
+    assert.match(err.detail, /PRECIFICADORFIPE/);
+    assert.match(err.detail, /REGISTRO_1\{STATUS,CHASSI,CODIGO_FIPE_NOVO,PRECO\}/);
+    assert.ok(!err.detail.includes('9BWZZZ377VT004251') && !err.detail.includes('32.500'), 'sem valores do veículo no log');
+    let err2;
+    try { parseFipeByPlate({ data: fipeOk({ MODELOFIPE: '' }) }, 'AAA0000'); } catch (e) { err2 = e; }
+    assert.match(err2.detail, /MODELOFIPE/);
+    assert.ok(!err2.detail.includes('9BWZZZ377VT004251'));
   });
 });
 
@@ -109,6 +121,7 @@ describe('FIPE grátis no servidor com a Credify: só a consulta de FIPE, em tod
         if (req.url === '/auth') return send(200, { Success: true, Dados: jwt() });
         if (mode === 'down') return send(500, { Message: 'erro interno' });
         if (mode === 'notfound') return send(200, { CONSULTA: consulta('454'), RESPOSTA: { CODIGO: '2', DESCRICAORETORNO: 'NAO ENCONTRADO' } });
+        if (mode === 'odd') return send(200, { CONSULTA: consulta('454'), RESPOSTA: { CODIGO: ['1'], PRECIFICADORFIPE: { DESCRICAORETORNO: 'SUCESSO', REGISTRO_1: { STATUS: '1', PRECO: '32.500,00' } } } });
         if (req.url === '/precificadorfipe') return send(200, fipeOk());
         return send(200, generic('467'));
       });
@@ -183,6 +196,10 @@ describe('FIPE grátis no servidor com a Credify: só a consulta de FIPE, em tod
     mode = 'notfound';
     const nf = await app.request('/api/fipe/quote', { method: 'POST', token, body: { plate: 'DDD3D33' } });
     assert.equal(nf.status, 404);
+    mode = 'odd';
+    const odd = await app.request('/api/fipe/quote', { method: 'POST', token, body: { plate: 'EEE4E44' } });
+    assert.equal(odd.status, 422, 'resposta de sucesso que não dá para ler não é "placa não encontrada"');
+    assert.equal((await odd.json()).error, 'FIPE_PLATE_DATA_INVALID');
     assert.ok(paid().every((p) => p === '/precificadorfipe'), paid().join(','));
     mode = 'ok';
   });

@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useState, type FormEvent } from 'react';
 import { Icon } from '../../shared/icons';
 import { Button, EmptyState, ErrorState, LinkButton, Skeleton, Stat, useAsync, usePageTitle } from '../../shared/ui';
@@ -30,6 +30,7 @@ export default function Dashboard() {
         <form onSubmit={go} className="grow" style={{ maxWidth: 460, flexBasis: 360 }}>
           <div className="quick-plate"><input value={plate} onChange={(e) => { setPlate(normalizePlate(e.target.value)); setErr(''); }} placeholder="Placa (ex: ABC1D23)" aria-label="Placa do veículo" maxLength={8} autoComplete="off" /><Button type="submit" variant="primary" icon="search">Consultar</Button></div>
           {err && <p role="alert" style={{ color: '#FCA5A5', marginTop: 8, fontSize: 14 }}>{err}</p>}
+          <p style={{ marginTop: 8, fontSize: 14 }}><Link to="/app/fipe" style={{ color: '#fff', textDecoration: 'underline' }}>Ver só o valor da Tabela FIPE (grátis)</Link></p>
         </form>
       </section>
       <PaidQueries />

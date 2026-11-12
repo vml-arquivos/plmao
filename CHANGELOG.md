@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.58.1 — FIPE por placa: erro mais claro e motivo real no log
+
+- **Resposta de sucesso que não dá para ler não vira mais "placa não encontrada".** Se a fonte responde com sucesso mas sem o registro da FIPE (ou com campos faltando), o cliente vê "Não foi possível identificar os dados do veículo para esta placa" (422). "Não identificamos um veículo" só aparece quando a fonte diz que não achou (código 2, status diferente de 1 ou erro 404).
+- **Log novo `fipe_plate_unreadable`:** mostra só a estrutura da resposta (nomes dos campos, códigos e a descrição curta), nunca valores do veículo (chassi, Renavam, proprietário, preço). Serve para ajustar a leitura se o formato real for diferente do esperado.
+- **FIPE grátis dentro da área do cliente:** nova tela `/app/fipe` (mesma consulta da página pública, sem a vitrine e sem captura de lead), item "FIPE grátis" no menu da conta, cartão "Consultar FIPE grátis" em Nova consulta (leva a placa digitada) e atalho no Painel. Não usa saldo e não mexe nas consultas pagas.
+- Sem variável de ambiente nova e sem migração.
+
 ## 1.58.0 — FIPE grátis só FIPE e direcionamento das consultas travado
 
 - **Erro corrigido:** a "Consulta interna" do produto "Consulta FIPE Grátis" comprava o **Veículo Total** (a consulta mais cara) e entregava o relatório completo com o nome de FIPE grátis. O produto não tinha consulta definida e caía na consulta padrão.

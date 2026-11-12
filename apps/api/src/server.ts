@@ -1235,6 +1235,8 @@ async function fipeResultFromPlate(plate: string): Promise<FipeProviderResult> {
     return parseFipeByPlate(output.raw, plate);
   } catch (error) {
     const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'FIPE_PLATE_DATA_INVALID';
+    const detail = error instanceof Error && typeof (error as { detail?: unknown }).detail === 'string' ? String((error as unknown as { detail: string }).detail).slice(0, 500) : undefined;
+    log('warn', 'fipe_plate_unreadable', { code, ...(detail ? { detail } : {}) });
     await recordProviderHealth('credify', 'FAILED', Date.now() - startedAt, code);
     throw error;
   }

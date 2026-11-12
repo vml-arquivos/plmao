@@ -16,7 +16,8 @@ type Item = { code: string; name: string };
 type VType = 'cars' | 'motorcycles' | 'trucks';
 interface Quote { documentCode: string; consultedAt: string; referenceMonth: string; vehicleType: VType; brand: Item; model: Item; year: Item; fuel?: string; fipeCode: string; valueCents: number; valueLabel: string; estimatedNegotiation?: { minCents: number; maxCents: number; disclaimer: string }; blocks: Array<{ key: string; label: string; message: string }>; plate?: string; sheet?: VehicleSheet; vehicleDetails?: FreeDetails }
 
-export default function Fipe() {
+/** `inApp`: a mesma consulta dentro da área do cliente (sem a vitrine pública, sem captura de lead e com os links da área logada). */
+export default function Fipe({ inApp = false }: { inApp?: boolean }) {
   usePageTitle('Consulta FIPE grátis');
   const { status } = useSession();
   const toast = useToast();
@@ -29,7 +30,7 @@ export default function Fipe() {
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [gate, setGate] = useState(false);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [enabled, setEnabled] = useState(true);
-  useEffect(() => { trackFunnel('FIPE_PAGE_VIEW', {}); api.get<{ enabled: boolean }>('/fipe/status').then((s) => setEnabled(s.enabled), () => undefined); }, []);
+  useEffect(() => { if (!inApp) trackFunnel('FIPE_PAGE_VIEW', {}); api.get<{ enabled: boolean }>('/fipe/status').then((s) => setEnabled(s.enabled), () => undefined); }, []);
   // escolha vinda da busca por texto: aplica modelo e ano quando as listas chegam
   const pending = useRef<{ model: string; year: number | null } | null>(null);
   const [q, setQ] = useState(''); const [hits, setHits] = useState<{ items: Array<{ brand: Item; model: Item }>; year: number | null } | null>(null); const [openList, setOpenList] = useState(false);
@@ -88,9 +89,11 @@ export default function Fipe() {
   const ready = mode === 'plate' ? isValidPlate(plate) : Boolean(brand && model && year);
   return (
     <>
-      <section className="page-hero"><div className="container"><span className="eyebrow">FIPE grátis</span><SeoH1 path="/fipe" fallback="Quanto vale o veículo? Consulte a Tabela FIPE." style={{ maxWidth: '22ch' }} /><p className="lead">Informe a placa ou escolha marca, modelo e ano e veja o valor médio de referência do mês.</p></div></section>
-      <section className="section" style={{ paddingTop: 8 }}>
-        <div className="container" style={{ maxWidth: 860 }}>
+      {inApp
+        ? <div className="page-head"><div><h1>FIPE grátis</h1><p className="muted">Informe a placa ou escolha marca, modelo e ano e veja o valor médio de referência do mês. Sem custo.</p></div></div>
+        : <section className="page-hero"><div className="container"><span className="eyebrow">FIPE grátis</span><SeoH1 path="/fipe" fallback="Quanto vale o veículo? Consulte a Tabela FIPE." style={{ maxWidth: '22ch' }} /><p className="lead">Informe a placa ou escolha marca, modelo e ano e veja o valor médio de referência do mês.</p></div></section>}
+      <section className={inApp ? undefined : 'section'} style={inApp ? undefined : { paddingTop: 8 }}>
+        <div className={inApp ? undefined : 'container'} style={{ maxWidth: 860 }}>
           {!enabled && <Alert tone="warn" title="Consulta FIPE em ativação.">Esta consulta ainda não está disponível neste ambiente.</Alert>}
           <div className="card card-pad stack">
             <Tabs label="Forma de busca" value={mode} onChange={(m) => { setMode(m); setErr(''); setGate(false); }} items={[{ id: 'plate', label: 'Por placa' }, { id: 'select', label: 'Por marca e modelo' }]} />
@@ -128,11 +131,11 @@ export default function Fipe() {
               <div className="row">
                 {status === 'authed' ? <Button icon="download" onClick={pdf}>Baixar PDF</Button> : <><Link className="btn" to="/criar-conta?next=/fipe" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'fipe-result-pdf', destination: 'register' })}><Icon name="download" size={18} /> Criar conta para baixar PDF ou imprimir</Link><Link className="btn btn-ghost" to="/entrar?next=/fipe">Já tenho conta</Link></>}
                 <LinkButton to={`/simulador?v=${Math.round(quote.valueCents / 100)}`} onClick={() => trackFunnel('CTA_CLICKED', { placement: 'fipe-result-simulator', destination: 'simulator' })}>Simular o financiamento</LinkButton>
-                <LinkButton to={`/consultar${quote.plate ? `?placa=${quote.plate}` : ''}`} variant="primary" iconRight="arrow-right">Ver situação do veículo (débitos e restrições)</LinkButton>
+                <LinkButton to={`${inApp ? '/app/consultar' : '/consultar'}${quote.plate ? `?placa=${quote.plate}` : ''}`} variant="primary" iconRight="arrow-right">Ver situação do veículo (débitos e restrições)</LinkButton>
               </div>
             </div>
           )}
-          {quote && <div style={{ marginTop: 18 }}><LeadCapture tool="FIPE" interest={`FIPE: ${quote.brand.name} ${quote.model.name}`.slice(0, 160)} title="Quer receber este resultado e avisos de preço?" text="Deixe seu contato e a gente envia o resumo da Tabela FIPE e dicas para negociar com segurança." /></div>}
+          {quote && !inApp && <div style={{ marginTop: 18 }}><LeadCapture tool="FIPE" interest={`FIPE: ${quote.brand.name} ${quote.model.name}`.slice(0, 160)} title="Quer receber este resultado e avisos de preço?" text="Deixe seu contato e a gente envia o resumo da Tabela FIPE e dicas para negociar com segurança." /></div>}
           {quote && (quote.vehicleDetails || quote.sheet) && <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>{quote.vehicleDetails && <FreeIdentity details={quote.vehicleDetails} />}{quote.sheet && <SheetView sheet={quote.sheet} />}</div>}
           {quote?.vehicleDetails?.chassis?.includes('*') && <p className="muted" style={{ fontSize: 14, marginTop: 12 }}>Chassi e motor aparecem completos nas consultas Básica e Completa.</p>}
           <p className="muted" style={{ fontSize: 13, marginTop: 20 }}>A Tabela FIPE é uma referência de preço médio de mercado e não considera estado de conservação, quilometragem nem situação documental.</p>
