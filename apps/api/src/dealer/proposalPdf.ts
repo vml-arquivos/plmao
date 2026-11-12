@@ -1,5 +1,5 @@
 import { rgb } from 'pdf-lib';
-import { C, CW, Doc, H, M, W, clean, drawLogo, qr, rect } from '../report/pdf.js';
+import { C, CW, Doc, H, M, W, bandTitle, clean, drawLogo, qr, rect } from '../report/pdf.js';
 import { brlFromCents } from '../report/format.js';
 
 export interface ProposalPdfData {
@@ -25,11 +25,9 @@ const pct = (v: number) => `${v.toFixed(2).replace('.', ',')}%`;
 const phoneBr = (p: string) => { const d = p.replace(/^55(?=\d{10,11}$)/, ''); return d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : p; };
 
 function section(d: Doc, label: string) {
-  d.ensure(34);
-  const y = d.y - 14;
-  d.text(label, M, y, 12, d.jx800, C.ink);
-  d.page.drawLine({ start: { x: M, y: y - 8 }, end: { x: W - M, y: y - 8 }, thickness: 0.8, color: C.line });
-  d.y = y - 20;
+  d.y -= 6;
+  bandTitle(d, label);
+  d.y -= 4;
 }
 
 function row(d: Doc, label: string, value: string, strong = false) {
@@ -50,7 +48,7 @@ export async function renderProposalPdf(p: ProposalPdfData): Promise<Buffer> {
   d.addPage();
 
   rect(d.page, { x: 0, y: H - 100, width: W, height: 100, color: C.ink });
-  rect(d.page, { x: 0, y: H - 100, width: W, height: 3, color: C.violet });
+  rect(d.page, { x: 0, y: H - 100, width: W, height: 3, color: C.blue });
   drawLogo(d, M, H - 68, 32, true);
   d.text(p.store.name, M + 42, H - 54, 16, d.jx800, C.white, { maxWidth: CW * 0.6 });
   const place = [p.store.city, p.store.state].filter(Boolean).join(' - ');
@@ -107,7 +105,11 @@ export async function renderProposalPdf(p: ProposalPdfData): Promise<Buffer> {
   }
 
   const foot = `${p.store.name} · Proposta ${p.code} · gerada com ${p.siteUrl.replace(/^https?:\/\//, '')}`;
-  for (const pg of d.pages) pg.drawText(fitFoot(foot), { x: M, y: 24, size: 7.5, font: d.dm400, color: C.muted });
+  for (const pg of d.pages) {
+    pg.drawRectangle({ x: 0, y: 0, width: W, height: 3, color: C.violet });
+    pg.drawLine({ start: { x: M, y: 38 }, end: { x: W - M, y: 38 }, thickness: 0.6, color: C.line });
+    pg.drawText(fitFoot(foot), { x: M, y: 24, size: 7.5, font: d.dm400, color: C.muted });
+  }
   return Buffer.from(await d.pdf.save());
 }
 function fitFoot(t: string): string { return clean(t).slice(0, 150); }

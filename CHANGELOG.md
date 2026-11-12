@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.63.0 — Todos os documentos no mesmo padrão visual
+
+- **PDF da consulta de valor FIPE (Consulta Zero) refeito.** Antes era texto puro; agora tem o mesmo cabeçalho, QR de validação, faixas, grade de dados, gráfico do histórico FIPE e rodapé do relatório de consulta.
+- **Simulação de financiamento e proposta da loja** passam a usar as mesmas faixas de título, filete de destaque e rodapé azul.
+- **Versões de impressão** (relatório, FIPE e relatório genérico) trocam o cinza e o verde antigos pelas cores da plataforma (azul-marinho, azul, fundos claros; verde, âmbar e vermelho só para o estado).
+- Uma organização parceira que tem cores próprias continua vendo as dela na impressão; sem cores próprias, vale a identidade da plataforma.
+- O cabeçalho e o rodapé dos PDFs agora vêm de um único código (`docHeader` e `docFooter` em `report/pdf.ts`).
+- Testes: `identidade-visual` (novo) e ajustes em `fipe-report` e `vehicle-sheet`.
+
+## 1.62.0 — Cada consulta compra exatamente as APIs dela
+
+- **Contrato de APIs por consulta (`lib/productContract.ts`).** Cadastral, Gravame, Leilão, Avançada, Completa e Premium têm cada uma a lista exata das consultas da Credify que compram. O sistema usa sempre essa lista, seja qual for o valor guardado no painel.
+- **Cerca na hora de consultar:** só sai chamada que esteja na lista do produto. Qualquer outra é barrada antes de ir à Credify (e fica no log).
+- **Base obrigatória que não responde não vira relatório incompleto.** Se uma base da consulta falha (uma segunda tentativa só para indisponibilidade; timeout não se repete), a consulta cai e o cliente é estornado. "Nada consta" continua sendo resposta válida.
+- No painel, as fontes dessas seis consultas ficam travadas (aviso claro ao tentar mudar); preço, textos e exibição continuam editáveis. Produtos criados no painel seguem livres.
+- Log `product_contract_drift` quando o valor guardado difere do contrato.
+- Testes: `contrato-apis` (novo, uma verificação exata de APIs por produto, com e sem ocorrências no cadastro, falhas e estorno) e ajuste em `fontes-por-produto`.
+
 ## 1.61.1 — Documento do cliente sem assunto interno
 
 - **O PDF, a impressão e o dossiê que vão ao cliente mostram só consulta e análise.** Saíram: "Não incluído neste produto…", "pontos de atenção fora do plano contratado", "Sem dados retornados pela fonte…", "Itens que a fonte não retornou foram omitidos", "Não fornecido pelo provedor…", itens "Não informado pela fonte…" e as verificações "Não consultado neste pacote ou a fonte não retornou" no "Antes de pagar". Ícones do topo sem informação também não aparecem.

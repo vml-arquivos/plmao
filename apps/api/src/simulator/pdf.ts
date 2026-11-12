@@ -1,5 +1,5 @@
 import { PDFString, rgb, type RGB } from 'pdf-lib';
-import { C, CW, Doc, H, M, W, clean, drawLogo, fit, rect } from '../report/pdf.js';
+import { C, CW, Doc, H, M, W, bandTitle, clean, drawLogo, fit, rect } from '../report/pdf.js';
 import { brlFromCents } from '../report/format.js';
 import type { FinancingResult } from '../lib/financing.js';
 import { VEHICLE_KINDS, type BankOffer, type RateInfo, type SimulationOutput } from './service.js';
@@ -22,12 +22,8 @@ const kindLabel = (k: string) => VEHICLE_KINDS.find((v) => v.key === k)?.label ?
 const MODALITY_NAME = { CDC: 'Financiamento CDC', LEASING: 'Leasing (arrendamento mercantil)' } as const;
 
 function sectionTitle(d: Doc, label: string, sub?: string) {
-  d.ensure(40);
-  const y = d.y - 14;
-  d.text(label, M, y, 12.5, d.jx800, C.ink);
-  if (sub) d.text(sub, W - M - d.dm400.widthOfTextAtSize(clean(sub), 8), y + 1, 8, d.dm400, C.muted);
-  d.page.drawLine({ start: { x: M, y: y - 8 }, end: { x: W - M, y: y - 8 }, thickness: 0.8, color: C.line });
-  d.y = y - 20;
+  bandTitle(d, label, sub);
+  d.y -= 4;
 }
 
 function tiles(d: Doc, items: Array<{ label: string; value: string; sub?: string; color?: RGB }>) {
@@ -267,7 +263,7 @@ export async function renderSimulationPdf(out: SimulationOutput, meta: Simulatio
 
   // cabeçalho
   rect(d.page, { x: 0, y: H - 104, width: W, height: 104, color: C.ink });
-  rect(d.page, { x: 0, y: H - 104, width: W, height: 3, color: C.violet });
+  rect(d.page, { x: 0, y: H - 104, width: W, height: 3, color: C.blue });
   drawLogo(d, M, H - 70, 34, true);
   d.text(brand, M + 44, H - 57, 17, d.jx800, C.white);
   d.text(siteLabel, M + 44, H - 71, 8, d.dm400, rgb(0.78, 0.78, 0.85));
@@ -398,6 +394,7 @@ export async function renderSimulationPdf(out: SimulationOutput, meta: Simulatio
 
   const total = d.pages.length;
   d.pages.forEach((p, i) => {
+    p.drawRectangle({ x: 0, y: 0, width: W, height: 3, color: C.violet });
     p.drawLine({ start: { x: M, y: 34 }, end: { x: W - M, y: 34 }, thickness: 0.6, color: C.line });
     p.drawText(clean(`${brand}  ·  Simulação ${meta.code}  ·  ${siteLabel}`), { x: M, y: 22, size: 7.5, font: d.dm400, color: C.muted });
     const right = `Página ${i + 1} de ${total}`;

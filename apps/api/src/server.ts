@@ -107,6 +107,7 @@ import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSl
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
 import { loadFinancingSettings, maybeRefreshInBackground } from './financingSettings.js';
 import { DATA_SOURCES, anycarConfigured, sourcesForProduct, validateDataSources } from './lib/dataSources.js';
+import { contractFor, enforcedSources } from './lib/productContract.js';
 import { defaultSourcesFor } from './lib/dataSourceDefaults.js';
 import { scopeForProduct, sectionSellable } from './lib/reportScope.js';
 import { ensureLienDetail } from './lib/lienRefresh.js';
@@ -380,6 +381,7 @@ function safeQueryFailureMessage(code?: string | null): string | undefined {
   if (code === 'DATA_PROVIDER_QUOTA_EXHAUSTED') return 'A Credify informou limite ou saldo de consultas indisponível. O valor foi estornado; contate o suporte.';
   if (code === 'PROVIDER_TIMEOUT' || code === 'QUERY_STUCK_TIMEOUT') return 'A Credify não respondeu dentro do prazo. O valor foi estornado; tente novamente.';
   if (code === 'PROVIDER_BUDGET_EXCEEDED') return 'Atingimos o limite de segurança de consultas à fonte de dados. O valor foi estornado; tente novamente mais tarde.';
+  if (code === 'DATA_PROVIDER_INCOMPLETE') return 'Uma das bases desta consulta não respondeu e não entregamos o relatório incompleto. O valor foi estornado; tente novamente em instantes.';
   if (code === 'NOT_FOUND') return 'Não encontramos dados para esta placa nas bases consultadas.';
   return 'A consulta não pôde ser concluída. Se houve débito, o valor foi estornado.';
 }
@@ -404,6 +406,7 @@ function toSafeQueryError(error: unknown): { status: number; code: string; messa
   if (code === 'DATA_PROVIDER_UNAVAILABLE') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A Credify ficou indisponível. ${RETRY_MESSAGE}` };
   if (code === 'DATA_PROVIDER_QUOTA_EXHAUSTED') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A Credify informou limite ou saldo de consultas indisponível. ${RETRY_MESSAGE}` };
   if (code === 'QUERY_IN_PROGRESS') return { status: 409, code, message: 'Já existe uma consulta desta placa em andamento. Aguarde terminar; você não será cobrado duas vezes.' };
+  if (code === 'DATA_PROVIDER_INCOMPLETE') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `Uma das bases desta consulta não respondeu, e não entregamos o relatório incompleto. ${RETRY_MESSAGE}` };
   if (code === 'PROVIDER_BUDGET_EXCEEDED') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `Atingimos o limite de segurança de consultas à fonte de dados. ${RETRY_MESSAGE}` };
   if (code === 'PRODUCT_NOT_FOUND') return { status: 404, code, message: 'Este produto de consulta não está disponível.' };
   if (code === 'PRODUCT_NOT_AVAILABLE') return { status: 409, code, message: 'Esta consulta ainda não está à venda. Nada foi cobrado.' };
@@ -1426,7 +1429,7 @@ api.get('/fipe/reports/:code/pdf', auth, asyncRoute(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, private');
   res.setHeader('Content-Disposition', `attachment; filename="placa-na-mao-${quote.documentCode}.pdf"`);
   const branding = await organizationBrandingForUser(req.user!.id);
-  res.type('application/pdf').send(fipePdf(quote, branding));
+  res.type('application/pdf').send(await fipePdf(quote, { ...branding, siteUrl: (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '') }));
 }));
 
 api.get('/fipe/reports/:code/print', auth, asyncRoute(async (req, res) => {
@@ -2851,6 +2854,7 @@ function adminLookupError(error: unknown): unknown {
     DATA_PROVIDER_AUTH_FAILED: [424, `Falha no login da Credify.${why}`],
     DATA_PROVIDER_PRODUCT_NOT_ROUTED: [409, `Este produto não tem consulta da Credify definida; nada foi chamado nem cobrado.${why}`],
     DATA_PROVIDER_UNAVAILABLE: [424, `A Credify ficou indisponível.${why}`],
+    DATA_PROVIDER_INCOMPLETE: [424, `Uma base obrigatória do produto não respondeu; o relatório incompleto não foi entregue.${why}`],
     DATA_PROVIDER_RATE_LIMITED: [424, `A Credify informou limite temporário de consultas.${why}`],
     DATA_PROVIDER_QUOTA_EXHAUSTED: [424, `A Credify informou limite ou saldo de consultas indisponível.${why}`],
     PROVIDER_TIMEOUT: [424, 'A fonte demorou além do prazo configurado. A Credify pode ter cobrado esta consulta; não repita sem conferir.'],
@@ -2893,7 +2897,7 @@ async function adminFipeFreeLookup(req: Request, res: Response, plate: string, p
       });
     } catch (e) { log('error', 'admin_fipe_lookup_save_failed', { error: e instanceof Error ? e.message : 'unknown' }); }
     await audit(req.user!.id, 'ADMIN_LOOKUP', 'VEHICLE_QUERY', queryId, { plate, productId: 'FIPE_FREE', provider: providerName, status: 'SUCCESS', saved: Boolean(queryId), requestId: requestId(req) });
-    res.status(200).json({ queryId, verificationCode: out.documentCode, saved: Boolean(queryId), plate, productId: 'FIPE_FREE', productName, provider: out.provider, consultedAt: out.consultedAt, result: publicFipeQuote(out), report: null, pdfBase64: fipePdf(out).toString('base64'), pdfName: `placa-na-mao-${plate}-fipe-gratis.pdf` });
+    res.status(200).json({ queryId, verificationCode: out.documentCode, saved: Boolean(queryId), plate, productId: 'FIPE_FREE', productName, provider: out.provider, consultedAt: out.consultedAt, result: publicFipeQuote(out), report: null, pdfBase64: (await fipePdf(out, { siteUrl: (env.APP_URL ?? env.WEB_ORIGIN).replace(/\/$/, '') })).toString('base64'), pdfName: `placa-na-mao-${plate}-fipe-gratis.pdf` });
   } catch (error) {
     const errorCode = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'PROVIDER_ERROR';
     await audit(req.user!.id, 'ADMIN_LOOKUP', 'VEHICLE_QUERY', null, { plate, productId: 'FIPE_FREE', provider: providerName, status: 'FAILED', errorCode, requestId: requestId(req) });
@@ -3059,7 +3063,13 @@ api.patch('/admin/products/:id', adminAuth, requirePermission('MANAGE_PRICING'),
   if (parsed.data.dataSources !== undefined) {
     const checked = validateDataSources(parsed.data.dataSources);
     if (!checked.ok) throw appError('INVALID_DATA_SOURCES', { code: checked.error, http: 400, expose: true });
-    values.push(checked.sources); assignments.push(`data_sources=$${values.length}::text[]`);
+    // Consultas de linha fixa têm as APIs travadas no contrato: aceita só o próprio contrato (ou o padrão, que volta a ele).
+    const fixed = contractFor(String(req.params.id));
+    if (fixed && checked.sources && enforcedSources(String(req.params.id), checked.sources).drift) {
+      throw appError('As APIs desta consulta são fixas e não podem ser alteradas por aqui. Ajuste preço, textos e exibição.', { code: 'PRODUCT_SOURCES_LOCKED', http: 409, expose: true, showMessage: true });
+    }
+    const toStore = fixed ? (fixed.sources ? [...fixed.sources] : null) : checked.sources;
+    values.push(toStore); assignments.push(`data_sources=$${values.length}::text[]`);
   }
   if (parsed.data.isFree !== undefined) { values.push(parsed.data.isFree); assignments.push(`is_free=$${values.length}`); }
   if (parsed.data.active !== undefined) { values.push(parsed.data.active); assignments.push(`active=$${values.length}`); }

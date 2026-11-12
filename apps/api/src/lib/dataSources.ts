@@ -4,6 +4,8 @@
  *  - com escolha: o produto compra só as fontes marcadas (mais a base de cadastro, que identifica o veículo).
  * O que o cliente VÊ continua sendo definido por "Campos do relatório"; aqui se define o que é COMPRADO (custo).
  */
+import { contractFor } from './productContract.js';
+
 export type DataSourceKey = 'BASE' | 'SINISTRO' | 'NATIONAL' | 'THEFT' | 'RECALL' | 'AUCTION' | 'AUCTION_SIMPLE' | 'GRAVAME' | 'RENAJUD' | 'OWNERS' | 'OWNER_PLATE' | 'FIPE' | 'RENAINF' | 'TOTAL';
 
 export interface DataSourceDef { key: DataSourceKey; label: string; description: string; provider: 'credify' | 'anycar' }
@@ -52,6 +54,9 @@ let bySource = new Map<string, DataSourceKey[] | null>();
 export function setProductSources(next: Map<string, DataSourceKey[] | null>): void { bySource = next; }
 /** null = padrão do sistema. */
 export function sourcesForProduct(productId: string | null | undefined): DataSourceKey[] | null {
+  // Produto de linha fixa: as APIs vêm do contrato (productContract.ts), nunca do que estiver guardado.
+  const fixed = contractFor(productId);
+  if (fixed) return fixed.sources ? ([...fixed.sources] as DataSourceKey[]) : null;
   return bySource.get(String(productId ?? '')) ?? null;
 }
 export function parseStoredSources(value: unknown): DataSourceKey[] | null {

@@ -14,7 +14,7 @@ export const LAYER_ORDER = ['INDICIOSINISTROVEICULAR', 'RECALL', 'HISTORICOROUBO
 export type LayerBlock = (typeof LAYER_ORDER)[number];
 
 /** Resultado de uma consulta avulsa: dados, "não encontrado" ou nada (falhou ou não foi chamada). */
-export type Piece = { kind: 'data'; resposta: Rec } | { kind: 'notFound' } | { kind: 'none' };
+export type Piece = { kind: 'data'; resposta: Rec } | { kind: 'notFound' } | { kind: 'none'; code?: string };
 
 /** RESPOSTA do envelope guardado ({ placa, data: envelope }), com as chaves em maiúsculas. */
 export function respostaOf(raw: unknown, depth = 0): Rec | null {
@@ -187,6 +187,12 @@ export class Spend {
   private readonly costs: Record<string, number> | undefined;
   constructor(private readonly budgetCents: number | undefined, costs: Record<string, number> | undefined) {
     this.costs = costs ? Object.fromEntries(Object.entries(costs).map(([k, v]) => [k.toLowerCase(), v])) : undefined;
+  }
+  private allowed: Set<string> | undefined;
+  /** Cerca do contrato: com a lista definida, qualquer chamada fora dela é barrada antes de sair. */
+  fence(paths: Iterable<string>): void { this.allowed = new Set([...paths].map((p) => p.toLowerCase())); }
+  assertAllowed(path: string): void {
+    if (this.allowed && !this.allowed.has(path.toLowerCase())) throw Object.assign(new Error('PRODUCT_CONTRACT_VIOLATION'), { code: 'PRODUCT_CONTRACT_VIOLATION', detail: path });
   }
   /** Chamadas essenciais sempre acontecem e contam para o teto das opcionais. */
   record(path: string): void { this.spent += this.costs?.[path.toLowerCase()] ?? 0; this.calls.push(path); }

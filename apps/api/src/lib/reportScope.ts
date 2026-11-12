@@ -3,6 +3,8 @@ import { pool } from '../db.js';
 import { CATALOG_BY_KEY, SECTIONS, type SectionKey } from '../report/catalog.js';
 import { ownerIdentityEnabled } from '../report/mask.js';
 import { parseStoredSources, setProductSources, type DataSourceKey } from './dataSources.js';
+import { enforcedSources } from './productContract.js';
+import { log } from './http.js';
 
 /**
  * Escopo de relatório por produto: quais seções e campos do catálogo o cliente recebe.
@@ -90,7 +92,13 @@ export async function refreshScopes(): Promise<void> {
   ]);
   const nextSections = new Map<string, string[] | null>();
   const nextSources = new Map<string, DataSourceKey[] | null>();
-  for (const r of products.rows) nextSources.set(String(r.id), parseStoredSources(r.data_sources));
+  for (const r of products.rows) {
+    const stored = parseStoredSources(r.data_sources);
+    // Produtos de linha fixa compram sempre as APIs do contrato (productContract.ts), seja qual for o valor guardado.
+    const fixed = enforcedSources(String(r.id), stored);
+    if (fixed.drift) log('warn', 'product_contract_drift', { productId: String(r.id), stored: stored ?? null, enforced: fixed.sources ? [...fixed.sources] : null });
+    nextSources.set(String(r.id), fixed.sources ? ([...fixed.sources] as DataSourceKey[]) : null);
+  }
   setProductSources(nextSources);
   for (const r of products.rows) nextSections.set(String(r.id), Array.isArray(r.report_sections) && r.report_sections.length ? (r.report_sections as string[]) : null);
   const nextTemplates = new Map<string, Entry[]>();

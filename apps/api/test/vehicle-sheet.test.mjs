@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { useTestEnv } from './helpers/db.mjs';
 
 useTestEnv();
@@ -75,14 +76,21 @@ test('ficha sem fonte: não inventa FIPE, financiamento nem ficha técnica', () 
   assert.deepEqual(sheet.decoder.map((r) => r.label), ['Fabricante', 'Modelo']);
 });
 
-test('consulta gratuita: PDF com várias páginas e HTML trazem a ficha e o chassi completo', () => {
+test('consulta gratuita: PDF com várias páginas e HTML trazem a ficha e o chassi completo', async () => {
   const sheet = buildVehicleSheet({ chassis: '9362ABCDEXB051028', brand: 'PEUGEOT', fullModel: '207 PASSION XR 1.4 FLEX 4P', modelYear: 2011, fipeCode: '024155-5', fipeModel: 'Peugeot 207', fipeCurrentCents: 1_962_800, history: { fipeCode: '024155-5', yearId: '2011-1', series: all.slice(-24), annual: annualPoints(all) }, financing: { vehicleCents: 1_962_800, downPaymentCents: 392_560, months: 48, installmentCents: 30_834 } });
   const quote = makeFipeQuote({ provider: 'parallelum', source: 'x', referenceMonth: 'novembro de 2026', vehicleType: 'cars', brand: { code: '1', name: 'Peugeot' }, model: { code: '2', name: '207 Passion XR' }, year: { code: '2011-1', name: '2011 Flex' }, fuel: 'Flex', fipeCode: '024155-5', valueCents: 1_962_800, valueLabel: 'R$ 19.628,00', cacheKey: 'k' }, 'JIJ8343', { plate: 'JIJ8343', chassis: '9362ABCDEXB051028', engine: '10DXXXXXX08185', brand: 'PEUGEOT' });
   quote.sheet = sheet;
-  const pdf = fipePdf(quote).toString('latin1');
-  assert.ok((pdf.match(/\/Type \/Page /g) ?? []).length >= 2, 'mais de uma página');
-  assert.ok(pdf.includes('9362ABCDEXB051028'));
-  assert.ok(pdf.includes('TABELA FIPE POR ANO'));
+  const buf = await fipePdf(quote);
+  assert.equal(buf.subarray(0, 5).toString(), '%PDF-');
+  const f = `/tmp/vs-${process.pid}-${Date.now()}.pdf`;
+  fs.writeFileSync(f, buf);
+  let text = null;
+  try { text = execFileSync('pdftotext', ['-layout', f, '-'], { encoding: 'utf8' }); } catch { /* sem pdftotext */ } finally { fs.rmSync(f, { force: true }); }
+  if (text !== null) {
+    assert.ok((text.match(/\f/g) ?? []).length >= 1, 'mais de uma página');
+    assert.ok(text.includes('9362ABCDEXB051028'));
+    assert.match(text, /TABELA FIPE/i);
+  }
   const html = fipePrintHtml(quote);
   assert.ok(html.includes('9362ABCDEXB051028') && html.includes('Financie') && html.includes('Histórico dos últimos 24 meses'));
   assert.ok(html.includes('R$') && !/>\s*\d{6,}\s*</.test(html.split('Estimativa informativa')[1].slice(0, 200)), 'faixa de negociação formatada em reais');

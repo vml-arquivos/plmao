@@ -28,7 +28,7 @@ const font = (name: string) => readFileSync(new URL(name, FONT_DIR));
 export const W = 595.28; export const H = 841.89; export const M = 40; export const CW = W - M * 2;
 export const C = {
   ink: rgb(0.016, 0.043, 0.106), text: rgb(0.043, 0.086, 0.2), muted: rgb(0.341, 0.4, 0.529), line: rgb(0.878, 0.906, 0.953), soft: rgb(0.957, 0.969, 0.992),
-  violet: rgb(0.184, 0.435, 0.894), lilac: rgb(0.486, 0.725, 1), blue: rgb(0.361, 0.682, 0.941), white: rgb(1, 1, 1),
+  violet: rgb(0.122, 0.373, 0.878), lilac: rgb(0.486, 0.725, 1), blue: rgb(0.361, 0.682, 0.941), white: rgb(1, 1, 1),
   green: rgb(0.055, 0.624, 0.431), greenBg: rgb(0.89, 0.973, 0.937), amber: rgb(0.706, 0.325, 0.035), amberBg: rgb(0.996, 0.953, 0.78), red: rgb(0.863, 0.149, 0.149), redBg: rgb(0.996, 0.91, 0.91), grayBg: rgb(0.918, 0.941, 0.984)
 };
 
@@ -95,7 +95,7 @@ export function drawLogo(d: Doc, x: number, y: number, size: number, dark: boole
 }
 
 /* ---------- Layout do relatório de consulta (identidade da plataforma: azul-marinho, azul e fundos claros; verde, âmbar e vermelho só no estado) ---------- */
-const N = {
+export const N = {
   ink: rgb(0.016, 0.043, 0.106), text: rgb(0.043, 0.086, 0.2), muted: rgb(0.341, 0.4, 0.529), line: rgb(0.8, 0.84, 0.92), hair: rgb(0.878, 0.906, 0.953),
   band: rgb(0.906, 0.937, 0.996), soft: rgb(0.957, 0.969, 0.992), dark: rgb(0.016, 0.043, 0.106), white: rgb(1, 1, 1),
   blue: rgb(0.122, 0.373, 0.878), blueInk: rgb(0.086, 0.275, 0.69), accent: rgb(0.361, 0.682, 0.941), pale: rgb(0.85, 0.91, 1),
@@ -103,39 +103,70 @@ const N = {
   warn: rgb(0.706, 0.325, 0.035), warnSoft: rgb(0.996, 0.953, 0.78), warnInk: rgb(0.573, 0.251, 0.055),
   danger: rgb(0.863, 0.149, 0.149), dangerSoft: rgb(0.996, 0.91, 0.91), dangerInk: rgb(0.6, 0.106, 0.106)
 };
-const HB = 152; // altura reservada ao cabeçalho (repetido em todas as páginas)
+export const HB = 152; // altura reservada ao cabeçalho (repetido em todas as páginas)
 const LABEL_W = 104;
 
-function pageHeader(d: Doc, page: PDFPage, idx: number, total: number, meta: ReportMeta, report: ReportV2) {
+export interface HeaderInfo {
+  brand: string;
+  /** título central ("Consulta Veicular", "Consulta Zero") */
+  title: string;
+  tag: string;
+  when: Date;
+  code: string;
+  url: string;
+  vehicle: { name: string; plate?: string; sub?: string };
+}
+
+/** Cabeçalho único dos documentos de consulta: faixa azul-marinho com filete de destaque, logo, QR e faixa azul com o veículo. */
+export function docHeader(d: Doc, page: PDFPage, idx: number, total: number, h: HeaderInfo) {
   d.page = page;
   const top = H - 22;
   // faixa superior azul-marinho com filete de destaque
   page.drawRectangle({ x: 0, y: H - 88, width: W, height: 88, color: N.dark });
   page.drawRectangle({ x: 0, y: H - 90.5, width: W, height: 2.5, color: N.accent });
   drawLogo(d, M, top - 34, 34, true);
-  d.text(meta.brandName ?? 'Placa na Mão', M + 44, top - 17, 13, d.jx800, N.white);
+  d.text(h.brand, M + 44, top - 17, 13, d.jx800, N.white);
   d.text('Consulta veicular por placa', M + 44, top - 29, 7, d.dm400, N.accent);
-  const title = 'Consulta Veicular';
-  d.text(title, W / 2 - d.jx800.widthOfTextAtSize(title, 17) / 2 + 20, top - 16, 17, d.jx800, N.white);
-  d.text('Informações Exclusivas', 190, top - 29, 7.5, d.dm500, N.accent);
-  const when = meta.consultedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  d.text(h.title, W / 2 - d.jx800.widthOfTextAtSize(clean(h.title), 17) / 2 + 20, top - 16, 17, d.jx800, N.white);
+  d.text(h.tag, 190, top - 29, 7.5, d.dm500, N.accent);
+  const when = h.when.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
   d.text(`Data/hora da consulta: ${when}`, 190, top - 39, 7.5, d.dm700, N.white);
-  d.text(`Código ${meta.verificationCode}  ·  Pág. ${idx + 1}/${total}`, 190, top - 49, 7.5, d.dm500, N.pale);
-  void qr(d, meta.verificationUrl, W - M - 40, top - 48, 40);
+  d.text(`Código ${h.code}  ·  Pág. ${idx + 1}/${total}`, 190, top - 49, 7.5, d.dm500, N.pale);
+  void qr(d, h.url, W - M - 40, top - 48, 40);
   // faixa com o veículo
   const bh = 58; const by = H - 90.5 - bh;
   d.page.drawRectangle({ x: 0, y: by, width: W, height: bh, color: N.blue });
   d.page.drawRectangle({ x: 0, y: by, width: W, height: 1.2, color: N.blueInk });
+  const nameT = clean(h.vehicle.name).toUpperCase();
+  if (h.vehicle.plate) {
+    const nameW = Math.min(d.jx800.widthOfTextAtSize(nameT, 15), CW);
+    d.text(nameT, W / 2 - nameW / 2, by + bh - 19, 15, d.jx800, N.white, { maxWidth: CW });
+    const plate = clean(h.vehicle.plate);
+    const pw = d.jx800.widthOfTextAtSize(plate, 14) + 26;
+    rect(d.page, { x: W / 2 - pw / 2, y: by + bh - 45, width: pw, height: 21, color: N.white, borderRadius: 5 });
+    d.text(plate, W / 2 - d.jx800.widthOfTextAtSize(plate, 14) / 2, by + bh - 39.5, 14, d.jx800, N.dark);
+  } else {
+    const nameW = Math.min(d.jx800.widthOfTextAtSize(nameT, 15), CW);
+    d.text(nameT, W / 2 - nameW / 2, by + bh - 28, 15, d.jx800, N.white, { maxWidth: CW });
+  }
+  if (h.vehicle.sub) { const sw = Math.min(d.dm500.widthOfTextAtSize(clean(h.vehicle.sub), 7.5), CW); d.text(h.vehicle.sub, W / 2 - sw / 2, by + 6, 7.5, d.dm500, N.pale, { maxWidth: CW }); }
+}
+
+/** Rodapé único: filete azul, identificação do documento, página e aviso. */
+export function docFooter(d: Doc, p: PDFPage, idx: number, total: number, left: string, notice: string) {
+  p.drawRectangle({ x: 0, y: 0, width: W, height: 3, color: N.blue });
+  p.drawLine({ start: { x: M, y: 42 }, end: { x: W - M, y: 42 }, thickness: 0.6, color: N.line });
+  p.drawText(clean(left), { x: M, y: 30, size: 7.5, font: d.dm500, color: N.text });
+  const right = `Página ${idx + 1} de ${total}`;
+  p.drawText(right, { x: W - M - d.dm500.widthOfTextAtSize(right, 7.5), y: 30, size: 7.5, font: d.dm500, color: N.text });
+  p.drawText(clean(fit(d.dm400, notice, 6.3, CW)), { x: M, y: 19, size: 6.3, font: d.dm400, color: N.muted });
+}
+
+function pageHeader(d: Doc, page: PDFPage, idx: number, total: number, meta: ReportMeta, report: ReportV2) {
   const hl = report.headline;
   const name = [hl.brand, hl.model].filter(Boolean).join(' ') || hl.fullModel || 'Veículo';
-  const nameT = clean(name).toUpperCase(); const nameW = Math.min(d.jx800.widthOfTextAtSize(nameT, 15), CW);
-  d.text(nameT, W / 2 - nameW / 2, by + bh - 19, 15, d.jx800, N.white, { maxWidth: CW });
-  const plate = clean(report.plate);
-  const pw = d.jx800.widthOfTextAtSize(plate, 14) + 26;
-  rect(d.page, { x: W / 2 - pw / 2, y: by + bh - 45, width: pw, height: 21, color: N.white, borderRadius: 5 });
-  d.text(plate, W / 2 - d.jx800.widthOfTextAtSize(plate, 14) / 2, by + bh - 39.5, 14, d.jx800, N.dark);
   const sub = [hl.manufactureYear && hl.modelYear ? `${hl.manufactureYear}/${hl.modelYear}` : hl.modelYear ?? hl.manufactureYear, hl.color, hl.fuel, [hl.city, hl.state].filter(Boolean).join(' - ')].filter(Boolean).join(' · ');
-  if (sub) { const sw = Math.min(d.dm500.widthOfTextAtSize(clean(sub), 7.5), CW); d.text(sub, W / 2 - sw / 2, by + 6, 7.5, d.dm500, N.pale, { maxWidth: CW }); }
+  docHeader(d, page, idx, total, { brand: meta.brandName ?? 'Placa na Mão', title: 'Consulta Veicular', tag: 'Informações Exclusivas', when: meta.consultedAt, code: meta.verificationCode, url: meta.verificationUrl, vehicle: { name, plate: report.plate, ...(sub ? { sub } : {}) } });
 }
 
 type BadgeState = 'ok' | 'alert' | 'na';
@@ -216,7 +247,7 @@ function verdictBox(d: Doc, report: ReportV2) {
   d.y = y - 14;
 }
 
-function bandTitle(d: Doc, label: string, right?: string) {
+export function bandTitle(d: Doc, label: string, right?: string) {
   d.ensure(60);
   const h = 17; const y = d.y - h;
   d.page.drawRectangle({ x: M, y, width: CW, height: h, color: N.band });
@@ -263,7 +294,7 @@ function tableBlock(d: Doc, it: ReportItem) {
   d.y -= 8;
 }
 
-function itemsGrid(d: Doc, items: ReportItem[]) {
+export function itemsGrid(d: Doc, items: ReportItem[]) {
   const colGap = 18; const colW = (CW - colGap) / 2; const valW = colW - LABEL_W - 4;
   const rows: ReportItem[][] = []; let pending: ReportItem[] = [];
   const flush = () => { if (pending.length) rows.push(pending); pending = []; };
@@ -309,7 +340,7 @@ function itemsGrid(d: Doc, items: ReportItem[]) {
 }
 
 /** Histórico mensal da FIPE: mini gráfico de linha + tabela compacta (4 colunas). */
-function priceSeries(d: Doc, item: ReportItem) {
+export function priceSeries(d: Doc, item: ReportItem) {
   const pts = String(item.display ?? item.value ?? '').split(' · ').map((p) => { const m = /^(\S+) R\$\s*([\d.]+),(\d{2})$/.exec(p.trim()); return m ? { label: m[1]!, cents: Number(m[2]!.replace(/\./g, '')) * 100 + Number(m[3]) } : null; }).filter((p): p is { label: string; cents: number } => p !== null);
   if (pts.length < 2) return;
   const asc = [...pts].reverse();
@@ -491,12 +522,7 @@ export async function renderVehiclePdf(fullReport: ReportV2, meta: ReportMeta): 
   d.pages.forEach((p, i) => {
     pageHeader(d, p, i, total, meta, report);
     if (meta.sample) p.drawText(clean('MODELO · DADOS FICTÍCIOS'), { x: 110, y: 250, size: 44, font: d.jx800, color: rgb(0.86, 0.86, 0.86), rotate: degrees(40), opacity: 0.55 });
-    p.drawRectangle({ x: 0, y: 0, width: W, height: 3, color: N.blue });
-    p.drawLine({ start: { x: M, y: 42 }, end: { x: W - M, y: 42 }, thickness: 0.6, color: N.line });
-    p.drawText(clean(`${meta.brandName ?? 'Placa na Mão'}  ·  ${meta.productName}  ·  ${report.plate}`), { x: M, y: 30, size: 7.5, font: d.dm500, color: N.text });
-    const right = `Página ${i + 1} de ${total}`;
-    p.drawText(right, { x: W - M - d.dm500.widthOfTextAtSize(right, 7.5), y: 30, size: 7.5, font: d.dm500, color: N.text });
-    p.drawText(clean(fit(d.dm400, 'Informações de bases públicas e privadas, conforme retornado na data e hora da consulta; não substituem documentos oficiais. Confirme multas e débitos no órgão de trânsito.', 6.3, CW)), { x: M, y: 19, size: 6.3, font: d.dm400, color: N.muted });
+    docFooter(d, p, i, total, `${meta.brandName ?? 'Placa na Mão'}  ·  ${meta.productName}  ·  ${report.plate}`, 'Informações de bases públicas e privadas, conforme retornado na data e hora da consulta; não substituem documentos oficiais. Confirme multas e débitos no órgão de trânsito.');
   });
   return Buffer.from(await d.pdf.save());
 }

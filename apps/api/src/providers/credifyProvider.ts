@@ -7,6 +7,8 @@ import { CallBudget } from '../lib/providerGuard.js';
 import { Spend, bdrpReturn, buildLayeredEnvelope, flagIsClear, flagText, parseFarol, respostaOf, type Farol, type Piece } from '../report/layers.js';
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
 import { log } from '../lib/http.js';
+import { allowedPaths, contractFor } from '../lib/productContract.js';
+import { sourcesSignature } from '../lib/dataSources.js';
 import { queryAnycarAuction } from './anycarProvider.js';
 
 /**
@@ -243,10 +245,17 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       log('warn', 'credify_product_not_routed', { productId: pidKey });
       throw fail('DATA_PROVIDER_PRODUCT_NOT_ROUTED', `O produto ${pidKey} não tem consulta da Credify definida. Marque as fontes dele em Produtos do site (Fontes de dados).`);
     }
-    const spend = new Spend(layeredMode ? env.CREDIFY_COST_BUDGET_CENTS : undefined, env.CREDIFY_COST_CENTS);
-    const main = layeredMode ? await this.queryLayers(plate, startedAt, spend, sel) : await this.run('PLATE', plate, sel ? 'COMPLETE' : pid);
+    // Contrato de APIs (productContract.ts): produto de linha fixa com as fontes do contrato compra exatamente o que está lá.
+    // Nesse modo não há teto de custo cortando peça (o custo já é o do contrato), só chamada dentro da lista sai, e peça obrigatória
+    // que não responde derruba a consulta (o cliente é estornado) em vez de entregar relatório incompleto.
+    const contract = !this.o.path && !env.CREDIFY_QUERY_PATH ? contractFor(pidKey) : undefined;
+    const strict = Boolean(contract) && sourcesSignature(sel ? [...sel] : null) === sourcesSignature(contract?.sources ?? null);
+    const spend = new Spend(layeredMode && !strict ? env.CREDIFY_COST_BUDGET_CENTS : undefined, env.CREDIFY_COST_CENTS);
+    if (strict) spend.fence(allowedPaths(pidKey, env.CREDIFY_FAROL_QUERY_ID ? ['/farolleilao'] : []));
+    if (strict && !layeredMode) spend.assertAllowed(CREDIFY_PRODUCT_PATHS[pidKey] ?? '');
+    const main = layeredMode ? await this.queryLayers(plate, startedAt, spend, sel, strict, pidKey) : await this.run('PLATE', plate, sel ? 'COMPLETE' : pid);
     const withLien = await this.supplement(main, plate, pid, startedAt, {
-      key: 'gravame', path: '/gravame', label: 'gravame', enabled: sel ? sel.has('GRAVAME') : env.CREDIFY_GRAVAME_SUPPLEMENT, spend,
+      key: 'gravame', path: '/gravame', label: 'gravame', enabled: sel ? sel.has('GRAVAME') : env.CREDIFY_GRAVAME_SUPPLEMENT, spend, strict,
       products: sel ? [pidKey] : ['COMPLETE', 'PREMIUM'], core: sel ? [] : ['LIEN'],
       // Gravame completo (banco, CNPJ, contrato, datas): busca sempre que a base principal não trouxe dados, não afirmou "sem gravame"
       // ou indicou alienação sem o agente financeiro/contrato/data.
@@ -263,7 +272,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       }
     });
     const withJudicial = await this.supplement(withLien, plate, pid, startedAt, {
-      key: 'renajud', path: '/renajud', label: 'renajud', enabled: sel ? sel.has('RENAJUD') : env.CREDIFY_JUDICIAL_SUPPLEMENT, spend,
+      key: 'renajud', path: '/renajud', label: 'renajud', enabled: sel ? sel.has('RENAJUD') : env.CREDIFY_JUDICIAL_SUPPLEMENT, spend, strict,
       products: sel ? [pidKey] : ['COMPLETE', 'PREMIUM'], core: [],
       needed: (data) => {
         if (!isVehicleTotal(data)) return false;
@@ -272,7 +281,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       }
     });
     return this.supplement(withJudicial, plate, pid, startedAt, {
-      key: 'leilao', path: '/leilaoconjugado', label: 'leilão', enabled: true,
+      key: 'leilao', path: '/leilaoconjugado', label: 'leilão', enabled: true, strict,
       products: [], core: sel ? [] : ['AUCTION'], needed: () => true
     });
   }
@@ -283,21 +292,28 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
   }
 
   /** Uma consulta avulsa de camada: dados, "não encontrado" ou nada (falha ou sem tempo). Nunca derruba o relatório. */
-  private async piece(path: string, plate: string, startedAt: number, spend: Spend, consultaId?: string): Promise<Piece> {
+  private async piece(path: string, plate: string, startedAt: number, spend: Spend, consultaId?: string, retry = false): Promise<Piece> {
+    spend.assertAllowed(path);
     const left = env.QUERY_REQUEST_TIMEOUT_MS - (Date.now() - startedAt) - 4000;
-    if (left < 8000) { log('warn', 'credify_layer_skipped', { path, reason: 'sem_tempo' }); return { kind: 'none' }; }
+    if (left < 8000) { log('warn', 'credify_layer_skipped', { path, reason: 'sem_tempo' }); return { kind: 'none', code: 'PROVIDER_TIMEOUT' }; }
     const extra = new CredifyVehicleProvider({ ...this.o, path, consultaId: consultaId ?? CREDIFY_CONSULTA_CODES[path], bodyTemplate: CREDIFY_DEFAULT_BODY, timeoutMs: Math.min(25000, left) });
     spend.record(path);
-    try {
-      const out = await extra.run('PLATE', plate, undefined);
-      const resposta = respostaOf((out.raw as { data?: unknown }).data);
-      return resposta ? { kind: 'data', resposta } : { kind: 'none' };
-    } catch (e) {
-      const code = (e as { code?: string }).code;
-      if (code === 'NOT_FOUND') return { kind: 'notFound' };
-      log('warn', 'credify_layer_failed', { path, code: code ?? null });
-      return { kind: 'none' };
+    let last: string | undefined;
+    // Produto de contrato: uma segunda tentativa só para indisponibilidade (não cobrada); timeout não se repete, pode ter sido cobrado.
+    for (let attempt = 0; attempt < (retry ? 2 : 1); attempt += 1) {
+      try {
+        const out = await extra.run('PLATE', plate, undefined);
+        const resposta = respostaOf((out.raw as { data?: unknown }).data);
+        return resposta ? { kind: 'data', resposta } : { kind: 'none', code: 'DATA_PROVIDER_INVALID_RESPONSE' };
+      } catch (e) {
+        const code = (e as { code?: string }).code;
+        if (code === 'NOT_FOUND') return { kind: 'notFound' };
+        last = code;
+        log('warn', 'credify_layer_failed', { path, code: code ?? null, attempt: attempt + 1 });
+        if (code !== 'DATA_PROVIDER_UNAVAILABLE') break;
+      }
     }
+    return { kind: 'none', ...(last ? { code: last } : {}) };
   }
 
   /**
@@ -320,10 +336,11 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
    * O leilão passa pelo Farol (se configurado) e o leilão conjugado só entra quando ele acusa. Tudo volta no formato do
    * Veículo Total, então o relatório não muda.
    */
-  private async queryLayers(plate: string, startedAt: number, spend: Spend, sel: Set<string> | null = null): Promise<{ providerQueryId?: string; raw: unknown }> {
+  private async queryLayers(plate: string, startedAt: number, spend: Spend, sel: Set<string> | null = null, strict = false, pid = ''): Promise<{ providerQueryId?: string; raw: unknown }> {
     // Sem escolha no painel vale o padrão da Completa (variáveis de ambiente); com escolha, só o que foi marcado.
     const want = (key: string, fallback: boolean): boolean => (sel ? sel.has(key) : fallback);
     const baseProvider = new CredifyVehicleProvider({ ...this.o, path: BASE_PATH, consultaId: CREDIFY_CONSULTA_CODES[BASE_PATH], bodyTemplate: CREDIFY_DEFAULT_BODY });
+    spend.assertAllowed(BASE_PATH);
     const base = await baseProvider.run('PLATE', plate, undefined);
     spend.record(BASE_PATH);
     const flags = bdrpReturn((base.raw as { data?: unknown }).data);
@@ -332,7 +349,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
 
     const recallFlag = flagIsClear(flags.RECALL) ? flagText(flags.RECALL) : undefined;
     const theftFlag = env.CREDIFY_COMPLETE_THEFT === 'flag' && flagIsClear(flags.RESFURTO) ? flagText(flags.RESFURTO) : undefined;
-    const optional = (path: string, flag: string | undefined): Promise<Piece> => (flag !== undefined || !spend.allow(path) ? Promise.resolve(none) : this.piece(path, plate, startedAt, spend));
+    const optional = (path: string, flag: string | undefined): Promise<Piece> => (flag !== undefined || !spend.allow(path) ? Promise.resolve(none) : this.piece(path, plate, startedAt, spend, undefined, strict));
 
     const useCredifyAuction = want('AUCTION', true);
     const useSimpleAuction = sel?.has('AUCTION_SIMPLE') === true;
@@ -345,29 +362,43 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     const wantRenainf = want('RENAINF', false);
     const wantOwnerPlate = want('OWNER_PLATE', false);
     const [sinistro, national, farolPiece, recall, theft, simpleAuction, owners, fipe, renainf, ownerPlate] = await Promise.all([
-      wantSinistro ? this.piece('/indiciosinistro', plate, startedAt, spend) : Promise.resolve(none),
-      wantNational ? this.piece('/veicularbnacionalonline', plate, startedAt, spend) : Promise.resolve(none),
-      farolId && useCredifyAuction ? this.piece('/farolleilao', plate, startedAt, spend, farolId) : Promise.resolve(none),
+      wantSinistro ? this.piece('/indiciosinistro', plate, startedAt, spend, undefined, strict) : Promise.resolve(none),
+      wantNational ? this.piece('/veicularbnacionalonline', plate, startedAt, spend, undefined, strict) : Promise.resolve(none),
+      farolId && useCredifyAuction ? this.piece('/farolleilao', plate, startedAt, spend, farolId, strict) : Promise.resolve(none),
       wantRecall ? optional('/recall', recallFlag) : Promise.resolve(none),
       wantTheft ? optional('/historicoroubofurto', theftFlag) : Promise.resolve(none),
       useSimpleAuction ? this.simpleAuction(plate, !(sel && ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'OWNERS'].some((k) => sel.has(k)))) : Promise.resolve(none),
-      wantOwners ? this.piece('/historicoproprietario', plate, startedAt, spend) : Promise.resolve(none),
-      wantFipe ? this.piece('/precificadorfipe', plate, startedAt, spend) : Promise.resolve(none),
-      wantRenainf ? this.piece('/renainf', plate, startedAt, spend) : Promise.resolve(none),
-      wantOwnerPlate ? this.piece('/veiculoproprietarioplaca', plate, startedAt, spend) : Promise.resolve(none)
+      wantOwners ? this.piece('/historicoproprietario', plate, startedAt, spend, undefined, strict) : Promise.resolve(none),
+      wantFipe ? this.piece('/precificadorfipe', plate, startedAt, spend, undefined, strict) : Promise.resolve(none),
+      wantRenainf ? this.piece('/renainf', plate, startedAt, spend, undefined, strict) : Promise.resolve(none),
+      wantOwnerPlate ? this.piece('/veiculoproprietarioplaca', plate, startedAt, spend, undefined, strict) : Promise.resolve(none)
     ]);
 
     const farol: Farol | undefined = farolPiece.kind === 'data' ? parseFarol(farolPiece.resposta) : undefined;
     if (farolId && !farol) log('warn', 'credify_farol_sem_semaforo', { kind: farolPiece.kind });
     // Verde dispensa o detalhe. Amarelo, vermelho ou Farol sem resposta pedem o leilão conjugado (se couber no teto de custo).
     let leilao: Piece = useSimpleAuction ? simpleAuction : none;
-    if (useCredifyAuction && !(farol?.level === 'GREEN') && (!farolId || spend.allow('/leilaoconjugado'))) leilao = await this.piece('/leilaoconjugado', plate, startedAt, spend);
+    if (useCredifyAuction && !(farol?.level === 'GREEN') && (!farolId || spend.allow('/leilaoconjugado'))) leilao = await this.piece('/leilaoconjugado', plate, startedAt, spend, undefined, strict);
 
     const consulta = (base.raw as { data?: { CONSULTA?: unknown } }).data?.CONSULTA;
     const envelope = buildLayeredEnvelope({ consulta, baseRaw: base.raw, sinistro, recall, recallFromFlag: recallFlag, theft, theftFromFlag: theftFlag, leilao, farol, national, owners, fipe, renainf, ownerPlate });
     log('info', 'credify_layers_done', { calls: spend.paths.length, paths: spend.paths.join(',') });
     // Peça que era para vir e não veio (falha ou sem tempo): o resultado vale para esta consulta, mas não entra no cache.
     const attempted: Array<[boolean, Piece]> = [[wantSinistro, sinistro], [wantNational, national], [wantOwners, owners], [wantFipe, fipe], [wantRenainf, renainf], [wantOwnerPlate, ownerPlate], [Boolean(farolId) && useCredifyAuction, farolPiece], [wantRecall && recallFlag === undefined, recall], [wantTheft && (env.CREDIFY_COMPLETE_THEFT === 'always' || theftFlag === undefined), theft], [useSimpleAuction, simpleAuction]];
+    if (strict) {
+      // Produto de contrato: toda base que o produto promete tem de ter respondido (dado ou "nada consta"); senão não entrega e estorna.
+      const required: Array<[string, boolean, Piece]> = [
+        ['sinistro', wantSinistro, sinistro], ['base nacional', wantNational, national], ['proprietários', wantOwners, owners], ['FIPE', wantFipe, fipe],
+        ['multas', wantRenainf, renainf], ['proprietário pela placa', wantOwnerPlate, ownerPlate],
+        ['recall', wantRecall && recallFlag === undefined, recall], ['roubo e furto', wantTheft && theftFlag === undefined, theft],
+        ['leilão', useCredifyAuction && farol?.level !== 'GREEN', leilao]
+      ];
+      const missing = required.filter(([, wanted, piece]) => wanted && piece.kind === 'none').map(([name]) => name);
+      if (missing.length) {
+        log('warn', 'product_contract_incomplete', { productId: pid, missing: missing.join(',') });
+        throw fail('DATA_PROVIDER_INCOMPLETE', `Bases sem resposta: ${missing.join(', ')}.`);
+      }
+    }
     const parcial = attempted.some(([wanted, piece]) => wanted && piece.kind === 'none');
     return { providerQueryId: base.providerQueryId, raw: { ...(base.raw as Record<string, unknown>), data: envelope, camadas: [...spend.paths], ...(parcial ? { parcial: true } : {}) } };
   }
@@ -379,9 +410,11 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
    *    sempre chamada, e se a fonte ficar indisponível a consulta falha (e o cliente é estornado) em vez de entregar relatório sem o dado contratado.
    * Prazo curto para nunca estourar o tempo da consulta. Resposta "não encontrado" é resultado válido ("nada consta").
    */
-  private async supplement(main: { providerQueryId?: string; raw: unknown }, plate: string, productId: string | undefined, startedAt: number, spec: { key: string; path: string; label: string; enabled: boolean; products: string[]; core: string[]; needed: (data: unknown) => boolean; spend?: Spend }): Promise<{ providerQueryId?: string; raw: unknown }> {
+  private async supplement(main: { providerQueryId?: string; raw: unknown }, plate: string, productId: string | undefined, startedAt: number, spec: { key: string; path: string; label: string; enabled: boolean; products: string[]; core: string[]; needed: (data: unknown) => boolean; spend?: Spend; strict?: boolean }): Promise<{ providerQueryId?: string; raw: unknown }> {
     const pid = String(productId ?? '').toUpperCase();
     const core = spec.core.includes(pid);
+    // Em produto de contrato a consulta complementar que o cadastro pede é obrigatória: falha ou falta de tempo derruba a consulta.
+    const must = core || spec.strict === true;
     try {
       if (this.o.path || env.CREDIFY_QUERY_PATH) return main;
       if (!core) {
@@ -397,24 +430,30 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     const left = env.QUERY_REQUEST_TIMEOUT_MS - (Date.now() - startedAt) - 4000;
     if (left < 8000) {
       log('warn', `credify_${spec.key}_skipped`, { reason: 'sem_tempo', leftMs: left });
-      if (core) throw fail('PROVIDER_TIMEOUT');
+      if (must) throw fail('PROVIDER_TIMEOUT');
       return main;
     }
     const extra = new CredifyVehicleProvider({ ...this.o, path: spec.path, consultaId: CREDIFY_CONSULTA_CODES[spec.path], bodyTemplate: CREDIFY_DEFAULT_BODY, timeoutMs: Math.min(25000, left) });
+    spec.spend?.assertAllowed(spec.path);
     spec.spend?.record(spec.path);
-    let value: Record<string, unknown>;
-    try {
-      const out = await extra.run('PLATE', plate, undefined);
-      value = { data: (out.raw as { data?: unknown }).data };
-    } catch (e) {
-      const code = (e as { code?: string }).code;
-      if (code === 'NOT_FOUND') value = { notFound: true };
-      else {
-        log('warn', `credify_${spec.key}_failed`, { code: code ?? null });
-        if (core) throw e;
-        value = { unavailable: true };
+    let value: Record<string, unknown> | undefined;
+    // Falha de indisponibilidade (não cobrada) tem uma segunda tentativa nos produtos de contrato; timeout não se repete (pode ter sido cobrado).
+    for (let attempt = 0; attempt < (spec.strict ? 2 : 1) && !value; attempt += 1) {
+      try {
+        const out = await extra.run('PLATE', plate, undefined);
+        value = { data: (out.raw as { data?: unknown }).data };
+      } catch (e) {
+        const code = (e as { code?: string }).code;
+        if (code === 'NOT_FOUND') value = { notFound: true };
+        else {
+          log('warn', `credify_${spec.key}_failed`, { code: code ?? null, attempt: attempt + 1 });
+          if (spec.strict && code === 'DATA_PROVIDER_UNAVAILABLE' && attempt === 0) continue;
+          if (must) throw e;
+          value = { unavailable: true };
+        }
       }
     }
+    value ??= { unavailable: true };
     return { ...main, raw: { ...(main.raw as Record<string, unknown>), [spec.key]: value } };
   }
 

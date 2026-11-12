@@ -173,20 +173,35 @@ describe('painel: fontes de dados por produto', integration, () => {
     const conflict = await sa.call('/api/admin/products/BASIC', { method: 'PATCH', body: { dataSources: ['AUCTION', 'AUCTION_SIMPLE'] } });
     assert.equal(conflict.status, 400);
 
-    const set = await sa.call('/api/admin/products/BASIC', { method: 'PATCH', body: { dataSources: ['SINISTRO', 'AUCTION_SIMPLE'] } });
+    // Consulta de linha fixa (BASIC): as APIs são do contrato e o painel não troca (409); repetir o próprio contrato é aceito.
+    const locked = await sa.call('/api/admin/products/BASIC', { method: 'PATCH', body: { dataSources: ['SINISTRO', 'AUCTION_SIMPLE'] } });
+    assert.equal(locked.status, 409, locked.text);
+    assert.equal(locked.json.error, 'PRODUCT_SOURCES_LOCKED');
+    const same = await sa.call('/api/admin/products/BASIC', { method: 'PATCH', body: { dataSources: list.json.find((p) => p.id === 'BASIC').dataSources } });
+    assert.equal(same.status, 200, same.text);
+    const row = await pool.query(`SELECT data_sources FROM query_products WHERE id='BASIC'`);
+    assert.deepEqual(row.rows[0].data_sources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'FIPE', 'RENAINF', 'OWNER_PLATE']);
+    const back = await sa.call('/api/admin/products/BASIC', { method: 'PATCH', body: { dataSources: null } });
+    assert.equal(back.status, 200, back.text);
+    assert.deepEqual(back.json.dataSources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'FIPE', 'RENAINF', 'OWNER_PLATE'], 'voltar ao padrão devolve o contrato');
+
+    // Produto criado no painel (fora do contrato) continua escolhendo as fontes livremente.
+    await pool.query(`INSERT INTO query_products(id,name,description,credit_cost,provider_cost_cents,price_cents,slug,active) VALUES('PROD_LIVRE','Produto livre','d',1,100,1990,'prod-livre',true) ON CONFLICT DO NOTHING`);
+    const set = await sa.call('/api/admin/products/PROD_LIVRE', { method: 'PATCH', body: { dataSources: ['SINISTRO', 'AUCTION_SIMPLE'] } });
     assert.equal(set.status, 200, set.text);
     assert.deepEqual(set.json.dataSources, ['SINISTRO', 'AUCTION_SIMPLE']);
-    const row = await pool.query(`SELECT data_sources FROM query_products WHERE id='BASIC'`);
-    assert.deepEqual(row.rows[0].data_sources, ['SINISTRO', 'AUCTION_SIMPLE']);
+    const rowFree = await pool.query(`SELECT data_sources FROM query_products WHERE id='PROD_LIVRE'`);
+    assert.deepEqual(rowFree.rows[0].data_sources, ['SINISTRO', 'AUCTION_SIMPLE']);
 
-    const scope = await sa.call('/api/admin/products/BASIC/report-scope');
+    const scope = await sa.call('/api/admin/products/PROD_LIVRE/report-scope');
     assert.equal(scope.status, 200, scope.text);
     assert.ok(scope.json.fieldsOutsideSources.includes('VT_RECALL'));
     assert.ok(!scope.json.fieldsOutsideSources.includes('VT_SINISTRO'));
     assert.ok(!scope.json.fieldsOutsideSources.includes('VT_LEILAO'), 'leilão simples cobre os campos de leilão');
 
-    const reset = await sa.call('/api/admin/products/BASIC', { method: 'PATCH', body: { dataSources: null } });
+    const reset = await sa.call('/api/admin/products/PROD_LIVRE', { method: 'PATCH', body: { dataSources: null } });
     assert.equal(reset.status, 200, reset.text);
     assert.equal(reset.json.dataSources, null);
+    await pool.query(`DELETE FROM query_products WHERE id='PROD_LIVRE'`);
   });
 });
