@@ -83,12 +83,12 @@ describe('migração 062: Completa e Premium', integration, () => {
     assert.equal(by.PREMIUM.price_cents, 6290);
     assert.equal(by.PREMIUM.featured, true, 'Premium é a Mais completa');
     assert.equal(by.COMPLETE.featured, false);
-    assert.deepEqual(by.COMPLETE.data_sources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'FIPE'], 'Completa montada em camadas, com FIPE pela placa (067)');
+    assert.deepEqual(by.COMPLETE.data_sources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'FIPE', 'OWNER_PLATE'], 'Completa montada em camadas, com FIPE pela placa (067)');
     assert.ok(by.COMPLETE.report_sections.includes('HISTORICO') && by.COMPLETE.report_sections.includes('FIPE'));
     assert.equal(by.PREMIUM.name, 'Consulta Premium');
     assert.equal(by.PREMIUM.active, true);
     assert.ok(by.PREMIUM.price_cents > by.COMPLETE.price_cents);
-    assert.deepEqual(by.PREMIUM.data_sources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'OWNERS', 'FIPE', 'RENAINF'], 'Premium: camadas + gravame, Renajud e proprietários fixos');
+    assert.deepEqual(by.PREMIUM.data_sources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'OWNERS', 'FIPE', 'RENAINF', 'OWNER_PLATE'], 'Premium: camadas + gravame, Renajud e proprietários fixos');
     assert.equal(by.BASIC.active, true, 'Básica segue ativa para a API e links antigos');
     const hist = await pool.query(`SELECT product_id FROM product_price_history WHERE reason LIKE 'Nova Consulta%'`);
     assert.deepEqual(hist.rows.map((r) => r.product_id).sort(), ['COMPLETE', 'PREMIUM']);

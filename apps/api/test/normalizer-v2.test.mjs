@@ -132,3 +132,11 @@ test('débito municipal com o mesmo valor das multas conta uma vez só (caso rea
   const diff = structuredClone(dup); diff.RESPOSTA.VEICULOSBDRP.RETORNO.DEBMUNICIPAIS = '100,00';
   assert.equal(buildReportV2(diff).debts.totalCents, 12624 + 372993 + 10000);
 });
+
+test('nome do proprietário: documento colado antes do nome sai do nome e fica só no campo próprio', () => {
+  const nomeDe = (pronome) => buildReportV2({ RESPOSTA: { CODIGO: '1', VEICULOSBDRP: { DESCRICAORETORNO: 'SUCESSO', RETORNO: { ...ret, PRONOME: pronome, CPF_CNPJ_PROPRIETARIO: '12345678901' } } } })
+    .sections.flatMap((s) => s.items).find((i) => i.key === 'PRONOME').value;
+  assert.equal(nomeDe('12345678901 JOAO DA SILVA SANTOS'), 'JOAO DA SILVA SANTOS');
+  assert.equal(nomeDe('12.345.678/0001-95 AUTOMOVEIS BRASIL LTDA'), 'AUTOMOVEIS BRASIL LTDA');
+  assert.equal(nomeDe('MARIA  DE   SOUZA'), 'MARIA DE SOUZA');
+});

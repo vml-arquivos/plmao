@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.61.0 — PDF da consulta na identidade visual da plataforma
+
+- **PDF da consulta redesenhado com as cores e a marca do site:** faixa superior azul-marinho com a marca e o QR de validação, faixa do veículo em azul com a placa em destaque, títulos de seção em azul claro com filete azul, rótulos em azul-marinho e rodapé com filete azul. Antes era cinza e preto.
+- **Estado com cor:** os ícones do topo (débitos, restrições, gravame, sinistro, roubo/furto, leilão, recall) ficam verdes para "nada consta" e vermelhos para "consta"; o parecer do relatório usa verde, âmbar ou vermelho conforme o nível; o checklist "Antes de pagar" também. Item sem dado continua cinza.
+- A marca desenhada nos PDFs (inclusive no dossiê) passa a usar o azul do site; o roxo antigo saiu.
+- Só visual: nenhum dado, texto, preço ou regra do relatório mudou. O preço da consulta continua fora do PDF.
+
+## 1.60.0 — Proprietário completo nas consultas e Avançada com mais dados
+
+- **Consulta Avançada agora mostra o proprietário atual** (nome e CPF/CNPJ, sem máscara), como a Completa. Antes ela ficava sem essa seção. Migração 088.
+- **Proprietário pela placa (nova fonte de dados):** a Completa, a Avançada e a Premium passam a comprar a consulta "Proprietário pela placa" da Credify, que traz nome e documento do dono atual quando a base de cadastro vem sem eles. Ela só preenche o que a base não trouxe: dado que a base entregou nunca é trocado, e se a consulta falhar o relatório sai com o que já havia (sem entrar no cache). Migração 089 marca a fonte nos três produtos, soma o custo dela ao custo do produto e recalcula o preço mínimo; **preço de venda não mudou**. Aparece em Produtos do site → Fontes de dados como "Proprietário pela placa".
+- **CPF/CNPJ de zeros (000.000.000-00) não aparece mais.** É o jeito da fonte dizer que não informou; o campo some em vez de mostrar um número que parece real.
+- **Nome do proprietário:** quando a fonte entrega o documento colado antes do nome ("12345678900 JOAO SILVA"), o documento sai do nome e fica só no campo próprio.
+- **Preço da consulta nunca aparece no PDF.** Já era assim; agora há teste que garante, para cada produto.
+- Testes: `proprietario-pela-placa` (novo), e ajustes em `basica-gravame-leilao`, `garantia-consultas`, `catalog-sample`, `normalizer-v2`, `migration-rollback` e `fontes-por-produto`.
+
 ## 1.59.1 — FIPE grátis: limite diário por usuário
 
 - **Correção:** quem estava logado usava o limite de visitante (3 por dia, contado por IP), e o limite de usuário que existia na configuração nunca era aplicado. Agora a consulta de FIPE grátis de quem tem conta é contada **por usuário**, com padrão de **10 por dia**. Visitante sem conta segue por IP (consulta por marca, modelo e ano).

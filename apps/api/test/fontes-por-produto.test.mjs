@@ -166,7 +166,7 @@ describe('painel: fontes de dados por produto', integration, () => {
     assert.equal((await op.call('/api/admin/data-sources')).status, 403);
 
     const list = await sa.call('/api/admin/products');
-    assert.deepEqual(list.json.find((p) => p.id === 'BASIC').dataSources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'FIPE', 'RENAINF'], 'Avançada: Completa + gravame, Renajud e multas (075)');
+    assert.deepEqual(list.json.find((p) => p.id === 'BASIC').dataSources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'FIPE', 'RENAINF', 'OWNER_PLATE'], 'Avançada: Completa + gravame, Renajud e multas (075)');
 
     const bad = await sa.call('/api/admin/products/BASIC', { method: 'PATCH', body: { dataSources: ['NAO_EXISTE'] } });
     assert.equal(bad.status, 400);

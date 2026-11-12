@@ -64,19 +64,20 @@ describe('migração 069: Básica com gravame e Leilão ativo', integration, () 
     }
   });
 
-  it('Avançada (ex-Básica): tudo da Completa mais gravame detalhado, Renajud e multas por infração; sem proprietários', async () => {
+  it('Avançada (ex-Básica): tudo da Completa mais gravame detalhado, Renajud e multas por infração, e mostra o proprietário atual', async () => {
     const b = (await pool.query(`SELECT name,data_sources,report_sections,active,commercial_status,features,price_cents FROM query_products WHERE id='BASIC'`)).rows[0];
     assert.equal(b.name, 'Consulta Avançada');
-    assert.deepEqual(b.data_sources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'FIPE', 'RENAINF']);
+    assert.deepEqual(b.data_sources, ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'FIPE', 'RENAINF', 'OWNER_PLATE']);
     for (const k of ['HISTORICO', 'DEBITOS', 'ANALISES', 'GRAVAME', 'FIPE', 'INSPECAO_RECALL']) assert.ok(b.report_sections.includes(k), k);
-    assert.ok(!b.report_sections.includes('PROPRIETARIO'));
+    assert.ok(b.report_sections.includes('PROPRIETARIO'), 'a Avançada mostra o proprietário atual');
+    assert.match(JSON.stringify(b.features), /Proprietário atual/);
     assert.equal(b.active, true);
     assert.equal(b.price_cents, 4190);
     assert.match(JSON.stringify(b.features), /Aceitação em seguro/);
     assert.doesNotMatch(JSON.stringify(b.features), /histórico de propriet/i);
     const det = await (await fetch(`${server.base}/api/catalog/details`)).json();
     const secs = det.products.find((p) => p.id === 'BASIC').sections.map((s) => s.key);
-    assert.ok(secs.includes('DEBITOS') && secs.includes('HISTORICO') && secs.includes('ANALISES') && secs.includes('GRAVAME') && !secs.includes('PROPRIETARIO'), JSON.stringify(secs));
+    assert.ok(secs.includes('DEBITOS') && secs.includes('HISTORICO') && secs.includes('ANALISES') && secs.includes('GRAVAME') && secs.includes('PROPRIETARIO'), JSON.stringify(secs));
   });
 
   it('Leilão e Dados do Veículo: à venda, com regra de fonte, cadastro nacional, restrições, leilão e análises; sem débitos e sem gravame', async () => {

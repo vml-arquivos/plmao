@@ -3101,6 +3101,64 @@ export const placaMigrations: Migration[] = [
     name: 'Limite diário de FIPE grátis por usuário: valor próprio de cada conta (vazio = usa o padrão do sistema)',
     up: async (client) => { await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS fipe_daily_limit integer CHECK (fipe_daily_limit IS NULL OR (fipe_daily_limit >= 1 AND fipe_daily_limit <= 100000))'); },
     down: async (client) => { await client.query('ALTER TABLE users DROP COLUMN IF EXISTS fipe_daily_limit'); }
+  },
+  {
+    id: '088_avancada_com_proprietario',
+    name: 'Consulta Avançada passa a mostrar o proprietário atual (nome e CPF/CNPJ), que já vem na consulta base paga em todos os produtos; sem custo novo. Só muda onde a Avançada ainda está sem a seção',
+    up: async (client) => {
+      const linha = 'Proprietário atual: nome e CPF/CNPJ, sem máscara';
+      await client.query(
+        `UPDATE query_products SET report_sections = array_append(report_sections,'PROPRIETARIO'),
+            features = COALESCE(features,'[]'::jsonb) || to_jsonb($1::text), updated_at=now()
+          WHERE id='BASIC' AND name='Consulta Avançada' AND report_sections IS NOT NULL AND NOT ('PROPRIETARIO' = ANY(report_sections))`, [linha]
+      );
+    },
+    down: async (client) => {
+      const linha = 'Proprietário atual: nome e CPF/CNPJ, sem máscara';
+      await client.query(
+        `UPDATE query_products SET report_sections = array_remove(report_sections,'PROPRIETARIO'),
+            features = COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(COALESCE(features,'[]'::jsonb)) e WHERE e <> to_jsonb($1::text)),'[]'::jsonb), updated_at=now()
+          WHERE id='BASIC' AND name='Consulta Avançada' AND report_sections IS NOT NULL AND 'PROPRIETARIO' = ANY(report_sections)`, [linha]
+      );
+    }
+  },
+  {
+    id: '089_proprietario_pela_placa',
+    name: 'Completa, Avançada e Premium passam a comprar o proprietário pela placa (nome e documento do dono atual), que a base de cadastro nem sempre traz. Soma o custo da consulta ao custo do produto; não mexe em preço de venda',
+    up: async (client) => {
+      const custoExtra = 53;
+      await client.query(`CREATE TABLE IF NOT EXISTS migration_089_prev (product_id text PRIMARY KEY)`);
+      const alvo = await client.query(
+        `SELECT id, name, price_cents, provider_cost_cents, supplier_cost_cents FROM query_products
+          WHERE id IN ('COMPLETE','BASIC','PREMIUM') AND data_sources IS NOT NULL AND NOT ('OWNER_PLATE' = ANY(data_sources)) AND NOT ('TOTAL' = ANY(data_sources))`
+      );
+      const temConfig = (await client.query('SELECT 1 FROM payment_settings WHERE id=1')).rowCount;
+      const settings = temConfig ? await loadPaymentSettings(client) : null;
+      for (const r of alvo.rows) {
+        await client.query(`INSERT INTO migration_089_prev(product_id) VALUES($1) ON CONFLICT (product_id) DO NOTHING`, [r.id]);
+        const custo = Number(r.provider_cost_cents ?? 0);
+        const novoCusto = custo > 0 ? custo + custoExtra : null;
+        await client.query(
+          `UPDATE query_products SET data_sources = array_append(data_sources,'OWNER_PLATE'),
+              provider_cost_cents = COALESCE($2::int, provider_cost_cents), updated_at=now() WHERE id=$1`, [r.id, novoCusto]
+        );
+        if (novoCusto && settings && Number(r.price_cents) > 0) {
+          const { floorCents } = floorPriceFor(settings, { id: String(r.id), name: String(r.name), providerCostCents: novoCusto, supplierCostCents: Number(r.supplier_cost_cents ?? 0) });
+          const piso = floorCents > 0 && floorCents <= Number(r.price_cents) ? floorCents : null;
+          await client.query(`UPDATE query_products SET floor_price_cents=$2 WHERE id=$1`, [r.id, piso]);
+        }
+      }
+    },
+    down: async (client) => {
+      const prev = await client.query(`SELECT to_regclass('migration_089_prev') AS t`);
+      if (!prev.rows[0].t) return;
+      await client.query(
+        `UPDATE query_products SET data_sources = array_remove(data_sources,'OWNER_PLATE'),
+            provider_cost_cents = CASE WHEN COALESCE(provider_cost_cents,0) >= 53 THEN provider_cost_cents - 53 ELSE provider_cost_cents END, updated_at=now()
+          WHERE id IN (SELECT product_id FROM migration_089_prev) AND data_sources IS NOT NULL AND 'OWNER_PLATE' = ANY(data_sources)`
+      );
+      await client.query('DROP TABLE IF EXISTS migration_089_prev');
+    }
   }
 
 ];

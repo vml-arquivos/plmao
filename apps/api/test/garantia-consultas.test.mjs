@@ -15,7 +15,7 @@ const PRODUTOS = {
   CADASTRAL: { tem: ['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO'], nao: ['DEBITOS', 'HISTORICO', 'PROPRIETARIO', 'ANALISES'] },
   LIEN: { tem: ['IDENTIFICACAO', 'GRAVAME'], nao: ['DEBITOS', 'HISTORICO', 'PROPRIETARIO'] },
   AUCTION: { tem: ['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO', 'RESTRICOES'], nao: ['DEBITOS', 'GRAVAME', 'PROPRIETARIO'] },
-  BASIC: { tem: ['IDENTIFICACAO', 'DEBITOS', 'RESTRICOES'], nao: ['PROPRIETARIO'] },
+  BASIC: { tem: ['IDENTIFICACAO', 'DEBITOS', 'RESTRICOES', 'PROPRIETARIO'], nao: [] },
   COMPLETE: { tem: ['IDENTIFICACAO', 'DEBITOS', 'RESTRICOES'], nao: [] },
   PREMIUM: { tem: ['IDENTIFICACAO', 'DEBITOS', 'RESTRICOES'], nao: [] }
 };
@@ -23,7 +23,7 @@ const PRODUTOS = {
 const COM_TODAS_AS_FONTES = {
   CADASTRAL: { tem: ['IDENTIFICACAO', 'CARACTERISTICAS', 'REGISTRO'], nao: ['DEBITOS', 'HISTORICO', 'PROPRIETARIO', 'ANALISES'], analises: false },
   AUCTION: { tem: ['IDENTIFICACAO', 'REGISTRO', 'RESTRICOES', 'HISTORICO', 'ANALISES'], nao: ['DEBITOS', 'GRAVAME', 'PROPRIETARIO', 'FIPE'], analises: true },
-  BASIC: { tem: ['IDENTIFICACAO', 'DEBITOS', 'RESTRICOES', 'HISTORICO', 'ANALISES'], nao: ['PROPRIETARIO'], analises: true },
+  BASIC: { tem: ['IDENTIFICACAO', 'DEBITOS', 'RESTRICOES', 'HISTORICO', 'ANALISES', 'PROPRIETARIO'], nao: [], analises: true },
   COMPLETE: { tem: ['IDENTIFICACAO', 'DEBITOS', 'RESTRICOES', 'HISTORICO', 'ANALISES'], nao: [], analises: true },
   PREMIUM: { tem: ['IDENTIFICACAO', 'DEBITOS', 'RESTRICOES', 'HISTORICO', 'ANALISES'], nao: [], analises: true }
 };
@@ -77,6 +77,12 @@ describe('garantia de produção: todas as consultas, do dado ao PDF', integrati
       if (texto != null) {
         assert.match(texto, /DEV1B11/);
         assert.doesNotMatch(texto, /undefined|\[object Object\]|NaN/);
+        // O preço da consulta nunca aparece no PDF (nem o de venda, nem o de lista).
+        const preco = (await pool.query('SELECT price_cents, list_price_cents, reference_price_cents FROM query_products WHERE id=$1', [productId])).rows[0];
+        for (const cents of [preco.price_cents, preco.list_price_cents, preco.reference_price_cents].filter((c) => Number.isInteger(c) && c > 0)) {
+          const reais = (cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+          assert.ok(!texto.includes(`R$ ${reais}`) && !texto.includes(`R$${reais}`), `${productId}: o PDF mostra o preço da consulta (R$ ${reais})`);
+        }
       }
 
       // Equipe: o mesmo PDF no painel e o link de visualização para enviar ao cliente (abre sem login, com relatório e PDF).

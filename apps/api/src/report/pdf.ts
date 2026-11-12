@@ -26,9 +26,9 @@ const font = (name: string) => readFileSync(new URL(name, FONT_DIR));
 
 export const W = 595.28; export const H = 841.89; export const M = 40; export const CW = W - M * 2;
 export const C = {
-  ink: rgb(0.059, 0.059, 0.078), text: rgb(0.122, 0.145, 0.19), muted: rgb(0.42, 0.45, 0.5), line: rgb(0.9, 0.91, 0.935), soft: rgb(0.965, 0.96, 0.99),
-  violet: rgb(0.545, 0.361, 0.965), lilac: rgb(0.753, 0.518, 0.988), blue: rgb(0.231, 0.51, 0.965), white: rgb(1, 1, 1),
-  green: rgb(0.086, 0.6, 0.36), greenBg: rgb(0.9, 0.97, 0.93), amber: rgb(0.8, 0.5, 0.04), amberBg: rgb(1, 0.96, 0.87), red: rgb(0.85, 0.2, 0.2), redBg: rgb(1, 0.92, 0.92), grayBg: rgb(0.94, 0.945, 0.955)
+  ink: rgb(0.016, 0.043, 0.106), text: rgb(0.043, 0.086, 0.2), muted: rgb(0.341, 0.4, 0.529), line: rgb(0.878, 0.906, 0.953), soft: rgb(0.957, 0.969, 0.992),
+  violet: rgb(0.184, 0.435, 0.894), lilac: rgb(0.486, 0.725, 1), blue: rgb(0.361, 0.682, 0.941), white: rgb(1, 1, 1),
+  green: rgb(0.055, 0.624, 0.431), greenBg: rgb(0.89, 0.973, 0.937), amber: rgb(0.706, 0.325, 0.035), amberBg: rgb(0.996, 0.953, 0.78), red: rgb(0.863, 0.149, 0.149), redBg: rgb(0.996, 0.91, 0.91), grayBg: rgb(0.918, 0.941, 0.984)
 };
 
 export interface RectOpts { x: number; y: number; width: number; height: number; color?: RGB; borderColor?: RGB; borderWidth?: number; borderRadius?: number }
@@ -93,60 +93,63 @@ export function drawLogo(d: Doc, x: number, y: number, size: number, dark: boole
   void dark;
 }
 
-/* ---------- Layout do relatório de consulta (padrão neutro: preto, cinza e branco, sem cores de status) ---------- */
+/* ---------- Layout do relatório de consulta (identidade da plataforma: azul-marinho, azul e fundos claros; verde, âmbar e vermelho só no estado) ---------- */
 const N = {
-  ink: rgb(0.06, 0.06, 0.06), text: rgb(0.16, 0.16, 0.16), muted: rgb(0.43, 0.43, 0.43), line: rgb(0.8, 0.8, 0.8), hair: rgb(0.89, 0.89, 0.89),
-  band: rgb(0.925, 0.925, 0.925), soft: rgb(0.96, 0.96, 0.96), dark: rgb(0.14, 0.14, 0.14), white: rgb(1, 1, 1)
+  ink: rgb(0.016, 0.043, 0.106), text: rgb(0.043, 0.086, 0.2), muted: rgb(0.341, 0.4, 0.529), line: rgb(0.8, 0.84, 0.92), hair: rgb(0.878, 0.906, 0.953),
+  band: rgb(0.906, 0.937, 0.996), soft: rgb(0.957, 0.969, 0.992), dark: rgb(0.016, 0.043, 0.106), white: rgb(1, 1, 1),
+  blue: rgb(0.122, 0.373, 0.878), blueInk: rgb(0.086, 0.275, 0.69), accent: rgb(0.361, 0.682, 0.941), pale: rgb(0.85, 0.91, 1),
+  ok: rgb(0.055, 0.624, 0.431), okSoft: rgb(0.89, 0.973, 0.937), okInk: rgb(0.016, 0.424, 0.306),
+  warn: rgb(0.706, 0.325, 0.035), warnSoft: rgb(0.996, 0.953, 0.78), warnInk: rgb(0.573, 0.251, 0.055),
+  danger: rgb(0.863, 0.149, 0.149), dangerSoft: rgb(0.996, 0.91, 0.91), dangerInk: rgb(0.6, 0.106, 0.106)
 };
 const HB = 152; // altura reservada ao cabeçalho (repetido em todas as páginas)
 const LABEL_W = 104;
 
-function monoLogo(d: Doc, x: number, y: number, size: number) {
-  const p = d.page;
-  rect(p, { x, y, width: size, height: size, color: N.dark, borderRadius: size * 0.2 });
-  const pw = size * 0.66; const ph = size * 0.42; const px = x + (size - pw) / 2; const py = y + (size - ph) / 2;
-  rect(p, { x: px, y: py, width: pw, height: ph, color: N.white, borderRadius: size * 0.05 });
-  rect(p, { x: px, y: py + ph * 0.72, width: pw, height: ph * 0.28, color: N.muted, borderRadius: size * 0.03 });
-  rect(p, { x: px + pw * 0.16, y: py + ph * 0.18, width: pw * 0.68, height: ph * 0.2, color: N.dark });
-}
-
 function pageHeader(d: Doc, page: PDFPage, idx: number, total: number, meta: ReportMeta, report: ReportV2) {
   d.page = page;
   const top = H - 22;
-  monoLogo(d, M, top - 34, 34);
-  d.text(meta.brandName ?? 'Placa na Mão', M + 42, top - 18, 12.5, d.jx800, N.ink);
-  d.text('Consulta veicular por placa', M + 42, top - 30, 7, d.dm400, N.muted);
+  // faixa superior azul-marinho com filete de destaque
+  page.drawRectangle({ x: 0, y: H - 88, width: W, height: 88, color: N.dark });
+  page.drawRectangle({ x: 0, y: H - 90.5, width: W, height: 2.5, color: N.accent });
+  drawLogo(d, M, top - 34, 34, true);
+  d.text(meta.brandName ?? 'Placa na Mão', M + 44, top - 17, 13, d.jx800, N.white);
+  d.text('Consulta veicular por placa', M + 44, top - 29, 7, d.dm400, N.accent);
   const title = 'Consulta Veicular';
-  d.text(title, W / 2 - d.jx800.widthOfTextAtSize(title, 17) / 2 + 20, top - 16, 17, d.jx800, N.ink);
-  d.text('Informações Exclusivas', 190, top - 29, 7.5, d.dm500, N.text);
+  d.text(title, W / 2 - d.jx800.widthOfTextAtSize(title, 17) / 2 + 20, top - 16, 17, d.jx800, N.white);
+  d.text('Informações Exclusivas', 190, top - 29, 7.5, d.dm500, N.accent);
   const when = meta.consultedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-  d.text(`Data/hora da consulta: ${when}`, 190, top - 39, 7.5, d.dm700, N.ink);
-  d.text(`Código ${meta.verificationCode}  ·  Pág. ${idx + 1}/${total}`, 190, top - 49, 7.5, d.dm500, N.text);
+  d.text(`Data/hora da consulta: ${when}`, 190, top - 39, 7.5, d.dm700, N.white);
+  d.text(`Código ${meta.verificationCode}  ·  Pág. ${idx + 1}/${total}`, 190, top - 49, 7.5, d.dm500, N.pale);
   void qr(d, meta.verificationUrl, W - M - 40, top - 48, 40);
   // faixa com o veículo
-  const bh = 58; const by = H - 100 - bh + 12;
-  d.page.drawRectangle({ x: 0, y: by, width: W, height: bh, color: N.dark });
+  const bh = 58; const by = H - 90.5 - bh;
+  d.page.drawRectangle({ x: 0, y: by, width: W, height: bh, color: N.blue });
+  d.page.drawRectangle({ x: 0, y: by, width: W, height: 1.2, color: N.blueInk });
   const hl = report.headline;
   const name = [hl.brand, hl.model].filter(Boolean).join(' ') || hl.fullModel || 'Veículo';
   const nameT = clean(name).toUpperCase(); const nameW = Math.min(d.jx800.widthOfTextAtSize(nameT, 15), CW);
-  d.text(nameT, W / 2 - nameW / 2, by + bh - 20, 15, d.jx800, N.white, { maxWidth: CW });
+  d.text(nameT, W / 2 - nameW / 2, by + bh - 19, 15, d.jx800, N.white, { maxWidth: CW });
   const plate = clean(report.plate);
-  d.text(plate, W / 2 - d.jx800.widthOfTextAtSize(plate, 16) / 2, by + bh - 38, 16, d.jx800, N.white);
-  const sub = [hl.manufactureYear && hl.modelYear ? `${hl.manufactureYear}/${hl.modelYear}` : hl.modelYear ?? hl.manufactureYear, hl.color, hl.fuel, [hl.city, hl.state].filter(Boolean).join(' - ')].filter(Boolean).join('   ·   ');
-  if (sub) { const sw = Math.min(d.dm500.widthOfTextAtSize(clean(sub), 7.5), CW); d.text(sub, W / 2 - sw / 2, by + 6, 7.5, d.dm500, rgb(0.8, 0.8, 0.8), { maxWidth: CW }); }
+  const pw = d.jx800.widthOfTextAtSize(plate, 14) + 26;
+  rect(d.page, { x: W / 2 - pw / 2, y: by + bh - 45, width: pw, height: 21, color: N.white, borderRadius: 5 });
+  d.text(plate, W / 2 - d.jx800.widthOfTextAtSize(plate, 14) / 2, by + bh - 39.5, 14, d.jx800, N.dark);
+  const sub = [hl.manufactureYear && hl.modelYear ? `${hl.manufactureYear}/${hl.modelYear}` : hl.modelYear ?? hl.manufactureYear, hl.color, hl.fuel, [hl.city, hl.state].filter(Boolean).join(' - ')].filter(Boolean).join(' · ');
+  if (sub) { const sw = Math.min(d.dm500.widthOfTextAtSize(clean(sub), 7.5), CW); d.text(sub, W / 2 - sw / 2, by + 6, 7.5, d.dm500, N.pale, { maxWidth: CW }); }
 }
 
 type BadgeState = 'ok' | 'alert' | 'na';
 function badgeIcon(d: Doc, cx: number, cy: number, state: BadgeState) {
   const p = d.page; const r = 15;
   if (state === 'ok') {
-    p.drawCircle({ x: cx, y: cy, size: r, color: N.dark });
+    p.drawCircle({ x: cx, y: cy, size: r + 2.2, color: N.okSoft });
+    p.drawCircle({ x: cx, y: cy, size: r, color: N.ok });
     p.drawLine({ start: { x: cx - 6.5, y: cy - 0.5 }, end: { x: cx - 1.8, y: cy - 5.2 }, thickness: 2.6, color: N.white });
     p.drawLine({ start: { x: cx - 2.2, y: cy - 5 }, end: { x: cx + 7, y: cy + 5.6 }, thickness: 2.6, color: N.white });
   } else if (state === 'alert') {
-    p.drawCircle({ x: cx, y: cy, size: r - 1.2, color: N.white, borderColor: N.ink, borderWidth: 2.6 });
-    p.drawLine({ start: { x: cx, y: cy + 7.5 }, end: { x: cx, y: cy - 1.2 }, thickness: 2.8, color: N.ink });
-    p.drawCircle({ x: cx, y: cy - 6, size: 1.7, color: N.ink });
+    p.drawCircle({ x: cx, y: cy, size: r + 2.2, color: N.dangerSoft });
+    p.drawCircle({ x: cx, y: cy, size: r, color: N.danger });
+    p.drawLine({ start: { x: cx, y: cy + 7.5 }, end: { x: cx, y: cy - 1.2 }, thickness: 2.8, color: N.white });
+    p.drawCircle({ x: cx, y: cy - 6, size: 1.7, color: N.white });
   } else {
     p.drawCircle({ x: cx, y: cy, size: r - 0.6, color: N.soft, borderColor: N.line, borderWidth: 1.2, borderDashArray: [3, 2] });
     p.drawLine({ start: { x: cx - 5, y: cy }, end: { x: cx + 5, y: cy }, thickness: 2, color: N.muted });
@@ -185,8 +188,8 @@ function summaryBadges(d: Doc, report: ReportV2) {
       const lab = b.label.toUpperCase(); const lw = d.dm700.widthOfTextAtSize(lab, 6.8);
       d.text(lab, cx - lw / 2, cy - 28, 6.8, d.dm700, N.ink);
       const st = b.state === 'ok' ? 'NADA CONSTA' : b.state === 'alert' ? 'CONSTA' : 'NÃO INFORMADO';
-      const f = b.state === 'alert' ? d.dm700 : d.dm400;
-      d.text(st, cx - f.widthOfTextAtSize(clean(st), 6.6) / 2, cy - 37, 6.6, f, b.state === 'alert' ? N.ink : N.muted);
+      const f = b.state === 'na' ? d.dm400 : d.dm700;
+      d.text(st, cx - f.widthOfTextAtSize(clean(st), 6.6) / 2, cy - 37, 6.6, f, b.state === 'alert' ? N.danger : b.state === 'ok' ? N.okInk : N.muted);
     });
     d.y -= rowH;
   }
@@ -195,14 +198,18 @@ function summaryBadges(d: Doc, report: ReportV2) {
 
 const VERDICT_LABEL = { CLEAR: 'SEM ALERTAS', ATTENTION: 'ATENÇÃO', HIGH_RISK: 'ATENÇÃO — RISCO ALTO', INCONCLUSIVE: 'ANÁLISE LIMITADA' } as const;
 function verdictBox(d: Doc, report: ReportV2) {
-  const v = report.verdict; const strong = v.level === 'ATTENTION' || v.level === 'HIGH_RISK';
+  const v = report.verdict;
+  const tone = v.level === 'CLEAR' ? { bg: N.okSoft, bar: N.ok, label: N.okInk }
+    : v.level === 'ATTENTION' ? { bg: N.warnSoft, bar: N.warn, label: N.warnInk }
+    : v.level === 'HIGH_RISK' ? { bg: N.dangerSoft, bar: N.danger, label: N.dangerInk }
+    : { bg: N.soft, bar: N.muted, label: N.muted };
   const lines = d.wrap(v.reason, d.dm400, 8.5, CW - 28);
   const h = 40 + lines.length * 11;
   d.ensure(h + 10);
   const y = d.y - h;
-  d.page.drawRectangle({ x: M, y, width: CW, height: h, color: N.soft, borderColor: N.line, borderWidth: 0.8 });
-  d.page.drawRectangle({ x: M, y, width: strong ? 5 : 3, height: h, color: strong ? N.ink : N.muted });
-  d.text(VERDICT_LABEL[v.level], M + 16, y + h - 15, 7.5, d.dm700, N.muted);
+  d.page.drawRectangle({ x: M, y, width: CW, height: h, color: tone.bg });
+  d.page.drawRectangle({ x: M, y, width: 5, height: h, color: tone.bar });
+  d.text(VERDICT_LABEL[v.level], M + 16, y + h - 15, 7.5, d.dm700, tone.label);
   d.text(v.title, M + 16, y + h - 29, 11.5, d.jx800, N.ink, { maxWidth: CW - 28 });
   lines.forEach((l, i) => d.text(l, M + 16, y + h - 42 - i * 11, 8.5, d.dm400, N.text));
   d.y = y - 14;
@@ -212,8 +219,8 @@ function bandTitle(d: Doc, label: string, right?: string) {
   d.ensure(60);
   const h = 17; const y = d.y - h;
   d.page.drawRectangle({ x: M, y, width: CW, height: h, color: N.band });
-  d.page.drawRectangle({ x: M, y, width: 3, height: h, color: N.dark });
-  d.text(label.toUpperCase(), M + 10, y + 5.2, 8.5, d.jx800, N.ink, { maxWidth: CW - 130 });
+  d.page.drawRectangle({ x: M, y, width: 3.5, height: h, color: N.blue });
+  d.text(label.toUpperCase(), M + 11, y + 5.2, 8.5, d.jx800, N.blueInk, { maxWidth: CW - 130 });
   if (right) { const rw = d.dm400.widthOfTextAtSize(clean(right), 7); d.text(right, W - M - 8 - rw, y + 5.6, 7, d.dm400, N.muted); }
   d.y = y - 6;
 }
@@ -277,8 +284,8 @@ function itemsGrid(d: Doc, items: ReportItem[]) {
       for (const entry of entries) {
         const lines = d.wrap(entry, alert ? d.dm700 : d.dm500, 8.5, CW - 16);
         d.ensure(lines.length * 11 + 5);
-        if (alert) d.page.drawRectangle({ x: M + 3, y: d.y - 9, width: 4, height: 4, color: N.ink });
-        lines.forEach((l, i) => d.text(l, M + (alert ? 12 : 6), d.y - 9 - i * 11, 8.5, alert ? d.dm700 : d.dm500, N.text));
+        if (alert) d.page.drawRectangle({ x: M + 3, y: d.y - 9, width: 4, height: 4, color: N.danger });
+        lines.forEach((l, i) => d.text(l, M + (alert ? 12 : 6), d.y - 9 - i * 11, 8.5, alert ? d.dm700 : d.dm500, alert ? N.dangerInk : N.text));
         d.y -= lines.length * 11 + 3;
         d.page.drawLine({ start: { x: M, y: d.y }, end: { x: W - M, y: d.y }, thickness: 0.4, color: N.hair });
       }
@@ -290,9 +297,9 @@ function itemsGrid(d: Doc, items: ReportItem[]) {
     d.ensure(rowH + 2);
     cells.forEach((c, i) => {
       const x = M + i * (colW + colGap); const top = d.y; const alert = c.it.state === 'ALERT';
-      c.label.forEach((l, li) => d.text(l, x + 2, top - 9 - li * 10, 8, d.dm700, N.ink));
-      if (alert) d.page.drawRectangle({ x: x + LABEL_W, y: top - 9.5, width: 4.2, height: 4.2, color: N.ink });
-      c.value.forEach((l, li) => d.text(l, x + LABEL_W + (alert ? 8 : 0), top - 9 - li * 10.5, 8.5, alert ? d.dm700 : d.dm500, N.text));
+      c.label.forEach((l, li) => d.text(l, x + 2, top - 9 - li * 10, 8, d.dm700, N.blueInk));
+      if (alert) d.page.drawRectangle({ x: x + LABEL_W, y: top - 9.5, width: 4.2, height: 4.2, color: N.danger });
+      c.value.forEach((l, li) => d.text(l, x + LABEL_W + (alert ? 8 : 0), top - 9 - li * 10.5, 8.5, alert ? d.dm700 : d.dm500, alert ? N.dangerInk : N.text));
       d.page.drawLine({ start: { x, y: top - rowH + 2 }, end: { x: x + colW, y: top - rowH + 2 }, thickness: 0.4, color: N.hair });
     });
     d.y -= rowH;
@@ -307,13 +314,13 @@ function priceSeries(d: Doc, item: ReportItem) {
   const asc = [...pts].reverse();
   const chartH = 54; const rows = Math.ceil(pts.length / 4); const tableH = rows * 13;
   d.ensure(chartH + tableH + 34);
-  d.text(`HISTÓRICO MENSAL DA FIPE (ÚLTIMOS ${pts.length} MESES)`, M + 2, d.y - 8, 7, d.dm700, N.ink);
+  d.text(`HISTÓRICO MENSAL DA FIPE (ÚLTIMOS ${pts.length} MESES)`, M + 2, d.y - 8, 7, d.dm700, N.blueInk);
   const top = d.y - 16; const x0 = M + 4; const w = CW - 8;
   const min = Math.min(...asc.map((p) => p.cents)); const max = Math.max(...asc.map((p) => p.cents)); const span = Math.max(1, max - min);
   d.page.drawRectangle({ x: M, y: top - chartH, width: CW, height: chartH, color: N.soft, borderColor: N.hair, borderWidth: 0.6 });
   const xy = (p: { cents: number }, i: number) => ({ x: x0 + 6 + (i / (asc.length - 1)) * (w - 12), y: top - chartH + 8 + ((p.cents - min) / span) * (chartH - 16) });
-  for (let i = 1; i < asc.length; i++) d.page.drawLine({ start: xy(asc[i - 1]!, i - 1), end: xy(asc[i]!, i), thickness: 1.3, color: N.ink });
-  const last = xy(asc[asc.length - 1]!, asc.length - 1); d.page.drawCircle({ x: last.x, y: last.y, size: 2.6, color: N.ink });
+  for (let i = 1; i < asc.length; i++) d.page.drawLine({ start: xy(asc[i - 1]!, i - 1), end: xy(asc[i]!, i), thickness: 1.6, color: N.blue });
+  const last = xy(asc[asc.length - 1]!, asc.length - 1); d.page.drawCircle({ x: last.x, y: last.y, size: 3.2, color: N.accent, borderColor: N.blue, borderWidth: 1.2 });
   d.y = top - chartH - 8;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < 4; c++) {
@@ -344,9 +351,9 @@ function debtsBlock(d: Doc, report: ReportV2) {
     }
     d.ensure(26);
     d.page.drawRectangle({ x: M, y: d.y - 22, width: CW, height: 20, color: N.band });
-    d.text('Total em aberto', M + 8, d.y - 15, 9, d.jx800, N.ink);
+    d.text('Total em aberto', M + 8, d.y - 15, 9, d.jx800, N.blueInk);
     const t = brlFromCents(report.debts.totalCents);
-    d.text(t, W - M - d.jx800.widthOfTextAtSize(t, 10) - 8, d.y - 16, 10, d.jx800, N.ink);
+    d.text(t, W - M - d.jx800.widthOfTextAtSize(t, 10) - 8, d.y - 16, 10, d.jx800, report.debts.hasDebt ? N.danger : N.ink);
     d.y -= 30;
     if (report.debts.fineBreakdown.length) {
       const note = `Multas por órgão (${report.debts.fineBreakdown.map((f) => `${f.label.replace('Multas — ', '')}: ${brlFromCents(f.amountCents)}`).join('; ')}) detalham o total de multas e não são somadas novamente.`;
@@ -372,7 +379,7 @@ function adviceBlock(d: Doc, report: ReportV2) {
   const bullet = (text: string, size = 8) => {
     const lines = d.wrap(text, d.dm400, size, CW - 16);
     d.ensure(lines.length * 10 + 6);
-    d.page.drawCircle({ x: M + 4, y: d.y - 5.5, size: 1.4, color: N.ink });
+    d.page.drawCircle({ x: M + 4, y: d.y - 5.5, size: 1.6, color: N.blue });
     lines.forEach((l, i) => d.text(l, M + 12, d.y - 8 - i * 10, size, d.dm400, N.text));
     d.y -= lines.length * 10 + 3;
   };
@@ -390,7 +397,7 @@ function adviceBlock(d: Doc, report: ReportV2) {
     d.ensure(lines.length * 9.5 + 22);
     d.text(c.label, M + 6, d.y - 11, 8.5, d.dm700, N.ink, { maxWidth: CW - 120 });
     const tag = CHECK_TEXT[c.status] ?? c.status;
-    d.text(tag, W - M - 6 - d.dm700.widthOfTextAtSize(clean(tag), 7.5), d.y - 11, 7.5, d.dm700, c.status === 'OK' ? N.muted : N.ink);
+    d.text(tag, W - M - 6 - d.dm700.widthOfTextAtSize(clean(tag), 7.5), d.y - 11, 7.5, d.dm700, c.status === 'OK' ? N.okInk : c.status === 'ALERT' ? N.danger : c.status === 'ATTENTION' ? N.warn : N.muted);
     lines.forEach((l, i) => d.text(l, M + 6, d.y - 22 - i * 9.5, 7.5, d.dm400, N.muted));
     d.y -= lines.length * 9.5 + 24;
     d.page.drawLine({ start: { x: M, y: d.y + 2 }, end: { x: W - M, y: d.y + 2 }, thickness: 0.4, color: N.hair });
@@ -417,7 +424,7 @@ function considerations(d: Doc) {
   for (const c of CONSIDERATIONS) {
     const lines = d.wrap(c, d.dm400, 8, CW - 16);
     d.ensure(lines.length * 10 + 6);
-    d.page.drawCircle({ x: M + 4, y: d.y - 5.5, size: 1.4, color: N.ink });
+    d.page.drawCircle({ x: M + 4, y: d.y - 5.5, size: 1.6, color: N.blue });
     lines.forEach((l, i) => d.text(l, M + 12, d.y - 8 - i * 10, 8, d.dm400, N.text));
     d.y -= lines.length * 10 + 4;
   }
@@ -475,6 +482,7 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
   d.y -= 4;
   const boxH = 92; const by = d.y - boxH;
   d.page.drawRectangle({ x: M, y: by, width: CW, height: boxH, color: N.soft, borderColor: N.line, borderWidth: 0.8 });
+  d.page.drawRectangle({ x: M, y: by, width: 4, height: boxH, color: N.blue });
   await qr(d, meta.verificationUrl, M + 14, by + 14, 64);
   const tx = M + 104;
   d.text('Validação do relatório', tx, by + boxH - 18, 10.5, d.jx800, N.ink);
@@ -492,6 +500,7 @@ export async function renderVehiclePdf(report: ReportV2, meta: ReportMeta): Prom
   d.pages.forEach((p, i) => {
     pageHeader(d, p, i, total, meta, report);
     if (meta.sample) p.drawText(clean('MODELO · DADOS FICTÍCIOS'), { x: 110, y: 250, size: 44, font: d.jx800, color: rgb(0.86, 0.86, 0.86), rotate: degrees(40), opacity: 0.55 });
+    p.drawRectangle({ x: 0, y: 0, width: W, height: 3, color: N.blue });
     p.drawLine({ start: { x: M, y: 42 }, end: { x: W - M, y: 42 }, thickness: 0.6, color: N.line });
     p.drawText(clean(`${meta.brandName ?? 'Placa na Mão'}  ·  ${meta.productName}  ·  ${report.plate}`), { x: M, y: 30, size: 7.5, font: d.dm500, color: N.text });
     const right = `Página ${i + 1} de ${total}`;

@@ -168,8 +168,11 @@ function buildItem(def: FieldDef, rawValue: unknown): ReportItem {
   const text = scalar(rawValue);
   if (!text) return base;
 
+  // Documento só de zeros (000.000.000-00) é o jeito da fonte dizer que não informou: não mostra como se fosse um número real.
+  if (def.doc === 'CPF_CNPJ' && !/[1-9]/.test(text.replace(/\D/g, ''))) return base;
   if (def.doc === 'CPF_CNPJ') { const v = formatDocument(text); return { ...base, state: 'INFO', value: v, display: v }; }
-  if (def.doc === 'NAME') { const v = text.replace(/\s+/g, ' ').trim(); return { ...base, state: 'INFO', value: v, display: v }; }
+  // A fonte às vezes entrega o documento colado antes do nome ("12345678900 JOAO SILVA"): o documento já tem campo próprio.
+  if (def.doc === 'NAME') { const v = text.replace(/\s+/g, ' ').trim().replace(/^(?:\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})\s+(?=\D)/, ''); return { ...base, state: 'INFO', value: v, display: v }; }
 
   const folded = fold(text);
   switch (def.kind) {

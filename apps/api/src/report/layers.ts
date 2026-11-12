@@ -90,6 +90,8 @@ export interface LayerInput {
   owners?: Piece;
   /** FIPE pela placa (consulta própria da Credify); sem ela o bloco fica como "não consultado". */
   fipe?: Piece;
+  /** Proprietário pela placa (consulta própria da Credify): completa nome e documentos que a base não trouxe. */
+  ownerPlate?: Piece;
   /** Infrações (RENAINF): multas detalhadas. Vai fora do vetor de blocos do Veículo Total. */
   renainf?: Piece;
 }
@@ -125,11 +127,38 @@ function nationalBlock(resposta: Rec): Rec {
   return { DESCRICAORETORNO: scalar(up.DESCRICAORETORNO) || 'SUCESSO', REGISTRO_1: blockFrom(up) };
 }
 
+const isZeroDoc = (v: string): boolean => !/[1-9]/.test(v.replace(/\D/g, ''));
+/** Campo do proprietário na consulta base ← campo da consulta "Proprietário pela placa". */
+const OWNER_PLATE_FIELDS: ReadonlyArray<readonly [string, string, boolean]> = [
+  ['PRONOME', 'NOME_PROPRIETARIO', false],
+  ['CPF_CNPJ_PROPRIETARIO', 'NUMERO_DOCUMENTO_PROPRIETARIO', true],
+  ['TIPODOCUMENTOPROPRIETARIO', 'TIPO_DOCUMENTO_PROPRIETARIO', false],
+  ['CPFCNPJFATURADO', 'NUMERO_IDENTIFICACAO_FATURADO', true],
+  ['TIPODOCUMENTOFATURADO', 'TIPO_DOCUMENTO_FATURADO', false]
+];
+/** Completa o cadastro da base com o proprietário pela placa, só onde a base veio vazia (ou com documento de zeros). Nunca troca um dado que a base trouxe. */
+export function mergeOwnerPlate(bdrp: Rec, piece: Piece | undefined): Rec {
+  if (!piece || piece.kind !== 'data' || !isRec(bdrp.RETORNO)) return bdrp;
+  const up = upperKeys(piece.resposta);
+  const src = isRec(up.VEICULOPROPRIETARIOPLACA) ? upperKeys(up.VEICULOPROPRIETARIOPLACA as Rec) : up;
+  const retorno: Rec = { ...(bdrp.RETORNO as Rec) };
+  for (const [target, from, isDoc] of OWNER_PLATE_FIELDS) {
+    const incoming = scalar(src[from]);
+    if (!incoming || (isDoc && isZeroDoc(incoming))) continue;
+    const key = Object.keys(retorno).find((k) => k.toUpperCase() === target) ?? target;
+    const current = scalar(retorno[key]);
+    if (current && !(isDoc && isZeroDoc(current))) continue;
+    retorno[key] = incoming;
+  }
+  return { ...bdrp, RETORNO: retorno };
+}
+
 /** Monta o envelope no formato do Veículo Total. Os blocos não comprados (proprietários, FIPE) ficam como "não consultado". */
 export function buildLayeredEnvelope(input: LayerInput): Rec {
   const base = respostaOf(input.baseRaw);
-  const bdrp = base && isRec(base.VEICULOSBDRP) ? (base.VEICULOSBDRP as Rec) : undefined;
-  if (!bdrp) throw new Error('Consulta base sem VEICULOSBDRP');
+  const bdrpBase = base && isRec(base.VEICULOSBDRP) ? (base.VEICULOSBDRP as Rec) : undefined;
+  if (!bdrpBase) throw new Error('Consulta base sem VEICULOSBDRP');
+  const bdrp = mergeOwnerPlate(bdrpBase, input.ownerPlate);
   const pieces: Record<LayerBlock, { code: string; block?: Rec }> = {
     INDICIOSINISTROVEICULAR: input.sinistro.kind === 'notFound' ? { code: '2' } : slot('INDICIOSINISTROVEICULAR', input.sinistro),
     RECALL: slot('RECALL', input.recall, input.recallFromFlag),

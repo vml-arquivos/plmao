@@ -4,7 +4,7 @@
  *  - com escolha: o produto compra só as fontes marcadas (mais a base de cadastro, que identifica o veículo).
  * O que o cliente VÊ continua sendo definido por "Campos do relatório"; aqui se define o que é COMPRADO (custo).
  */
-export type DataSourceKey = 'BASE' | 'SINISTRO' | 'NATIONAL' | 'THEFT' | 'RECALL' | 'AUCTION' | 'AUCTION_SIMPLE' | 'GRAVAME' | 'RENAJUD' | 'OWNERS' | 'FIPE' | 'RENAINF' | 'TOTAL';
+export type DataSourceKey = 'BASE' | 'SINISTRO' | 'NATIONAL' | 'THEFT' | 'RECALL' | 'AUCTION' | 'AUCTION_SIMPLE' | 'GRAVAME' | 'RENAJUD' | 'OWNERS' | 'OWNER_PLATE' | 'FIPE' | 'RENAINF' | 'TOTAL';
 
 export interface DataSourceDef { key: DataSourceKey; label: string; description: string; provider: 'credify' | 'anycar' }
 
@@ -18,6 +18,7 @@ export const DATA_SOURCES: readonly DataSourceDef[] = [
   { key: 'GRAVAME', label: 'Gravame completo', description: 'Banco, contrato e datas do financiamento; busca quando o cadastro indica alienação (Credify).', provider: 'credify' },
   { key: 'RENAJUD', label: 'Restrições judiciais (Renajud)', description: 'Busca quando o cadastro indica restrição judicial (Credify).', provider: 'credify' },
   { key: 'OWNERS', label: 'Histórico de proprietários', description: 'Quantidade e linha do tempo de proprietários (Credify). Consulta própria, cobrada sempre que o produto a usa.', provider: 'credify' },
+  { key: 'OWNER_PLATE', label: 'Proprietário pela placa', description: 'Nome e CPF/CNPJ do proprietário atual pela placa (Credify). Consulta própria e barata, cobrada sempre que o produto a usa.', provider: 'credify' },
   { key: 'FIPE', label: 'FIPE pela placa', description: 'Código FIPE, preço e preço médio exatos pela placa (Credify). Consulta própria e barata.', provider: 'credify' },
   { key: 'RENAINF', label: 'Multas detalhadas (RENAINF)', description: 'Cada multa com descrição, vencimento e valor (Credify). Consulta própria, cobrada sempre que o produto a usa.', provider: 'credify' },
   { key: 'TOTAL', label: 'Pacote Veículo Total (Credify)', description: 'Uma compra só com todas as bases. Substitui as demais fontes.', provider: 'credify' }

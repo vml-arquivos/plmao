@@ -20,7 +20,7 @@ describe('modelo de relatório e detalhes das consultas (público)', integration
     assert.ok(labels('PREMIUM').length > labels('BASIC').length, 'a Premium traz mais itens que a Avançada');
     assert.ok(labels('COMPLETE').includes('Indício de sinistro'));
     assert.ok(labels('BASIC').includes('Indício de sinistro'), 'a Avançada traz o indício de sinistro');
-    assert.deepEqual(labels('BASIC').filter((l) => /propriet/i.test(l)), [], 'a Avançada não traz proprietários');
+    assert.ok(labels('BASIC').some((l) => /propriet/i.test(l)), 'a Avançada traz o proprietário atual');
     for (const id of ids) {
       const all = labels(id).join('|');
       assert.doesNotMatch(all, /Chave de retorno|Controle interno/i);

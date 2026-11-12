@@ -343,7 +343,8 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     const wantOwners = want('OWNERS', false);
     const wantFipe = want('FIPE', false);
     const wantRenainf = want('RENAINF', false);
-    const [sinistro, national, farolPiece, recall, theft, simpleAuction, owners, fipe, renainf] = await Promise.all([
+    const wantOwnerPlate = want('OWNER_PLATE', false);
+    const [sinistro, national, farolPiece, recall, theft, simpleAuction, owners, fipe, renainf, ownerPlate] = await Promise.all([
       wantSinistro ? this.piece('/indiciosinistro', plate, startedAt, spend) : Promise.resolve(none),
       wantNational ? this.piece('/veicularbnacionalonline', plate, startedAt, spend) : Promise.resolve(none),
       farolId && useCredifyAuction ? this.piece('/farolleilao', plate, startedAt, spend, farolId) : Promise.resolve(none),
@@ -352,7 +353,8 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       useSimpleAuction ? this.simpleAuction(plate, !(sel && ['SINISTRO', 'NATIONAL', 'THEFT', 'RECALL', 'AUCTION', 'GRAVAME', 'RENAJUD', 'OWNERS'].some((k) => sel.has(k)))) : Promise.resolve(none),
       wantOwners ? this.piece('/historicoproprietario', plate, startedAt, spend) : Promise.resolve(none),
       wantFipe ? this.piece('/precificadorfipe', plate, startedAt, spend) : Promise.resolve(none),
-      wantRenainf ? this.piece('/renainf', plate, startedAt, spend) : Promise.resolve(none)
+      wantRenainf ? this.piece('/renainf', plate, startedAt, spend) : Promise.resolve(none),
+      wantOwnerPlate ? this.piece('/veiculoproprietarioplaca', plate, startedAt, spend) : Promise.resolve(none)
     ]);
 
     const farol: Farol | undefined = farolPiece.kind === 'data' ? parseFarol(farolPiece.resposta) : undefined;
@@ -362,10 +364,10 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
     if (useCredifyAuction && !(farol?.level === 'GREEN') && (!farolId || spend.allow('/leilaoconjugado'))) leilao = await this.piece('/leilaoconjugado', plate, startedAt, spend);
 
     const consulta = (base.raw as { data?: { CONSULTA?: unknown } }).data?.CONSULTA;
-    const envelope = buildLayeredEnvelope({ consulta, baseRaw: base.raw, sinistro, recall, recallFromFlag: recallFlag, theft, theftFromFlag: theftFlag, leilao, farol, national, owners, fipe, renainf });
+    const envelope = buildLayeredEnvelope({ consulta, baseRaw: base.raw, sinistro, recall, recallFromFlag: recallFlag, theft, theftFromFlag: theftFlag, leilao, farol, national, owners, fipe, renainf, ownerPlate });
     log('info', 'credify_layers_done', { calls: spend.paths.length, paths: spend.paths.join(',') });
     // Peça que era para vir e não veio (falha ou sem tempo): o resultado vale para esta consulta, mas não entra no cache.
-    const attempted: Array<[boolean, Piece]> = [[wantSinistro, sinistro], [wantNational, national], [wantOwners, owners], [wantFipe, fipe], [wantRenainf, renainf], [Boolean(farolId) && useCredifyAuction, farolPiece], [wantRecall && recallFlag === undefined, recall], [wantTheft && (env.CREDIFY_COMPLETE_THEFT === 'always' || theftFlag === undefined), theft], [useSimpleAuction, simpleAuction]];
+    const attempted: Array<[boolean, Piece]> = [[wantSinistro, sinistro], [wantNational, national], [wantOwners, owners], [wantFipe, fipe], [wantRenainf, renainf], [wantOwnerPlate, ownerPlate], [Boolean(farolId) && useCredifyAuction, farolPiece], [wantRecall && recallFlag === undefined, recall], [wantTheft && (env.CREDIFY_COMPLETE_THEFT === 'always' || theftFlag === undefined), theft], [useSimpleAuction, simpleAuction]];
     const parcial = attempted.some(([wanted, piece]) => wanted && piece.kind === 'none');
     return { providerQueryId: base.providerQueryId, raw: { ...(base.raw as Record<string, unknown>), data: envelope, camadas: [...spend.paths], ...(parcial ? { parcial: true } : {}) } };
   }
