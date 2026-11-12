@@ -1,4 +1,4 @@
-import { env, CREDIFY_CONSULTA_CODES, CREDIFY_DEFAULT_BODY, CREDIFY_DEFAULT_PATH, CREDIFY_PLATE_PATHS, CREDIFY_PRODUCT_PATHS } from '../config.js';
+import { env, CREDIFY_CONSULTA_CODES, CREDIFY_DEFAULT_BODY, CREDIFY_DEFAULT_PATH, CREDIFY_FIPE_ONLY_PATH, CREDIFY_FIPE_ONLY_PRODUCT, CREDIFY_PLATE_PATHS, CREDIFY_PRODUCT_PATHS } from '../config.js';
 import type { VehicleDataProvider } from '../types.js';
 import { extractReturn, providerOutcome } from '../report/normalizeV2.js';
 import { judicialNeeded } from '../report/judicial.js';
@@ -96,6 +96,8 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
 
   /** Caminho da consulta para um pacote: o definido em CREDIFY_QUERY_PATH (modo global) ou o do pacote. */
   routeFor(productId?: string): { path: string; routed: boolean } {
+    // FIPE grátis: sempre e somente a consulta de FIPE (454), mesmo com CREDIFY_QUERY_PATH global ou caminho forçado na instância.
+    if (String(productId ?? '').toUpperCase() === CREDIFY_FIPE_ONLY_PRODUCT) return { path: CREDIFY_FIPE_ONLY_PATH, routed: true };
     const global = this.o.path ?? env.CREDIFY_QUERY_PATH;
     if (global) return { path: global.startsWith('/') ? global : `/${global}`, routed: false };
     const byProduct = productId ? CREDIFY_PRODUCT_PATHS[productId.toUpperCase()] : undefined;
@@ -225,10 +227,22 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
   async queryByPlate(plate: string, ctx?: { productId?: string; sources?: readonly string[] | null }): Promise<{ providerQueryId?: string; raw: unknown }> {
     const startedAt = Date.now();
     const pid = ctx?.productId;
+    // FIPE grátis compra UMA consulta de FIPE (454) e mais nada: sem camadas, sem gravame, sem Renajud, sem leilão, sem fontes do painel.
+    if (String(pid ?? '').toUpperCase() === CREDIFY_FIPE_ONLY_PRODUCT) {
+      const only = await this.run('PLATE', plate, CREDIFY_FIPE_ONLY_PRODUCT);
+      log('info', 'credify_fipe_only_done', { ms: Date.now() - startedAt });
+      return only;
+    }
     // Fontes escolhidas no painel para este produto (null = comportamento padrão do sistema). Não vale com caminho global configurado.
     const sel: Set<string> | null = ctx?.sources && ctx.sources.length && !this.o.path && !env.CREDIFY_QUERY_PATH ? new Set(ctx.sources) : null;
     const layeredMode = sel ? !sel.has('TOTAL') : this.layered(pid);
     const pidKey = String(pid ?? '').toUpperCase();
+    // Produto sem consulta definida (nem fontes marcadas no painel, nem caminho global): nunca cai no Veículo Total por engano.
+    // Falha antes de chamar a Credify, então nada é cobrado e o cliente é estornado.
+    if (pidKey && !sel && !CREDIFY_PRODUCT_PATHS[pidKey] && !(this.o.path ?? env.CREDIFY_QUERY_PATH)) {
+      log('warn', 'credify_product_not_routed', { productId: pidKey });
+      throw fail('DATA_PROVIDER_PRODUCT_NOT_ROUTED', `O produto ${pidKey} não tem consulta da Credify definida. Marque as fontes dele em Produtos do site (Fontes de dados).`);
+    }
     const spend = new Spend(layeredMode ? env.CREDIFY_COST_BUDGET_CENTS : undefined, env.CREDIFY_COST_CENTS);
     const main = layeredMode ? await this.queryLayers(plate, startedAt, spend, sel) : await this.run('PLATE', plate, sel ? 'COMPLETE' : pid);
     const withLien = await this.supplement(main, plate, pid, startedAt, {
@@ -494,7 +508,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       throw fail(logonCode === '14' ? 'DATA_PROVIDER_RATE_LIMITED' : logonCode === '19' ? 'DATA_PROVIDER_INVALID_RESPONSE' : 'DATA_PROVIDER_QUOTA_EXHAUSTED', detail);
     }
     // /leilaoconjugado devolve texto livre ("veículo não apresentado na base de leilão") em DESCRICAORETORNO: só o CODIGO decide.
-    const lenientCode = this.o.path && LENIENT_PATHS.has(this.o.path.toLowerCase()) ? String(Array.isArray(raw?.RESPOSTA?.CODIGO) ? raw.RESPOSTA.CODIGO[0] : raw?.RESPOSTA?.CODIGO ?? '').trim() : undefined;
+    const lenientCode = LENIENT_PATHS.has(c.path.toLowerCase()) && (this.o.path || String(productId ?? '').toUpperCase() === CREDIFY_FIPE_ONLY_PRODUCT) ? String(Array.isArray(raw?.RESPOSTA?.CODIGO) ? raw.RESPOSTA.CODIGO[0] : raw?.RESPOSTA?.CODIGO ?? '').trim() : undefined;
     const outcome = lenientCode !== undefined ? (lenientCode === '2' ? { ok: false, notFound: true, reason: 'CODIGO=2' } : lenientCode === '3' ? { ok: false, reason: 'CODIGO=3' } : { ok: true }) : providerOutcome(raw);
     if (outcome.notFound) throw fail('NOT_FOUND', 'Placa não encontrada na Credify.');
     if (!outcome.ok) throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Credify respondeu com erro (${outcome.reason ?? 'sem motivo'}): CODIGO ${JSON.stringify(raw?.RESPOSTA?.CODIGO ?? null)}${raw?.RESPOSTA?.DADOS?.MSG ? `; ${String(raw.RESPOSTA.DADOS.MSG)}` : ''}. Estrutura: ${describeShape(raw)}.`);

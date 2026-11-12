@@ -62,7 +62,7 @@ export const CREDIFY_CONSULTA_CODES: Record<string, string> = {
 };
 export const CREDIFY_DEFAULT_BODY = '{"Consulta":{"IdConsulta":"{{queryId}}","Placa":"{{plate}}"}}';
 /** Consultas da Credify que recebem só a placa (corpo padrão). As demais pedem CPF/CNPJ, Renavam etc. e precisam de modelo próprio. */
-export const CREDIFY_PLATE_PATHS: readonly string[] = ['/veiculototal', '/debitosrestricoesproprietarios', '/veicularbnacionalonline', '/indiciosinistro', '/leilaoconjugado', '/gravame', '/veiculoproprietarioplaca', '/recall', '/historicoroubofurto', '/farolleilao'];
+export const CREDIFY_PLATE_PATHS: readonly string[] = ['/veiculototal', '/debitosrestricoesproprietarios', '/veicularbnacionalonline', '/indiciosinistro', '/leilaoconjugado', '/gravame', '/veiculoproprietarioplaca', '/recall', '/historicoroubofurto', '/farolleilao', '/precificadorfipe'];
 /**
  * Qual consulta da Credify atende cada pacote. Completa e Premium usam o Veículo Total (467: sinistro, recall, roubo/furto, leilão,
  * proprietários, FIPE e o cadastro com débitos e restrições numa chamada só). Básica, Gravame e Cadastral usam Débitos,
@@ -78,7 +78,12 @@ export const CREDIFY_PRODUCT_PATHS: Record<string, string> = {
   CADASTRAL: '/debitosrestricoesproprietarios',
   DEBTS: '/debitosrestricoesproprietarios',
   RESTRICTIONS: '/debitosrestricoesproprietarios',
+  // Consulta FIPE grátis: SÓ a FIPE pela placa (código 454). Nunca o cadastro, o Veículo Total nem outra consulta.
+  FIPE_FREE: '/precificadorfipe',
 };
+/** Produto que só pode comprar a consulta de FIPE da Credify, qualquer que seja a configuração global ou as fontes marcadas no painel. */
+export const CREDIFY_FIPE_ONLY_PRODUCT = 'FIPE_FREE';
+export const CREDIFY_FIPE_ONLY_PATH = '/precificadorfipe';
 
 export function credifyBodyTemplateValid(template: string | undefined): boolean {
   if (!template) return false;

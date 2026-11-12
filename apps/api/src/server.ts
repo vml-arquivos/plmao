@@ -35,6 +35,7 @@ import { getProvider } from './providers/index.js';
 import { startCredifyTokenKeeper } from './providers/credifyProvider.js';
 import { getFipeProvider, quoteWithFallback, type FipeCatalogProvider } from './providers/fipeProvider.js';
 import { fipePdf, fipePrintHtml, makeFipeQuote, reportSnapshot, type ReportBranding } from './fipeReport.js';
+import { parseFipeByPlate } from './fipePlate.js';
 import { getPaymentProvider, getPaymentProviderFor, type PaymentProviderName } from './payments/index.js';
 import { ensureSchema } from './schema.js';
 import { performAdminLookup } from './adminLookup.js';
@@ -115,7 +116,7 @@ import { financingBodyHtml, financingContent, isFinancingPath, syncFinancingPage
 import { isKnownPath, pathFromSeoImageSlug, productImageUrls, renderRobotsTxt, renderSeoHtml, renderSitemapXml, seoImageUrl, setGoogleTags, type SeoOverride } from './seo.js';
 import { appError, asyncRoute, audit, log, requestId, type AppError } from './lib/http.js';
 import { cancelAllProcessing, cancelPaidQuery, cancelProcessingQuery } from './lib/queryCancel.js';
-import type { FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle, VehicleDataProvider } from './types.js';
+import type { FipeProviderResult, FipeQuote, FipeSelectionItem, FipeVehicleDetails, FipeVehicleType, NormalizedVehicle, VehicleDataProvider } from './types.js';
 
 await ensureSchema();
 await refreshProductSections();
@@ -402,6 +403,7 @@ function toSafeQueryError(error: unknown): { status: number; code: string; messa
   if (code === 'PROVIDER_BUDGET_EXCEEDED') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `Atingimos o limite de segurança de consultas à fonte de dados. ${RETRY_MESSAGE}` };
   if (code === 'PRODUCT_NOT_FOUND') return { status: 404, code, message: 'Este produto de consulta não está disponível.' };
   if (code === 'PRODUCT_NOT_AVAILABLE') return { status: 409, code, message: 'Esta consulta ainda não está à venda. Nada foi cobrado.' };
+  if (code === 'DATA_PROVIDER_PRODUCT_NOT_ROUTED') return { status: 409, code: 'PRODUCT_NOT_AVAILABLE', message: 'Esta consulta ainda não está à venda. Nada foi cobrado.' };
   return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: RETRY_MESSAGE };
 }
 
@@ -1210,6 +1212,34 @@ async function resolveFipeSelectionFromPlate(plate: string): Promise<{ provider:
   throw appError('FIPE_PLATE_VEHICLE_NOT_IDENTIFIED', { code: 'FIPE_PLATE_VEHICLE_NOT_IDENTIFIED', http: 422, expose: true });
 }
 
+/** Com a Credify como fonte, a FIPE grátis pela placa compra só a consulta de FIPE (código 454) e não lê nenhum dado do cadastro. */
+function fipeByPlateUsesCredify(): boolean {
+  return env.DATA_PROVIDER === 'real' && env.VEHICLE_API_PROVIDER === 'credify';
+}
+
+/** FIPE pela placa, só FIPE: uma consulta da Credify (454). A falha vira um código claro e o motivo real vai para o log e para a saúde da fonte. */
+async function fipeResultFromPlate(plate: string): Promise<FipeProviderResult> {
+  const startedAt = Date.now();
+  let output: { raw: unknown };
+  try {
+    output = await withTimeout(getProvider().queryByPlate(plate, { productId: 'FIPE_FREE' }), env.QUERY_REQUEST_TIMEOUT_MS);
+  } catch (error) {
+    const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'UNKNOWN';
+    const detail = error instanceof Error && typeof (error as { detail?: unknown }).detail === 'string' ? String((error as unknown as { detail: string }).detail).slice(0, 300) : undefined;
+    log('warn', 'fipe_plate_provider_failed', { code, ...(detail ? { detail } : {}) });
+    await recordProviderHealth('credify', 'FAILED', Date.now() - startedAt, code);
+    if (code === 'NOT_FOUND') throw appError('FIPE_PLATE_NOT_FOUND', { code: 'FIPE_PLATE_NOT_FOUND', http: 404, expose: true });
+    throw appError('FIPE_PLATE_UNAVAILABLE', { code: 'FIPE_PLATE_UNAVAILABLE', http: 502, expose: true });
+  }
+  try {
+    return parseFipeByPlate(output.raw, plate);
+  } catch (error) {
+    const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'FIPE_PLATE_DATA_INVALID';
+    await recordProviderHealth('credify', 'FAILED', Date.now() - startedAt, code);
+    throw error;
+  }
+}
+
 api.get('/fipe/status', (_req, res) => {
   res.json({ enabled: env.FEATURE_FREE_FIPE, pdfEnabled: env.FEATURE_FREE_FIPE && env.FEATURE_REPORT_PDF });
 });
@@ -1315,9 +1345,13 @@ api.post('/fipe/quote', optionalAuth, asyncRoute(async (req, res) => {
   let input: { vehicleType: FipeVehicleType; brand: FipeSelectionItem; model: FipeSelectionItem; year: FipeSelectionItem };
   let vehicleDetails: FipeVehicleDetails | undefined;
   let preferredProvider: 'parallelum' | 'brasilapi' = 'parallelum';
+  let plateResult: FipeProviderResult | undefined;
   try {
     if (parsed.data.vehicleType && parsed.data.brand && parsed.data.model && parsed.data.year) {
       input = { vehicleType: parsed.data.vehicleType, brand: parsed.data.brand, model: parsed.data.model, year: parsed.data.year };
+    } else if (plate && fipeByPlateUsesCredify()) {
+      plateResult = await fipeResultFromPlate(plate);
+      input = { vehicleType: plateResult.vehicleType, brand: plateResult.brand, model: plateResult.model, year: plateResult.year };
     } else if (plate) {
       const resolved = await resolveFipeSelectionFromPlate(plate);
       input = { vehicleType: resolved.vehicleType, brand: resolved.brand, model: resolved.model, year: resolved.year };
@@ -1328,13 +1362,15 @@ api.post('/fipe/quote', optionalAuth, asyncRoute(async (req, res) => {
     }
     await recordFunnelEvent(null, req, 'FREE_QUERY_STARTED', { vehicleType: input.vehicleType, plateLookup: Boolean(plate) });
     const providerStartedAt = Date.now();
-    const cached = preferredProvider === 'parallelum' ? await findCachedFipeResult(input) : null;
-    const result = cached ?? await quoteWithFallback({ ...input, provider: preferredProvider });
-    if (!cached) await cacheFipeResult(result);
+    const cached = plateResult ? null : preferredProvider === 'parallelum' ? await findCachedFipeResult(input) : null;
+    const result = plateResult ?? cached ?? await quoteWithFallback({ ...input, provider: preferredProvider });
+    if (!cached && !plateResult) await cacheFipeResult(result);
     // Consulta grátis: o chassi real só alimenta o decodificador; o que aparece (tela, PDF, impressão) vai mascarado.
     const shownDetails = vehicleDetails ? { ...vehicleDetails, chassis: maskFreeChassis(vehicleDetails.chassis), engine: maskFreeEngine(vehicleDetails.engine) } : undefined;
     const quote = makeFipeQuote(result, plate, shownDetails);
     quote.sheet = await freeVehicleSheet(result, vehicleDetails);
+    // FIPE pela placa (Credify) é só FIPE: não há chassi, então não mostra o decodificador de chassi.
+    if (plateResult && quote.sheet) quote.sheet = { ...quote.sheet, decoder: [] };
     await recordProviderHealth(quote.provider, 'SUCCESS', Date.now() - providerStartedAt);
     await saveFipeDocument(quote, req.user?.id ?? null);
     await recordFunnelEvent(null, req, 'FREE_QUERY_COMPLETED', { provider: quote.provider, documentCode: quote.documentCode, cached: Boolean(cached), plateLookup: Boolean(plate) });
@@ -1525,6 +1561,8 @@ const ENRICHED_PRODUCTS = new Set(SHEET_PRODUCTS);
 
 async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; body: Record<string, unknown> }> {
   const { userId, idempotencyKey } = input;
+  // A FIPE grátis só roda pelo fluxo próprio (/fipe/quote): aqui ela chamaria o provedor sem cobrar do cliente.
+  if (String(input.productId).toUpperCase() === 'FIPE_FREE') throw appError('PRODUCT_NOT_AVAILABLE', { code: 'PRODUCT_NOT_AVAILABLE', http: 409, expose: true });
   const provider = getProvider();
   // Antes de qualquer cobrança: a fonte contratada precisa atender este tipo de busca.
   if (!providerSupports(provider, input.searchType)) throw appError('SEARCH_TYPE_NOT_SUPPORTED', { code: 'SEARCH_TYPE_NOT_SUPPORTED', http: 409, expose: true });
@@ -2798,6 +2836,7 @@ function adminLookupError(error: unknown): unknown {
     NOT_FOUND: [404, 'A fonte não encontrou dados para esta placa neste pacote.'],
     DATA_PROVIDER_INVALID_RESPONSE: [424, `A Credify respondeu, mas a resposta foi recusada pelo sistema.${why}`],
     DATA_PROVIDER_AUTH_FAILED: [424, `Falha no login da Credify.${why}`],
+    DATA_PROVIDER_PRODUCT_NOT_ROUTED: [409, `Este produto não tem consulta da Credify definida; nada foi chamado nem cobrado.${why}`],
     DATA_PROVIDER_UNAVAILABLE: [424, `A Credify ficou indisponível.${why}`],
     DATA_PROVIDER_RATE_LIMITED: [424, `A Credify informou limite temporário de consultas.${why}`],
     DATA_PROVIDER_QUOTA_EXHAUSTED: [424, `A Credify informou limite ou saldo de consultas indisponível.${why}`],
@@ -2809,12 +2848,53 @@ function adminLookupError(error: unknown): unknown {
   return appError(hit[1], { code, http: hit[0], expose: true, showMessage: true });
 }
 
+/** Consulta interna do produto "Consulta FIPE Grátis": só a FIPE (uma consulta de FIPE na Credify), com o mesmo relatório da tela grátis. */
+async function adminFipeFreeLookup(req: Request, res: Response, plate: string, productName: string, providerName: string): Promise<void> {
+  try {
+    const out = await runExclusive(`admin-lookup:${plate}:FIPE_FREE`, async () => {
+      const startedAt = Date.now();
+      let result: FipeProviderResult;
+      if (fipeByPlateUsesCredify()) result = await fipeResultFromPlate(plate);
+      else {
+        const resolved = await resolveFipeSelectionFromPlate(plate);
+        const cached = resolved.provider === 'parallelum' ? await findCachedFipeResult(resolved) : null;
+        result = cached ?? await quoteWithFallback({ vehicleType: resolved.vehicleType, brand: resolved.brand, model: resolved.model, year: resolved.year, provider: resolved.provider });
+        if (!cached) await cacheFipeResult(result);
+      }
+      const quote = makeFipeQuote(result, plate);
+      quote.sheet = await freeVehicleSheet(result);
+      if (quote.sheet) quote.sheet = { ...quote.sheet, decoder: [] };
+      await recordProviderHealth(quote.provider, 'SUCCESS', Date.now() - startedAt);
+      return quote;
+    });
+    await saveFipeDocument(out, req.user!.id);
+    let queryId: string | null = null;
+    try {
+      queryId = await tx(async (client) => {
+        const created = await client.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider,request_metadata,source,search_type,completed_at)
+          VALUES($1,$2,'FIPE_FREE','SUCCESS',0,0,'ADMIN_INTERNAL',$3,$4::jsonb,'ADMIN','PLATE',now()) RETURNING id`, [req.user!.id, plate, out.provider, JSON.stringify({ requestId: requestId(req), internal: true, documentCode: out.documentCode })]);
+        const id = created.rows[0].id as string;
+        await client.query('INSERT INTO vehicle_query_results(query_id,normalized,raw_response) VALUES($1,$2::jsonb,$3::jsonb)', [id, JSON.stringify({ __type: 'FIPE_QUOTE', quote: out }), JSON.stringify({ stored: false })]);
+        await client.query('UPDATE report_documents SET query_id=$2 WHERE document_code=$1', [out.documentCode, id]);
+        return id;
+      });
+    } catch (e) { log('error', 'admin_fipe_lookup_save_failed', { error: e instanceof Error ? e.message : 'unknown' }); }
+    await audit(req.user!.id, 'ADMIN_LOOKUP', 'VEHICLE_QUERY', queryId, { plate, productId: 'FIPE_FREE', provider: providerName, status: 'SUCCESS', saved: Boolean(queryId), requestId: requestId(req) });
+    res.status(200).json({ queryId, verificationCode: out.documentCode, saved: Boolean(queryId), plate, productId: 'FIPE_FREE', productName, provider: out.provider, consultedAt: out.consultedAt, result: publicFipeQuote(out), report: null, pdfBase64: fipePdf(out).toString('base64'), pdfName: `placa-na-mao-${plate}-fipe-gratis.pdf` });
+  } catch (error) {
+    const errorCode = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'PROVIDER_ERROR';
+    await audit(req.user!.id, 'ADMIN_LOOKUP', 'VEHICLE_QUERY', null, { plate, productId: 'FIPE_FREE', provider: providerName, status: 'FAILED', errorCode, requestId: requestId(req) });
+    throw fipeProviderError(error);
+  }
+}
+
 api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), asyncRoute(async (req, res) => {
   const parsed = z.object({ plate: plateSchema, productId: z.string().trim().min(1).max(80) }).safeParse(req.body);
   if (!parsed.success) throw appError('INVALID_INPUT', { code: 'INVALID_INPUT', http: 400, expose: true });
   const product = await pool.query('SELECT id,name FROM query_products WHERE id=$1 AND active=true', [parsed.data.productId]);
   if (!product.rowCount) throw appError('PRODUCT_NOT_FOUND', { code: 'PRODUCT_NOT_FOUND', http: 404, expose: true });
   const provider = getProvider();
+  if (String(parsed.data.productId).toUpperCase() === 'FIPE_FREE') return adminFipeFreeLookup(req, res, parsed.data.plate, String(product.rows[0].name), provider.name);
   try {
     // Uma consulta interna por placa/pacote por vez: clique duplo ou duas abas não geram duas consultas pagas.
     const output = await runExclusive(`admin-lookup:${parsed.data.plate}:${parsed.data.productId}`, () => performAdminLookup({ provider, plate: parsed.data.plate, productId: parsed.data.productId, productName: product.rows[0].name, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp }), env.QUERY_REQUEST_TIMEOUT_MS + 30_000);

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.58.0 — FIPE grátis só FIPE e direcionamento das consultas travado
+
+- **Erro corrigido:** a "Consulta interna" do produto "Consulta FIPE Grátis" comprava o **Veículo Total** (a consulta mais cara) e entregava o relatório completo com o nome de FIPE grátis. O produto não tinha consulta definida e caía na consulta padrão.
+- **FIPE grátis agora chama uma consulta só, a de FIPE por placa (Credify, código 454)**, em todos os caminhos: tela `/fipe` por placa, consulta interna do painel e qualquer configuração (caminho global, fontes marcadas no painel). O resultado traz só FIPE: valor, código FIPE, marca, modelo, ano, combustível e mês de referência. Sem chassi, Renavam, motor, proprietário, restrições nem decodificador de chassi. O custo da consulta é do sistema; o cliente não paga.
+- **Por placa continua exigindo conta:** sem login a tela pede para criar conta ou entrar e a Credify nem é chamada.
+- **Brecha fechada:** o produto FIPE grátis não roda mais pela API de consultas (`POST /queries`), onde chamaria o provedor sem cobrar.
+- **Produto sem consulta definida não cai mais no Veículo Total:** falha antes de chamar a Credify (nada cobrado, cliente estornado) e orienta marcar as fontes do produto em Produtos do site.
+- **Falhas da FIPE pela placa** têm código próprio (placa sem FIPE 404, dado incompleto 422, fonte indisponível 502); o motivo real da Credify vai para o log (`fipe_plate_provider_failed`) e para a saúde do provedor.
+- Sem variável de ambiente nova e sem migração. Testes: `fipe-gratis-so-fipe` (cada produto chama só a consulta da sua descrição).
+
 ## 1.57.0 — Super admin: limpar dados de teste e conserto da tela Sistema
 
 - **Painel → Sistema → Limpar dados de teste (só SUPER_ADMIN):** apaga consultas, pagamentos e carteira, contas de clientes e leads/atendimento/e-mails de teste. Exige senha do super admin e a frase `APAGAR DADOS DE TESTE`; tudo roda numa única transação (se algo falhar, nada é apagado). Mostra antes quantos registros existem em cada grupo.
