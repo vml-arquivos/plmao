@@ -194,16 +194,16 @@ describe('guia de veículos: API pública e painel', integration, () => {
     assert.equal((await cont.call(`/api/admin/vehicles/${modelA}`, { method: 'DELETE' })).json.error, 'VEHICLE_HAS_OPINIONS');
   });
 
-  it('comparador: exige conta, 2 a 3 versões distintas, destaca vencedores e inclui notas dos donos', async () => {
+  it('comparador: exige conta, 2 a 6 versões distintas, destaca vencedores e inclui notas dos donos', async () => {
     // reaprova uma opinião para ter nota no modelo A
     const pend = (await cont.call('/api/admin/vehicles/opinions?status=REJECTED')).json.items.find((i) => i.model.id === modelA);
     await pool.query(`UPDATE vehicle_opinions SET status='APPROVED', rating=5 WHERE id=$1`, [pend.id]);
     const q = (ids, token = tokenA) => pub(`/api/vehicles/compare?ids=${ids.join(',')}`, { token });
     const anon = (ids) => pub(`/api/vehicles/compare?ids=${ids.join(',')}`);
     assert.equal((await anon([verA, verB])).status, 401);
-    assert.equal((await q([verA])).json.error, 'COMPARE_NEEDS_2_OR_3');
-    assert.equal((await q([verA, verA])).json.error, 'COMPARE_NEEDS_2_OR_3');
-    assert.equal((await q([verA, 'nao-e-uuid'])).json.error, 'COMPARE_NEEDS_2_OR_3');
+    assert.equal((await q([verA])).json.error, 'COMPARE_NEEDS_2_TO_6');
+    assert.equal((await q([verA, verA])).json.error, 'COMPARE_NEEDS_2_TO_6');
+    assert.equal((await q([verA, 'nao-e-uuid'])).json.error, 'COMPARE_NEEDS_2_TO_6');
     const r = await q([verA, verB, verC]);
     assert.equal(r.status, 200, r.text);
     assert.equal(r.json.items.length, 3);

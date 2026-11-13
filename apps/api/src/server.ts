@@ -3472,7 +3472,7 @@ function humanMessage(code: string): string {
     IMPORT_EMPTY: 'A planilha não tem linhas para importar.',
     IMPORT_TOO_LARGE: 'A planilha tem linhas demais. Importe até 2.000 linhas por vez.',
     IMPORT_MISSING_COLUMNS: 'A planilha precisa das colunas marca, modelo e versao. Baixe o modelo de planilha.',
-    COMPARE_NEEDS_2_OR_3: 'Escolha de 2 a 3 veículos diferentes para comparar.',
+    COMPARE_NEEDS_2_TO_6: 'Escolha de 2 a 6 veículos diferentes para comparar.',
     COMPARE_VEHICLE_NOT_FOUND: 'Um dos veículos escolhidos não está mais disponível no guia.',
     OPINION_TOO_SHORT: 'Conte um pouco mais: escreva ao menos 20 caracteres entre o que gostou, o que não gostou e o comentário.',
     OPINION_LINKS_NOT_ALLOWED: 'Não é permitido colocar links ou e-mails na opinião.',

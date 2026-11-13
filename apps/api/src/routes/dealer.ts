@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { PoolClient } from 'pg';
@@ -6,6 +6,8 @@ import { pool, tx } from '../db.js';
 import { auth } from '../auth.js';
 import { env } from '../config.js';
 import { asyncRoute, audit, requestId } from '../lib/http.js';
+import { createHash } from 'node:crypto';
+import { readImageInfo } from '../lib/imageInfo.js';
 import { createDealership } from '../dealer/create.js';
 import { importCandidates, suggestForPlate } from '../dealer/vehicleHistory.js';
 import {
@@ -49,7 +51,24 @@ dealerRouter.post('/dealer', asyncRoute(async (req, res) => {
   res.status(201).json({ store, role: 'OWNER' });
 }));
 
-const httpsUrl = z.string().trim().max(500).url().refine((u) => /^https:\/\//i.test(u), 'HTTPS_REQUIRED');
+const httpsLink = z.string().trim().max(500).url().refine((u) => /^https:\/\//i.test(u), 'HTTPS_REQUIRED');
+/** Foto enviada pelo botão de carregar: fica no banco e é servida pelo próprio sistema. */
+export const OWN_PHOTO_RE = /^\/api\/public\/store-photos\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const ownPhoto = z.string().trim().max(120).regex(OWN_PHOTO_RE, 'PHOTO_PATH');
+/** Aceita o endereço de uma foto enviada (novo) ou um link https já cadastrado (antigo, continua valendo). */
+const httpsUrl = z.union([ownPhoto, httpsLink]);
+const ownPhotoIds = (urls: ReadonlyArray<string | null | undefined>): string[] => {
+  const ids = new Set<string>();
+  for (const u of urls) { const m = u ? OWN_PHOTO_RE.exec(u) : null; if (m) ids.add(m[1]!.toLowerCase()); }
+  return [...ids];
+};
+/** Foto enviada só vale se for desta loja: nunca deixa uma loja usar a foto de outra. */
+async function assertOwnPhotos(db: Pick<PoolClient, 'query'>, storeId: string, urls: ReadonlyArray<string | null | undefined>) {
+  const ids = ownPhotoIds(urls);
+  if (!ids.length) return;
+  const r = await db.query('SELECT count(*)::int AS n FROM stock_vehicle_photos WHERE dealership_id=$1 AND id = ANY($2::uuid[])', [storeId, ids]);
+  if (Number(r.rows[0].n) !== ids.length) throw bad('Uma das fotos não foi encontrada. Envie a imagem de novo.', 'DEALER_PHOTO_NOT_FOUND');
+}
 const storePatch = z.object({
   name: z.string().trim().min(2).max(80),
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).min(3).max(40),
@@ -75,6 +94,7 @@ dealerRouter.patch('/dealer', dealerAccess('MANAGER'), asyncRoute(async (req, re
   if (!parsed.success || !Object.keys(parsed.data).length) throw bad('Confira os dados da loja.');
   const b = parsed.data;
   if ((b.slug !== undefined || b.publicEnabled !== undefined) && ctx.role !== 'OWNER') throw forbidden('Só o dono altera o endereço e a publicação da vitrine.');
+  await assertOwnPhotos(pool, ctx.store.id, [b.logoUrl, b.coverUrl]);
   const map: Record<string, string> = { name: 'name', slug: 'slug', whatsapp: 'whatsapp', email: 'email', city: 'city', state: 'state', about: 'about', publicEnabled: 'public_enabled', tradeInDiscountBps: 'trade_in_discount_bps', staleDays: 'stale_days', logoUrl: 'logo_url', coverUrl: 'cover_url', accentColor: 'accent_color', instagram: 'instagram', address: 'address', hours: 'hours' };
   const sets: string[] = []; const values: unknown[] = [];
   for (const [k, v] of Object.entries(b)) { values.push(v); sets.push(`${map[k]}=$${values.length}`); }
@@ -148,7 +168,7 @@ dealerRouter.patch('/dealer/members/:userId', dealerAccess('MANAGER'), asyncRout
 
 // ---------------------------------------------------------------- estoque
 
-const photoZ = z.string().trim().max(500).url().refine((u) => u.startsWith('https://'), 'HTTPS_ONLY');
+const photoZ = httpsUrl;
 const yearZ = z.number().int().min(1950).max(2100);
 const vehicleBase = z.object({
   plate: plateZ.nullable(),
@@ -246,6 +266,7 @@ dealerRouter.post('/dealer/vehicles', dealerAccess('SELLER'), asyncRoute(async (
   try {
     const id = await tx(async (client) => {
       await assertVehicleRoom(client, ctx);
+      await assertOwnPhotos(client, ctx.store.id, b.photos ?? []);
       const queryId = await latestTeamQuery(client, ctx.store.id, b.plate ?? null);
       const cols = ['dealership_id', 'created_by', 'query_id']; const values: unknown[] = [ctx.store.id, ctx.userId, queryId];
       for (const [k, v] of Object.entries(b)) { if (k === 'photos') continue; cols.push(VCOLS[k]!); values.push(v); }
@@ -257,6 +278,44 @@ dealerRouter.post('/dealer/vehicles', dealerAccess('SELLER'), asyncRoute(async (
     const r = await pool.query(`${VEHICLE_SELECT} WHERE v.id=$1`, [id]);
     res.status(201).json(vehicleOut(r.rows[0], ctx));
   } catch (e) { if (isUnique(e)) throw conflict('Já existe um veículo em estoque com esta placa.', 'DEALER_PLATE_DUPLICATE'); throw e; }
+}));
+
+// ---------------------------------------------------------------- fotos (botão de carregar)
+
+const PHOTO_MAX = 6 * 1024 * 1024;
+const PHOTO_CAP = 1500;
+const PHOTO_MIN_SIDE: Record<string, number> = { photo: 400, cover: 400, logo: 64 };
+const photoUpload = express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: PHOTO_MAX });
+
+/** Recebe uma imagem (PNG, JPG ou WebP), confere pelo conteúdo e guarda no banco. Devolve o endereço para usar no veículo, logo ou capa. */
+dealerRouter.post('/dealer/photos', dealerAccess('SELLER'), photoUpload, asyncRoute(async (req, res) => {
+  const ctx = dealer(req);
+  const kind = ['photo', 'cover', 'logo'].includes(String(req.query.kind)) ? String(req.query.kind) : 'photo';
+  const data = req.body as Buffer;
+  if (!Buffer.isBuffer(data) || !data.length) throw bad('Envie uma imagem PNG, JPG ou WebP.', 'DEALER_PHOTO_TYPE', 415);
+  const info = readImageInfo(data);
+  if (!info || info.mime !== String(req.headers['content-type'] ?? '').split(';')[0]!.trim()) throw bad('Envie uma imagem PNG, JPG ou WebP.', 'DEALER_PHOTO_TYPE', 415);
+  const min = PHOTO_MIN_SIDE[kind]!;
+  if (data.length < 60 || (info.width !== null && info.height !== null && (info.width < min || info.height < min))) throw bad(`A imagem é muito pequena. Use uma foto com pelo menos ${min} pixels de lado.`, 'DEALER_PHOTO_TOO_SMALL', 422);
+  if (info.width !== null && info.height !== null && (info.width > 8000 || info.height > 8000)) throw bad('A imagem é muito grande. Reduza para até 8000 pixels de lado.', 'DEALER_PHOTO_TOO_LARGE', 422);
+  const sha = createHash('sha256').update(data).digest('hex');
+  const id = await tx(async (client) => {
+    await client.query('SELECT 1 FROM dealerships WHERE id=$1 FOR UPDATE', [ctx.store.id]);
+    const n = await client.query('SELECT count(*)::int AS n FROM stock_vehicle_photos WHERE dealership_id=$1', [ctx.store.id]);
+    if (Number(n.rows[0].n) >= PHOTO_CAP - 300) {
+      // Limpa o que foi enviado há mais de 2 dias e não está em nenhum veículo, logo ou capa.
+      await client.query(`DELETE FROM stock_vehicle_photos p WHERE p.dealership_id=$1 AND p.created_at < now() - interval '2 days'
+        AND NOT EXISTS (SELECT 1 FROM stock_vehicles v WHERE v.dealership_id=p.dealership_id AND v.photos::text LIKE '%' || p.id::text || '%')
+        AND NOT EXISTS (SELECT 1 FROM dealerships d WHERE d.id=p.dealership_id AND (COALESCE(d.logo_url,'') LIKE '%' || p.id::text || '%' OR COALESCE(d.cover_url,'') LIKE '%' || p.id::text || '%'))`, [ctx.store.id]);
+      const again = await client.query('SELECT count(*)::int AS n FROM stock_vehicle_photos WHERE dealership_id=$1', [ctx.store.id]);
+      if (Number(again.rows[0].n) >= PHOTO_CAP) throw conflict('Há fotos demais guardadas. Apague fotos de veículos antigos ou fale com o suporte.', 'DEALER_PHOTO_LIMIT');
+    }
+    const r = await client.query(
+      `INSERT INTO stock_vehicle_photos(dealership_id,mime,size_bytes,width,height,sha256,data,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [ctx.store.id, info.mime, data.length, info.width, info.height, sha, data, ctx.userId]);
+    return String(r.rows[0].id);
+  });
+  res.status(201).json({ url: `/api/public/store-photos/${id}`, width: info.width, height: info.height, sizeBytes: data.length });
 }));
 
 async function ownVehicle(ctx: DealerCtx, id: string, client: Pick<PoolClient, 'query'> = pool, lock = false) {
@@ -338,6 +397,7 @@ dealerRouter.patch('/dealer/vehicles/:id', dealerAccess('SELLER'), asyncRoute(as
     await tx(async (client) => {
       const cur = await ownVehicle(ctx, id, client, true);
       if (cur.status === 'SOLD' && !can.manage(ctx)) throw forbidden('Veículo vendido: só dono e gerente alteram.');
+      if (b.photos) await assertOwnPhotos(client, ctx.store.id, b.photos);
       if ((b.publicListed ?? cur.public_listed) === true && Number(b.priceCents ?? cur.price_cents) <= 0) throw bad('Informe o preço para mostrar na vitrine.');
       const sets: string[] = []; const values: unknown[] = [];
       for (const [k, v] of Object.entries(b)) { if (k === 'photos') { values.push(JSON.stringify(v)); sets.push(`photos=$${values.length}`); } else { values.push(v); sets.push(`${VCOLS[k]}=$${values.length}`); } }

@@ -10,6 +10,8 @@ import { bad, emailZ, iso, notFound, phoneZ, uuidParam } from '../dealer/context
 /** Vitrine pública da loja. Só aparece loja ativa e com a vitrine ligada; nunca expõe custo, placa inteira nem dados da equipe. */
 export const dealerPublicRouter = Router();
 const readLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false, skip: () => env.NODE_ENV === 'test', message: { error: 'TOO_MANY_ATTEMPTS', message: 'Muitas consultas em pouco tempo.' } });
+// A vitrine carrega várias fotos de uma vez; o limite é folgado e a imagem fica em cache no navegador.
+const photoLimiter = rateLimit({ windowMs: 60_000, limit: 1200, standardHeaders: true, legacyHeaders: false, skip: () => env.NODE_ENV === 'test' });
 const leadLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 8, standardHeaders: true, legacyHeaders: false, skip: () => env.NODE_ENV === 'test', message: { error: 'TOO_MANY_ATTEMPTS', message: 'Você enviou muitas mensagens. Tente mais tarde ou chame no WhatsApp.' } });
 
 const slugParam = (v: unknown) => {
@@ -25,11 +27,9 @@ async function publicStore(slug: string) {
 }
 
 function vehicleView(r: Record<string, unknown>) {
-  const plate = r.plate ? String(r.plate) : null;
   return {
     id: r.id, brand: r.brand, model: r.model, version: r.version, yearManufacture: r.year_manufacture ?? null, yearModel: r.year_model ?? null, color: r.color, fuel: r.fuel, transmission: r.transmission,
     mileageKm: r.mileage_km ?? null, priceCents: Number(r.price_cents), description: r.description, photos: r.photos, reserved: r.status === 'RESERVED',
-    plateEnd: plate ? plate.slice(-1) : null,
     verified: r.seal_enabled && r.q_id ? { code: String(r.q_id).slice(0, 8).toUpperCase(), consultedAt: iso(r.q_at) } : null
   };
 }
@@ -39,13 +39,29 @@ const storeView = (s: Record<string, unknown>) => ({
 });
 const VEHICLE_SELECT = `SELECT v.*, q.id AS q_id, q.completed_at AS q_at FROM stock_vehicles v LEFT JOIN vehicle_queries q ON q.id=v.query_id AND q.status='SUCCESS'`;
 
+/** Foto enviada pela loja. O endereço tem o identificador aleatório e a imagem nunca muda, então pode ficar em cache. */
+dealerPublicRouter.get('/public/store-photos/:id', photoLimiter, asyncRoute(async (req, res) => {
+  const id = uuidParam(req.params.id);
+  const r = await pool.query('SELECT p.mime,p.data,p.sha256 FROM stock_vehicle_photos p JOIN dealerships d ON d.id=p.dealership_id WHERE p.id=$1 AND d.active AND d.archived_at IS NULL', [id]);
+  if (!r.rowCount) { res.status(404).end(); return; }
+  const row = r.rows[0]!;
+  const etag = `"${String(row.sha256).slice(0, 16)}"`;
+  res.setHeader('Content-Type', String(row.mime));
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+  if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
+  res.send(row.data as Buffer);
+}));
+
 dealerPublicRouter.get('/public/stores/:slug', readLimiter, asyncRoute(async (req, res) => {
   const s = await publicStore(slugParam(req.params.slug));
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 40) : '';
   const values: unknown[] = [s.id];
   let where = `v.dealership_id=$1 AND v.public_listed AND v.status IN ('AVAILABLE','RESERVED')`;
   if (q) { values.push(`%${q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`); where += ` AND (v.brand ILIKE $${values.length} OR v.model ILIKE $${values.length} OR v.version ILIKE $${values.length})`; }
-  const v = await pool.query(`${VEHICLE_SELECT} WHERE ${where} ORDER BY (v.status='AVAILABLE') DESC, v.created_at DESC LIMIT 100`, values);
+  const v = await pool.query(`${VEHICLE_SELECT} WHERE ${where} ORDER BY (v.status='AVAILABLE') DESC, v.created_at DESC LIMIT 300`, values);
   res.setHeader('Cache-Control', 'public, max-age=60');
   res.json({
     store: storeView(s),

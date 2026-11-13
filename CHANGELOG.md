@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.64.0 — Fotos por upload, vitrine com chamadas e menus em módulos
+
+- **Fotos pelo botão de carregar.** Fotos do veículo, logo e capa da loja agora sobem do celular ou computador (JPG, PNG ou WebP). A imagem é reduzida no aparelho antes de enviar, fica guardada no banco (sobrevive a deploy) e só pode ser usada pela própria loja. Dá para trocar a ordem (a primeira é a capa) e remover. Os links https já cadastrados continuam funcionando.
+- Migração `090_fotos_da_loja` (tabela `stock_vehicle_photos`; logo e capa passam a aceitar também a foto enviada). Reversível.
+- **Vitrine:** nunca mostra a placa (saiu também o "final da placa"). Botão do WhatsApp flutuante nas páginas da loja e do veículo; no veículo: Chamar no WhatsApp, Simular financiamento (já com o valor e 30% de entrada), Pedir informações e Solicitar contato (preenchem a mensagem do formulário).
+- Os dados da placa/FIPE já preenchem o cadastro do veículo (como antes); o cadastro segue sem exibir a placa na vitrine.
+- **Menus em módulos** no painel da equipe e na área do cliente/lojista: cada módulo reúne o mesmo assunto, abre ao clicar, abre sozinho no módulo da tela atual e lembra o que a pessoa abriu. Nenhuma tela foi removida; a área da loja ganhou atalho direto para Estoque, Contatos, Propostas, Campanhas e Equipe.
+- **Mais carros:** comparação de 2 a 6 veículos (antes 2 a 3), garagem até 30 veículos por pessoa, simulações salvas até 200 e vitrine com até 300 veículos.
+- Testes: `loja-fotos` (novo), ajustes em `vehicle-guide`, `garage`, `dealer` e `migration-rollback`.
+
 ## 1.63.0 — Todos os documentos no mesmo padrão visual
 
 - **PDF da consulta de valor FIPE (Consulta Zero) refeito.** Antes era texto puro; agora tem o mesmo cabeçalho, QR de validação, faixas, grade de dados, gráfico do histórico FIPE e rodapé do relatório de consulta.

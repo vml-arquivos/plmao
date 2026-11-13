@@ -10,7 +10,7 @@ import { SeoH1 } from '../components/SeoContent';
 interface CompareItem { versionId: string; label: string; model: { slug: string; brand: string; name: string }; version: { name: string; yearModel: number | null; fuel: string | null }; specs: Specs; rating: RatingSummary }
 interface CompareResult { groups: string[]; fields: SpecField[]; ratingCategories: RatingCategory[]; items: CompareItem[]; winners: Record<string, number[]>; ratingWinners: Record<string, number[]> }
 interface Slot { versionId: string; label: string; slug: string }
-const MAX = 3;
+const MAX = 6;
 
 export default function Compare() {
   usePageTitle('Comparar veículos');
@@ -56,7 +56,7 @@ export default function Compare() {
         <div className="container">
           <span className="eyebrow">Comparador</span>
           <SeoH1 path="/comparar" fallback="Compare veículos lado a lado." style={{ maxWidth: '24ch' }} />
-          <p className="lead">Escolha de 2 a 3 versões e veja ficha técnica, consumo, espaço e a nota de quem tem, com o melhor de cada quesito destacado.</p>
+          <p className="lead">Escolha de 2 a 6 versões e veja ficha técnica, consumo, espaço e a nota de quem tem, com o melhor de cada quesito destacado.</p>
         </div>
       </section>
       <section className="section" style={{ paddingTop: 8 }}>
@@ -186,7 +186,7 @@ function CompareTable({ data, onlyDiff }: { data: CompareResult; onlyDiff: boole
 
   return (
     <div className="cmp-wrap">
-      <table className="cmp">
+      <table className="cmp" style={{ minWidth: Math.max(640, 170 + items.length * 190) }}>
         <thead>
           <tr>
             <th scope="col"><span className="sr-only">Quesito</span></th>

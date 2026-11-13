@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Icon, type IconName } from '../shared/icons';
+import { NavGroup, routeActive } from '../shared/NavGroup';
 import { Button, LinkButton, Logo, PageLoading, ThemeSwitch } from '../shared/ui';
 import { initials, money } from '../shared/format';
 import { BRAND } from './config';
@@ -165,7 +166,7 @@ export function PublicLayout() {
 
 /* ---------- Área logada ---------- */
 type NavItem = { to: string; label: string; icon: IconName; end?: boolean; only?: UsageProfile[]; feature?: string };
-type NavSection = { title?: string; items: NavItem[] };
+type NavSection = { title?: string; icon?: IconName; items: NavItem[] };
 /**
  * Menu por perfil de uso, em grupos pelo assunto. Cliente vê o essencial para consultar; lojista ganha a loja, a consulta em lote
  * e a carteira de veículos; afiliado vê o painel de indicações. O menu é só navegação: o acesso a cada área é conferido no servidor.
@@ -176,24 +177,29 @@ const SECTIONS: NavSection[] = [
     { to: '/app/parceiro', label: 'Indicações', icon: 'users', only: ['AFILIADO'] },
     { to: '/app/fipe', label: 'FIPE grátis', icon: 'tag' }
   ] },
-  { title: 'Acompanhar', items: [
-    { to: '/app/historico', label: 'Consultas', icon: 'clock' },
+  { title: 'Consultas', icon: 'search', items: [
+    { to: '/app/historico', label: 'Minhas consultas', icon: 'clock' },
     { to: '/app/monitoramento', label: 'Monitoramento', icon: 'eye', only: ['CLIENTE', 'LOJISTA'], feature: 'WATCHES' },
-    { to: '/app/lote', label: 'Em lote', icon: 'list', only: ['LOJISTA'] }
+    { to: '/app/lote', label: 'Consulta em lote', icon: 'list', only: ['LOJISTA'] }
   ] },
-  { title: 'Garagem', items: [
+  { title: 'Garagem', icon: 'car', items: [
     { to: '/app/garagem', label: 'Minha garagem', icon: 'car', only: ['CLIENTE', 'LOJISTA'], feature: 'GARAGE' },
-    { to: '/app/simulacoes', label: 'Simulações', icon: 'calculator', only: ['CLIENTE', 'LOJISTA'] }
-  ] },
-  { title: 'Loja', items: [
-    { to: '/app/loja', label: 'Minha loja', icon: 'building', only: ['LOJISTA'] },
+    { to: '/app/simulacoes', label: 'Simulações', icon: 'calculator', only: ['CLIENTE', 'LOJISTA'] },
     { to: '/app/veiculos', label: 'Meus veículos', icon: 'car', only: ['LOJISTA'] }
   ] },
-  { title: 'Carteira e convites', items: [
+  { title: 'Minha loja', icon: 'building', items: [
+    { to: '/app/loja', label: 'Painel da loja', icon: 'building', end: true, only: ['LOJISTA'] },
+    { to: '/app/loja/estoque', label: 'Estoque e fotos', icon: 'car', only: ['LOJISTA'] },
+    { to: '/app/loja/leads', label: 'Contatos (leads)', icon: 'trending-up', only: ['LOJISTA'] },
+    { to: '/app/loja/propostas', label: 'Propostas', icon: 'file-text', only: ['LOJISTA'] },
+    { to: '/app/loja/campanhas', label: 'Campanhas', icon: 'send', only: ['LOJISTA'] },
+    { to: '/app/loja/equipe', label: 'Equipe da loja', icon: 'users', only: ['LOJISTA'] }
+  ] },
+  { title: 'Carteira e convites', icon: 'wallet', items: [
     { to: '/app/carteira', label: 'Carteira', icon: 'wallet' },
     { to: '/app/convites', label: 'Convites e indicações', icon: 'users' }
   ] },
-  { title: 'Conta', items: [
+  { title: 'Conta e ajuda', icon: 'user', items: [
     { to: '/app/suporte', label: 'Suporte', icon: 'mail' },
     { to: '/app/conta', label: 'Minha conta', icon: 'user' }
   ] }
@@ -214,13 +220,16 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 function AppLinks({ sections, onGo }: { sections: NavSection[]; onGo?: () => void }) {
+  const { pathname } = useLocation();
+  const link = (i: NavItem) => <NavLink key={i.to + i.label} to={i.to} end={i.end} onClick={onGo} className={({ isActive }) => (isActive ? 'active' : '')}><Icon name={i.icon} /> {i.label}</NavLink>;
   return (
     <>
-      {sections.map((sec, n) => (
-        <div key={sec.title ?? `s${n}`} className="app-grp">
-          {sec.title && <span className="app-grp-t">{sec.title}</span>}
-          {sec.items.map((i) => <NavLink key={i.to + i.label} to={i.to} end={i.end} onClick={onGo} className={({ isActive }) => (isActive ? 'active' : '')}><Icon name={i.icon} /> {i.label}</NavLink>)}
-        </div>
+      {sections.map((sec, n) => sec.title ? (
+        <NavGroup key={sec.title} id={sec.title} title={sec.title} icon={sec.icon} prefix="app" storeKey="pnm_nav_app" active={sec.items.some((i) => routeActive(pathname, i.to, i.end))}>
+          {sec.items.map(link)}
+        </NavGroup>
+      ) : (
+        <div key={`s${n}`} className="app-grp">{sec.items.map(link)}</div>
       ))}
     </>
   );

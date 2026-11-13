@@ -150,7 +150,7 @@ simulatorRouter.delete('/simulator/mine/:code', auth, asyncRoute(async (req, res
 simulatorRouter.get('/simulator/mine', auth, asyncRoute(async (req, res) => {
   const r = await pool.query(
     `SELECT code, modality, vehicle_kind, person_type, vehicle_value_cents, down_payment_cents, months, monthly_rate_pct, installment_cents, total_paid_cents, cet_annual_pct, created_at, (input->>'vehicleLabel') AS label
-     FROM financing_simulations WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`, [req.user!.id]);
+     FROM financing_simulations WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200`, [req.user!.id]);
   res.setHeader('Cache-Control', 'private, no-store');
   res.json({ items: r.rows.map((x) => ({
     code: x.code, modality: x.modality, vehicleKind: x.vehicle_kind, personType: x.person_type, label: x.label || null,

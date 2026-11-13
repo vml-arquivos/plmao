@@ -144,3 +144,15 @@
 .crm-card:hover { border-color: var(--primary); }
 .crm-card .muted { font-size: 12.5px; }
 .crm-timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13.5px; max-height: 280px; overflow: auto; }
+
+/* Menu do painel em módulos que abrem e fecham */
+.adm-mod { display: grid; margin-top: 2px; }
+.adm-mod-h { display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 12px; border: 0; border-radius: 10px; background: transparent; color: #E6E3F5; font: 500 14px var(--font-display); text-align: left; cursor: pointer; }
+.adm-mod-h:hover { background: rgba(255, 255, 255, .06); color: #fff; }
+.adm-mod-h:focus-visible { outline: 2px solid #5CAEF0; outline-offset: 1px; }
+.adm-mod-h > span { flex: 1; }
+.adm-mod-h .chev { transition: transform .18s ease; color: #8F8DB0; }
+.adm-mod.open > .adm-mod-h .chev { transform: rotate(180deg); }
+.adm-mod.has-active > .adm-mod-h { color: #fff; }
+.adm-mod-b { display: grid; gap: 2px; margin: 2px 0 6px 20px; padding-left: 8px; border-left: 1px solid rgba(255, 255, 255, .08); }
+.adm-mod-b[hidden] { display: none; }

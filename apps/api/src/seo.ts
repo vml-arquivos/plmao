@@ -27,7 +27,7 @@ export const pageMeta: Record<string, SeoMeta> = {
   '/simulador/moto': { title: 'Simulador de financiamento de moto: parcela, CET e custo total | Placa na Mão', description: 'Simule o financiamento da sua moto com taxa média do Banco Central, IOF e tarifas. Veja a parcela e o custo total antes de ir ao banco.' },
   '/simulador/caminhao': { title: 'Simulador de financiamento de caminhão: CDC e leasing | Placa na Mão', description: 'Simule o financiamento de caminhão para pessoa física ou empresa, com taxa de mercado, IOF, tarifas e CET. Baixe o PDF da simulação.' },
   '/simulador/utilitario': { title: 'Simulador de financiamento de utilitário e van | Placa na Mão', description: 'Simule o financiamento de utilitário, van ou pick-up em CDC ou leasing, com IOF, tarifas e CET, e leve o PDF ao banco.' },
-  '/comparar': { title: 'Comparar veículos lado a lado | Placa na Mão', description: 'Compare ficha técnica, consumo, espaço e nota dos donos de até 3 veículos.' },
+  '/comparar': { title: 'Comparar veículos lado a lado | Placa na Mão', description: 'Compare ficha técnica, consumo, espaço e nota dos donos de até 6 veículos.' },
   '/blog': { title: 'Blog: guias para comprar e vender veículo com segurança | Placa na Mão', description: 'Guias práticos sobre gravame, débitos, restrições, Tabela FIPE, recall e vistoria para decidir com segurança.' },
   '/entrar': { title: 'Entrar | Placa na Mão', description: 'Acesse sua conta Placa na Mão.' },
   '/criar-conta': { title: 'Criar conta | Placa na Mão', description: 'Crie sua conta Placa na Mão e faça sua primeira consulta veicular.' },

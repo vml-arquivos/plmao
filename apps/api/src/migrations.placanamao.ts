@@ -3159,6 +3159,40 @@ export const placaMigrations: Migration[] = [
       );
       await client.query('DROP TABLE IF EXISTS migration_089_prev');
     }
+  },
+  {
+    id: '090_fotos_da_loja',
+    name: 'Fotos dos veículos e logo/capa da loja enviadas pelo próprio painel (botão de carregar), guardadas no banco para sobreviver a cada deploy. Links https já cadastrados continuam valendo.',
+    up: async (client) => {
+      await client.query(`CREATE TABLE IF NOT EXISTS stock_vehicle_photos (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        dealership_id uuid NOT NULL REFERENCES dealerships(id) ON DELETE CASCADE,
+        mime text NOT NULL,
+        size_bytes integer NOT NULL,
+        width integer,
+        height integer,
+        sha256 text NOT NULL,
+        data bytea NOT NULL,
+        created_by uuid,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS stock_vehicle_photos_dealer_idx ON stock_vehicle_photos(dealership_id, created_at)`);
+      // Logo e capa passam a aceitar também o endereço da foto enviada (além do link https de antes).
+      for (const col of ['logo_url', 'cover_url']) {
+        await client.query(`ALTER TABLE dealerships DROP CONSTRAINT IF EXISTS dealerships_${col}_check`);
+        await client.query(`ALTER TABLE dealerships ADD CONSTRAINT dealerships_${col}_check CHECK (${col} IS NULL OR (${col} ~ '^(https://|/api/public/store-photos/)' AND length(${col}) <= 500))`);
+      }
+    },
+    down: async (client) => {
+      // Volta à regra antiga: logo e capa enviadas (que não são link https) deixam de existir; o resto é preservado.
+      await client.query(`UPDATE dealerships SET logo_url = NULL WHERE logo_url IS NOT NULL AND logo_url !~ '^https://'`);
+      await client.query(`UPDATE dealerships SET cover_url = NULL WHERE cover_url IS NOT NULL AND cover_url !~ '^https://'`);
+      for (const col of ['logo_url', 'cover_url']) {
+        await client.query(`ALTER TABLE dealerships DROP CONSTRAINT IF EXISTS dealerships_${col}_check`);
+        await client.query(`ALTER TABLE dealerships ADD CONSTRAINT dealerships_${col}_check CHECK (${col} IS NULL OR (${col} ~ '^https://' AND length(${col}) <= 500))`);
+      }
+      await client.query('DROP TABLE IF EXISTS stock_vehicle_photos');
+    }
   }
 
 ];

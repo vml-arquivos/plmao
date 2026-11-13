@@ -251,7 +251,7 @@ describe('loja: estoque, equipe, leads, propostas, troca, alertas e vitrine', in
     assert.ok(!pub.text.includes('NaoListar'));
     assert.ok(!/cost|margin|QQQ1A11/i.test(pub.text), 'não vaza custo, margem nem placa inteira');
     const v = pub.json.vehicles.find((x) => x.model === 'Corolla');
-    assert.equal(v.plateEnd, '1'); assert.equal(v.verified.code, String(q.rows[0].id).slice(0, 8).toUpperCase());
+    assert.equal(v.plateEnd, undefined, 'nem o final da placa vai para a vitrine'); assert.equal(v.verified.code, String(q.rows[0].id).slice(0, 8).toUpperCase());
     const one = await call(server.base, `/api/public/stores/${slug}/vehicles/${v.id}`);
     assert.equal(one.status, 200);
     assert.equal((await call(server.base, `/api/public/stores/${slug}/vehicles/${vehicle.id}`)).status, 404, 'vendido some');

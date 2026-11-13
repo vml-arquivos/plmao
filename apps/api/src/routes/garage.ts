@@ -14,7 +14,7 @@ import { env } from '../config.js';
  */
 export const garageRouter = Router();
 
-const MAX_VEHICLES = 10;
+const MAX_VEHICLES = 30;
 const MAX_ITEMS = 200;
 const limiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false, message: { error: 'TOO_MANY_ATTEMPTS', message: 'Muitas ações em pouco tempo. Aguarde um instante.' } });
 garageRouter.use('/garage', limiter, auth, requireFeature('GARAGE'));

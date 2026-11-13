@@ -6,6 +6,7 @@ import { errorMessage } from '../../shared/api';
 import { dateOnly, money, num } from '../../shared/format';
 import { api } from '../api';
 import { centsField, toCents, useStore } from './Store';
+import { PhotoGrid } from '../components/PhotoUpload';
 
 export interface Vehicle {
   id: string; plate: string | null; brand: string; model: string; version: string; yearManufacture: number | null; yearModel: number | null; color: string; fuel: string; transmission: string; mileageKm: number | null;
@@ -26,7 +27,7 @@ function VehicleForm({ vehicle, onClose, onDone }: { vehicle?: Vehicle; onClose:
   const [f, setF] = useState({
     plate: vehicle?.plate ?? '', brand: vehicle?.brand ?? '', model: vehicle?.model ?? '', version: vehicle?.version ?? '', yearManufacture: String(vehicle?.yearManufacture ?? ''), yearModel: String(vehicle?.yearModel ?? ''),
     color: vehicle?.color ?? '', fuel: vehicle?.fuel ?? '', transmission: vehicle?.transmission ?? '', mileageKm: String(vehicle?.mileageKm ?? ''), price: centsField(vehicle?.priceCents), cost: centsField(vehicle?.costCents), fipe: centsField(vehicle?.fipeCents),
-    ipvaDueOn: vehicle?.ipvaDueOn ?? '', licensingDueOn: vehicle?.licensingDueOn ?? '', description: vehicle?.description ?? '', photos: (vehicle?.photos ?? []).join('\n')
+    ipvaDueOn: vehicle?.ipvaDueOn ?? '', licensingDueOn: vehicle?.licensingDueOn ?? '', description: vehicle?.description ?? '', photos: vehicle?.photos ?? ([] as string[])
   });
   const [pub, setPub] = useState(vehicle?.publicListed ?? false); const [seal, setSeal] = useState(vehicle?.sealEnabled ?? false);
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
@@ -40,7 +41,7 @@ function VehicleForm({ vehicle, onClose, onDone }: { vehicle?: Vehicle; onClose:
       let filled = false;
       setF((cur) => {
         const next = { ...cur };
-        const put = (k: keyof typeof cur, v: unknown) => { if (v != null && v !== '' && !String(cur[k] ?? '').trim()) { (next as Record<string, string>)[k] = String(v); filled = true; } };
+        const put = (k: Exclude<keyof typeof cur, 'photos'>, v: unknown) => { if (v != null && v !== '' && !String(cur[k] ?? '').trim()) { (next as unknown as Record<string, string>)[k] = String(v); filled = true; } };
         put('brand', d.fields.brand); put('model', d.fields.model); put('version', d.fields.version); put('yearManufacture', d.fields.yearManufacture); put('yearModel', d.fields.yearModel);
         put('color', d.fields.color); put('fuel', d.fields.fuel); put('transmission', d.fields.transmission); put('mileageKm', d.fields.mileageKm);
         if (d.fields.fipeCents != null && !cur.fipe.trim()) { next.fipe = centsField(d.fields.fipeCents); filled = true; }
@@ -70,7 +71,7 @@ function VehicleForm({ vehicle, onClose, onDone }: { vehicle?: Vehicle; onClose:
       const body = {
         plate: f.plate.trim() ? f.plate : null, brand: f.brand, model: f.model, version: f.version, yearManufacture: toInt(f.yearManufacture), yearModel: toInt(f.yearModel), color: f.color, fuel: f.fuel, transmission: f.transmission,
         mileageKm: toInt(f.mileageKm), priceCents: price, fipeCents: toCents(f.fipe), ipvaDueOn: f.ipvaDueOn || null, licensingDueOn: f.licensingDueOn || null, description: f.description,
-        photos: f.photos.split('\n').map((x) => x.trim()).filter(Boolean), publicListed: pub, sealEnabled: seal, ...(canSeeCost ? { costCents: toCents(f.cost) } : {})
+        photos: f.photos, publicListed: pub, sealEnabled: seal, ...(canSeeCost ? { costCents: toCents(f.cost) } : {})
       };
       if (vehicle) await api.patch(`/dealer/vehicles/${vehicle.id}`, body); else await api.post('/dealer/vehicles', body);
       toast.ok('Salvo.'); onDone();
@@ -105,10 +106,10 @@ function VehicleForm({ vehicle, onClose, onDone }: { vehicle?: Vehicle; onClose:
           <Field label="Licenciamento vence em"><Input type="date" value={f.licensingDueOn} onChange={set('licensingDueOn')} /></Field>
         </div>
         <Field label="Descrição"><Textarea rows={3} value={f.description} onChange={set('description')} maxLength={2000} /></Field>
-        <Field label="Fotos" hint="Um link https por linha, até 8."><Textarea rows={3} value={f.photos} onChange={set('photos')} placeholder="https://..." /></Field>
+        <Field label="Fotos" hint="Carregue as fotos do seu aparelho, até 8. A primeira vira a capa."><PhotoGrid value={f.photos} onChange={(photos) => setF((s) => ({ ...s, photos }))} /></Field>
         <Switch label="Mostrar na vitrine" checked={pub} onChange={(e) => setPub(e.target.checked)} />
         <Switch label="Selo de consulta verificada" checked={seal} onChange={(e) => setSeal(e.target.checked)} />
-        <p className="muted" style={{ fontSize: 13, margin: 0 }}>O selo aparece quando a equipe já fez uma consulta concluída desta placa. A placa inteira nunca é exibida na vitrine.</p>
+        <p className="muted" style={{ fontSize: 13, margin: 0 }}>O selo aparece quando a equipe já fez uma consulta concluída desta placa. A placa nunca é exibida na vitrine.</p>
         {error && <Alert tone="warn" icon="alert-triangle">{error}</Alert>}
         <button type="submit" hidden />
       </form>

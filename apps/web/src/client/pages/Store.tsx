@@ -5,6 +5,7 @@ import { Alert, Badge, Button, ConfirmDialog, ErrorState, Field, Input, Modal, P
 import { errorMessage } from '../../shared/api';
 import { money } from '../../shared/format';
 import { api } from '../api';
+import { SingleImage } from '../components/PhotoUpload';
 
 export type Role = 'OWNER' | 'MANAGER' | 'SELLER';
 export interface StoreInfo { id: string; name: string; slug: string; whatsapp: string | null; email: string | null; city: string | null; state: string | null; about: string; publicEnabled: boolean; active: boolean; vehicleLimit: number; memberLimit: number; tradeInDiscountBps: number; staleDays: number; logoUrl: string | null; coverUrl: string | null; accentColor: string | null; instagram: string | null; address: string | null; hours: string | null }
@@ -196,8 +197,8 @@ function Settings() {
       <Field label="Sobre a loja"><Textarea rows={3} value={f.about} onChange={set('about')} maxLength={1000} /></Field>
       <div className="card-head" style={{ marginTop: 8 }}><h2>Aparência da vitrine</h2></div>
       <div className="grid-2">
-        <Field label="Logo" hint="Link https de uma imagem quadrada."><Input value={f.logoUrl} onChange={set('logoUrl')} placeholder="https://..." /></Field>
-        <Field label="Capa" hint="Link https de uma imagem larga."><Input value={f.coverUrl} onChange={set('coverUrl')} placeholder="https://..." /></Field>
+        <Field label="Logo" hint="Imagem quadrada, de preferência com fundo transparente (PNG)."><SingleImage kind="logo" label="Logo da loja" value={f.logoUrl} onChange={(logoUrl) => setF((s) => ({ ...s, logoUrl }))} /></Field>
+        <Field label="Capa" hint="Imagem larga, para o topo da vitrine."><SingleImage kind="cover" ratio="16 / 6" label="Capa da loja" value={f.coverUrl} onChange={(coverUrl) => setF((s) => ({ ...s, coverUrl }))} /></Field>
         <Field label="Cor de destaque"><div className="row" style={{ flexWrap: 'nowrap' }}><input type="color" aria-label="Cor de destaque" value={f.accent} onChange={set('accent')} style={{ width: 48, height: 40, padding: 2, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface)' }} /><Input value={f.accent} onChange={set('accent')} maxLength={7} /></div></Field>
         <Field label="Instagram"><Input value={f.instagram} onChange={set('instagram')} placeholder="@sualoja" maxLength={31} /></Field>
         <Field label="Endereço"><Input value={f.address} onChange={set('address')} maxLength={160} /></Field>

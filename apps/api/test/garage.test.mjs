@@ -93,10 +93,10 @@ describe('minha garagem, contestação de dado, funil e parceiro', integration, 
     assert.equal((await a('/api/garage')).json.vehicles.length, 0);
   });
 
-  it('limite de 10 veículos por pessoa', async () => {
-    const plates = ['AAA1A11', 'AAA1A12', 'AAA1A13', 'AAA1A14', 'AAA1A15', 'AAA1A16', 'AAA1A17', 'AAA1A18', 'AAA1A19', 'AAA1B10'];
+  it('limite de 30 veículos por pessoa', async () => {
+    const plates = Array.from({ length: 30 }, (_, i) => `AAC1A${String(i).padStart(2, '0')}`);
     for (const p of plates) assert.equal((await a('/api/garage/vehicles', { method: 'POST', body: { plate: p } })).status, 201);
-    const over = await a('/api/garage/vehicles', { method: 'POST', body: { plate: 'AAA1B11' } });
+    const over = await a('/api/garage/vehicles', { method: 'POST', body: { plate: 'AAC1B99' } });
     assert.equal(over.status, 400);
   });
 

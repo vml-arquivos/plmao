@@ -201,7 +201,7 @@ publicVehiclesRouter.get('/vehicles/version-tree', asyncRoute(async (_req, res) 
 
 /** Rótulos de versões já escolhidas (usado pelo comparador para montar os "slots" a partir da URL). */
 publicVehiclesRouter.get('/vehicles/version-labels', asyncRoute(async (req, res) => {
-  const ids = String(req.query.ids ?? '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 3);
+  const ids = String(req.query.ids ?? '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 6);
   if (!ids.every(isUuid)) throw bad();
   if (!ids.length) return res.json({ items: [] });
   const r = await pool.query(`SELECT v.id, v.name, v.year_model, m.slug, m.brand, m.name AS model_name FROM vehicle_versions v JOIN vehicle_models m ON m.id=v.model_id WHERE v.id = ANY($1::uuid[]) AND v.active AND ${PUBLISHED}`, [ids]);
@@ -352,7 +352,7 @@ publicVehiclesRouter.post('/vehicles/interest', rateLimit({ windowMs: 60 * 1000,
 // ---------------------------------------------------------------- comparador (exige conta)
 publicVehiclesRouter.get('/vehicles/compare', auth, asyncRoute(async (req, res) => {
   const ids = String(req.query.ids ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (ids.length < 2 || ids.length > 3 || new Set(ids).size !== ids.length || !ids.every(isUuid)) throw bad('COMPARE_NEEDS_2_OR_3');
+  if (ids.length < 2 || ids.length > 6 || new Set(ids).size !== ids.length || !ids.every(isUuid)) throw bad('COMPARE_NEEDS_2_TO_6');
   const r = await pool.query(`SELECT v.id AS version_id, v.name AS version_name, v.year_model, v.fuel, v.fipe_code, v.specs, m.id AS model_id, m.slug, m.brand, m.name AS model_name, m.vehicle_type, m.body_type, m.image_url
     FROM vehicle_versions v JOIN vehicle_models m ON m.id=v.model_id WHERE v.id = ANY($1::uuid[]) AND v.active AND ${PUBLISHED}`, [ids]);
   if (r.rowCount !== ids.length) throw notFound('COMPARE_VEHICLE_NOT_FOUND');

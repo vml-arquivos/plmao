@@ -1230,3 +1230,46 @@ a.kind-tab { text-decoration: none; box-sizing: border-box; }
 .tool-card p { margin: 0; color: var(--text-2); font-size: 14.5px; }
 .tool-go { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--primary-ink); font-family: var(--font-display); font-weight: 500; font-size: 14.5px; }
 @media (max-width: 560px) { .tools-grid { grid-template-columns: 1fr; } .hero2-tools a { flex: 1 1 auto; justify-content: center; } .hero2-tools > span { flex: 0 0 100%; } }
+
+/* Envio de fotos da loja */
+.pu { border: 1px dashed var(--border-strong); border-radius: 14px; padding: 12px; background: var(--surface); transition: border-color .15s ease, background .15s ease; }
+.pu.drag { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, var(--surface)); }
+.pu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; }
+.pu-item { position: relative; aspect-ratio: 4 / 3; border-radius: 10px; overflow: hidden; background: var(--bg-soft, #eef2f8); border: 1px solid var(--border); }
+.pu-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pu-wait, .pu-broken { display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.pu-cover { position: absolute; left: 6px; top: 6px; background: var(--primary); color: #fff; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.pu-actions { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; gap: 4px; padding: 6px; background: linear-gradient(transparent, rgba(4, 11, 27, .72)); }
+.pu-actions button { width: 30px; height: 30px; border-radius: 8px; border: 0; background: rgba(255, 255, 255, .92); color: #0b1a3a; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.pu-actions button:disabled { opacity: .35; cursor: default; }
+.pu-add { aspect-ratio: 4 / 3; border-radius: 10px; border: 1px dashed var(--primary); background: transparent; color: var(--primary); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-weight: 600; font-size: 13px; cursor: pointer; min-height: 84px; }
+.pu-add:hover { background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.pu-hint { font-size: 12.5px; margin: 10px 0 0; }
+.pu-single { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.pu-prev { width: 120px; max-width: 40%; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-soft, #eef2f8); display: flex; align-items: center; justify-content: center; overflow: hidden; color: var(--muted); }
+.pu-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pu-single-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Vitrine: botão do WhatsApp flutuante e chamadas para contato */
+.wa-float { position: fixed; right: 16px; bottom: 16px; z-index: 40; display: inline-flex; align-items: center; gap: 8px; min-height: 52px; padding: 0 18px 0 14px; border-radius: 999px; background: #1FA855; color: #fff; font-weight: 600; text-decoration: none; box-shadow: 0 12px 28px -10px rgba(4, 11, 27, .55); }
+.wa-float:hover { text-decoration: none; filter: brightness(1.06); }
+.wa-float:focus-visible { outline: 3px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 5px #1FA855; }
+@media (max-width: 520px) { .wa-float span { display: none; } .wa-float { padding: 0; width: 56px; height: 56px; justify-content: center; } }
+.vcta { display: grid; gap: 10px; }
+.vcta .btn { width: 100%; }
+.vcta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 420px) { .vcta-row { grid-template-columns: 1fr; } }
+
+/* Menu da área logada em módulos que abrem e fecham */
+.app-mod { display: grid; margin-top: 4px; }
+.app-mod-h { display: flex; align-items: center; gap: 11px; width: 100%; padding: 10px 12px; border: 0; border-radius: 12px; background: transparent; color: var(--text); font-family: var(--font-display); font-weight: 500; font-size: 14.5px; text-align: left; cursor: pointer; }
+.app-mod-h:hover { background: var(--bg-soft); }
+.app-mod-h:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.app-mod-h > span { flex: 1; }
+.app-mod-h .chev { transition: transform .18s ease; color: var(--muted); }
+.app-mod.open > .app-mod-h .chev { transform: rotate(180deg); }
+.app-mod.has-active > .app-mod-h { color: var(--primary-ink); }
+.app-mod-b { display: grid; gap: 2px; margin: 2px 0 6px 18px; padding-left: 10px; border-left: 1px solid var(--border); }
+.app-mod-b[hidden] { display: none; }
+.app-mod-b a { padding: 8px 10px; font-size: 14px; }
+.app-grp { margin-bottom: 4px; }
