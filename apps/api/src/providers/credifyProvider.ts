@@ -4,7 +4,7 @@ import { extractReturn, providerOutcome } from '../report/normalizeV2.js';
 import { judicialNeeded } from '../report/judicial.js';
 import { bdrpCode, describeShape, isVehicleTotal } from '../report/vehicleTotal.js';
 import { CallBudget } from '../lib/providerGuard.js';
-import { Spend, bdrpReturn, buildLayeredEnvelope, flagIsClear, flagText, parseFarol, respostaOf, type Farol, type Piece } from '../report/layers.js';
+import { Spend, bdrpReturn, buildLayeredEnvelope, flagIsClear, flagText, parseFarol, pieceIsEmpty, respostaOf, type Farol, type Piece } from '../report/layers.js';
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
 import { log } from '../lib/http.js';
 import { allowedPaths, contractFor } from '../lib/productContract.js';
@@ -69,8 +69,10 @@ let inflight: Promise<string> | null = null;
 /** Consultas pagas já enviadas à Credify nesta execução (teto de segurança por hora e por dia). */
 const budget = new CallBudget();
 /** Consultas avulsas em que só o CODIGO decide (1 dados, 2 não encontrado, 3 erro); o texto de DESCRICAORETORNO varia. */
-const LENIENT_PATHS = new Set(['/leilaoconjugado', '/indiciosinistro', '/recall', '/historicoroubofurto', '/farolleilao', '/historicoproprietario', '/precificadorfipe', '/renainf']);
+const LENIENT_PATHS = new Set(['/veicularbnacionalonline', '/leilaoconjugado', '/indiciosinistro', '/recall', '/historicoroubofurto', '/farolleilao', '/historicoproprietario', '/precificadorfipe', '/renainf']);
 const BASE_PATH = '/debitosrestricoesproprietarios';
+/** Bloco do Veículo Total que cada consulta avulsa alimenta (usado só para conferir se a resposta veio com dados). */
+const PIECE_BLOCK: Record<string, 'INDICIOSINISTROVEICULAR' | 'VEICULARBNACIONAL' | 'LEILAOCONJUGADO' | 'HISTORICOROUBOFURTO' | 'RECALL'> = { '/indiciosinistro': 'INDICIOSINISTROVEICULAR', '/veicularbnacionalonline': 'VEICULARBNACIONAL', '/leilaoconjugado': 'LEILAOCONJUGADO', '/historicoroubofurto': 'HISTORICOROUBOFURTO', '/recall': 'RECALL' };
 export function credifyBudgetUsage(): { lastHour: number; lastDay: number } { return budget.usage(); }
 export function resetCredifyTokenCache(): void { shared = null; inflight = null; authStyle = 'bearer'; lastLogin = null; budget.reset(); }
 
@@ -304,6 +306,9 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       try {
         const out = await extra.run('PLATE', plate, undefined);
         const resposta = respostaOf((out.raw as { data?: unknown }).data);
+        // Resposta "ok" sem nenhum campo de dado: a consulta foi paga e nada veio. Fica registrado para investigar com a Credify.
+        const block = PIECE_BLOCK[path];
+        if (resposta && block && pieceIsEmpty(block, resposta)) log('warn', 'credify_piece_sem_dados', { path, campos: Object.keys(resposta).slice(0, 8).join(',') });
         return resposta ? { kind: 'data', resposta } : { kind: 'none', code: 'DATA_PROVIDER_INVALID_RESPONSE' };
       } catch (e) {
         const code = (e as { code?: string }).code;

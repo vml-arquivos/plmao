@@ -96,10 +96,30 @@ export interface LayerInput {
   renainf?: Piece;
 }
 
-/** A documentação mostra algumas consultas com os campos dentro de um bloco de mesmo nome (ex.: RESPOSTA.INDICIOSINISTROVEICULAR); outras vêm direto. Aceita as duas formas. */
+/** Nomes sob os quais a Credify publica o bloco de cada consulta avulsa (a documentação traz mais de um para a mesma consulta). */
+const BLOCK_ALIASES: Partial<Record<LayerBlock, string[]>> = {
+  VEICULARBNACIONAL: ['VEICULARBNACIONAL', 'VEICULARBNACIONALONLINE', 'RENAVAMONLINE'],
+  INDICIOSINISTROVEICULAR: ['INDICIOSINISTROVEICULAR', 'INDICIOSINISTRO']
+};
+const CONTROL_KEYS = /^(CONSULTA|CODIGO|MSG|MSG_ERRO|DESCRICAORETORNO)$/;
+
+/**
+ * A documentação mostra algumas consultas com os campos dentro de um bloco (ex.: RESPOSTA.INDICIOSINISTROVEICULAR, RESPOSTA.VEICULARBNACIONALONLINE); outras vêm direto.
+ * Aceita as duas formas e os nomes alternativos do bloco. Se o bloco tiver outro nome, mas for o único objeto da resposta, também é ele.
+ */
 function unwrap(name: LayerBlock, resposta: Rec): Rec {
-  const inner = upperKeys(resposta)[name];
-  return isRec(inner) ? upperKeys(inner) : resposta;
+  const up = upperKeys(resposta);
+  for (const alias of BLOCK_ALIASES[name] ?? [name]) if (isRec(up[alias])) return upperKeys(up[alias]);
+  const objects = Object.entries(up).filter(([k, v]) => !CONTROL_KEYS.test(k) && isRec(v));
+  const scalars = Object.entries(up).filter(([k, v]) => !CONTROL_KEYS.test(k) && !isRec(v));
+  if (objects.length === 1 && !scalars.length && !/^REGISTRO_\d+$/.test(objects[0]![0])) return upperKeys(objects[0]![1] as Rec);
+  return resposta;
+}
+
+/** A peça de dados chegou, mas sem nenhum campo além dos de controle: a Credify respondeu "ok" sem entregar o que foi pago. */
+export function pieceIsEmpty(name: LayerBlock, resposta: Rec): boolean {
+  const inner = unwrap(name, resposta);
+  return !Object.entries(inner).some(([k, v]) => !CONTROL_KEYS.test(k) && v !== null && v !== undefined && (typeof v === 'object' || String(v).trim() !== ''));
 }
 
 /** Peça → [código do bloco, bloco]. "Sem peça" vira código 3 (não consultado) e o bloco fica ausente. */

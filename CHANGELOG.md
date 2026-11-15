@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.65.1 — Consultas aceitam todos os formatos publicados pela Credify
+
+- **Base nacional não se perde mais.** A documentação da Credify publica a resposta da consulta nacional (`/veicularbnacionalonline`) dentro do bloco `VEICULARBNACIONALONLINE`; o sistema só reconhecia `VEICULARBNACIONAL`. Nesse formato a consulta era paga e a coluna "Base nacional" saía vazia no relatório (e, no formato com `VEICULARBNACIONAL` e outros campos, a consulta chegava a falhar com 424 depois de gastar as chamadas). Agora aceita o campo direto, o bloco com qualquer dos nomes publicados e o bloco único com outro nome.
+- A consulta nacional passa a valer pelo código de retorno, como as demais consultas avulsas.
+- **Aviso de resposta vazia.** Quando uma consulta avulsa volta "ok" mas sem nenhum dado, o sistema registra `credify_piece_sem_dados` (caminho e campos recebidos) para investigar com a Credify.
+- Teste novo `formatos-resposta`: 16 combinações de formato (direto ou em bloco) para nacional, sinistro e leilão, conferindo dados completos, ausência de 424 e que só as APIs do contrato são chamadas.
+
 ## 1.65.0 — Relatórios mais limpos e sem gasto fora do contrato
 
 - **Sem gasto fora do contrato.** Ao abrir uma Consulta Completa que acusa alienação, o sistema não busca mais o `/gravame` (que a Completa não inclui). A complementação de gravame de consultas antigas (ao abrir e pela rotina do painel) vale só para os produtos cujo contrato tem `/gravame`: Gravame, Avançada e Premium.
