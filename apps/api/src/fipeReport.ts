@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type { FipeProviderResult, FipeQuote, FipeVehicleDetails } from './types.js';
 import type { VehicleSheet } from './enrichment/sheet.js';
-import { Doc, H, HB, M, CW, N, bandTitle, clean, docFooter, docHeader, itemsGrid, priceSeries, qr } from './report/pdf.js';
+import { Doc, H, HB, HB2, M, CW, N, bandTitle, clean, docFooter, docHeader, itemsGrid, priceSeries, qr } from './report/pdf.js';
 import { sheetBlocks } from './report/sheetItems.js';
 import type { ReportItem } from './report/normalizeV2.js';
 
@@ -134,7 +134,7 @@ export async function fipePdf(quote: FipeQuote, branding: ReportBranding = {}): 
   d.pdf.setAuthor(brand);
   d.pdf.setSubject('Relatório gratuito de valor de referência FIPE');
   d.pdf.setCreationDate(when);
-  d.firstTop = H - HB; d.nextTop = H - HB;
+  d.firstTop = H - HB; d.nextTop = H - HB2;
   d.addPage();
 
   // destaque: valor FIPE vigente e faixa informativa (mesma caixa do parecer do relatório)

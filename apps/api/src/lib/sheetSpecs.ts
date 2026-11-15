@@ -21,9 +21,21 @@ export async function catalogSpecsFor(input: { brand?: string | null; model?: st
     const versions = await pool.query('SELECT name,year_model,specs FROM vehicle_versions WHERE model_id=$1 AND active ORDER BY year_model DESC NULLS LAST, display_order, name', [best.c.id]);
     if (!versions.rowCount) return undefined;
     const year = input.year ?? null;
-    const sameYear = year ? versions.rows.filter((v) => Number(v.year_model) === year) : [];
-    // Mesma versão do ano quando existir; senão a mais próxima do ano, avisando que é aproximada.
-    const pick = sameYear[0] ?? (year ? [...versions.rows].sort((a, b) => Math.abs(Number(a.year_model ?? 0) - year) - Math.abs(Number(b.year_model ?? 0) - year))[0] : versions.rows[0]);
+    // A versão tem que bater com o que o cadastro diz (ex.: EXL 2.0). Sem versão compatível, não mostra ficha: ficha de outra versão engana.
+    const fold = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+    const tokens = (t: string) => new Set(fold(t).split(/[^A-Z0-9.]+/).filter((x) => x.length > 1));
+    const vehicleTokens = tokens(`${model} ${full}`);
+    const modelTokens = tokens(`${best.c.brand} ${best.c.name}`);
+    const GENERIC = new Set(['FLEX', 'FLEXONE', 'AUT', 'AUTOMATICO', 'MANUAL', 'MEC', 'SEDAN', 'HATCH', '4P', '5P', '2P', 'COMPLETO', 'GASOLINA', 'ALCOOL']);
+    const distinct = new Set(versions.rows.map((v) => fold(String(v.name))));
+    const compatible = versions.rows.filter((v) => {
+      const own = [...tokens(String(v.name))].filter((x) => !modelTokens.has(x) && !GENERIC.has(x));
+      return own.length > 0 ? own.every((x) => vehicleTokens.has(x)) : distinct.size === 1;
+    });
+    const eligible = compatible;
+    if (!eligible.length) return undefined;
+    const sameYear = year ? eligible.filter((v) => Number(v.year_model) === year) : [];
+    const pick = sameYear[0] ?? (year ? [...eligible].sort((a, b) => Math.abs(Number(a.year_model ?? 0) - year) - Math.abs(Number(b.year_model ?? 0) - year))[0] : eligible[0]);
     const specs = (pick?.specs ?? {}) as Record<string, unknown>;
     const rows: SheetRow[] = [];
     for (const f of SPEC_FIELDS) {
@@ -34,7 +46,7 @@ export async function catalogSpecsFor(input: { brand?: string | null; model?: st
     }
     if (!rows.length) return undefined;
     const exact = sameYear.length > 0;
-    return { title: `${best.c.brand} ${best.c.name} ${pick!.name}${pick!.year_model ? ` ${pick!.year_model}` : ''}${exact ? '' : ' (modelo aproximado)'}`.replace(/\s+/g, ' ').trim(), rows };
+    return { title: `${best.c.brand} ${best.c.name} ${pick!.name}${pick!.year_model ? ` ${pick!.year_model}` : ''}${exact ? '' : ' (ano aproximado)'}`.replace(/\s+/g, ' ').trim(), rows };
   } catch {
     return undefined;
   }

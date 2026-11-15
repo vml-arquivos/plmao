@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.65.0 — Relatórios mais limpos e sem gasto fora do contrato
+
+- **Sem gasto fora do contrato.** Ao abrir uma Consulta Completa que acusa alienação, o sistema não busca mais o `/gravame` (que a Completa não inclui). A complementação de gravame de consultas antigas (ao abrir e pela rotina do painel) vale só para os produtos cujo contrato tem `/gravame`: Gravame, Avançada e Premium.
+- **Tabela de leilão arrumada.** Cada coluna passa a ter, no mínimo, a largura da maior palavra (data, CNPJ), então o texto não invade a coluna vizinha. A coluna "Situação" do chassi tem nome próprio.
+- **Detalhes sem nomes técnicos.** Roubo/furto, leilão e recall mostram rótulos em português ("Tipo de ocorrência", "Boletim de ocorrência", "Início da campanha") e datas no formato 18/06/2023. Saem os campos repetidos ou internos (placa, ano, cor, motor, códigos).
+- **Ficha técnica só da versão certa.** A ficha só aparece quando a versão do cadastro (ex.: EXL 2.0) bate com a versão do guia de veículos. Antes podia mostrar a ficha de outra versão do mesmo modelo.
+- **PDF mais enxuto, sem perder informação.** Da 2ª página em diante o cabeçalho é compacto (mesma identidade visual, sem repetir o bloco grande e o QR, que seguem na 1ª página e na validação). A tabela dos 24 meses da FIPE sai em duas colunas lado a lado e a grade de valores repetida do gráfico sai quando a tabela já traz os mesmos valores. "Antes de pagar" em duas colunas, títulos de item nunca sozinhos no fim da página, colunas totalmente vazias não ocupam espaço e espaçamentos mais justos. Premium e Avançada: 8 → 6 páginas; Completa: 7 → 6; Leilão: 4 → 3.
+- Testes: `relatorio-limpo` (novo) e ajuste em `report-refresh`.
+
 ## 1.64.0 — Fotos por upload, vitrine com chamadas e menus em módulos
 
 - **Fotos pelo botão de carregar.** Fotos do veículo, logo e capa da loja agora sobem do celular ou computador (JPG, PNG ou WebP). A imagem é reduzida no aparelho antes de enviar, fica guardada no banco (sobrevive a deploy) e só pode ser usada pela própria loja. Dá para trocar a ordem (a primeira é a capa) e remover. Os links https já cadastrados continuam funcionando.

@@ -103,7 +103,8 @@ export const N = {
   warn: rgb(0.706, 0.325, 0.035), warnSoft: rgb(0.996, 0.953, 0.78), warnInk: rgb(0.573, 0.251, 0.055),
   danger: rgb(0.863, 0.149, 0.149), dangerSoft: rgb(0.996, 0.91, 0.91), dangerInk: rgb(0.6, 0.106, 0.106)
 };
-export const HB = 152; // altura reservada ao cabeçalho (repetido em todas as páginas)
+export const HB = 152; // altura reservada ao cabeçalho completo (primeira página)
+export const HB2 = 70; // altura reservada ao cabeçalho compacto (demais páginas): mesma identidade, sem repetir o bloco grande
 const LABEL_W = 104;
 
 export interface HeaderInfo {
@@ -120,6 +121,7 @@ export interface HeaderInfo {
 /** Cabeçalho único dos documentos de consulta: faixa azul-marinho com filete de destaque, logo, QR e faixa azul com o veículo. */
 export function docHeader(d: Doc, page: PDFPage, idx: number, total: number, h: HeaderInfo) {
   d.page = page;
+  if (idx > 0) { compactHeader(d, page, idx, total, h); return; }
   const top = H - 22;
   // faixa superior azul-marinho com filete de destaque
   page.drawRectangle({ x: 0, y: H - 88, width: W, height: 88, color: N.dark });
@@ -150,6 +152,36 @@ export function docHeader(d: Doc, page: PDFPage, idx: number, total: number, h: 
     d.text(nameT, W / 2 - nameW / 2, by + bh - 28, 15, d.jx800, N.white, { maxWidth: CW });
   }
   if (h.vehicle.sub) { const sw = Math.min(d.dm500.widthOfTextAtSize(clean(h.vehicle.sub), 7.5), CW); d.text(h.vehicle.sub, W / 2 - sw / 2, by + 6, 7.5, d.dm500, N.pale, { maxWidth: CW }); }
+}
+
+/** Cabeçalho das páginas seguintes: faixa azul-marinho com logo, título, código/página e a faixa azul com veículo e placa (mesmas cores e fontes, menos altura). */
+function compactHeader(d: Doc, page: PDFPage, idx: number, total: number, h: HeaderInfo) {
+  page.drawRectangle({ x: 0, y: H - 40, width: W, height: 40, color: N.dark });
+  page.drawRectangle({ x: 0, y: H - 42.5, width: W, height: 2.5, color: N.accent });
+  drawLogo(d, M, H - 33, 25, true);
+  d.text(h.brand, M + 33, H - 17, 11, d.jx800, N.white);
+  d.text('Consulta veicular por placa', M + 33, H - 28, 6.5, d.dm400, N.accent);
+  d.text(h.title, 205, H - 18, 12, d.jx800, N.white);
+  d.text(h.tag, 205, H - 29, 7, d.dm500, N.accent);
+  const when = h.when.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const right = `Código ${h.code}  ·  Pág. ${idx + 1}/${total}`;
+  d.text(right, W - M - d.dm500.widthOfTextAtSize(clean(right), 7.5), H - 16.5, 7.5, d.dm500, N.pale);
+  const wl = `Consulta: ${when}`;
+  d.text(wl, W - M - d.dm700.widthOfTextAtSize(clean(wl), 7.5), H - 28, 7.5, d.dm700, N.white);
+  const by = H - 42.5 - 22;
+  page.drawRectangle({ x: 0, y: by, width: W, height: 22, color: N.blue });
+  page.drawRectangle({ x: 0, y: by, width: W, height: 1.2, color: N.blueInk });
+  let nameMax = CW;
+  if (h.vehicle.plate) {
+    const plate = clean(h.vehicle.plate); const pw = d.jx800.widthOfTextAtSize(plate, 10) + 16;
+    rect(page, { x: W - M - pw, y: by + 4, width: pw, height: 14, color: N.white, borderRadius: 4 });
+    d.text(plate, W - M - pw + 8, by + 7.6, 10, d.jx800, N.dark);
+    nameMax = CW - pw - 10;
+  }
+  const nameT = clean(h.vehicle.name).toUpperCase();
+  const nw = Math.min(d.jx800.widthOfTextAtSize(nameT, 10), nameMax);
+  d.text(nameT, M, by + 7.2, 10, d.jx800, N.white, { maxWidth: nameMax });
+  if (h.vehicle.sub && nameMax - nw > 120) d.text(h.vehicle.sub, M + nw + 8, by + 7.6, 7, d.dm500, N.pale, { maxWidth: nameMax - nw - 8 });
 }
 
 /** Rodapé único: filete azul, identificação do documento, página e aviso. */
@@ -260,38 +292,59 @@ export function bandTitle(d: Doc, label: string, right?: string) {
 const valueOf = (it: ReportItem) => String(it.display ?? it.value ?? '');
 const isWide = (it: ReportItem) => { const v = valueOf(it); return Boolean(it.table) || v.includes('\n') || v.length > 64; };
 
-/** Tabela do item (gravames, leilões): cabeçalho cinza, colunas proporcionais ao conteúdo, linhas que não quebram no meio. */
-function tableBlock(d: Doc, it: ReportItem) {
-  const t = it.table; if (!t) return;
+/** Desenha cabeçalho e linhas de uma tabela numa faixa (x0, largura). Cabeçalho cinza, colunas proporcionais ao conteúdo, linhas que não quebram no meio. */
+function drawTable(d: Doc, t: { columns: string[]; rows: string[][] }, x0: number, width: number) {
   const size = 7.6; const pad = 4;
   const weight = t.columns.map((c, ci) => Math.min(34, Math.max(9, c.length, ...t.rows.map((r) => Math.max(...String(r[ci] ?? '').split('\n').map((x) => x.length), 0)))));
   const totalW = weight.reduce((a, b) => a + b, 0);
-  const widths = weight.map((w) => (CW * w) / totalW);
+  // Cada coluna precisa caber, no mínimo, a maior palavra sem quebra (uma data, um CNPJ): senão o texto invade a coluna vizinha.
+  const wordW = (txt: unknown, font: Doc['dm400']) => Math.max(0, ...String(txt ?? '').split(/\s+/).map((w) => font.widthOfTextAtSize(clean(w), size)));
+  const minW = t.columns.map((c, ci) => Math.ceil(Math.max(wordW(c, d.dm700), ...t.rows.map((r) => wordW(r[ci], d.dm500))) + pad * 2 + 2));
+  const minSum = minW.reduce((a, b) => a + b, 0);
+  const widths = minSum >= width ? minW.map((w) => (width * w) / minSum) : weight.map((w, i) => minW[i]! + ((width - minSum) * w) / totalW);
   const cellLines = (txt: string, ci: number, font: Doc['dm400']) => String(txt ?? '').split('\n').flatMap((part) => d.wrap(part, font, size, widths[ci]! - pad * 2));
-  const headLines0 = t.columns.map((c, ci) => cellLines(c, ci, d.dm700));
-  d.ensure(30 + Math.max(...headLines0.map((l) => l.length)) * 9.5 + 8 + 40);
-  d.text(it.label, M + 2, d.y - 10, 8, d.dm700, N.ink, { maxWidth: CW });
-  d.y -= 15;
   const headLines = t.columns.map((c, ci) => cellLines(c, ci, d.dm700));
   const headH = Math.max(...headLines.map((l) => l.length)) * 9.5 + 8;
   d.ensure(headH + 30);
   const drawHead = () => {
-    d.page.drawRectangle({ x: M, y: d.y - headH, width: CW, height: headH, color: N.band });
-    let x = M;
+    d.page.drawRectangle({ x: x0, y: d.y - headH, width, height: headH, color: N.band });
+    let x = x0;
     headLines.forEach((ls, ci) => { ls.forEach((l, li) => d.text(l, x + pad, d.y - 10.5 - li * 9.5, size, d.dm700, N.ink)); x += widths[ci]!; });
     d.y -= headH;
   };
   drawHead();
   for (const row of t.rows) {
     const cells = row.map((c, ci) => cellLines(c, ci, d.dm500));
-    const h = Math.max(...cells.map((l) => l.length)) * 9.5 + 7;
+    const h = Math.max(...cells.map((l) => l.length)) * 9.5 + 6;
     const before = d.y; d.ensure(h + 2); if (d.y !== before) drawHead();
-    let x = M;
-    cells.forEach((ls, ci) => { ls.forEach((l, li) => d.text(l, x + pad, d.y - 10 - li * 9.5, size, d.dm500, N.text)); x += widths[ci]!; });
+    let x = x0;
+    cells.forEach((ls, ci) => { ls.forEach((l, li) => d.text(l, x + pad, d.y - 9.5 - li * 9.5, size, d.dm500, N.text)); x += widths[ci]!; });
     d.y -= h;
-    d.page.drawLine({ start: { x: M, y: d.y }, end: { x: W - M, y: d.y }, thickness: 0.4, color: N.hair });
+    d.page.drawLine({ start: { x: x0, y: d.y }, end: { x: x0 + width, y: d.y }, thickness: 0.4, color: N.hair });
   }
-  d.y -= 8;
+}
+
+/** Tabela do item (gravames, leilões, séries). Tabela longa e estreita (ex.: 24 meses) é dividida em duas, lado a lado, sem perder nenhuma linha. */
+function tableBlock(d: Doc, it: ReportItem) {
+  if (!it.table) return;
+  // Coluna em que toda linha está vazia ("—") não ocupa espaço.
+  const blank = (v: unknown) => /^\s*[—-]?\s*$/.test(String(v ?? ''));
+  const keep = it.table.columns.map((_, ci) => it.table!.rows.some((r) => !blank(r[ci])));
+  const t = keep.every(Boolean) ? it.table : { columns: it.table.columns.filter((_, ci) => keep[ci]), rows: it.table.rows.map((r) => r.filter((_, ci) => keep[ci])) };
+  if (!t.columns.length) return;
+  const narrow = t.columns.length <= 4 && t.rows.length >= 10 && t.rows.every((r) => r.every((c) => String(c ?? '').length <= 18 && !String(c ?? '').includes('\n')));
+  d.ensure(narrow ? 40 + Math.ceil(t.rows.length / 2) * 16 : 70);
+  d.text(it.label, M + 2, d.y - 10, 8, d.dm700, N.ink, { maxWidth: CW });
+  d.y -= 15;
+  if (!narrow) { drawTable(d, t, M, CW); d.y -= 6; return; }
+  const gap = 14; const half = (CW - gap) / 2; const cut = Math.ceil(t.rows.length / 2);
+  const y0 = d.y;
+  drawTable(d, { columns: t.columns, rows: t.rows.slice(0, cut) }, M, half);
+  const yLeft = d.y; const pageLeft = d.page;
+  d.y = y0;
+  drawTable(d, { columns: t.columns, rows: t.rows.slice(cut) }, M + half + gap, half);
+  if (d.page === pageLeft) d.y = Math.min(d.y, yLeft);
+  d.y -= 6;
 }
 
 export function itemsGrid(d: Doc, items: ReportItem[]) {
@@ -308,8 +361,9 @@ export function itemsGrid(d: Doc, items: ReportItem[]) {
     if (row.length === 1 && isWide(row[0]!)) {
       const it = row[0]!; const alert = it.state === 'ALERT';
       if (it.table) { tableBlock(d, it); continue; }
-      const parts = valueOf(it).split('\n').flatMap((part) => d.wrap(part, alert ? d.dm700 : d.dm500, 8.5, CW - 14));
-      d.ensure(Math.min(14 + parts.length * 11, 120));
+      // O título nunca fica sozinho no fim da página: reserva o espaço do título mais o primeiro parágrafo inteiro (até 120 pt).
+      const firstLines = d.wrap(valueOf(it).split('\n')[0] ?? '', alert ? d.dm700 : d.dm500, 8.5, CW - 16);
+      d.ensure(Math.min(14 + firstLines.length * 11 + 5, 120));
       d.text(it.label, M + 2, d.y - 10, 8, d.dm700, N.ink, { maxWidth: CW });
       d.y -= 14;
       const entries = valueOf(it).split('\n');
@@ -325,7 +379,7 @@ export function itemsGrid(d: Doc, items: ReportItem[]) {
       continue;
     }
     const cells = row.map((it) => ({ it, label: d.wrap(it.label, d.dm700, 8, LABEL_W - 6), value: d.wrap(valueOf(it), it.state === 'ALERT' ? d.dm700 : d.dm500, 8.5, valW - (it.state === 'ALERT' ? 8 : 0)) }));
-    const rowH = Math.max(...cells.map((c) => Math.max(c.label.length * 10, c.value.length * 10.5))) + 7;
+    const rowH = Math.max(...cells.map((c) => Math.max(c.label.length * 10, c.value.length * 10.5))) + 5;
     d.ensure(rowH + 2);
     cells.forEach((c, i) => {
       const x = M + i * (colW + colGap); const top = d.y; const alert = c.it.state === 'ALERT';
@@ -340,11 +394,12 @@ export function itemsGrid(d: Doc, items: ReportItem[]) {
 }
 
 /** Histórico mensal da FIPE: mini gráfico de linha + tabela compacta (4 colunas). */
-export function priceSeries(d: Doc, item: ReportItem) {
+/** Gráfico do histórico FIPE; a grade com os valores só entra quando a tabela mensal não vem logo adiante (ela já traz os mesmos valores). */
+export function priceSeries(d: Doc, item: ReportItem, showValues = true) {
   const pts = String(item.display ?? item.value ?? '').split(' · ').map((p) => { const m = /^(\S+) R\$\s*([\d.]+),(\d{2})$/.exec(p.trim()); return m ? { label: m[1]!, cents: Number(m[2]!.replace(/\./g, '')) * 100 + Number(m[3]) } : null; }).filter((p): p is { label: string; cents: number } => p !== null);
   if (pts.length < 2) return;
   const asc = [...pts].reverse();
-  const chartH = 54; const rows = Math.ceil(pts.length / 4); const tableH = rows * 13;
+  const chartH = 54; const rows = showValues ? Math.ceil(pts.length / 4) : 0; const tableH = rows * 13;
   d.ensure(chartH + tableH + 34);
   d.text(`HISTÓRICO MENSAL DA FIPE (ÚLTIMOS ${pts.length} MESES)`, M + 2, d.y - 8, 7, d.dm700, N.blueInk);
   const top = d.y - 16; const x0 = M + 4; const w = CW - 8;
@@ -353,7 +408,7 @@ export function priceSeries(d: Doc, item: ReportItem) {
   const xy = (p: { cents: number }, i: number) => ({ x: x0 + 6 + (i / (asc.length - 1)) * (w - 12), y: top - chartH + 8 + ((p.cents - min) / span) * (chartH - 16) });
   for (let i = 1; i < asc.length; i++) d.page.drawLine({ start: xy(asc[i - 1]!, i - 1), end: xy(asc[i]!, i), thickness: 1.6, color: N.blue });
   const last = xy(asc[asc.length - 1]!, asc.length - 1); d.page.drawCircle({ x: last.x, y: last.y, size: 3.2, color: N.accent, borderColor: N.blue, borderWidth: 1.2 });
-  d.y = top - chartH - 8;
+  d.y = top - chartH - (showValues ? 8 : 4);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < 4; c++) {
       const p = pts[r * 4 + c]; if (!p) continue;
@@ -363,7 +418,7 @@ export function priceSeries(d: Doc, item: ReportItem) {
     }
     d.y -= 13;
   }
-  d.y -= 8;
+  d.y -= showValues ? 8 : 4;
 }
 
 function debtsBlock(d: Doc, report: ReportV2) {
@@ -424,15 +479,22 @@ function adviceBlock(d: Doc, report: ReportV2) {
     noteLines(d, a.resale.note);
   }
   bandTitle(d, 'Antes de pagar');
-  for (const c of a.checks) {
-    const lines = d.wrap(c.detail, d.dm400, 7.5, CW - 16);
-    d.ensure(lines.length * 9.5 + 22);
-    d.text(c.label, M + 6, d.y - 11, 8.5, d.dm700, N.ink, { maxWidth: CW - 120 });
-    const tag = CHECK_TEXT[c.status] ?? c.status;
-    d.text(tag, W - M - 6 - d.dm700.widthOfTextAtSize(clean(tag), 7.5), d.y - 11, 7.5, d.dm700, c.status === 'OK' ? N.okInk : c.status === 'ALERT' ? N.danger : c.status === 'ATTENTION' ? N.warn : N.muted);
-    lines.forEach((l, i) => d.text(l, M + 6, d.y - 22 - i * 9.5, 7.5, d.dm400, N.muted));
-    d.y -= lines.length * 9.5 + 24;
-    d.page.drawLine({ start: { x: M, y: d.y + 2 }, end: { x: W - M, y: d.y + 2 }, thickness: 0.4, color: N.hair });
+  // Duas colunas: cada item mantém título, situação e explicação completos.
+  const gapC = 16; const colW = (CW - gapC) / 2;
+  const tone = (st: string) => (st === 'OK' ? N.okInk : st === 'ALERT' ? N.danger : st === 'ATTENTION' ? N.warn : N.muted);
+  for (let i = 0; i < a.checks.length; i += 2) {
+    const pair = a.checks.slice(i, i + 2).map((c) => ({ c, tag: clean(CHECK_TEXT[c.status] ?? c.status), lines: d.wrap(c.detail, d.dm400, 7.5, colW - 10) }));
+    const rowH = Math.max(...pair.map((p) => p.lines.length * 9.5 + 22));
+    d.ensure(rowH + 4);
+    pair.forEach((p, k) => {
+      const x = M + k * (colW + gapC);
+      const tw = d.dm700.widthOfTextAtSize(p.tag, 7.5);
+      d.text(p.c.label, x + 4, d.y - 11, 8.5, d.dm700, N.ink, { maxWidth: colW - tw - 18 });
+      d.text(p.tag, x + colW - 4 - tw, d.y - 11, 7.5, d.dm700, tone(p.c.status));
+      p.lines.forEach((l, li) => d.text(l, x + 4, d.y - 22 - li * 9.5, 7.5, d.dm400, N.muted));
+      d.page.drawLine({ start: { x, y: d.y - rowH + 2 }, end: { x: x + colW, y: d.y - rowH + 2 }, thickness: 0.4, color: N.hair });
+    });
+    d.y -= rowH + 2;
   }
   d.y -= 4;
   d.ensure(30);
@@ -477,11 +539,12 @@ export async function renderVehiclePdf(fullReport: ReportV2, meta: ReportMeta): 
   d.pdf.setAuthor(meta.brandName ?? 'Placa na Mão');
   d.pdf.setSubject(`${meta.productName} - código ${meta.verificationCode}`);
   d.pdf.setCreationDate(meta.consultedAt);
-  d.firstTop = H - HB; d.nextTop = H - HB;
+  d.firstTop = H - HB; d.nextTop = H - HB2;
   d.addPage();
   summaryBadges(d, report);
   verdictBox(d, report);
   debtsBlock(d, report);
+  const hasMonthlyTable = sheetBlocks(report.sheet).some((b) => b.items.some((i) => i.key === 'SH_FIPE_MENSAL' && (i.table?.rows.length ?? 0) > 0));
 
   for (const s of report.sections) {
     const shown = s.items.filter((i) => i.state !== 'NOT_PROVIDED' && !(s.key === 'DEBITOS' && i.kind === 'money' && i.state === 'CLEAR'));
@@ -490,7 +553,7 @@ export async function renderVehiclePdf(fullReport: ReportV2, meta: ReportMeta): 
     const grid = shown.filter((i) => i !== series);
     bandTitle(d, s.label, `${shown.length} informações`);
     if (grid.length) itemsGrid(d, grid);
-    if (series) priceSeries(d, series);
+    if (series) priceSeries(d, series, !hasMonthlyTable);
   }
   for (const block of sheetBlocks(report.sheet)) {
     bandTitle(d, block.title, `${block.items.length} informações`);

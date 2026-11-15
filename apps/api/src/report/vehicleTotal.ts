@@ -9,6 +9,7 @@
  *    base nacional e a FIPE quando o BDRP deixa algum campo vazio);
  *  - extrai os campos extras do relatório sem nunca afirmar "sem ocorrência" quando a fonte não respondeu.
  */
+import { HIDDEN_FIELDS, labelFor, prettyValue } from './fieldLabels.js';
 import { formatDocument } from './mask.js';
 import { brlFromCents, sentenceCase } from './format.js';
 import { auctionRecords, auctionTable } from './leilao.js';
@@ -165,7 +166,7 @@ function occurrence(r: Rec, name: BlockName, clearText: string, noneMeansClear: 
 
 const LABELS: Record<string, string> = { DATA: 'Data', DT: 'Data', LEILOEIRO: 'Leiloeiro', LOTE: 'Lote', COMITENTE: 'Comitente', STATUS: 'Situação', SITUACAO: 'Situação', UF: 'UF', MUNICIPIO: 'Município', CIDADE: 'Cidade', DESCRICAO: 'Descrição', CAMPANHA: 'Campanha', FABRICANTE: 'Fabricante', RISCO: 'Risco', REMEDIO: 'Solução', TIPO: 'Tipo', OBSERVACAO: 'Observação', BO: 'Boletim de ocorrência', BOLETIM: 'Boletim de ocorrência', DELEGACIA: 'Delegacia' };
 const SKIP_DETAIL = /^(CODIGO|DESCRICAORETORNO|EXISTE_ERRO|MSG_ERRO|CHAVERETORNO|TEMPOEXECUCAO|REDUNDANCIA|STATUS_CONSULTA)$|CPF|CNPJ|CGC|DOCUMENTO|PROPRIETARIO|NOME_PROP|CHASSI|RENAVAM|MOTOR/;
-const humanize = (key: string): string => { const base = key.split('_').filter(Boolean).map((w) => LABELS[w] ?? w.toLowerCase()).join(' '); return base.charAt(0).toUpperCase() + base.slice(1); };
+const humanize = (key: string): string => { const known = labelFor(key); if (known) return known; const base = key.split('_').filter(Boolean).map((w) => LABELS[w] ?? w.toLowerCase()).join(' '); return base.charAt(0).toUpperCase() + base.slice(1); };
 /**
  * Texto com o que a fonte informou em cada registro de uma ocorrência (leilão, roubo/furto, recall). Os nomes dos campos
  * variam por fornecedor, então lista os campos simples de cada registro com o rótulo legível. Dados de pessoas ficam de fora.
@@ -180,7 +181,7 @@ function occurrenceDetails(r: Rec, name: BlockName, main: VtValue): VtValue {
   }
   const recs = records(b);
   const pool: Rec[] = recs.length ? recs : [b];
-  const lines = pool.slice(0, 8).map((rec) => Object.entries(rec).filter(([k, v]) => !SKIP_DETAIL.test(k) && !isRec(v) && !Array.isArray(v) && str(v) !== '' && str(v) !== '0').slice(0, 14).map(([k, v]) => `${humanize(k)}: ${str(v).slice(0, 160)}`).join(' · ')).filter(Boolean);
+  const lines = pool.slice(0, 8).map((rec) => Object.entries(rec).filter(([k, v]) => !SKIP_DETAIL.test(k) && !HIDDEN_FIELDS.test(k) && !(k === 'MARCAMODELO' && name !== 'RECALL') && !isRec(v) && !Array.isArray(v) && str(v) !== '' && str(v) !== '0').slice(0, 14).map(([k, v]) => `${humanize(k)}: ${prettyValue(str(v)).slice(0, 160)}`).join(' · ')).filter(Boolean);
   const text = lines.join(' | ').slice(0, 1200);
   return text ? { state: 'INFO', value: text, display: text } : NOT_PROVIDED;
 }

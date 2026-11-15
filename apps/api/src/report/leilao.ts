@@ -1,4 +1,5 @@
 import type { ReportTable, VtValue } from './vehicleTotal.js';
+import { HIDDEN_FIELDS, labelFor } from './fieldLabels.js';
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -19,7 +20,7 @@ const COLUMNS: Array<[string, RegExp]> = [
   ['Situação', /SITUACAO|STATUS/],
   ['Valor', /VALOR|LANCE/]
 ];
-const humanize = (key: string): string => { const b = key.split('_').filter(Boolean).join(' ').toLowerCase(); return b.charAt(0).toUpperCase() + b.slice(1); };
+const humanize = (key: string): string => { const known = labelFor(key); if (known) return known; const b = key.split('_').filter(Boolean).join(' ').toLowerCase(); return b.charAt(0).toUpperCase() + b.slice(1); };
 
 /** Registros de leilão de um bloco (REGISTRO_n, lista de objetos ou o próprio bloco com campos simples). */
 export function auctionRecords(block: unknown): Rec[] {
@@ -57,9 +58,9 @@ export function auctionTable(recs: Rec[]): ReportTable | null {
     const keys = [...new Set(recs.flatMap((r) => Object.keys(r)))].filter((k) => !used.has(k) && !SKIP.test(k) && re.test(k) && recs.some((r) => str(r[k]) !== '' && str(r[k]) !== '0'));
     if (!keys.length) continue;
     keys.forEach((k) => used.add(k));
-    cols.push({ label, pick: (r) => { const hit = keys.map((k) => str(r[k])).find((x) => x !== '' && x !== '0'); return hit ? (label === 'Data' ? dateOut(hit) : hit) : '—'; } });
+    cols.push({ label: label === 'Situação' && keys.every((k) => /CHASSI/.test(k)) ? 'Situação do chassi' : label, pick: (r) => { const hit = keys.map((k) => str(r[k])).find((x) => x !== '' && x !== '0'); return hit ? (label === 'Data' ? dateOut(hit) : hit) : '—'; } });
   }
-  const rest = [...new Set(recs.flatMap((r) => Object.keys(r)))].filter((k) => !used.has(k) && !SKIP.test(k) && recs.some((r) => str(r[k]) !== '' && str(r[k]) !== '0'));
+  const rest = [...new Set(recs.flatMap((r) => Object.keys(r)))].filter((k) => !used.has(k) && !SKIP.test(k) && !HIDDEN_FIELDS.test(k) && recs.some((r) => str(r[k]) !== '' && str(r[k]) !== '0'));
   if (rest.length) cols.push({ label: 'Outras informações', pick: (r) => rest.map((k) => (str(r[k]) !== '' && str(r[k]) !== '0' ? `${humanize(k)}: ${str(r[k]).slice(0, 120)}` : '')).filter(Boolean).join(' · ') || '—' });
   if (!cols.length) return null;
   return { columns: cols.map((c) => c.label), rows: recs.slice(0, 20).map((r) => cols.map((c) => c.pick(r))) };

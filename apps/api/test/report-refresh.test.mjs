@@ -50,6 +50,10 @@ describe('relatórios antigos mascarados são refeitos em claro', integration, (
     let calls = 0;
     const source = { fetchSupplement: async (plate, kind) => { calls += 1; assert.equal(kind, 'gravame'); assert.equal(plate, 'DEV1B11'); return { data: { CONSULTA: {}, RESPOSTA: { CODIGO: '1', GRAVAME: { GRAVAMES: { REGISTRO_1: lien } } } } }; } };
     assert.ok(canFetchSupplement(source)); assert.ok(!canFetchSupplement({}));
+    // Contrato de APIs: a Completa não inclui /gravame, então nunca é completada (nem paga a consulta).
+    assert.equal(await refreshQueryGravame(queryId, source, null), 'NOT_ELIGIBLE');
+    assert.equal(calls, 0, 'Completa não paga /gravame');
+    await pool.query("UPDATE vehicle_queries SET product_id='PREMIUM' WHERE id=$1", [queryId]);
     assert.equal(await refreshQueryGravame(queryId, source, null), 'UPDATED');
     const n = (await pool.query('SELECT normalized::text AS n FROM vehicle_query_results WHERE query_id=$1', [queryId])).rows[0].n;
     assert.match(n, /BANCO DO BRASIL S\.A\./); assert.match(n, /CT-1/); assert.match(n, /15\/03\/2023/);
@@ -65,6 +69,12 @@ describe('relatórios antigos mascarados são refeitos em claro', integration, (
     const q2 = await hostRequest(server.base, '/api/queries', { method: 'POST', token, body: { plate: 'DEV1B11', productId: 'COMPLETE' } });
     assert.equal(q2.status, 201, q2.text);
     const id2 = q2.json.id;
+    const alienated = `UPDATE vehicle_query_results SET normalized=jsonb_set(normalized,'{v2,sections}','[{"key":"GRAVAME","label":"G","description":"","status":"ALERT","providedCount":1,"notProvidedCount":0,"items":[{"key":"RESTRICAOFINAN","label":"x","kind":"flag","state":"ALERT","value":"ALIENACAO FIDUCIARIA","sensitivity":"PUBLIC","tier":2}]}]'::jsonb) WHERE query_id=$1`;
+    await pool.query(alienated, [id2]);
+    let completeCalls = 0;
+    assert.equal(await ensureLienDetail(id2, { fetchSupplement: async () => { completeCalls += 1; return { notFound: true }; } }), false);
+    assert.equal(completeCalls, 0, 'abrir a Completa não gasta /gravame');
+    await pool.query("UPDATE vehicle_queries SET product_id='PREMIUM' WHERE id=$1", [id2]);
     await pool.query(`UPDATE vehicle_query_results SET normalized=jsonb_set(normalized,'{v2,sections}','[{"key":"GRAVAME","label":"G","description":"","status":"ALERT","providedCount":1,"notProvidedCount":0,"items":[{"key":"RESTRICAOFINAN","label":"x","kind":"flag","state":"ALERT","value":"ALIENACAO FIDUCIARIA","sensitivity":"PUBLIC","tier":2}]}]'::jsonb) WHERE query_id=$1`, [id2]);
     let calls = 0;
     const source = { fetchSupplement: async () => { calls += 1; return { data: { CONSULTA: {}, RESPOSTA: { CODIGO: '1', GRAVAME: { GRAVAMES: { REGISTRO_1: { NUMERO_RESTRICAO: '5', DATA_RESTRICAO: '2022-02-02', NOME_AGENTE: 'BANCO DO BRASIL S.A.', DOCUMENTO_AGENTE: '00000000000191', NUMERO_CONTRATO: 'X9', STATUS: 'ATIVO' } } } } } }; } };
