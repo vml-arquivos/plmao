@@ -104,6 +104,7 @@ import { simulatorRouter } from './routes/simulator.js';
 import { scoreModelMatch } from './lib/vehicleSpecs.js';
 import { articleBodyHtml, plansBodyHtml, vehicleBodyHtml } from './seoBodies.js';
 import { adminContentRouter, articleSeo, publicContentRouter, publishedArticleSlugs } from './routes/content.js';
+import { siteHomeAdminRouter, siteHomePublicRouter } from './routes/siteHome.js';
 import { refreshProductSections, sectionsForProduct, startProductSectionsRefresh } from './lib/productSections.js';
 import { loadFinancingSettings, maybeRefreshInBackground } from './financingSettings.js';
 import { DATA_SOURCES, anycarConfigured, sourcesForProduct, validateDataSources } from './lib/dataSources.js';
@@ -143,6 +144,7 @@ api.use(invitesRouter);
 api.use(leadsPublicRouter);
 api.use('/admin/crm', adminLeadsRouter);
 api.use('/admin/queries', adminQueriesRouter);
+api.use('/admin/content', siteHomeAdminRouter);
 api.use('/admin/content', adminContentRouter);
 api.use('/admin/vehicles', adminVehiclesRouter);
 api.use('/admin/simulator', adminSimulatorRouter);
@@ -1515,6 +1517,7 @@ api.get('/query-products', auth, asyncRoute(async (req, res) => {
 }));
 
 api.use(publicContentRouter);
+api.use(siteHomePublicRouter);
 
 /** Guia de veículos: a rota por placa fica aqui porque usa o provedor de dados e a cota diária, e precisa vir antes das rotas `/vehicles/:slug`. */
 const VEHICLE_PLATE_DAILY_LIMIT = 5;
@@ -3335,6 +3338,12 @@ function humanMessage(code: string): string {
     TESTIMONIAL_NOT_ELIGIBLE: 'Só clientes com uma consulta concluída ou um pagamento confirmado podem enviar depoimento.',
     TESTIMONIAL_CONTENT_INVALID: 'O texto não pode ter links, e-mails, telefones ou números de documento.',
     TESTIMONIAL_NOT_FOUND: 'Depoimento não encontrado.',
+    HOME_INVALID: 'Confira os campos da página inicial. Algum texto passou do limite ou o link não é válido (use /pagina ou https://).',
+    HOME_SLOT_INVALID: 'Imagem não reconhecida.',
+    HOME_ANNOUNCE_TEXT: 'Escreva o texto do aviso ou desligue o aviso.',
+    HOME_ANNOUNCE_LINK_LABEL: 'Escreva o texto do botão do aviso ou apague o link.',
+    SEO_IMAGE_TYPE: 'Use uma imagem PNG, JPG ou WebP de até 3 MB.',
+    SEO_IMAGE_TOO_SMALL: 'A imagem é pequena demais. Use pelo menos 300 px de largura e altura.',
     TESTIMONIAL_INVALID_STATE: 'Esta ação não é possível no estado atual do depoimento.',
     TESTIMONIAL_CONSENT_INVALID: 'O consentimento ou o conteúdo deste depoimento não está íntegro. Peça um novo envio.',
     TESTIMONIAL_FOUR_EYES: 'Outra pessoa da equipe precisa aprovar um depoimento cadastrado manualmente.',

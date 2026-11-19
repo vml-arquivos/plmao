@@ -3193,6 +3193,33 @@ export const placaMigrations: Migration[] = [
       }
       await client.query('DROP TABLE IF EXISTS stock_vehicle_photos');
     }
+  },
+  {
+    id: '091_pagina_inicial_editavel',
+    name: 'Página inicial editável pelo painel: textos, aviso de campanha, seções e três imagens (topo, relatório e busca final), guardadas no banco. Sem configuração, o site mostra os textos padrão.',
+    up: async (client) => {
+      await client.query(`CREATE TABLE IF NOT EXISTS site_home (
+        id text PRIMARY KEY CHECK (id = 'home'),
+        data jsonb NOT NULL DEFAULT '{}'::jsonb,
+        updated_by uuid,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )`);
+      await client.query(`CREATE TABLE IF NOT EXISTS site_home_images (
+        slot text PRIMARY KEY CHECK (slot IN ('hero','showcase','final')),
+        mime text NOT NULL,
+        size_bytes integer NOT NULL,
+        width integer,
+        height integer,
+        sha256 text NOT NULL,
+        data bytea NOT NULL,
+        updated_by uuid,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )`);
+    },
+    down: async (client) => {
+      await client.query('DROP TABLE IF EXISTS site_home_images');
+      await client.query('DROP TABLE IF EXISTS site_home');
+    }
   }
 
 ];

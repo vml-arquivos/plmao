@@ -6,6 +6,8 @@ import { money } from '../../shared/format';
 import { HeroArt, PhoneFrame } from '../art';
 import { PublicHeader } from '../layouts';
 import { useSession } from '../session';
+import { useHomeConfig } from '../homeConfig';
+import { HOME_DEFAULTS, type HomeConfig } from '../../shared/homeDefaults';
 import { trackFunnel } from '../funnel';
 import PlateSearch from '../components/PlateSearch';
 import { PackageCards, ProductCards, SmartPicker, useCatalog } from '../components/Catalog';
@@ -51,10 +53,27 @@ function SamplePhones() {
 }
 
 /** H1 da home: o texto curto configurado no painel de SEO; a frase de efeito vira o subtítulo. */
-function HeroTitle() {
+function HeroTitle({ tag, hold }: { tag: string | null; hold: boolean }) {
   const h1 = useSeoH1('/', '');
-  if (!h1) return <h1 id="hero-title">Saiba tudo sobre o carro <span className="grad-text">antes de fechar negócio.</span></h1>;
-  return <><h1 id="hero-title">{h1}</h1><p className="hero-tag">Saiba tudo sobre o carro <span className="grad-text">antes de fechar negócio.</span></p></>;
+  const style = hold ? { visibility: 'hidden' as const } : undefined;
+  const line = tag ? <>{tag}</> : <>Saiba tudo sobre o carro <span className="grad-text">antes de fechar negócio.</span></>;
+  if (!h1) return <h1 id="hero-title" style={style}>{line}</h1>;
+  return <><h1 id="hero-title">{h1}</h1><p className="hero-tag" style={style}>{line}</p></>;
+}
+
+/** Aviso de campanha configurado no painel (texto curto + link opcional). */
+function Announce({ a }: { a: HomeConfig['announce'] }) {
+  if (!a.enabled || !a.text) return null;
+  const go = () => trackFunnel('CTA_CLICKED', { placement: 'announce', target: a.linkTo ?? '', landing: '/' });
+  const label = a.linkLabel && a.linkTo ? a.linkLabel : null;
+  return (
+    <div className="hero2-pill" role="note">
+      <span>{a.text}</span>
+      {label && a.linkTo && (a.linkTo.startsWith('/')
+        ? <Link to={a.linkTo} onClick={go}>{label} <Icon name="arrow-right" size={14} /></Link>
+        : <a href={a.linkTo} target="_blank" rel="noopener noreferrer" onClick={go}>{label} <Icon name="arrow-right" size={14} /></a>)}
+    </div>
+  );
 }
 
 /** Menor preço de consulta do catálogo (vem do painel; nada fixo no código). */
@@ -103,6 +122,9 @@ export default function Landing() {
   usePageTitle('');
   const { status } = useSession();
   const price = useFromPrice();
+  const { config: c, images: img, ready } = useHomeConfig();
+  const T = (k: 'consultasTitle' | 'consultasSub' | 'showcaseTitle' | 'packsTitle' | 'packsSub' | 'finalTitle' | 'finalSub') => c[k] ?? HOME_DEFAULTS[k];
+  const bullets = c.showcaseBullets.length ? c.showcaseBullets : HOME_DEFAULTS.showcaseBullets;
   useEffect(() => { trackFunnel('HOME_PAGE_VIEW', { landing: '/' }); }, []);
   return (
     <>
@@ -111,8 +133,9 @@ export default function Landing() {
         <div className="hero2-bg" aria-hidden="true" />
         <div className="container hero2-grid">
           <div className="hero2-copy">
-            <HeroTitle />
-            <p className="hero-lead">Débitos, multas, restrições e gravame em um só relatório. Sem mensalidade: você paga só a consulta que fizer.</p>
+            <Announce a={c.announce} />
+            <HeroTitle tag={c.heroTag} hold={!ready} />
+            <p className="hero-lead" style={ready ? undefined : { visibility: 'hidden' }}>{c.heroLead ?? HOME_DEFAULTS.heroLead}</p>
             <PlateSearch authed={status === 'authed'} placement="hero" />
             <div className="trust-row">
               {price && <span className="from"><Icon name="tag" size={16} />A partir de {price}</span>}
@@ -121,6 +144,9 @@ export default function Landing() {
               <PdfModelLink id="COMPLETE" className="linkbtn light">Ver modelo do PDF</PdfModelLink>
             </div>
           </div>
+          {img.hero ? (
+            <div className="hero2-visual has-img" aria-hidden="true"><img src={img.hero.url} width={img.hero.width ?? undefined} height={img.hero.height ?? undefined} alt="" decoding="async" fetchPriority="high" /></div>
+          ) : (
           <div className="hero2-visual" aria-hidden="true">
             <div className="hv-card">
               <div className="hv-top"><span className="hv-plate">ABC 1D23</span><div><b>VW Exemplo 1.0</b><small>2020/2021 · Prata · Flex</small></div></div>
@@ -137,12 +163,13 @@ export default function Landing() {
             <div className="hv-float"><Icon name="file-text" size={18} /><div><b>Relatório em PDF</b><small>com código de validação</small></div></div>
             <span className="hv-sample">Exemplo ilustrativo, com dados fictícios</span>
           </div>
+          )}
         </div>
       </section>
 
       <section className="section" id="consultas">
         <div className="container stack-lg">
-          <div className="section-head center" style={{ marginBottom: 0 }}><h2>Escolha a consulta.</h2><p>O valor aparece antes de pagar.</p></div>
+          <div className="section-head center" style={{ marginBottom: 0 }}><h2>{T('consultasTitle')}</h2><p>{T('consultasSub')}</p></div>
           <ProductCards homeOnly />
           <div className="row home-cta-row">
             <DetailsButton className="btn">Comparar consultas</DetailsButton>
@@ -158,23 +185,23 @@ export default function Landing() {
       <section className="section alt" id="como-funciona">
         <div className="container showcase">
           <div>
-            <h2 style={{ fontSize: 'clamp(26px,3.6vw,38px)' }}>Relatório claro, do jeito que você precisa.</h2>
+            <h2 style={{ fontSize: 'clamp(26px,3.4vw,38px)' }}>{T('showcaseTitle')}</h2>
             <ul className="checklist">
-              {['Situação do veículo resumida no topo', 'Débitos e multas com valores, sem duplicidade', 'PDF com código de validação para compartilhar'].map((t) => <li key={t}><span className="ck"><Icon name="check" size={14} /></span>{t}</li>)}
+              {bullets.map((t) => <li key={t}><span className="ck"><Icon name="check" size={14} /></span>{t}</li>)}
             </ul>
-            <div className="steps-inline" aria-label="Como funciona">{STEPS.map((s) => <div key={s.t}><b>{s.t}</b><span>{s.s}</span></div>)}</div>
+            {c.show.steps && <div className="steps-inline" aria-label="Como funciona">{STEPS.map((s) => <div key={s.t}><b>{s.t}</b><span>{s.s}</span></div>)}</div>}
             <div className="row" style={{ marginTop: 24 }}><LinkButton to="/consultar" variant="primary" size="lg" iconRight="arrow-right">Consultar agora</LinkButton></div>
-            <span className="sample-tag">Imagens ilustrativas, com dados fictícios.</span>
+            {!img.showcase && <span className="sample-tag">Imagens ilustrativas, com dados fictícios.</span>}
           </div>
-          <SamplePhones />
+          {img.showcase ? <div className="showcase-img"><img src={img.showcase.url} width={img.showcase.width ?? undefined} height={img.showcase.height ?? undefined} alt="" loading="lazy" decoding="async" /></div> : <SamplePhones />}
         </div>
       </section>
 
       <section className="section" id="pacotes">
         <div className="container stack-lg">
-          <div className="section-head center" style={{ marginBottom: 0 }}><h2>Consulte mais, pague menos por consulta.</h2><p>Recarregue o saldo e use em qualquer consulta. Sem mensalidade.</p></div>
+          <div className="section-head center" style={{ marginBottom: 0 }}><h2>{T('packsTitle')}</h2><p>{T('packsSub')}</p></div>
           <PackageCards />
-          <div className="custom-card slim">
+          {c.show.lojista && <div className="custom-card slim">
             <div>
               <h3>Lojista ou empresa?</h3>
               <p>Pacotes personalizados com preço menor por consulta, acesso da equipe e histórico centralizado.</p>
@@ -183,11 +210,11 @@ export default function Landing() {
               <LinkButton to="/para-lojistas" variant="primary" iconRight="arrow-right">Ver pacotes para lojistas</LinkButton>
               <Link to="/contato" className="linkbtn">Falar com a equipe</Link>
             </div>
-          </div>
+          </div>}
         </div>
       </section>
 
-      <Testimonials />
+      {c.show.testimonials && <Testimonials />}
 
       <section className="section" id="duvidas">
         <div className="container">
@@ -197,7 +224,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="section alt tools-strip" id="ferramentas-gratis" aria-labelledby="tools-title">
+      {c.show.tools && <section className="section alt tools-strip" id="ferramentas-gratis" aria-labelledby="tools-title">
         <div className="container stack-lg">
           <div className="section-head" style={{ marginBottom: 0 }}><h2 id="tools-title">Ferramentas grátis.</h2></div>
           <div className="tools-mini">
@@ -209,17 +236,17 @@ export default function Landing() {
             ))}
           </div>
         </div>
-      </section>
+      </section>}
 
       <SeoContentAfterFaqs path="/" limit={6} faqTitle="Mais perguntas sobre consulta de placa" />
 
       <section className="section" style={{ paddingTop: 0 }} id="consultar-final">
         <div className="container">
           <div className="final-banner solo">
-            <div className="art" aria-hidden="true"><HeroArt /></div>
+            <div className="art" aria-hidden="true">{img.final ? <img src={img.final.url} alt="" loading="lazy" decoding="async" /> : <HeroArt />}</div>
             <div>
-              <h2>Consulte a placa antes de fechar negócio.</h2>
-              <p>Leva menos de um minuto.</p>
+              <h2>{T('finalTitle')}</h2>
+              <p>{T('finalSub')}</p>
               <PlateSearch authed={status === 'authed'} placement="final" />
             </div>
           </div>

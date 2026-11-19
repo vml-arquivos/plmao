@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.67.0 — Visual premium e página inicial editável no painel
+
+- **Visual novo.** Azul da marca mantido, cinzas neutros, sem degradês, cantos menos arredondados e sombras leves. Títulos mais firmes (Inter 600/700) e texto corrido em peso 400. Os dois temas (claro e escuro) continuam, com o mesmo botão, e o tema segue o aparelho por padrão.
+- **Topo claro.** O topo da página inicial ficou claro, e o azul-marinho aparece só no fim da página. Arte da noite e avisos recoloridos para o azul da marca; resquícios de roxo saíram.
+- **Painel: Site e conteúdo > Página inicial.** Nova tela para editar os textos do topo, títulos das seções, botão final, aviso de campanha (texto, botão e link), mostrar ou esconder seções e trocar as imagens (enviar, trocar, remover). Imagem é salva na hora; campo vazio usa o texto padrão.
+- **Seguro por padrão.** Sem configuração, a página fica igual ao padrão. O título principal (H1) continua vindo do SEO. Preços e consultas continuam vindo da Vitrine de produtos.
+- Migração 091 cria as tabelas da página inicial (roda sozinha). Sem variáveis novas.
+- Testes novos em `pagina-inicial` (texto, aviso, seções, imagens, permissões).
+
 ## 1.66.0 — Home e consulta mais curtas, focadas em conversão
 
 - **Home enxuta.** A página passou de ~10.000 px para ~5.700 px no computador (e de ~18.600 px para ~9.600 px no celular). Ordem nova: placa → consultas → relatório e passos → pacotes e lojista → depoimentos → dúvidas → ferramentas grátis → texto de SEO → busca final.

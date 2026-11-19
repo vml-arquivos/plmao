@@ -36,6 +36,7 @@ export const GROUPS: Array<{ title: string; icon: IconName; items: NavItem[] }> 
     { to: '/parceiros', label: 'Parceiros e repasses', icon: 'wallet', perm: 'MANAGE_BILLING' }
   ] },
   { title: 'Site e conteúdo', icon: 'sparkles', items: [
+    { to: '/pagina-inicial', label: 'Página inicial', icon: 'home', perm: 'MANAGE_CONTENT' },
     { to: '/catalogo', label: 'Vitrine de produtos', icon: 'sparkles', perm: 'MANAGE_CONTENT' },
     { to: '/guia', label: 'Guia de veículos', icon: 'car', perm: 'MANAGE_CONTENT' },
     { to: '/simulador', label: 'Simulador de financiamento', icon: 'calculator', perm: 'MANAGE_BILLING' },

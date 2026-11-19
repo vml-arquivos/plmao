@@ -27,6 +27,7 @@ import Integrations from './pages/Integrations';
 import VehicleGuide, { VehicleEdit } from './pages/Vehicles';
 import Articles from './pages/Articles';
 import Seo from './pages/Seo';
+import HomePage from './pages/HomePage';
 import Partners from './pages/Partners';
 import System from './pages/System';
 import DataReset from './pages/DataReset';
@@ -68,6 +69,7 @@ export default function App() {
         <Route path="integracoes" element={<Integrations />} />
         <Route path="artigos" element={<Articles />} />
         <Route path="seo" element={<Seo />} />
+        <Route path="pagina-inicial" element={<HomePage />} />
         <Route path="pagamentos" element={<Payments />} />
         <Route path="cupons" element={<Coupons />} />
         <Route path="parceiros" element={<Partners />} />

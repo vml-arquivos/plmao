@@ -9,7 +9,7 @@
 .btn-primary:hover { box-shadow: 0 14px 28px -10px rgba(31, 95, 224, .95); border-color: transparent; filter: brightness(1.06); }
 .btn-ghost { --b-bg: transparent; --b-bd: transparent; --b-fg: var(--text-2); }
 .btn-ghost:hover { background: var(--primary-soft); color: var(--primary-ink); border-color: transparent; }
-.btn-outline-light { --b-bg: rgba(255, 255, 255, .04); --b-fg: #fff; --b-bd: rgba(167, 139, 250, .6); }
+.btn-outline-light { --b-bg: rgba(255, 255, 255, .04); --b-fg: #fff; --b-bd: rgba(124, 185, 255, .5); }
 .btn-outline-light:hover { background: rgba(47, 111, 228, .18); border-color: #A9CBFF; }
 .btn-danger { --b-bg: var(--danger); --b-fg: #fff; --b-bd: transparent; }
 .btn-sm { min-height: 36px; padding: 0 12px; font-size: 14px; border-radius: 10px; }
