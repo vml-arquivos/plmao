@@ -231,6 +231,28 @@ function featureChanges(r: Rec): VtValue {
   return { state: criticalDiff ? 'ALERT' : 'INFO', value: text, display: text, table: { columns, rows: table } };
 }
 
+/** Situação de pagamento como a Credify publica ("opened"); o que não conhecemos volta como veio. */
+function paymentStatus(v: string): string {
+  const k = v.trim().toLowerCase();
+  if (!k) return 'Em aberto';
+  if (k === 'opened' || k === 'open') return 'Em aberto';
+  if (k === 'paid') return 'Pago';
+  return v;
+}
+
+/** DADOS_EXTRAS da infração (local, data e hora etc.): lista ou REGISTRO_n, uma linha "Chave: valor" por item preenchido. */
+function fineExtras(v: unknown): string {
+  const items: Rec[] = Array.isArray(v) ? v.filter(isRec).map((x) => upperKeys(x as Rec)) : isRec(v) ? Object.values(v).filter(isRec).map((x) => upperKeys(x as Rec)) : [];
+  return items
+    .map((x) => {
+      const val = [x.EXTRA1, x.EXTRA2, x.EXTRA3].map((e) => str(e)).filter(Boolean).join(' · ');
+      const key = str(x.CHAVE);
+      return val ? (key ? `${key}: ${val}` : val) : '';
+    })
+    .filter(Boolean)
+    .join(' · ');
+}
+
 /** Multas detalhadas da consulta de infrações (RENAINF): uma linha por infração. */
 function renainfFines(r: Rec): VtValue {
   const rn = isRec(r.RENAINF) ? upperKeys(r.RENAINF as Rec) : null;
@@ -241,12 +263,15 @@ function renainfFines(r: Rec): VtValue {
     : [];
   const fines = list.filter((x) => money(x.TOTAL) > 0 || money(x.MULTA) > 0 || (str(x.DESCRICAO) !== '' && !unknownText(str(x.DESCRICAO))));
   if (!fines.length) return { state: 'CLEAR', value: 'Sem multas', display: 'Nenhuma multa registrada na consulta de infrações (RENAINF)' };
-  const rows = fines.slice(0, 30).map((x) => [
-    str(x.DESCRICAO) || str(x.TIPO) || 'Infração',
-    str(x.DATA_VENCIMENTO) ? brDate(x.DATA_VENCIMENTO) : '—',
-    money(x.TOTAL) ? brlFromCents(money(x.TOTAL)) : money(x.MULTA) ? brlFromCents(money(x.MULTA)) : '—',
-    str(x.STATUS_PAGAMENTO) || 'Em aberto'
-  ]);
+  const rows = fines.slice(0, 30).map((x) => {
+    const extras = fineExtras(x.DADOS_EXTRAS);
+    return [
+      [str(x.DESCRICAO) || str(x.TIPO) || 'Infração', extras].filter(Boolean).join('\n'),
+      str(x.DATA_VENCIMENTO) ? brDate(x.DATA_VENCIMENTO) : '—',
+      money(x.TOTAL) ? brlFromCents(money(x.TOTAL)) : money(x.MULTA) ? brlFromCents(money(x.MULTA)) : '—',
+      paymentStatus(str(x.STATUS_PAGAMENTO))
+    ];
+  });
   const total = fines.reduce((acc, x) => acc + (money(x.TOTAL) || money(x.MULTA)), 0);
   const t = `${fines.length} ${fines.length === 1 ? 'multa' : 'multas'}${total ? ` — total ${brlFromCents(total)}` : ''}`;
   return { state: 'ALERT', value: t, display: t, table: { columns: ['Infração', 'Vencimento', 'Valor', 'Situação'], rows } };

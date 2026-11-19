@@ -9,7 +9,7 @@
  */
 import { CATALOG_BY_KEY, ENRICH_CATALOG, FIELD_CATALOG, SECTIONS, VT_CATALOG, type FieldDef, type SectionKey, type Tier } from './catalog.js';
 import { enrichmentExtras, readFipeMatch } from './enrichmentExtras.js';
-import { applyLien, gravameExtras, seizureExtra } from './gravame.js';
+import { applyLien, gravameExtras, parseDate, seizureExtra } from './gravame.js';
 import { leilaoExtras } from './leilao.js';
 import { leilaoAnalyses } from './analiseLeilao.js';
 import { applyJudicial, judicialExtras } from './judicial.js';
@@ -187,6 +187,11 @@ function buildItem(def: FieldDef, rawValue: unknown): ReportItem {
     }
     case 'status':
       return { ...base, state: SITUATION_ALERT.test(folded) ? 'ALERT' : 'INFO', value: text, display: sentenceCase(text), high: SITUATION_ALERT.test(folded) || undefined };
+    case 'date': {
+      const d = parseDate(text);
+      const shown = d ? `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}` : text;
+      return { ...base, state: 'INFO', value: text, display: shown };
+    }
     default:
       return { ...base, state: 'INFO', value: text, display: text };
   }

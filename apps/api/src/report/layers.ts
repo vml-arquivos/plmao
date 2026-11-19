@@ -24,6 +24,24 @@ export function respostaOf(raw: unknown, depth = 0): Rec | null {
   return null;
 }
 
+/**
+ * Forma que a documentação da Credify publica para o recall: CODIGO e o bloco da consulta dentro de CONSULTA, sem RESPOSTA.
+ * Devolve a resposta no formato padrão (CONSULTA só com os metadados; RESPOSTA com CODIGO e o bloco). Só vale se houver CODIGO e algum bloco.
+ */
+export function consultaComoResposta(raw: unknown): Rec | null {
+  if (!isRec(raw)) return null;
+  const entry = Object.entries(raw).find(([k, v]) => k.toUpperCase() === 'CONSULTA' && isRec(v));
+  if (!entry) return null;
+  const up = upperKeys(entry[1] as Rec);
+  const hasCode = up.CODIGO !== undefined && String(up.CODIGO).trim() !== '';
+  const hasBlock = Object.entries(up).some(([k, v]) => !CONTROL_KEYS.test(k) && isRec(v));
+  if (!hasCode || !hasBlock) return null;
+  const meta: Rec = {};
+  const resposta: Rec = {};
+  for (const [k, v] of Object.entries(up)) (/^(CODIGORESPOSTA|DATAHORA|LOGON|IDCONSULTA)$/.test(k) ? meta : resposta)[k] = v;
+  return { ...raw, CONSULTA: meta, RESPOSTA: resposta };
+}
+
 /** Texto do marcador do cadastro (RETORNO do BDRP) para roubo/furto e recall. */
 export function bdrpReturn(raw: unknown): Rec {
   const r = respostaOf(raw);

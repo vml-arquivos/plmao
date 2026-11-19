@@ -70,3 +70,45 @@ for (const [nNac, nacional] of Object.entries(FORMAS_NACIONAL)) for (const [nSin
     assert.equal(items.get('VN_SITUACAO_CHASSI')?.state, 'CLEAR', 'base nacional com dados');
   });
 }
+
+test('data de inclusão da restrição vinda da base principal aparece como dd/mm/aaaa (AAAAMMDD, ISO e dd/mm/aaaa)', () => {
+  for (const [entrada, esperado] of [['20240220', '20/02/2024'], ['2024-02-20', '20/02/2024'], ['20/02/2024', '20/02/2024']]) {
+    const raw = withFlags({ RESTRICAOFINAN: 'ALIENACAO FIDUCIARIA', RESTRICAONOMEAGENTE: 'BANCO EXEMPLO S.A.', CGCFINANCEIRA: '00000000000191', NUMEROCONTRATOFINANCEIRA: '0045-9981234-7', RESTRICAODATAINCLUSAO: entrada });
+    const rep = buildReportV2(raw);
+    const item = rep.sections.flatMap((s) => s.items).find((i) => i.key === 'RESTRICAODATAINCLUSAO');
+    assert.ok(item, 'campo presente');
+    assert.equal(item.display, esperado);
+  }
+});
+
+const RECALL_CAMPOS = { DESCRICAORETORNO: 'SUCESSO', REGISTRO_1: { DATAINICIOCAMPANHA: '04/03/2024', MONTADORA: 'HONDA AUTOMOVEIS DO BRASIL', IDGRAVIDADE: '3', INDICATIVO: 'GRANDE IMPORTANCIA', SUJEITOACONFIRMACAOPELAMONTADORA: 'SIM', FONECONFIRMACAO: '0800 000 0000', MARCAMODELO: 'HONDA/CIVIC' } };
+const FORMAS_RECALL = {
+  'RESPOSTA.RECALL': () => ok('452', { RECALL: RECALL_CAMPOS }),
+  'CODIGO e RECALL dentro de CONSULTA (como a documentação mostra)': () => ({ CONSULTA: { CODIGO: '1', RECALL: RECALL_CAMPOS } })
+};
+for (const [nome, recall] of Object.entries(FORMAS_RECALL)) {
+  test(`recall (${nome}): a consulta paga entrega a campanha no relatório`, async () => {
+    resetCredifyTokenCache();
+    const f = fakeFetch({ '/debitosrestricoesproprietarios': withFlags({ RECALL: 'POSSUI RECALL' }), '/indiciosinistro': SINISTRO_LIMPO, '/veicularbnacionalonline': NACIONAL, '/leilaoconjugado': LEILAO_NADA, '/recall': recall() });
+    const out = await new CredifyVehicleProvider(opts(f)).queryByPlate('AAA0000', { productId: 'COMPLETE' });
+    assert.ok(f.paid().includes('/recall'), 'recall consultado');
+    const texto = JSON.stringify(buildReportV2(out.raw));
+    assert.ok(/HONDA AUTOMOVEIS DO BRASIL/.test(texto), 'campanha de recall no relatório');
+  });
+}
+
+test('infrações (RENAINF) no formato publicado: lista em DEBITOS, local e data da multa, situação "opened" como Em aberto', async () => {
+  resetCredifyTokenCache();
+  const renainf = ok('536', { RENAINF: { PLACA: 'AAA0000', RESTRICOES: { INDICADOR_RENAINF: 'TRUE' }, DEBITOS: [
+    { TOTAL: '195.23', MULTA: '195.23', DATA_VENCIMENTO: '10/12/2026', DESCRICAO: 'EXCESSO DE VELOCIDADE', STATUS_PAGAMENTO: 'opened', TIPO: '3', DADOS_EXTRAS: [{ GRUPO: 'Detalhamento Multa', CHAVE: 'Local', EXTRA1: 'AV BRASIL, 1000', EXTRA2: '', EXTRA3: '' }, { GRUPO: 'Detalhamento Multa', CHAVE: 'Data e Hora', EXTRA1: '01/11/2026 08:15', EXTRA2: '', EXTRA3: '' }] }
+  ] } });
+  const f = fakeFetch({ '/debitosrestricoesproprietarios': sample, '/indiciosinistro': SINISTRO_LIMPO, '/veicularbnacionalonline': NACIONAL, '/leilaoconjugado': LEILAO_NADA, '/renainf': renainf });
+  const out = await new CredifyVehicleProvider(opts(f)).queryByPlate('AAA0000', { productId: 'BASIC', sources: ['SINISTRO', 'NATIONAL', 'AUCTION', 'RENAINF'] });
+  assert.ok(f.paid().includes('/renainf'), 'renainf consultado');
+  const alvo = JSON.stringify(buildReportV2(out.raw));
+  assert.ok(/EXCESSO DE VELOCIDADE/.test(alvo), 'multa no relatório');
+  assert.ok(/Em aberto/.test(alvo), 'situação em português');
+  assert.ok(!/"opened"/.test(alvo), 'sem opened cru');
+  assert.ok(/Local: AV BRASIL, 1000/.test(alvo), 'local da multa');
+  assert.ok(/Data e Hora: 01\/11\/2026 08:15/.test(alvo), 'data e hora da multa');
+});

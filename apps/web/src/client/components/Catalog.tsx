@@ -32,7 +32,7 @@ function CatalogState({ loading, error, reload }: { loading: boolean; error: unk
 function ProductCard({ p, authed, wide = false }: { p: CatalogProduct; features: CatalogFeature[]; authed: boolean; wide?: boolean }) {
   const soon = !isActive(p);
   const all = (p.features ?? []).filter(Boolean);
-  const top = all.slice(0, 4);
+  const top = all.slice(0, wide ? 4 : 3);
   const more = Math.max(0, all.length - top.length);
   return (
     <article className={`pcard ${p.featured ? 'featured' : ''} ${soon ? 'soon' : ''}`}>
@@ -49,7 +49,7 @@ function ProductCard({ p, authed, wide = false }: { p: CatalogProduct; features:
       </ul>
       {more > 0 && <span className="pmore">+ {more} {more === 1 ? 'item' : 'itens'} no relatório</span>}
       <div className="pactions">
-        {soon ? <span className="btn btn-block" aria-disabled="true">Em breve</span> : <LinkButton to={productTarget(authed, p.id)} variant={p.featured ? 'primary' : 'default'} block>Consultar agora</LinkButton>}
+        {soon ? <span className="btn btn-block" aria-disabled="true">Em breve</span> : <LinkButton to={productTarget(authed, p.id)} variant={p.featured || !wide ? 'primary' : 'default'} block>Consultar agora</LinkButton>}
         <DetailsButton initial={p.id} className="btn btn-block btn-ghost" icon={false}>Ver detalhes</DetailsButton>
         {!soon && <PdfModelLink id={p.id} className="linkbtn center">Ver modelo do PDF</PdfModelLink>}
       </div>

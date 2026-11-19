@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.66.0 — Home e consulta mais curtas, focadas em conversão
+
+- **Home enxuta.** A página passou de ~10.000 px para ~5.700 px no computador (e de ~18.600 px para ~9.600 px no celular). Ordem nova: placa → consultas → relatório e passos → pacotes e lojista → depoimentos → dúvidas → ferramentas grátis → texto de SEO → busca final.
+- **Topo direto.** Campo da placa em destaque, "a partir de R$ X" (menor preço ativo do catálogo, nada fixo no código), pagamento seguro, resultado em segundos e modelo do PDF. Saíram os atalhos repetidos do topo.
+- **Consultas.** Cards com 3 itens na home e botão "Consultar agora" em todos. "Comparar consultas" e "Preços e pacotes" logo abaixo. O seletor "Qual escolher?" ficou recolhido.
+- **Celular.** Consultas e pacotes em carrossel horizontal. Barra fixa "Consultar placa" aparece depois do topo e some na busca final. Aviso de cookies e chat não ficam mais um sobre o outro.
+- **Busca final.** O fim da página tem o campo da placa, em vez de só um botão.
+- **Ferramentas e guias.** Simulador, guia, blog e comparador saíram do meio da home e viraram atalhos compactos (as páginas e o menu continuam iguais).
+- **/consultar.** Título e texto mais curtos, consulta recomendada destacada com a etiqueta do painel, aviso para digitar a placa, selos de confiança. Mesma lógica de antes.
+- Mantidos: H1 e dados de SEO enviados pelo servidor, FAQ e blocos de SEO visíveis na página, eventos de funil (HOME_PAGE_VIEW, CTA_CLICKED, PLATE_CAPTURED). Novos placements: `final` e `sticky_mobile`.
+- Campo da placa com identificadores únicos (a página tem dois campos).
+
+## 1.65.3 — Respostas da Credify no formato exato da documentação
+
+Conferido contra os exemplos publicados em credifyapis.readme.io (gravame, recall, renainf, leilão, sinistro).
+
+- **Recall com CODIGO dentro de CONSULTA.** A documentação mostra a resposta de recall com `CODIGO` e `RECALL` dentro de `CONSULTA`, sem `RESPOSTA`. Antes essa forma era recusada (consulta paga e descartada); agora é aceita e convertida para o formato padrão.
+- **Multas (RENAINF) mais completas.** Cada multa passa a mostrar local, data e hora e demais detalhes que a Credify envia em `DADOS_EXTRAS`. A situação `opened` aparece como "Em aberto" (e `paid` como "Pago").
+- Testes novos em `formatos-resposta`: recall nas duas formas e multas no formato publicado.
+
+## 1.65.2 — Datas do gravame legíveis
+
+- A data de inclusão da restrição financeira, quando vem na resposta principal (já paga), passa a sair como 20/02/2024 mesmo que a base envie `20240220` ou `2024-02-20`. Antes aparecia como veio.
+- Teste novo no `formatos-resposta` para os três formatos de data.
+- Confirmado: a Consulta Completa chama só as 8 APIs do contrato (sem `/gravame`) e mostra no PDF contrato, CNPJ e data do gravame quando a resposta principal os traz.
+
 ## 1.65.1 — Consultas aceitam todos os formatos publicados pela Credify
 
 - **Base nacional não se perde mais.** A documentação da Credify publica a resposta da consulta nacional (`/veicularbnacionalonline`) dentro do bloco `VEICULARBNACIONALONLINE`; o sistema só reconhecia `VEICULARBNACIONAL`. Nesse formato a consulta era paga e a coluna "Base nacional" saía vazia no relatório (e, no formato com `VEICULARBNACIONAL` e outros campos, a consulta chegava a falhar com 424 depois de gastar as chamadas). Agora aceita o campo direto, o bloco com qualquer dos nomes publicados e o bloco único com outro nome.

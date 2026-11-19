@@ -4,7 +4,7 @@ import { extractReturn, providerOutcome } from '../report/normalizeV2.js';
 import { judicialNeeded } from '../report/judicial.js';
 import { bdrpCode, describeShape, isVehicleTotal } from '../report/vehicleTotal.js';
 import { CallBudget } from '../lib/providerGuard.js';
-import { Spend, bdrpReturn, buildLayeredEnvelope, flagIsClear, flagText, parseFarol, pieceIsEmpty, respostaOf, type Farol, type Piece } from '../report/layers.js';
+import { Spend, bdrpReturn, buildLayeredEnvelope, consultaComoResposta, flagIsClear, flagText, parseFarol, pieceIsEmpty, respostaOf, type Farol, type Piece } from '../report/layers.js';
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
 import { log } from '../lib/http.js';
 import { allowedPaths, contractFor } from '../lib/productContract.js';
@@ -544,6 +544,8 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       const retry = await call(await this.token(true), authStyle);
       if (retry.ok) raw = await read(retry);
     }
+    // A documentação mostra o recall com CODIGO e RECALL dentro de CONSULTA, sem RESPOSTA: passa para o formato padrão.
+    if (raw && typeof raw === 'object' && !raw.RESPOSTA) { const padrao = consultaComoResposta(raw); if (padrao) raw = padrao; }
     if (!raw || typeof raw !== 'object' || !raw.RESPOSTA) throw fail('DATA_PROVIDER_INVALID_RESPONSE', `Resposta sem o bloco RESPOSTA (campos: ${Object.keys(raw ?? {}).slice(0, 8).join(', ') || 'nenhum'}${raw?.Message ? `; Message: ${String(raw.Message)}` : ''}).`);
     // Códigos de limite/saldo do logon (valem para qualquer consulta): a Credify recusou ANTES de consultar.
     const logonCode = Array.isArray(raw?.RESPOSTA?.CODIGO) ? undefined : String(raw?.RESPOSTA?.CODIGO ?? '').trim();

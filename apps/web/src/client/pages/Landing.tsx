@@ -1,30 +1,31 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon, type IconName } from '../../shared/icons';
-import { LinkButton, Logo, usePageTitle } from '../../shared/ui';
+import { LinkButton, usePageTitle } from '../../shared/ui';
+import { money } from '../../shared/format';
 import { HeroArt, PhoneFrame } from '../art';
 import { PublicHeader } from '../layouts';
 import { useSession } from '../session';
 import { trackFunnel } from '../funnel';
 import PlateSearch from '../components/PlateSearch';
-import { PackageCards, ProductCards, SmartPicker } from '../components/Catalog';
+import { PackageCards, ProductCards, SmartPicker, useCatalog } from '../components/Catalog';
 import Faq from '../components/Faq';
 import Testimonials from '../components/Testimonials';
-import { LatestPosts } from './Content';
-import { HomeGuide, HomeSimulator } from '../components/HomeTools';
 import { DetailsButton, PdfModelLink } from '../components/ConsultaDetails';
 import { SeoContentAfterFaqs, useSeoH1 } from '../components/SeoContent';
 
 const STEPS = [
-  { t: 'Digite a placa', s: 'Aceita placa antiga e Mercosul. Sem cadastro de documentos.' },
-  { t: 'Escolha a consulta', s: 'Do essencial à checagem completa. O preço aparece antes de pagar.' },
-  { t: 'Receba o relatório', s: 'Resumo claro no topo, detalhes por seção e PDF com código de validação.' }
+  { t: 'Digite a placa', s: 'Placa antiga ou Mercosul.' },
+  { t: 'Escolha a consulta', s: 'O preço aparece antes de pagar.' },
+  { t: 'Receba o relatório', s: 'Na tela e em PDF, em segundos.' }
 ];
-const WHY: Array<{ icon: IconName; t: string; s: string }> = [
-  { icon: 'file-text', t: 'Dados reunidos', s: 'Veículo, débitos, restrições e financiamento em um só relatório.' },
-  { icon: 'zap', t: '100% online', s: 'Resultado em segundos, no celular ou no computador.' },
-  { icon: 'shield-check', t: 'Transparência', s: 'Data e fonte registradas. O que a fonte não retornar aparece como “Não informado”.' },
-  { icon: 'lock', t: 'Privacidade', s: 'Acesso protegido por login e dados completos, sem máscara, para uso profissional.' }
+
+const TOOLS: Array<{ to: string; icon: IconName; title: string; text: string }> = [
+  { to: '/fipe', icon: 'trending-up', title: 'Tabela FIPE', text: 'Preço médio por marca, modelo e ano.' },
+  { to: '/simulador', icon: 'calculator', title: 'Simulador de financiamento', text: 'Parcela e custo total.' },
+  { to: '/veiculos', icon: 'car', title: 'Guia de veículos', text: 'Fichas e modelos em destaque.' },
+  { to: '/comparar', icon: 'bar-chart', title: 'Comparar veículos', text: 'Lado a lado, em segundos.' },
+  { to: '/blog', icon: 'file-text', title: 'Blog', text: 'Guias para comprar e vender.' }
 ];
 
 function SamplePhones() {
@@ -56,36 +57,69 @@ function HeroTitle() {
   return <><h1 id="hero-title">{h1}</h1><p className="hero-tag">Saiba tudo sobre o carro <span className="grad-text">antes de fechar negócio.</span></p></>;
 }
 
-const FREE_TOOLS: Array<{ to: string; icon: IconName; title: string; short: string; text: string }> = [
-  { to: '/fipe', icon: 'trending-up', title: 'Tabela FIPE grátis', short: 'FIPE grátis', text: 'Preço médio de carro, moto e caminhão por marca, modelo e ano.' },
-  { to: '/simulador', icon: 'calculator', title: 'Simulador de financiamento', short: 'Simulador de financiamento', text: 'Parcela, CET e custo total do financiamento, com PDF para levar ao banco.' },
-];
+/** Menor preço de consulta do catálogo (vem do painel; nada fixo no código). */
+function useFromPrice(): string | null {
+  const { data } = useCatalog();
+  return useMemo(() => {
+    const prices = (data?.products ?? []).filter((p) => !p.isFree && p.commercialStatus === 'ACTIVE' && p.priceCents > 0).map((p) => p.priceCents);
+    return prices.length ? money(Math.min(...prices)) : null;
+  }, [data]);
+}
+
+/** Barra fixa no celular: aparece depois do topo e some quando a busca final está na tela. */
+function StickyCta({ price }: { price: string | null }) {
+  const [heroIn, setHeroIn] = useState(true);
+  const [endIn, setEndIn] = useState(false);
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    const hero = document.getElementById('hero');
+    const end = document.getElementById('consultar-final');
+    const a = new IntersectionObserver(([e]) => setHeroIn(Boolean(e?.isIntersecting)));
+    // some quando a busca final aparece e também depois que ela já passou (rodapé)
+    const b = new IntersectionObserver(([e]) => setEndIn(Boolean(e && (e.isIntersecting || e.boundingClientRect.top < 0))));
+    if (hero) a.observe(hero); else setHeroIn(false);
+    if (end) b.observe(end);
+    return () => { a.disconnect(); b.disconnect(); };
+  }, []);
+  const show = !heroIn && !endIn;
+  useEffect(() => {
+    const root = document.documentElement;
+    if (show) root.setAttribute('data-sticky-cta', ''); else root.removeAttribute('data-sticky-cta');
+    return () => root.removeAttribute('data-sticky-cta');
+  }, [show]);
+  function go() {
+    trackFunnel('CTA_CLICKED', { placement: 'sticky_mobile', target: '#hero', landing: '/' });
+    document.getElementById('hero')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => document.querySelector<HTMLInputElement>('#hero .plate-search input')?.focus({ preventScroll: true }), 450);
+  }
+  return (
+    <div className={`sticky-cta${show ? ' on' : ''}`} aria-hidden={!show}>
+      <button type="button" className="btn btn-primary btn-lg" onClick={go} tabIndex={show ? 0 : -1}><Icon name="search" size={19} /> Consultar placa{price ? <small>a partir de {price}</small> : null}</button>
+    </div>
+  );
+}
 
 export default function Landing() {
   usePageTitle('');
   const { status } = useSession();
+  const price = useFromPrice();
   useEffect(() => { trackFunnel('HOME_PAGE_VIEW', { landing: '/' }); }, []);
   return (
     <>
       <PublicHeader overHero />
-      <section className="hero2" aria-labelledby="hero-title">
+      <section className="hero2" id="hero" aria-labelledby="hero-title">
         <div className="hero2-bg" aria-hidden="true" />
         <div className="container hero2-grid">
           <div className="hero2-copy">
-            <span className="hero2-pill"><Icon name="shield-check" size={15} /> Consulta veicular por placa</span>
             <HeroTitle />
-            <p className="hero-lead">Débitos, multas, restrições, gravame, histórico e valor FIPE em um relatório claro, em segundos. Sem mensalidade: você paga só pela consulta que fizer.</p>
+            <p className="hero-lead">Débitos, multas, restrições e gravame em um só relatório. Sem mensalidade: você paga só a consulta que fizer.</p>
             <PlateSearch authed={status === 'authed'} placement="hero" />
-            <div className="hero2-tools" aria-label="Ferramentas grátis">
-              <span>Grátis:</span>
-              {FREE_TOOLS.map((t) => <Link key={t.to} to={t.to} onClick={() => trackFunnel('CTA_CLICKED', { placement: 'hero_tools', target: t.to, landing: '/' })}><Icon name={t.icon} size={16} />{t.short}</Link>)}
-            </div>
-            <div className="hero2-links">
-              <a className="btn btn-lg btn-outline-light" href="#consultas">Ver as consultas</a>
-              <DetailsButton className="linkbtn light" icon={false}>O que vem em cada uma</DetailsButton>
+            <div className="trust-row">
+              {price && <span className="from"><Icon name="tag" size={16} />A partir de {price}</span>}
+              <span><Icon name="shield-check" size={16} />Pagamento seguro</span>
+              <span><Icon name="zap" size={16} />Resultado em segundos</span>
               <PdfModelLink id="COMPLETE" className="linkbtn light">Ver modelo do PDF</PdfModelLink>
             </div>
-            <div className="trust-row"><span><Icon name="shield-check" size={16} />Pagamento seguro</span><span><Icon name="zap" size={16} />Resultado em segundos</span><span><Icon name="printer" size={16} />PDF com código de validação</span></div>
           </div>
           <div className="hero2-visual" aria-hidden="true">
             <div className="hv-card">
@@ -106,92 +140,50 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="section tools-strip" id="ferramentas-gratis" aria-labelledby="tools-title">
+      <section className="section" id="consultas">
         <div className="container stack-lg">
-          <div className="section-head" style={{ marginBottom: 0 }}><h2 id="tools-title">Ferramentas grátis para decidir melhor.</h2></div>
-          <div className="tools-grid">
-            {FREE_TOOLS.map((t) => (
-              <Link key={t.to} to={t.to} className="tool-card" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'home_tools', target: t.to, landing: '/' })}>
-                <span className="wi"><Icon name={t.icon} size={26} /></span>
-                <h3>{t.title}</h3>
-                <p>{t.text}</p>
-                <span className="tool-go">Usar grátis <Icon name="arrow-right" size={16} /></span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="section alt" id="consultas">
-        <div className="container stack-lg">
-          <div className="section-head" style={{ marginBottom: 0 }}><span className="eyebrow">Consultas</span><h2>Escolha o nível de segurança que você precisa.</h2><p>Cada consulta mostra exatamente o que entrega. O valor final aparece antes do pagamento.</p></div>
+          <div className="section-head center" style={{ marginBottom: 0 }}><h2>Escolha a consulta.</h2><p>O valor aparece antes de pagar.</p></div>
           <ProductCards homeOnly />
-          <SmartPicker />
-          <div className="row"><DetailsButton className="btn btn-primary">Detalhar e comparar consultas</DetailsButton><LinkButton to="/planos" iconRight="arrow-right">Ver preços e pacotes</LinkButton></div>
-        </div>
-      </section>
-
-      <section className="section" id="pacotes">
-        <div className="container stack-lg">
-          <div className="section-head" style={{ marginBottom: 0 }}><span className="eyebrow">Pacotes de saldo</span><h2>Consulte mais e pague menos por consulta.</h2><p>Recarregue o saldo uma vez e use em qualquer consulta. Sem mensalidade e sem validade curta.</p></div>
-          <PackageCards />
-        </div>
-      </section>
-
-      <section className="section custom-pack" aria-labelledby="custom-title">
-        <div className="container">
-          <div className="custom-card">
-            <div>
-              <span className="eyebrow">Para lojistas e empresas</span>
-              <h2 id="custom-title">Conheça os nossos pacotes personalizados.</h2>
-              <p>Consultas em volume com preço por consulta menor, acesso da equipe, histórico centralizado e a sua loja com vitrine, estoque e clientes. Montamos o pacote de acordo com o seu movimento.</p>
-            </div>
-            <div className="custom-cta">
-              <LinkButton to="/para-lojistas" variant="primary" size="lg" iconRight="arrow-right">Ver pacotes para lojistas</LinkButton>
-              <Link to="/contato" className="linkbtn">Falar com a equipe</Link>
-            </div>
+          <div className="row home-cta-row">
+            <DetailsButton className="btn">Comparar consultas</DetailsButton>
+            <LinkButton to="/planos" iconRight="arrow-right">Preços e pacotes</LinkButton>
           </div>
+          <details className="picker-toggle">
+            <summary><span>Não sabe qual escolher?</span><Icon name="chevron-down" size={18} /></summary>
+            <SmartPicker />
+          </details>
         </div>
       </section>
 
-      <HomeSimulator />
-
-      <section className="section" id="como-funciona">
-        <div className="container">
-          <div className="section-head"><span className="eyebrow">Como funciona</span><h2>Três passos, menos de um minuto.</h2></div>
-          <div className="steps">{STEPS.map((s) => <div className="step" key={s.t}><h3>{s.t}</h3><p>{s.s}</p></div>)}</div>
-        </div>
-      </section>
-
-      <HomeGuide />
-
-      <section className="section">
+      <section className="section alt" id="como-funciona">
         <div className="container showcase">
           <div>
-            <span className="eyebrow">Resultado fácil de ler</span>
-            <h2 style={{ fontSize: 'clamp(26px,3.6vw,40px)', marginTop: 10 }}>Um relatório que você entende em segundos.</h2>
-            <p className="muted" style={{ marginTop: 14, fontSize: 17 }}>Veredito claro no topo, valores em aberto em destaque e todos os detalhes organizados por seção, no celular ou impresso.</p>
+            <h2 style={{ fontSize: 'clamp(26px,3.6vw,38px)' }}>Relatório claro, do jeito que você precisa.</h2>
             <ul className="checklist">
-              {['Situação do veículo resumida em um só lugar', 'Débitos e multas com valores, sem somar em duplicidade', 'Campos que a fonte não retornou aparecem como “Não informado”', 'PDF com código de validação para compartilhar'].map((t) => <li key={t}><span className="ck"><Icon name="check" size={14} /></span>{t}</li>)}
+              {['Situação do veículo resumida no topo', 'Débitos e multas com valores, sem duplicidade', 'PDF com código de validação para compartilhar'].map((t) => <li key={t}><span className="ck"><Icon name="check" size={14} /></span>{t}</li>)}
             </ul>
-            <div className="row" style={{ marginTop: 26 }}><LinkButton to="/consultar" variant="primary" size="lg" iconRight="arrow-right">Fazer uma consulta</LinkButton></div>
+            <div className="steps-inline" aria-label="Como funciona">{STEPS.map((s) => <div key={s.t}><b>{s.t}</b><span>{s.s}</span></div>)}</div>
+            <div className="row" style={{ marginTop: 24 }}><LinkButton to="/consultar" variant="primary" size="lg" iconRight="arrow-right">Consultar agora</LinkButton></div>
             <span className="sample-tag">Imagens ilustrativas, com dados fictícios.</span>
           </div>
           <SamplePhones />
         </div>
       </section>
 
-      <section className="section alt">
-        <div className="container">
-          <div className="section-head center"><span className="eyebrow">Por que a Placa na Mão</span><h2>Clareza para decidir com tranquilidade.</h2></div>
-          <div className="why-grid">{WHY.map((w) => <div className="why-card" key={w.t}><span className="wi"><Icon name={w.icon} size={24} /></span><h3>{w.t}</h3><p>{w.s}</p></div>)}</div>
-        </div>
-      </section>
-
-      <section className="section alt" id="blog">
+      <section className="section" id="pacotes">
         <div className="container stack-lg">
-          <div className="row-between"><div className="section-head" style={{ marginBottom: 0 }}><span className="eyebrow">Blog</span><h2>Guias para comprar e vender com segurança.</h2></div><LinkButton to="/blog" iconRight="arrow-right">Ver todos</LinkButton></div>
-          <LatestPosts n={3} />
+          <div className="section-head center" style={{ marginBottom: 0 }}><h2>Consulte mais, pague menos por consulta.</h2><p>Recarregue o saldo e use em qualquer consulta. Sem mensalidade.</p></div>
+          <PackageCards />
+          <div className="custom-card slim">
+            <div>
+              <h3>Lojista ou empresa?</h3>
+              <p>Pacotes personalizados com preço menor por consulta, acesso da equipe e histórico centralizado.</p>
+            </div>
+            <div className="custom-cta">
+              <LinkButton to="/para-lojistas" variant="primary" iconRight="arrow-right">Ver pacotes para lojistas</LinkButton>
+              <Link to="/contato" className="linkbtn">Falar com a equipe</Link>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -199,27 +191,42 @@ export default function Landing() {
 
       <section className="section" id="duvidas">
         <div className="container">
-          <div className="section-head center"><span className="eyebrow">Dúvidas frequentes</span><h2>Transparência antes de cada consulta.</h2></div>
+          <div className="section-head center"><h2>Dúvidas frequentes.</h2></div>
           <Faq limit={6} />
           <div className="row" style={{ justifyContent: 'center', marginTop: 22 }}><Link to="/perguntas-frequentes" className="btn">Ver todas as perguntas</Link></div>
         </div>
       </section>
 
+      <section className="section alt tools-strip" id="ferramentas-gratis" aria-labelledby="tools-title">
+        <div className="container stack-lg">
+          <div className="section-head" style={{ marginBottom: 0 }}><h2 id="tools-title">Ferramentas grátis.</h2></div>
+          <div className="tools-mini">
+            {TOOLS.map((t) => (
+              <Link key={t.to} to={t.to} className="tool-mini" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'home_tools', target: t.to, landing: '/' })}>
+                <span className="wi"><Icon name={t.icon} size={22} /></span>
+                <span><b>{t.title}</b><small>{t.text}</small></span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <SeoContentAfterFaqs path="/" limit={6} faqTitle="Mais perguntas sobre consulta de placa" />
 
-      <section className="section" style={{ paddingTop: 0 }}>
+      <section className="section" style={{ paddingTop: 0 }} id="consultar-final">
         <div className="container">
-          <div className="final-banner">
+          <div className="final-banner solo">
             <div className="art" aria-hidden="true"><HeroArt /></div>
-            <div className="fb-logo"><Logo forceDark height={56} /></div>
             <div>
-              <h2>Seu próximo carro merece uma checagem.</h2>
-              <p>Consulte a placa agora e decida com segurança.</p>
-              <div className="fb-cta"><LinkButton to="/consultar" variant="primary" size="lg" iconRight="arrow-right">Consultar agora</LinkButton><Link to="/fipe" className="btn btn-lg btn-outline-light">Ver FIPE grátis</Link></div>
+              <h2>Consulte a placa antes de fechar negócio.</h2>
+              <p>Leva menos de um minuto.</p>
+              <PlateSearch authed={status === 'authed'} placement="final" />
             </div>
           </div>
         </div>
       </section>
+
+      <StickyCta price={price} />
     </>
   );
 }

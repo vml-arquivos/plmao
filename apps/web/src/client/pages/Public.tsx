@@ -29,18 +29,18 @@ export function GuestQuery() {
   return (
     <section className="page-hero" style={{ minHeight: '60vh' }}>
       <div className="container" style={{ maxWidth: 820 }}>
-        <span className="eyebrow">Consultar placa</span>
-        <h1 style={{ maxWidth: 'none' }}>Quase lá. Escolha a consulta.</h1>
-        <p className="lead">Confirme a placa, escolha o tipo de consulta e crie sua conta grátis para ver o relatório. Você só paga pela consulta.</p>
+        <h1 style={{ maxWidth: 'none' }}>Escolha a consulta.</h1>
+        <p className="lead">Confirme a placa e escolha a consulta. A conta é grátis e você só paga pelo que consultar.</p>
         <div className="card card-pad stack" style={{ marginTop: 26 }}>
-          <div className="plate-input-wrap"><div className="plate-input"><input value={plate} onChange={(e) => setPlate(normalizePlate(e.target.value))} placeholder="ABC1D23" aria-label="Placa do veículo" maxLength={8} autoComplete="off" autoCapitalize="characters" /></div>{plate && !ok && <span style={{ color: 'var(--danger)', fontSize: 14 }}>Placa incompleta ou inválida.</span>}</div>
+          <div className="plate-input-wrap"><div className="plate-input"><input value={plate} onChange={(e) => setPlate(normalizePlate(e.target.value))} placeholder="ABC1D23" aria-label="Placa do veículo" maxLength={8} autoComplete="off" autoCapitalize="characters" /></div>{plate && !ok && <span style={{ color: 'var(--danger)', fontSize: 14 }}>Placa incompleta ou inválida.</span>}{!plate && <span className="muted" style={{ fontSize: 14 }}>Digite a placa para liberar as consultas.</span>}</div>
           <div className="prod-list">
             {products.map((p) => { const off = p.commercialStatus !== 'ACTIVE'; return (
-              <button type="button" key={p.id} className={`prod ${off ? 'off' : ''}`} disabled={!ok || off} onClick={() => go(p.id)} style={{ textAlign: 'left', width: '100%' }}>
-                <Icon name="search" size={20} /><span><b>{p.name}{off && <span className="badge">Em breve</span>}</b><p>{p.description}</p></span><span className="pr num">{money(p.priceCents)}</span>
+              <button type="button" key={p.id} className={`prod ${off ? 'off' : ''} ${p.featured && !off ? 'rec' : ''}`} disabled={!ok || off} onClick={() => go(p.id)} style={{ textAlign: 'left', width: '100%' }}>
+                <Icon name="search" size={20} /><span><b>{p.name}{off && <span className="badge">Em breve</span>}{!off && p.badge && <span className="badge rec-badge">{p.badge}</span>}</b><p>{p.description}</p></span><span className="pr num">{money(p.priceCents)}</span>
               </button>); })}
           </div>
           <div className="row"><Button variant="primary" size="lg" disabled={!ok} onClick={() => go()}>Criar conta e continuar <Icon name="arrow-right" size={18} /></Button><Link className="btn btn-lg" to={`/fipe${ok ? `?placa=${plate}` : ''}`}>Ver valor FIPE grátis</Link></div>
+          <div className="trust-row-lite"><span><Icon name="shield-check" size={15} />Pagamento seguro</span><span><Icon name="zap" size={15} />Resultado em segundos</span><span><Icon name="file-text" size={15} />PDF com código de validação</span></div>
           <p className="muted" style={{ fontSize: 13.5 }}>Já tem conta? <Link to={`/entrar?next=${encodeURIComponent(`/app/consultar?placa=${plate}`)}`}>Entrar</Link></p>
         </div>
       </div>
