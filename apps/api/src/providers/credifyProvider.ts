@@ -140,7 +140,8 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       const kind = e instanceof Error ? e.name : 'erro de rede';
       const cause = e instanceof Error && (e as Error & { cause?: { code?: string } }).cause?.code;
       log('warn', 'credify_call_failed', { path: where, ms, kind, cause: cause ?? null });
-      throw fail('PROVIDER_TIMEOUT', `Sem resposta da Credify em ${where} após ${Math.round(ms / 1000)} s (${kind}${cause ? `, ${cause}` : ''}).`);
+      const timedOut = kind === 'TimeoutError' || cause === 'ETIMEDOUT' || cause === 'UND_ERR_CONNECT_TIMEOUT';
+      throw fail(timedOut ? 'PROVIDER_TIMEOUT' : 'DATA_PROVIDER_CONNECTION_FAILED', `Sem resposta da Credify em ${where} após ${Math.round(ms / 1000)} s (${kind}${cause ? `, ${cause}` : ''}).`);
     }
   }
 
@@ -170,7 +171,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       } catch (e) {
         lastError = e;
         const code = (e as { code?: string }).code;
-        if (code !== 'PROVIDER_TIMEOUT' && code !== 'DATA_PROVIDER_UNAVAILABLE') break;
+        if (code !== 'PROVIDER_TIMEOUT' && code !== 'DATA_PROVIDER_CONNECTION_FAILED' && code !== 'DATA_PROVIDER_UNAVAILABLE') break;
         await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 400 : 1200));
       }
     }
@@ -508,7 +509,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
         return await call(await this.token(force), authStyle);
       } catch (e) {
         // Sem resposta da fonte: descarta o token para a próxima consulta começar com um login novo.
-        if ((e as { code?: string }).code === 'PROVIDER_TIMEOUT') shared = null;
+        if (['PROVIDER_TIMEOUT', 'DATA_PROVIDER_CONNECTION_FAILED'].includes((e as { code?: string }).code ?? '')) shared = null;
         throw e;
       }
     };

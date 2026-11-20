@@ -381,6 +381,7 @@ function safeQueryFailureMessage(code?: string | null): string | undefined {
   if (code === 'DATA_PROVIDER_UNAVAILABLE') return 'A Credify ficou indisponível. O valor foi estornado; tente novamente em instantes.';
   if (code === 'DATA_PROVIDER_RATE_LIMITED') return 'A Credify informou limite temporário de consultas. O valor foi estornado; tente novamente mais tarde.';
   if (code === 'DATA_PROVIDER_QUOTA_EXHAUSTED') return 'A Credify informou limite ou saldo de consultas indisponível. O valor foi estornado; contate o suporte.';
+  if (code === 'DATA_PROVIDER_CONNECTION_FAILED') return 'Falha de conexão com a Credify.';
   if (code === 'PROVIDER_TIMEOUT' || code === 'QUERY_STUCK_TIMEOUT') return 'A Credify não respondeu dentro do prazo. O valor foi estornado; tente novamente.';
   if (code === 'PROVIDER_BUDGET_EXCEEDED') return 'Atingimos o limite de segurança de consultas à fonte de dados. O valor foi estornado; tente novamente mais tarde.';
   if (code === 'DATA_PROVIDER_INCOMPLETE') return 'Uma das bases desta consulta não respondeu e não entregamos o relatório incompleto. O valor foi estornado; tente novamente em instantes.';
@@ -400,6 +401,7 @@ function toSafeQueryError(error: unknown): { status: number; code: string; messa
   if (code === 'QUERY_PAYMENT_REFUND_PENDING') return { status: 409, code, message: 'Esta consulta está em processo de estorno e não pode ser usada agora.' };
   if (code === 'QUERY_PAYMENT_ALREADY_USED') return { status: 409, code, message: 'Este pagamento já foi utilizado ou não pode ser reutilizado.' };
   if (code === 'QUERY_CANCELLED') return { status: 409, code, message: 'Esta consulta foi cancelada.' };
+  if (code === 'DATA_PROVIDER_CONNECTION_FAILED') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `Falha de conexão com a fonte de dados. ${RETRY_MESSAGE}` };
   if (code === 'PROVIDER_TIMEOUT') return { status: 424, code: 'QUERY_RETRY_AVAILABLE', message: `A fonte de dados demorou para responder. ${RETRY_MESSAGE}` };
   if (code === 'DATA_PROVIDER_NOT_CONFIGURED') return { status: 503, code, message: 'A consulta está em ativação. Tente novamente quando a fonte de dados estiver disponível.' };
   if (code === 'DATA_PROVIDER_AUTH_FAILED') return { status: 424, code: 'QUERY_AUTHENTICATION_FAILED', message: 'A autenticação da fonte de dados falhou antes da consulta. Nenhum valor foi cobrado; tente novamente em instantes.' };
@@ -1382,6 +1384,13 @@ api.post('/fipe/quote', optionalAuth, asyncRoute(async (req, res) => {
     const cached = plateResult ? null : preferredProvider === 'parallelum' ? await findCachedFipeResult(input) : null;
     const result = plateResult ?? cached ?? await quoteWithFallback({ ...input, provider: preferredProvider });
     if (!cached && !plateResult) await cacheFipeResult(result);
+    if (!req.user) {
+      await recordProviderHealth(result.provider, 'SUCCESS', Date.now() - providerStartedAt);
+      await recordFunnelEvent(null, req, 'FREE_QUERY_COMPLETED', { provider: result.provider, cached: Boolean(cached), plateLookup: false });
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.status(201).json({ preview: true, valueLabel: result.valueLabel });
+      return;
+    }
     // Consulta grátis: o chassi real só alimenta o decodificador; o que aparece (tela, PDF, impressão) vai mascarado.
     const shownDetails = vehicleDetails ? { ...vehicleDetails, chassis: maskFreeChassis(vehicleDetails.chassis), engine: maskFreeEngine(vehicleDetails.engine) } : undefined;
     const quote = makeFipeQuote(result, plate, shownDetails);
@@ -2860,6 +2869,7 @@ function adminLookupError(error: unknown): unknown {
     DATA_PROVIDER_INCOMPLETE: [424, `Uma base obrigatória do produto não respondeu; o relatório incompleto não foi entregue.${why}`],
     DATA_PROVIDER_RATE_LIMITED: [424, `A Credify informou limite temporário de consultas.${why}`],
     DATA_PROVIDER_QUOTA_EXHAUSTED: [424, `A Credify informou limite ou saldo de consultas indisponível.${why}`],
+    DATA_PROVIDER_CONNECTION_FAILED: [424, 'Falha de conexão com a Credify. Confira o registro antes de repetir a consulta.'],
     PROVIDER_TIMEOUT: [424, 'A fonte demorou além do prazo configurado. A Credify pode ter cobrado esta consulta; não repita sem conferir.'],
     PROVIDER_BUDGET_EXCEEDED: [429, `${detail || 'Limite de segurança de consultas atingido.'}`]
   };

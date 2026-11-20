@@ -26,9 +26,15 @@ describe('FIPE pela placa exige conta', integration, () => {
   });
 
   it('visitante sem conta: marca, modelo e ano não pedem login', async () => {
-    const r = await quote({ vehicleType: 'cars', brand: { code: '59', name: 'VW' }, model: { code: '5940', name: 'Gol' }, year: { code: '2020-1', name: '2020 Gasolina' } });
-    assert.notEqual(r.status, 401, r.text);
-    assert.notEqual(r.json?.code, 'FIPE_PLATE_LOGIN_REQUIRED');
+    const key = 'parallelum:cars:59:5940:2020-1:test';
+    const payload = { provider: 'parallelum', valueLabel: 'R$ 45.000,00' };
+    await pool.query(`INSERT INTO fipe_cache(cache_key,provider,vehicle_type,brand_id,model_id,year_id,reference_month,payload,expires_at)
+      VALUES($1,'parallelum','cars','59','5940','2020-1','novembro/2026',$2,now()+interval '1 hour') ON CONFLICT(cache_key) DO UPDATE SET updated_at=now()`, [key, JSON.stringify(payload)]);
+    try {
+      const r = await quote({ vehicleType: 'cars', brand: { code: '59', name: 'VW' }, model: { code: '5940', name: 'Gol' }, year: { code: '2020-1', name: '2020 Gasolina' } });
+      assert.equal(r.status, 201, r.text);
+      assert.deepEqual(r.json, { preview: true, valueLabel: payload.valueLabel });
+    } finally { await pool.query('DELETE FROM fipe_cache WHERE cache_key=$1', [key]); }
   });
 
   it('placa inválida continua dando erro de placa e PDF/impressão exigem conta', async () => {

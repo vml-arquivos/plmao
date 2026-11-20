@@ -1449,3 +1449,8 @@ a.kind-tab { text-decoration: none; box-sizing: border-box; }
 .hello { background: var(--night); }
 .wallet-hero { background: #1F5FE0; }
 .auth-visual::after { background: linear-gradient(0deg, rgba(11, 27, 58, .92), rgba(11, 27, 58, .25) 55%, rgba(11, 27, 58, .7)); }
+
+@media print {
+  .fipe-guest-page > * { display: none !important; }
+  .fipe-guest-page::before { content: "Entre na sua conta Placa na Mão para imprimir a consulta FIPE."; }
+}

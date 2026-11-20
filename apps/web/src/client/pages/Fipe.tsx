@@ -22,25 +22,27 @@ export default function Fipe({ inApp = false }: { inApp?: boolean }) {
   const { status } = useSession();
   const toast = useToast();
   const [params] = useSearchParams();
-  const [mode, setMode] = useState<'plate' | 'select'>('plate');
+  const [mode, setMode] = useState<'plate' | 'select'>(params.has('marca') ? 'select' : 'plate');
   const [plate, setPlate] = useState(normalizePlate(params.get('placa') ?? ''));
-  const [vt, setVt] = useState<VType>('cars');
+  const [vt, setVt] = useState<VType>(params.get('tipo') === 'trucks' ? 'trucks' : params.get('tipo') === 'motorcycles' ? 'motorcycles' : 'cars');
   const [brands, setBrands] = useState<Item[]>([]); const [models, setModels] = useState<Item[]>([]); const [years, setYears] = useState<Item[]>([]);
   const [brand, setBrand] = useState(''); const [model, setModel] = useState(''); const [year, setYear] = useState('');
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [gate, setGate] = useState(false);
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [preview, setPreview] = useState<{ value: string; next: string } | null>(null);
+  const resume = useRef(params.has('marca') ? { brand: params.get('marca')!, model: params.get('modelo') ?? '', year: params.get('ano') ?? '' } : null);
   const [enabled, setEnabled] = useState(true);
   useEffect(() => { if (!inApp) trackFunnel('FIPE_PAGE_VIEW', {}); api.get<{ enabled: boolean }>('/fipe/status').then((s) => setEnabled(s.enabled), () => undefined); }, []);
   // escolha vinda da busca por texto: aplica modelo e ano quando as listas chegam
   const pending = useRef<{ model: string; year: number | null } | null>(null);
   const [q, setQ] = useState(''); const [hits, setHits] = useState<{ items: Array<{ brand: Item; model: Item }>; year: number | null } | null>(null); const [openList, setOpenList] = useState(false);
-  useEffect(() => { if (mode !== 'select') return; setBrand(''); setModel(''); setYear(''); setModels([]); setYears([]); api.get<{ brands: Item[] }>('/fipe/brands', { query: { vehicleType: vt } }).then((r) => setBrands(r.brands), (e) => setErr(errorMessage(e))); }, [mode, vt]);
+  useEffect(() => { if (mode !== 'select') return; setBrand(''); setModel(''); setYear(''); setModels([]); setYears([]); api.get<{ brands: Item[] }>('/fipe/brands', { query: { vehicleType: vt } }).then((r) => { setBrands(r.brands); if (resume.current && r.brands.some(b => b.code === resume.current?.brand)) setBrand(resume.current.brand); }, (e) => setErr(errorMessage(e))); }, [mode, vt]);
   useEffect(() => {
     setYear(''); setYears([]);
     if (!brand) { setModel(''); return setModels([]); }
     const want = pending.current;
     if (!want) setModel('');
-    api.get<{ models: Item[] }>('/fipe/models', { query: { vehicleType: vt, brandCode: brand } }).then((r) => { setModels(r.models); if (want) setModel(want.model); }, (e) => setErr(errorMessage(e)));
+    api.get<{ models: Item[] }>('/fipe/models', { query: { vehicleType: vt, brandCode: brand } }).then((r) => { setModels(r.models); if (want) setModel(want.model); else if (resume.current?.brand === brand) setModel(resume.current.model); }, (e) => setErr(errorMessage(e)));
   }, [brand, vt]);
   useEffect(() => {
     setYear('');
@@ -50,6 +52,7 @@ export default function Fipe({ inApp = false }: { inApp?: boolean }) {
     pending.current = null;
     api.get<{ years: Item[] }>('/fipe/years', { query: { vehicleType: vt, brandCode: brand, modelCode: model } }).then((r) => {
       setYears(r.years);
+      if (resume.current?.model === model) { const saved = resume.current.year; resume.current = null; if (r.years.some(y => y.code === saved)) setYear(saved); }
       const m = want?.year ? r.years.filter((y) => y.name.startsWith(String(want.year))) : [];
       if (m.length === 1) setYear(m[0]!.code);
     }, (e) => setErr(errorMessage(e)));
@@ -68,13 +71,19 @@ export default function Fipe({ inApp = false }: { inApp?: boolean }) {
   };
 
   async function submit() {
-    setErr(''); setQuote(null);
+    setErr(''); setQuote(null); setPreview(null);
     if (mode === 'plate' && status !== 'authed') { setGate(true); trackFunnel('FIPE_FORM_SUBMITTED', { hasVehicleDetails: true, loginRequired: true }); return; }
     setGate(false); setBusy(true);
     trackFunnel('FIPE_FORM_SUBMITTED', { vehicleType: vt, hasVehicleDetails: mode === 'plate' });
     try {
       const body = mode === 'plate' ? { plate } : { vehicleType: vt, brand: brands.find((b) => b.code === brand), model: models.find((m) => m.code === model), year: years.find((y) => y.code === year) };
-      const q = await api.post<Quote>('/fipe/quote', body);
+      const q = await api.post<Quote | { preview: true; valueLabel: string }>('/fipe/quote', body);
+      if ('preview' in q) {
+        const selection = new URLSearchParams({ tipo: vt, marca: brand, modelo: model, ano: year });
+        setPreview({ value: q.valueLabel, next: encodeURIComponent('/fipe?' + selection.toString()) });
+        trackFunnel('FIPE_RESULT_VIEWED', { vehicleType: vt });
+        return;
+      }
       setQuote(q); trackFunnel('FIPE_RESULT_VIEWED', { vehicleType: q.vehicleType, referenceMonth: q.referenceMonth });
     } catch (e) { setErr(errorMessage(e)); } finally { setBusy(false); }
   }
@@ -88,7 +97,7 @@ export default function Fipe({ inApp = false }: { inApp?: boolean }) {
   }
   const ready = mode === 'plate' ? isValidPlate(plate) : Boolean(brand && model && year);
   return (
-    <>
+    <div className={status === 'authed' ? undefined : 'fipe-guest-page'}>
       {inApp
         ? <div className="page-head"><div><h1>FIPE grátis</h1><p className="muted">Informe a placa ou escolha marca, modelo e ano e veja o valor médio de referência do mês. Sem custo.</p></div></div>
         : <section className="page-hero"><div className="container"><span className="eyebrow">FIPE grátis</span><SeoH1 path="/fipe" fallback="Quanto vale o veículo? Consulte a Tabela FIPE." style={{ maxWidth: '22ch' }} /><p className="lead">Informe a placa ou escolha marca, modelo e ano e veja o valor médio de referência do mês.</p></div></section>}
@@ -123,7 +132,13 @@ export default function Fipe({ inApp = false }: { inApp?: boolean }) {
             {<div><Button variant="primary" size="lg" icon="search" disabled={!ready || !enabled} loading={busy} onClick={submit}>Consultar FIPE</Button></div>}
           </div>
 
-          {quote && (
+          {preview && <div className="card card-pad fipe-result" style={{ marginTop: 22 }} aria-live="polite">
+            <span>Valor médio FIPE</span><strong className="fipe-value num">{preview.value}</strong>
+            <p>Crie sua conta grátis para ver os detalhes, baixar o PDF e imprimir.</p>
+            <LinkButton variant="primary" to={`/criar-conta?next=${preview.next}`}>Criar conta grátis</LinkButton>
+            <LinkButton to={`/entrar?next=${preview.next}`}>Já tenho conta</LinkButton>
+          </div>}
+          {status === 'authed' && quote && (
             <div className="card card-pad fipe-result" style={{ marginTop: 22 }} aria-live="polite">
               <div className="row">{quote.plate && <PlateBadge plate={quote.plate} size="lg" />}<div><h2>{quote.brand.name} {quote.model.name}</h2><p className="muted">{quote.year.name}{quote.fuel ? ` · ${quote.fuel}` : ''} · Código FIPE {quote.fipeCode}</p></div></div>
               <div><span className="muted">Valor médio · referência {quote.referenceMonth}</span><div className="fipe-value num">{quote.valueLabel}</div>{quote.estimatedNegotiation && <p className="muted" style={{ fontSize: 14 }}>Faixa estimada de negociação: {money(quote.estimatedNegotiation.minCents)} a {money(quote.estimatedNegotiation.maxCents)}. {quote.estimatedNegotiation.disclaimer}</p>}</div>
@@ -135,12 +150,12 @@ export default function Fipe({ inApp = false }: { inApp?: boolean }) {
               </div>
             </div>
           )}
-          {quote && !inApp && <div style={{ marginTop: 18 }}><LeadCapture tool="FIPE" interest={`FIPE: ${quote.brand.name} ${quote.model.name}`.slice(0, 160)} title="Quer receber este resultado e avisos de preço?" text="Deixe seu contato e a gente envia o resumo da Tabela FIPE e dicas para negociar com segurança." /></div>}
-          {quote && (quote.vehicleDetails || quote.sheet) && <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>{quote.vehicleDetails && <FreeIdentity details={quote.vehicleDetails} />}{quote.sheet && <SheetView sheet={quote.sheet} />}</div>}
-          {quote?.vehicleDetails?.chassis?.includes('*') && <p className="muted" style={{ fontSize: 14, marginTop: 12 }}>Chassi e motor aparecem completos nas consultas Básica e Completa.</p>}
+          {status === 'authed' && quote && !inApp && <div style={{ marginTop: 18 }}><LeadCapture tool="FIPE" interest={`FIPE: ${quote.brand.name} ${quote.model.name}`.slice(0, 160)} title="Quer receber este resultado e avisos de preço?" text="Deixe seu contato e a gente envia o resumo da Tabela FIPE e dicas para negociar com segurança." /></div>}
+          {status === 'authed' && quote && (quote.vehicleDetails || quote.sheet) && <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>{quote.vehicleDetails && <FreeIdentity details={quote.vehicleDetails} />}{quote.sheet && <SheetView sheet={quote.sheet} />}</div>}
+          {status === 'authed' && quote?.vehicleDetails?.chassis?.includes('*') && <p className="muted" style={{ fontSize: 14, marginTop: 12 }}>Chassi e motor aparecem completos nas consultas Básica e Completa.</p>}
           <p className="muted" style={{ fontSize: 13, marginTop: 20 }}>A Tabela FIPE é uma referência de preço médio de mercado e não considera estado de conservação, quilometragem nem situação documental.</p>
         </div>
       </section>
-    </>
+    </div>
   );
 }

@@ -92,7 +92,7 @@ test('mapeia erros do fornecedor para códigos internos e nunca devolve segredo'
   const bad = structuredClone(sample); bad.RESPOSTA.VEICULOSBDRP.DESCRICAORETORNO = 'ERRO';
   await assert.rejects(run(200, bad), { code: 'DATA_PROVIDER_INVALID_RESPONSE' });
   resetCredifyTokenCache();
-  await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: fakeFetch([new Error('timeout')]) }).queryByPlate('AAA0000'), { code: 'PROVIDER_TIMEOUT' });
+  await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: fakeFetch(Array.from({ length: 3 }, () => new DOMException('timeout', 'TimeoutError'))) }).queryByPlate('AAA0000'), { code: 'PROVIDER_TIMEOUT' });
 });
 
 test('sem credenciais ou sem corpo configurado não chama o fornecedor (consulta falha antes de cobrar o provedor)', async () => {
@@ -330,12 +330,18 @@ test('200 com mensagem de token vencido: entra de novo e repete a consulta uma v
 test('consulta sem resposta descarta o token: a próxima começa com login novo', async () => {
   resetCredifyTokenCache();
   const t1 = jwt(Math.floor(Date.now() / 1000) + 86400); const t2 = jwt(Math.floor(Date.now() / 1000) + 90000);
-  const f = fakeFetch([{ body: { Success: true, Dados: t1 } }, new Error('timeout'), { body: { Success: true, Dados: t2 } }, { body: sample }]);
+  const f = fakeFetch([{ body: { Success: true, Dados: t1 } }, new DOMException('timeout', 'TimeoutError'), { body: { Success: true, Dados: t2 } }, { body: sample }]);
   const p = new CredifyVehicleProvider({ ...base, fetchImpl: f });
   await assert.rejects(p.queryByPlate('AAA0000'), (e) => e.code === 'PROVIDER_TIMEOUT');
   await p.queryByPlate('AAA0000');
   assert.equal(f.calls.filter((c) => c.url.endsWith('/auth')).length, 2);
   resetCredifyTokenCache();
+});
+test('conexão interrompida na consulta não é classificada como prazo excedido', async () => {
+  resetCredifyTokenCache();
+  const token = jwt(Math.floor(Date.now() / 1000) + 86400);
+  const f = fakeFetch([{ body: { Success: true, Dados: token } }, new TypeError('fetch failed')]);
+  await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: f }).queryByPlate('AAA0000'), { code: 'DATA_PROVIDER_CONNECTION_FAILED' });
 });
 
 test('CODIGO=2 em consulta que não é Veículo Total é "nada encontrado" (estorna sem acusar falha técnica)', async () => {
