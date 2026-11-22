@@ -160,7 +160,7 @@ export function gravameExtras(upper: Rec, raw: unknown, now = new Date()): Map<s
     out.set('GR_PRAZO', info(d.future ? `Contrato vigente até ${brDate(vig)} (${d.text})` : `Vigência do contrato encerrada em ${brDate(vig)} (${d.text}); confirme a baixa do gravame com o banco`));
   } else out.set('GR_PRAZO', NOT_PROVIDED);
 
-  if (hasData && activeCount > 0) out.set('GR_VALORES', info('As bases oficiais (Detran, Senatran e Credify) não informam saldo devedor, valor financiado, parcelas pagas ou a pagar. Para esses valores, peça ao vendedor o contrato e confirme a quitação com o banco acima.'));
+  if (hasData && activeCount > 0) out.set('GR_VALORES', info('As bases oficiais (Detran e Senatran) não informam saldo devedor, valor financiado, parcelas pagas ou a pagar. Para esses valores, peça ao vendedor o contrato e confirme a quitação com o banco acima.'));
   return out;
 }
 

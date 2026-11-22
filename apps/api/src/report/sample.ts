@@ -3,6 +3,7 @@ import { buildReportV2, tierForProductCode, viewReport, type ReportV2 } from './
 import { renderVehiclePdf, type ReportMeta } from './pdf.js';
 import { scopeForProduct } from '../lib/reportScope.js';
 import { sourcesForProduct } from '../lib/dataSources.js';
+import { contractFor } from '../lib/productContract.js';
 import { env } from '../config.js';
 
 export const SAMPLE_RAW: Record<string, unknown> = {
@@ -291,6 +292,19 @@ function withoutOwners(raw: Record<string, unknown>): Record<string, unknown> {
   return copy as Record<string, unknown>;
 }
 
+/** A base nacional (situação do chassi, última atualização, emplacamento) só entra no modelo dos produtos que chamam essa API. Cadastral e Gravame usam só a base de cadastro. */
+function nationalIncluded(productId: string): boolean {
+  const c = contractFor(productId);
+  if (c && c.sources === null) return false;
+  const sources = sourcesForProduct(productId);
+  return !sources || sources.includes('TOTAL') || sources.includes('NATIONAL');
+}
+function withoutNational(raw: Record<string, unknown>): Record<string, unknown> {
+  const copy = structuredClone(raw) as { RESPOSTA?: Record<string, unknown> };
+  if (copy.RESPOSTA) delete copy.RESPOSTA.VEICULARBNACIONAL;
+  return copy as Record<string, unknown>;
+}
+
 /** A consulta de infrações (RENAINF) só entra no modelo dos produtos que a compram. O exemplo não tem multas, como o resto do modelo. */
 function renainfIncluded(productId: string): boolean {
   return sourcesForProduct(productId)?.includes('RENAINF') === true;
@@ -301,12 +315,13 @@ function withRenainf(raw: Record<string, unknown>): Record<string, unknown> {
   return copy as Record<string, unknown>;
 }
 
-export function sampleReport(withLien = false, owners = true, renainf = false): ReportV2 {
-  const key = `${withLien ? 'lien' : 'clean'}${owners ? '' : '-noowners'}${renainf ? '-renainf' : ''}`;
+export function sampleReport(withLien = false, owners = true, renainf = false, national = true): ReportV2 {
+  const key = `${withLien ? 'lien' : 'clean'}${owners ? '' : '-noowners'}${renainf ? '-renainf' : ''}${national ? '' : '-nonational'}`;
   let hit = cache.get(key);
   if (!hit) {
     const base0 = withLien ? SAMPLE_RAW : withoutLien();
-    const base = renainf ? withRenainf(base0) : base0;
+    const base1 = renainf ? withRenainf(base0) : base0;
+    const base = national ? base1 : withoutNational(base1);
     hit = buildReportV2({ ...(owners ? base : withoutOwners(base)), enrichment: { fipeHistory: { series: sampleSeries() }, generatedAt: new Date().toISOString() } });
     cache.set(key, hit);
   }
@@ -316,7 +331,7 @@ export function sampleReport(withLien = false, owners = true, renainf = false): 
 /** O relatório de exemplo exatamente como o cliente receberia neste produto (mesmas seções, mesmas regras de privacidade). */
 export function sampleViewFor(productId: string): ReportV2 {
   const scope = scopeForProduct(productId, new Date());
-  return viewReport(sampleReport(productId === 'LIEN', ownersIncluded(productId), renainfIncluded(productId)), { audience: 'client', tier: tierForProductCode(productId), sections: scope.sections, template: scope.template });
+  return viewReport(sampleReport(productId === 'LIEN', ownersIncluded(productId), renainfIncluded(productId), nationalIncluded(productId)), { audience: 'client', tier: tierForProductCode(productId), sections: scope.sections, template: scope.template });
 }
 
 export function sampleSections(productId: string): Array<{ key: string; label: string; items: string[] }> {

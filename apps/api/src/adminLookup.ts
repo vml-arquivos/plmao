@@ -9,6 +9,8 @@ type AdminLookupInput = {
   productName: string;
   timeoutMs: number;
   normalize: (raw: unknown) => NormalizedVehicle;
+  /** Complemento gratuito (histórico FIPE e ficha), igual ao da consulta do cliente. */
+  enrich?: (raw: unknown) => Promise<unknown>;
 };
 
 export type AdminLookupResult = {
@@ -23,8 +25,8 @@ export type AdminLookupResult = {
   raw?: unknown;
 };
 
-export async function performAdminLookup({ provider, plate, productId, productName, timeoutMs, normalize }: AdminLookupInput): Promise<AdminLookupResult> {
-  const output = await executeVehicleLookup({ provider, plate, productId, sources: sourcesForProduct(productId), timeoutMs, normalize });
+export async function performAdminLookup({ provider, plate, productId, productName, timeoutMs, normalize, enrich }: AdminLookupInput): Promise<AdminLookupResult> {
+  const output = await executeVehicleLookup({ provider, plate, productId, sources: sourcesForProduct(productId), enrich, timeoutMs, normalize });
   return {
     plate,
     productId,

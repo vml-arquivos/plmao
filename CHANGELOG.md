@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.67.3 — Exemplos do portal novo da Credify
+
+- Testes novos com os exemplos do portal novo da Credify: recall com várias campanhas, roubo e furto com várias ocorrências, RENAJUD com bloqueio ativo e leilão. Todos saem certos no relatório.
+- Sem mudança de código do sistema, sem migração e sem variáveis novas.
+
+## 1.67.2 — Conferência com o dicionário da Credify
+
+- **Multas do RENAINF.** A documentação não diz se o valor "10000" é em reais ou em centavos. Agora, quando o valor vem sem vírgula, o sistema confere com o valor do boleto (código de barras ou linha digitável) e usa os centavos se baterem. Com vírgula, ou sem boleto, nada muda.
+- **Teste com os exemplos publicados.** Os exemplos de resposta da documentação (gravame baixado e sem gravame, sinistro, leilão, recall, multas com e sem débito) passam pelo caminho real do sistema, sem custo.
+- Dicionário de retornos de cada API guardado em `docs/credify-dicionario-retornos.csv`.
+- Sem migração e sem variáveis novas.
+
+## 1.67.1 — Auditoria das consultas sem custo
+
+- **Auditoria sem custo.** Nova rotina (`npm run audit:consultas`, relatório em `docs/AUDITORIA-CONSULTAS.md`) que roda o caminho real das consultas com respostas de exemplo no formato publicado pela Credify, sem nenhuma chamada paga. Para cada consulta mostra as APIs chamadas, o que o cliente recebe e o que o modelo do PDF promete e não veio. Também roda como teste (`auditoria-consultas` e `auditoria-ponta-a-ponta`): servidor completo, cobrança, estorno em falha, relatório e PDF.
+- **Texto de gravame.** A nota sobre saldo devedor citava o nome do fornecedor de dados; agora fala só em Detran e Senatran.
+- **Modelo do PDF.** Dados Cadastrais e Gravame não prometem mais itens da base nacional (situação do chassi, última atualização, emplacamento), porque essas consultas não chamam essa API.
+- **Consulta interna do painel.** Passa a trazer também o histórico de preço da FIPE, a projeção e a ficha, como na consulta do cliente.
+- **Modelo do veículo.** Se o cadastro e a base nacional trouxerem o modelo em branco, o relatório usa o modelo da FIPE (antes ficava vazio).
+- Teste antigo de tempo esgotado ajustado ao novo tipo de erro de conexão.
+- Sem migração e sem variáveis novas.
+
 ## 1.67.0 — Visual premium e página inicial editável no painel
 
 - **Visual novo.** Azul da marca mantido, cinzas neutros, sem degradês, cantos menos arredondados e sombras leves. Títulos mais firmes (Inter 600/700) e texto corrido em peso 400. Os dois temas (claro e escuro) continuam, com o mesmo botão, e o tema segue o aparelho por padrão.

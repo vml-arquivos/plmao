@@ -2927,7 +2927,7 @@ api.post('/admin/lookups', adminAuth, requirePermission('VIEW_SENSITIVE_DATA'), 
   if (String(parsed.data.productId).toUpperCase() === 'FIPE_FREE') return adminFipeFreeLookup(req, res, parsed.data.plate, String(product.rows[0].name), provider.name);
   try {
     // Uma consulta interna por placa/pacote por vez: clique duplo ou duas abas não geram duas consultas pagas.
-    const output = await runExclusive(`admin-lookup:${parsed.data.plate}:${parsed.data.productId}`, () => performAdminLookup({ provider, plate: parsed.data.plate, productId: parsed.data.productId, productName: product.rows[0].name, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp }), env.QUERY_REQUEST_TIMEOUT_MS + 30_000);
+    const output = await runExclusive(`admin-lookup:${parsed.data.plate}:${parsed.data.productId}`, () => performAdminLookup({ provider, plate: parsed.data.plate, productId: parsed.data.productId, productName: product.rows[0].name, timeoutMs: env.QUERY_REQUEST_TIMEOUT_MS, normalize: normalizeBdrp, enrich: ENRICHED_PRODUCTS.has(String(parsed.data.productId).toUpperCase()) ? (raw) => enrichWithSheet(raw, { fipeHistory: env.ENRICH_FIPE_HISTORY }) : undefined }), env.QUERY_REQUEST_TIMEOUT_MS + 30_000);
     // A consulta interna é uma consulta de verdade: fica salva (origem "Interna"), com relatório, PDF e código de validação, para rever e enviar ao cliente.
     const { raw, ...visible } = output;
     let queryId: string | null = null;

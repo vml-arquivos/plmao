@@ -42,7 +42,7 @@ test('erro 5xx e tempo esgotado da consulta paga não são repetidos automaticam
   await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: f, maxPerHour: 0, maxPerDay: 0 }).queryByPlate('AAA0000'), { code: 'DATA_PROVIDER_UNAVAILABLE' });
   assert.equal(paid(f), 1);
   resetCredifyTokenCache();
-  const g = fakeFetch([login(), new Error('timeout')]);
+  const g = fakeFetch([login(), new DOMException('timeout', 'TimeoutError')]);
   await assert.rejects(new CredifyVehicleProvider({ ...base, fetchImpl: g, maxPerHour: 0, maxPerDay: 0 }).queryByPlate('AAA0000'), { code: 'PROVIDER_TIMEOUT' });
   assert.equal(paid(g), 1);
 });

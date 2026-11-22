@@ -112,3 +112,11 @@ test('infrações (RENAINF) no formato publicado: lista em DEBITOS, local e data
   assert.ok(/Local: AV BRASIL, 1000/.test(alvo), 'local da multa');
   assert.ok(/Data e Hora: 01\/11\/2026 08:15/.test(alvo), 'data e hora da multa');
 });
+
+test('modelo vazio no cadastro e na base nacional: usa o modelo da FIPE em vez de ficar em branco', () => {
+  const raw = structuredClone(JSON.parse(fs.readFileSync(new URL('./fixtures/veiculototal-sucesso.json', import.meta.url), 'utf8')));
+  raw.RESPOSTA.VEICULOSBDRP.RETORNO.MODELO = '';
+  raw.RESPOSTA.VEICULARBNACIONAL.REGISTRO_1.MODELO = '';
+  const item = buildReportV2(raw).sections.flatMap((s) => s.items).find((i) => i.key === 'MODELO');
+  assert.equal(item?.value, 'GOL 1.0 FLEX 4P');
+});

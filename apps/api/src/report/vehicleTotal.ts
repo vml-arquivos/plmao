@@ -105,7 +105,7 @@ function mergedReturn(r: Rec): Rec {
   const nat = records(block(r, 'VEICULARBNACIONAL'))[0] ?? {};
   const fipe = records(block(r, 'PRECIFICADORFIPE'))[0] ?? {};
   const fill = (k: string, v: unknown) => { const s = str(v); if (s && !have(k)) ret[k] = s; };
-  fill('PLACA', nat.PLACA); fill('MARCA', nat.MARCA); fill('MODELO', nat.MODELO ?? fipe.MODELOFIPE);
+  fill('PLACA', nat.PLACA); fill('MARCA', nat.MARCA); fill('MODELO', str(nat.MODELO) || fipe.MODELOFIPE);
   fill('MARCAMODELOCOMPLETO', nat.MODELO); fill('CHASSI', nat.CHASSI); fill('RENAVAM', nat.RENAVAM);
   fill('VEIANOFABR', nat.ANO_FABRICACAO); fill('VEIANOMODELO', nat.ANO_MODELO); fill('COR', nat.COR); fill('COMBUSTIVEL', nat.COMBUSTIVEL);
   fill('POTENCIA', nat.POTENCIA); fill('CILINDRADA', nat.CILINDRADA); fill('TIPO', nat.TIPO_VEICULO); fill('ESPECIE', nat.ESPECIE_VEICULO);
@@ -253,6 +253,35 @@ function fineExtras(v: unknown): string {
     .join(' · ');
 }
 
+/**
+ * Valor do boleto, em centavos, lido do próprio código de barras ou da linha digitável (a base de cálculo é a mesma que o banco usa).
+ * Devolve 0 quando não há código válido ou o boleto não traz valor.
+ */
+export function boletoCents(x: Rec): number {
+  const digits = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+  let code = digits(x.CODIGO_BARRAS);
+  if (code.length !== 44) {
+    const line = digits(x.LINHA_DIGITAVEL);
+    if (line.length === 48) code = [0, 12, 24, 36].map((i) => line.slice(i, i + 11)).join('');
+    else if (line.length === 47) return Number(line.slice(37)) || 0;
+    else if (code.length !== 44) return 0;
+  }
+  if (code.startsWith('8')) return '67'.includes(code[2] ?? '') ? Number(code.slice(4, 15)) || 0 : 0;
+  return Number(code.slice(9, 19)) || 0;
+}
+
+/**
+ * Valor de uma multa do RENAINF em centavos. A documentação não diz se "10000" é reais ou centavos: com vírgula é sempre reais;
+ * sem vírgula, o valor do boleto decide (se bater com os centavos, são centavos). Sem boleto, mantém a leitura em reais.
+ */
+export function fineCents(x: Rec, key: 'TOTAL' | 'MULTA'): number {
+  const reais = money(x[key]);
+  const s = str(x[key]);
+  if (!reais || s.includes(',') || s.includes('.') || key !== 'TOTAL') return reais;
+  const boleto = boletoCents(x);
+  return boleto > 0 && boleto === Number(s) ? Number(s) : reais;
+}
+
 /** Multas detalhadas da consulta de infrações (RENAINF): uma linha por infração. */
 function renainfFines(r: Rec): VtValue {
   const rn = isRec(r.RENAINF) ? upperKeys(r.RENAINF as Rec) : null;
@@ -261,18 +290,18 @@ function renainfFines(r: Rec): VtValue {
   const list: Rec[] = Array.isArray(d) ? d.filter(isRec).map((x) => upperKeys(x as Rec)) : isRec(d)
     ? (() => { const up = upperKeys(d as Rec); const regs = Object.entries(up).filter(([k, v]) => /^REGISTRO_\d+$/.test(k) && isRec(v)).map(([, v]) => upperKeys(v as Rec)); return regs.length ? regs : [up]; })()
     : [];
-  const fines = list.filter((x) => money(x.TOTAL) > 0 || money(x.MULTA) > 0 || (str(x.DESCRICAO) !== '' && !unknownText(str(x.DESCRICAO))));
+  const fines = list.filter((x) => fineCents(x, 'TOTAL') > 0 || money(x.MULTA) > 0 || (str(x.DESCRICAO) !== '' && !unknownText(str(x.DESCRICAO))));
   if (!fines.length) return { state: 'CLEAR', value: 'Sem multas', display: 'Nenhuma multa registrada na consulta de infrações (RENAINF)' };
   const rows = fines.slice(0, 30).map((x) => {
     const extras = fineExtras(x.DADOS_EXTRAS);
     return [
       [str(x.DESCRICAO) || str(x.TIPO) || 'Infração', extras].filter(Boolean).join('\n'),
       str(x.DATA_VENCIMENTO) ? brDate(x.DATA_VENCIMENTO) : '—',
-      money(x.TOTAL) ? brlFromCents(money(x.TOTAL)) : money(x.MULTA) ? brlFromCents(money(x.MULTA)) : '—',
+      fineCents(x, 'TOTAL') ? brlFromCents(fineCents(x, 'TOTAL')) : money(x.MULTA) ? brlFromCents(money(x.MULTA)) : '—',
       paymentStatus(str(x.STATUS_PAGAMENTO))
     ];
   });
-  const total = fines.reduce((acc, x) => acc + (money(x.TOTAL) || money(x.MULTA)), 0);
+  const total = fines.reduce((acc, x) => acc + (fineCents(x, 'TOTAL') || money(x.MULTA)), 0);
   const t = `${fines.length} ${fines.length === 1 ? 'multa' : 'multas'}${total ? ` — total ${brlFromCents(total)}` : ''}`;
   return { state: 'ALERT', value: t, display: t, table: { columns: ['Infração', 'Vencimento', 'Valor', 'Situação'], rows } };
 }
