@@ -109,6 +109,57 @@ describe('auditoria ponta a ponta com Credify de mentira (sem custo)', integrati
     assert.ok(!/credify|anycar|bdrp/i.test(pdfText(Buffer.from(await pdf.arrayBuffer()).toString('base64'))), 'PDF do cliente sem nome de fonte');
   });
 
+  for (const pid of Object.keys(PRODUCTS)) {
+    it(`${pid}: a consulta interna do painel e a compra do cliente entregam o mesmo relatório e o mesmo PDF`, async () => {
+      scenario = 'placa com ocorrências';
+      hits.length = 0;
+      const adm = await sa.call('/api/admin/lookups', { method: 'POST', body: { plate: 'AAA0000', productId: pid } });
+      assert.equal(adm.status, 200, adm.text);
+      const hitsAdmin = [...hits].sort(); hits.length = 0;
+      const reg = await hostRequest(app.base, '/api/auth/register', { method: 'POST', body: { name: 'Cliente Igual', email: `${uid('igu')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });
+      const { token, user } = reg.json;
+      await pool.query('UPDATE wallets SET balance_cents=100000 WHERE user_id=$1', [user.id]);
+      const q = await hostRequest(app.base, '/api/queries', { method: 'POST', token, headers: { 'Idempotency-Key': `igu-${uid('k')}-0003` }, body: { searchType: 'PLATE', searchValue: 'AAA0000', productId: pid } });
+      assert.equal(q.status, 201, q.text);
+      assert.deepEqual([...hits].sort(), hitsAdmin, 'mesmas APIs chamadas na consulta interna e na do cliente');
+      const rep = await hostRequest(app.base, `/api/queries/${q.json.id}/report`, { token });
+      assert.equal(rep.status, 200, rep.text);
+      // Mesmas seções, itens, valores, estados, veredito e textos (o código de validação e a data é que mudam de uma consulta para outra).
+      assert.deepEqual(adm.json.report.sections, rep.json.report.sections, 'seções e itens iguais');
+      assert.deepEqual(adm.json.report.verdict, rep.json.report.verdict, 'veredito igual');
+      assert.deepEqual(adm.json.report.advice, rep.json.report.advice, 'conselhos iguais');
+      const pdfCliente = await fetch(`${app.base}/api/queries/${q.json.id}/report/pdf`, { headers: { authorization: `Bearer ${token}` } });
+      const limpa = (t) => t.split('\n').filter((l) => !/Código|código|\/validar|Consultado|Emitido|Hash|hash|\d{2}\/\d{2}\/\d{4}.*\d{2}:\d{2}|^\s*$/.test(l)).map((l) => l.trim()).join('\n');
+      assert.equal(limpa(pdfText(adm.json.pdfBase64)), limpa(pdfText(Buffer.from(await pdfCliente.arrayBuffer()).toString('base64'))), 'texto do PDF igual');
+    });
+  }
+
+  it('abrir o relatório não gasta /gravame quando a consulta já trouxe banco e contrato; consulta antiga sem esses dados ainda é completada', async () => {
+    scenario = 'placa com ocorrências';
+    const reg = await hostRequest(app.base, '/api/auth/register', { method: 'POST', body: { name: 'Cliente Gravame', email: `${uid('grv')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });
+    const { token, user } = reg.json;
+    await pool.query('UPDATE wallets SET balance_cents=100000 WHERE user_id=$1', [user.id]);
+    const q = await hostRequest(app.base, '/api/queries', { method: 'POST', token, headers: { 'Idempotency-Key': `grv-${uid('k')}-0004` }, body: { searchType: 'PLATE', searchValue: 'AAA0000', productId: 'PREMIUM' } });
+    assert.equal(q.status, 201, q.text);
+    hits.length = 0;
+    const rep = await hostRequest(app.base, `/api/queries/${q.json.id}/report`, { token });
+    assert.equal(rep.status, 200, rep.text);
+    assert.ok(!hits.includes('/gravame'), 'dados completos: abrir o relatório não compra o gravame');
+    // Consulta antiga: o bruto guardado diz alienação sem banco/contrato/datas e não tem a resposta do /gravame.
+    const { decryptRaw, encryptRaw } = await import('../dist/lib/rawStore.js');
+    const { ensureLienDetail } = await import('../dist/lib/lienRefresh.js');
+    const enc = (await pool.query('SELECT raw_enc FROM vehicle_query_results WHERE query_id=$1', [q.json.id])).rows[0].raw_enc;
+    const bruto = decryptRaw(enc);
+    const env = bruto.data ?? bruto;
+    Object.assign(env.RESPOSTA.VEICULOSBDRP.RETORNO, { RESTRICAOFINAN: 'ALIENACAO FIDUCIARIA', RESTRICAONOMEAGENTE: [], NUMEROCONTRATOFINANCEIRA: [], RESTRICAODATAINCLUSAO: [], CGCFINANCEIRA: [] });
+    delete bruto.gravame;
+    await pool.query('UPDATE vehicle_query_results SET raw_enc=$2 WHERE query_id=$1', [q.json.id, encryptRaw(bruto)]);
+    let chamadas = 0;
+    const ok = await ensureLienDetail(q.json.id, { fetchSupplement: async () => { chamadas += 1; return { notFound: true }; } });
+    assert.equal(chamadas, 1, 'consulta antiga sem banco/contrato: completa uma vez');
+    assert.equal(ok, true);
+  });
+
   it('falha de uma API obrigatória: o cliente é estornado e nada fica sem retorno', async () => {
     scenario = 'placa limpa'; hits.length = 0;
     const reg = await hostRequest(app.base, '/api/auth/register', { method: 'POST', body: { name: 'Cliente Falha', email: `${uid('fal')}@cliente.local`, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });

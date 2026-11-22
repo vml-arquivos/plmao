@@ -8,6 +8,7 @@ import { Spend, bdrpReturn, buildLayeredEnvelope, consultaComoResposta, flagIsCl
 import { parseSearchTypes, type SearchType } from '../searchKey.js';
 import { log } from '../lib/http.js';
 import { allowedPaths, contractFor } from '../lib/productContract.js';
+import { lienDetailNeeded } from '../lib/lienNeeded.js';
 import { sourcesSignature } from '../lib/dataSources.js';
 import { queryAnycarAuction } from './anycarProvider.js';
 
@@ -262,17 +263,7 @@ export class CredifyVehicleProvider implements VehicleDataProvider {
       products: sel ? [pidKey] : ['COMPLETE', 'PREMIUM'], core: sel ? [] : ['LIEN'],
       // Gravame completo (banco, CNPJ, contrato, datas): busca sempre que a base principal não trouxe dados, não afirmou "sem gravame"
       // ou indicou alienação sem o agente financeiro/contrato/data.
-      needed: (data) => {
-        if (!isVehicleTotal(data)) return false;
-        if (layeredMode && env.CREDIFY_COMPLETE_GRAVAME === 'always') return true;
-        if (bdrpCode(data) !== '1') return true;
-        const upper = Object.fromEntries(Object.entries(extractReturn(data) ?? {}).map(([k, v]) => [k.toUpperCase(), String(Array.isArray(v) ? v[0] ?? '' : v ?? '').trim()]));
-        const flag = (upper.RESTRICAOFINAN ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
-        if (!flag || /BAIX/.test(flag)) return true;
-        const clean = /^(NADA CONSTA|NAO CONSTA|NAO POSSUI)/.test(flag) || /SEM (RESTRICAO|GRAVAME)/.test(flag);
-        if (clean) return false;
-        return !upper.RESTRICAONOMEAGENTE || !upper.NUMEROCONTRATOFINANCEIRA || !upper.RESTRICAODATAINCLUSAO || !upper.CGCFINANCEIRA;
-      }
+      needed: (data) => lienDetailNeeded(data, layeredMode && env.CREDIFY_COMPLETE_GRAVAME === 'always')
     });
     const withJudicial = await this.supplement(withLien, plate, pid, startedAt, {
       key: 'renajud', path: '/renajud', label: 'renajud', enabled: sel ? sel.has('RENAJUD') : env.CREDIFY_JUDICIAL_SUPPLEMENT, spend, strict,

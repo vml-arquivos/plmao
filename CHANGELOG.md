@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.67.4 — Consulta interna igual à do cliente
+
+- **Gravame ao abrir o relatório.** Ao abrir o relatório de uma Premium ou Gravame com alienação, o sistema buscava o gravame de novo mesmo quando a consulta já trazia banco, contrato e datas. Isso gastava uma consulta a mais e deixava o relatório do cliente diferente do da consulta interna do painel. Agora só busca quando faltar banco, contrato, data ou CNPJ, a mesma regra da consulta nova.
+- **Teste novo.** Nos 6 produtos, a consulta interna do painel e a compra do cliente chamam as mesmas APIs e entregam o mesmo relatório e o mesmo PDF.
+- Sem migração e sem variáveis novas.
+
 ## 1.67.3 — Exemplos do portal novo da Credify
 
 - Testes novos com os exemplos do portal novo da Credify: recall com várias campanhas, roubo e furto com várias ocorrências, RENAJUD com bloqueio ativo e leilão. Todos saem certos no relatório.

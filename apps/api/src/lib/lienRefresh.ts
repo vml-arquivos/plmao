@@ -6,6 +6,8 @@ import { env } from '../config.js';
 import { runExclusive } from './providerGuard.js';
 import { decryptRaw, encryptRaw } from './rawStore.js';
 import { allowedPaths } from './productContract.js';
+import { lienDetailNeeded } from './lienNeeded.js';
+import { isVehicleTotal } from '../report/vehicleTotal.js';
 
 /** O /gravame só pode ser comprado para os produtos cujo contrato de APIs o inclui (Gravame, Avançada, Premium). Completa, Leilão e Cadastral não pagam essa consulta. */
 export const lienAllowedFor = (productId: string | null | undefined): boolean => allowedPaths(productId).has('/gravame');
@@ -67,6 +69,11 @@ export async function ensureLienDetail(queryId: string, source: unknown, waitMs 
       WHERE q.id=$1 AND q.status='SUCCESS' AND q.product_id IN ('PREMIUM','LIEN') AND r.raw_enc IS NOT NULL AND r.normalized ? 'v2'
         AND jsonb_path_exists(r.normalized, '$.v2.sections[*].items[*] ? (@.key=="RESTRICAOFINAN" && @.state=="ALERT")')`, [queryId]);
     if (!eligible.rowCount) return false;
+    // Só completa quando a consulta realmente ficou sem banco, contrato ou datas: a mesma regra de quando o gravame é comprado na consulta nova.
+    const stored = await pool.query('SELECT raw_enc FROM vehicle_query_results WHERE query_id=$1', [queryId]);
+    const raw = decryptRaw(String(stored.rows[0]?.raw_enc ?? '')) as Rec | null;
+    const base = raw ? (raw.data ?? raw) : null;
+    if (!raw || hasLienAnswer(raw) || (isVehicleTotal(base) && !lienDetailNeeded(base))) return false;
     const run = runExclusive(`lien-refresh:${queryId}`, () => refreshQueryGravame(queryId, source, null));
     const out = await Promise.race([run, new Promise<'TIMEOUT'>((resolve) => setTimeout(() => resolve('TIMEOUT'), waitMs))]);
     if (out === 'TIMEOUT') { retryAfter.set(queryId, Date.now() + 30 * 60_000); run.catch(() => undefined); return false; }
