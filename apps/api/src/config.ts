@@ -323,7 +323,11 @@ const envSchema = z.object({
   PLATE_WATCH_ENABLED: booleanFromEnv.default(true),
   FIPE_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().max(120000).default(10000),
   FIPE_GUEST_DAILY_LIMIT: z.coerce.number().int().positive().max(100).default(3),
-  FIPE_AUTH_DAILY_LIMIT: z.coerce.number().int().positive().max(500).default(10),
+  /** FIPE grátis com conta: por dia e por mês, contados por usuário. Uma conta com limite próprio definido pelo painel não entra no teto mensal. */
+  FIPE_AUTH_DAILY_LIMIT: z.coerce.number().int().positive().max(500).default(3),
+  FIPE_AUTH_MONTHLY_LIMIT: z.coerce.number().int().positive().max(5000).default(15),
+  /** Consulta Cadastral grátis: uma por conta, para sempre (vitrine da FIPE grátis). Cada uma custa R$ 2,26 na fonte. */
+  FEATURE_FREE_CADASTRAL: booleanFromEnv.default(true),
   FIPE_CACHE_TTL_DAYS: z.coerce.number().int().positive().max(31).default(31),
   VEHICLE_API_BASE_URL: optionalUrl,
   VEHICLE_API_QUERY_PATH: optionalString,

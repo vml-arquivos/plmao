@@ -8,11 +8,14 @@ import { audit, log } from './http.js';
  * (cobrança por saldo) ou o direito pago volta a READY (pagamento direto).
  */
 export async function refundProcessingQuery(client: PoolClient, queryId: string, errorCode: string, detail?: string): Promise<boolean> {
-  const q = await client.query('SELECT user_id,plate,status,price_cents,charge_source FROM vehicle_queries WHERE id=$1 FOR UPDATE', [queryId]);
+  const q = await client.query('SELECT user_id,plate,status,price_cents,charge_source,product_id FROM vehicle_queries WHERE id=$1 FOR UPDATE', [queryId]);
   if (!q.rowCount || q.rows[0].status !== 'PROCESSING') return false;
-  const row = q.rows[0] as { user_id: string; plate: string; price_cents: number; charge_source: string };
+  const row = q.rows[0] as { user_id: string; plate: string; price_cents: number; charge_source: string; product_id: string };
   if (row.charge_source === 'DIRECT_PAYMENT') {
     await client.query(`UPDATE query_payment_entitlements SET status='READY',query_id=NULL,consumed_at=NULL WHERE query_id=$1 AND status='CONSUMED'`, [queryId]);
+  } else if (row.charge_source === 'FREE_GRANT') {
+    // Consulta grátis (uma por conta): não há saldo a devolver. Se a falha foi da fonte, o direito volta; se o cliente cancelou, não (a fonte pode já ter respondido e cobrado).
+    if (errorCode !== 'QUERY_CANCELLED') await client.query('DELETE FROM free_query_grants WHERE user_id=$1 AND product_id=$2 AND query_id=$3', [row.user_id, row.product_id, queryId]);
   } else {
     const cost = Number(row.price_cents ?? 0);
     const wallet = await client.query('SELECT balance_cents FROM wallets WHERE user_id=$1 FOR UPDATE', [row.user_id]);

@@ -19,7 +19,7 @@ interface Quote { documentCode: string; consultedAt: string; referenceMonth: str
 /** `inApp`: a mesma consulta dentro da área do cliente (sem a vitrine pública, sem captura de lead e com os links da área logada). */
 export default function Fipe({ inApp = false }: { inApp?: boolean }) {
   usePageTitle('Consulta FIPE grátis');
-  const { status } = useSession();
+  const { status, me } = useSession();
   const toast = useToast();
   const [params] = useSearchParams();
   const [mode, setMode] = useState<'plate' | 'select'>(params.has('marca') ? 'select' : 'plate');
@@ -149,6 +149,10 @@ export default function Fipe({ inApp = false }: { inApp?: boolean }) {
                 <LinkButton to={`${inApp ? '/app/consultar' : '/consultar'}${quote.plate ? `?placa=${quote.plate}` : ''}`} variant="primary" iconRight="arrow-right">Ver situação do veículo (débitos e restrições)</LinkButton>
               </div>
             </div>
+          )}
+          {status === 'authed' && quote?.plate && me?.freeCadastralAvailable && (
+            <div className="alert" style={{ marginTop: 18 }}><Icon name="info" /><div><b>Sua primeira consulta Cadastral é grátis.</b> Confira marca, modelo, ano, cor e dados de registro deste veículo.{' '}
+              <LinkButton to={`/app/consultar?placa=${quote.plate}&produto=CADASTRAL`} variant="primary" iconRight="arrow-right" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'fipe-result-free-cadastral', destination: 'cadastral' })}>Fazer a Cadastral grátis</LinkButton></div></div>
           )}
           {status === 'authed' && quote && !inApp && <div style={{ marginTop: 18 }}><LeadCapture tool="FIPE" interest={`FIPE: ${quote.brand.name} ${quote.model.name}`.slice(0, 160)} title="Quer receber este resultado e avisos de preço?" text="Deixe seu contato e a gente envia o resumo da Tabela FIPE e dicas para negociar com segurança." /></div>}
           {status === 'authed' && quote && (quote.vehicleDetails || quote.sheet) && <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>{quote.vehicleDetails && <FreeIdentity details={quote.vehicleDetails} />}{quote.sheet && <SheetView sheet={quote.sheet} />}</div>}

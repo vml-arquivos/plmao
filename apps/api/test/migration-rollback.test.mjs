@@ -5,7 +5,7 @@ import pg from 'pg';
 import { TEST_DATABASE_URL, integration } from './helpers/db.mjs';
 
 // Banco descartável próprio: nunca toca no banco de testes compartilhado.
-const NEW_TABLES = ['seo_pages', 'support_canned_replies', 'support_problem_reports', 'report_template_publications', 'email_outbox', 'email_events', 'secure_links', 'cnpj_cache', 'contract_templates', 'contract_template_versions', 'contracts', 'contract_signers', 'contract_events', 'payment_refunds', 'fiscal_jobs', 'fiscal_events', 'support_conversations', 'support_messages', 'support_attachments', 'support_events', 'testimonials', 'testimonial_events', 'dealerships', 'dealership_members', 'stock_vehicles', 'dealer_leads', 'dealer_lead_events', 'dealer_proposals', 'dealer_trade_ins'];
+const NEW_TABLES = ['free_query_grants', 'seo_pages', 'support_canned_replies', 'support_problem_reports', 'report_template_publications', 'email_outbox', 'email_events', 'secure_links', 'cnpj_cache', 'contract_templates', 'contract_template_versions', 'contracts', 'contract_signers', 'contract_events', 'payment_refunds', 'fiscal_jobs', 'fiscal_events', 'support_conversations', 'support_messages', 'support_attachments', 'support_events', 'testimonials', 'testimonial_events', 'dealerships', 'dealership_members', 'stock_vehicles', 'dealer_leads', 'dealer_lead_events', 'dealer_proposals', 'dealer_trade_ins'];
 const FIRST = '027_report_scope_publications';
 
 describe('migrações 027–067: aplicar, reverter e reaplicar', integration, () => {
@@ -29,9 +29,9 @@ describe('migrações 027–067: aplicar, reverter e reaplicar', integration, ()
   it('rollback de todas desde a 027 remove só o que elas criaram e mantém o restante íntegro', async () => {
     const before = await tables();
     const n = before.ids.length - before.ids.indexOf(FIRST);
-    assert.equal(n, 65, 'esperadas 027 a 091');
+    assert.equal(n, 66, 'esperadas 027 a 092');
     const out = JSON.parse(cli('rollback', String(n)).trim().split('\n').pop());
-    assert.equal(out.reverted.length, 65);
+    assert.equal(out.reverted.length, 66);
     const s = await tables();
     for (const t of NEW_TABLES) assert.ok(!s.tables.has(t), `sobrou ${t}`);
     assert.ok(!s.ids.some((id) => id >= FIRST));

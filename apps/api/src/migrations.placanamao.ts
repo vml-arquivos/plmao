@@ -3220,6 +3220,22 @@ export const placaMigrations: Migration[] = [
       await client.query('DROP TABLE IF EXISTS site_home_images');
       await client.query('DROP TABLE IF EXISTS site_home');
     }
+  },
+  {
+    id: '092_consulta_gratis_uma_por_conta',
+    name: 'Consulta grátis de uma por conta (Cadastral): tabela que guarda quem já usou. Se a consulta falha e é estornada, o direito volta.',
+    up: async (client) => {
+      await client.query(`CREATE TABLE IF NOT EXISTS free_query_grants (
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        product_id text NOT NULL,
+        query_id uuid,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, product_id)
+      )`);
+    },
+    down: async (client) => {
+      await client.query('DROP TABLE IF EXISTS free_query_grants');
+    }
   }
 
 ];

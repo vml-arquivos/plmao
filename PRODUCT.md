@@ -4,7 +4,8 @@ Preços iniciais **provisórios** (ajustáveis no painel, sempre em centavos; o 
 
 | Produto | Preço inicial | Conteúdo (seções do relatório) |
 | --- | --- | --- |
-| FIPE por placa (grátis) | R$ 0 | Valor FIPE e dados básicos; consome o provedor, por isso tem limite diário (`FIPE_GUEST_DAILY_LIMIT`, `FIPE_AUTH_DAILY_LIMIT`) |
+| FIPE por placa (grátis) | R$ 0 | Valor FIPE e dados básicos; consome o provedor, por isso tem limite: visitante 3 por dia por IP (`FIPE_GUEST_DAILY_LIMIT`); conta 3 por dia e 15 por mês (`FIPE_AUTH_DAILY_LIMIT`, `FIPE_AUTH_MONTHLY_LIMIT`) |
+| Cadastral (1ª grátis) | R$ 0 na 1ª por conta | Uma consulta Cadastral grátis por conta, para sempre (`FEATURE_FREE_CADASTRAL`); da segunda em diante, preço da tabela |
 | Completa | R$ 31,99 | Identificação, débitos e multas, restrições, financiamento/gravame, recall e inspeção |
 | Básica | R$ 29,90 | Identificação, débitos e multas, restrições |
 | Leilão | R$ 27,90 | Histórico de leilão ("em breve" até existir fonte) |

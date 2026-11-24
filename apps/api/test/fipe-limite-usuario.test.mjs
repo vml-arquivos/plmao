@@ -10,7 +10,7 @@ const jwt = () => `h.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() /
 const consulta = (id) => ({ CODIGORESPOSTA: '1', DATAHORA: '01/01/2026 10:00:00', LOGON: '1', IDCONSULTA: id });
 const fipeOk = (extra = {}) => ({ CONSULTA: consulta('454'), RESPOSTA: { CODIGO: '1', PRECIFICADORFIPE: { DESCRICAORETORNO: 'SUCESSO', REGISTRO_1: { STATUS: '1', CHASSI: '9BWZZZ377VT004251', CODIGOFIPE: '005004-1', FABRICANTEFIPE: 'VW - VOLKSWAGEN', MODELOFIPE: 'GOL 1.0 FLEX 4P', ANOMODELOFIPE: '2020', COMBUSTIVELFIPE: 'F', PRECOFIPE: '45.000,00', PRECOMEDIO: '44.000,00', VIGENCIA: '11/2026', ...extra } } } });
 
-describe('FIPE grátis: limite diário por usuário (padrão 10, editável no Sistema e por conta)', integration, () => {
+describe('FIPE grátis: limite diário por usuário (padrão 3, editável no Sistema e por conta)', integration, () => {
   let pool; let app; let credify; let sa;
   before(async () => {
     ({ pool } = await loadCore());
@@ -21,7 +21,7 @@ describe('FIPE grátis: limite diário por usuário (padrão 10, editável no Si
       });
     });
     await new Promise((r) => credify.listen(0, '127.0.0.1', r));
-    // sem FIPE_AUTH_DAILY_LIMIT: vale o padrão do sistema (10). O visitante segue em 2 por IP.
+    // sem FIPE_AUTH_DAILY_LIMIT: vale o padrão do sistema (3). O visitante segue em 2 por IP.
     app = await startServer({
       DATA_PROVIDER: 'real', VEHICLE_API_PROVIDER: 'credify', CREDIFY_BASE_URL: `http://127.0.0.1:${credify.address().port}`, CREDIFY_CLIENT_ID: 'cid', CREDIFY_CLIENT_SECRET: 'sec',
       FEATURE_FREE_FIPE: 'true', FIPE_GUEST_DAILY_LIMIT: '2', ENRICH_FIPE_HISTORY: 'false', PLATE_CACHE_HOURS: '0',
@@ -41,19 +41,19 @@ describe('FIPE grátis: limite diário por usuário (padrão 10, editável no Si
   const quote = (token) => app.request('/api/fipe/quote', { method: 'POST', token, body: { plate: 'AAA0A00' } });
   async function times(token, n) { const out = []; for (let i = 0; i < n; i++) out.push((await quote(token)).status); return out; }
 
-  it('padrão do sistema: 10 por dia por usuário logado (não os 2 do visitante), e a 11ª é barrada', async () => {
+  it('padrão do sistema: 3 por dia por usuário logado (não os 2 do visitante), e a 4ª é barrada', async () => {
     const s = await sa.call('/api/admin/settings');
-    assert.equal(s.json.safe.fipeAuthDailyLimit, 10);
+    assert.equal(s.json.safe.fipeAuthDailyLimit, 3);
     const c = await cliente();
-    const first = await times(c.token, 10);
-    assert.deepEqual(first, Array(10).fill(201), first.join(','));
+    const first = await times(c.token, 3);
+    assert.deepEqual(first, Array(3).fill(201), first.join(','));
     const over = await quote(c.token);
     assert.equal(over.status, 429); assert.equal((await over.json()).error, 'FIPE_DAILY_LIMIT');
   });
 
   it('o limite é de cada usuário: o uso de um não gasta o do outro', async () => {
     const a = await cliente(); const b = await cliente();
-    await times(a.token, 10);
+    await times(a.token, 3);
     assert.equal((await quote(a.token)).status, 429);
     assert.equal((await quote(b.token)).status, 201);
   });
@@ -61,7 +61,7 @@ describe('FIPE grátis: limite diário por usuário (padrão 10, editável no Si
   it('limite próprio da conta vale na hora, para mais ou para menos, e vazio volta ao padrão', async () => {
     const c = await cliente();
     const ficha = await sa.call(`/api/admin/customers/${c.id}/access`);
-    assert.equal(ficha.json.fipeDailyLimit, null); assert.equal(ficha.json.fipeDefaultLimit, 10); assert.equal(ficha.json.fipeUsedToday, 0);
+    assert.equal(ficha.json.fipeDailyLimit, null); assert.equal(ficha.json.fipeDefaultLimit, 3); assert.equal(ficha.json.fipeUsedToday, 0);
     const set3 = await sa.call(`/api/admin/customers/${c.id}/fipe-limit`, { method: 'PUT', body: { limit: 3 } });
     assert.equal(set3.status, 200, JSON.stringify(set3.json)); assert.equal(set3.json.fipeDailyLimit, 3);
     assert.deepEqual(await times(c.token, 3), [201, 201, 201]);
@@ -85,7 +85,7 @@ describe('FIPE grátis: limite diário por usuário (padrão 10, editável no Si
       assert.equal((await quote(plain.token)).status, 429);
       assert.deepEqual(await times(own.token, 5), Array(5).fill(201));
       assert.equal((await quote(own.token)).status, 429);
-    } finally { await sa.call('/api/admin/settings', { method: 'PATCH', body: { fipeAuthDailyLimit: 10 } }); }
+    } finally { await sa.call('/api/admin/settings', { method: 'PATCH', body: { fipeAuthDailyLimit: 3 } }); }
   });
 
   it('entradas inválidas e permissão: limite fora de 1 a 100000 é 400; só quem gerencia clientes altera', async () => {

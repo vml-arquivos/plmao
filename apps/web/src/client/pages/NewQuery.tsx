@@ -13,7 +13,7 @@ import PaidQueries from '../components/PaidQueries';
 import { closeCheckoutWindow, reserveCheckoutWindow, sendCheckoutWindow } from '../checkoutWindow';
 import PurchaseContract, { ACCEPT_MISSING, NO_ACCEPT, bothAccepted, type LegalAccept } from '../components/PurchaseContract';
 
-interface QProduct { id: string; name: string; description: string; priceCents: number; basePriceCents: number; negotiated: boolean; features: string[] | null; isFree: boolean; featured: boolean; commercialStatus: string }
+interface QProduct { id: string; name: string; description: string; priceCents: number; basePriceCents: number; negotiated: boolean; features: string[] | null; isFree: boolean; freeGrant?: boolean; featured: boolean; commercialStatus: string }
 interface Quote { amountCents: number; subtotalCents: number; discountCents: number; couponCode: string | null; paymentProviderConfigured: boolean; free?: boolean }
 
 const STEPS = ['Validando a placa', 'Consultando a fonte de dados', 'Montando o relatório'];
@@ -50,14 +50,16 @@ export default function NewQuery() {
   const sellable = products.filter((p) => p.commercialStatus === 'ACTIVE');
   useEffect(() => { if (!productId && sellable.length) setProductId((sellable.find((p) => p.featured) ?? sellable[0]).id); }, [sellable, productId]);
   const product = products.find((p) => p.id === productId);
-  const price = product?.priceCents ?? 0;
+  // Cadastral grátis (uma por conta): vale só na busca por placa e some depois de usada.
+  const freeGrant = Boolean(product?.freeGrant) && kind === 'PLATE';
+  const price = freeGrant ? 0 : (product?.priceCents ?? 0);
   const balance = me?.balanceCents ?? 0;
   const enough = balance >= price;
   const valid = isValidSearch(kind, plate);
   const searchBody = { searchType: kind, searchValue: plate };
   const shownKey = kind === 'PLATE' ? formatPlate(plate) : kind === 'OWNER_DOC' ? formatDocument(plate) : plate;
   const due = quote ? quote.amountCents : price;
-  const payingDirect = Boolean(quote?.free) || !enough || wantDirect;
+  const payingDirect = !freeGrant && (Boolean(quote?.free) || !enough || wantDirect);
   const needAcceptBalance = !payingDirect && !legal.loading && legal.data?.accepted !== true;
   const showAccept = payingDirect || needAcceptBalance;
   const acceptOk = !showAccept || bothAccepted(accept);
@@ -94,7 +96,8 @@ export default function NewQuery() {
       idem.current = '';
       if (needAcceptBalance) void legal.reload();
       // Vai para o relatório na hora; o saldo atualiza em segundo plano.
-      void api.get<{ balanceCents: number }>('/me').then((m) => setBalance(m.balanceCents)).catch(() => refresh());
+      if (freeGrant) void refresh();
+      else void api.get<{ balanceCents: number }>('/me').then((m) => setBalance(m.balanceCents)).catch(() => refresh());
       nav(`/app/consulta/${r.id}`);
     } catch (e) {
       idem.current = '';
@@ -197,8 +200,8 @@ export default function NewQuery() {
                 return (
                   <label key={p.id} className={`prod ${productId === p.id ? 'sel' : ''} ${off ? 'off' : ''}`}>
                     <input type="radio" name="product" checked={productId === p.id} disabled={off} onChange={() => setProductId(p.id)} />
-                    <span><b>{p.name}{p.featured && <Badge tone="violet">Mais completa</Badge>}{off && <Badge>Em breve</Badge>}{p.negotiated && <Badge tone="ok">Preço negociado</Badge>}</b><p>{p.description}</p>{!!p.features?.length && <p style={{ marginTop: 4 }}>{p.features.slice(0, 4).join(' · ')}</p>}<span className="prod-links"><DetailsButton initial={p.id} className="linkbtn" icon={false}>Ver tudo que vem</DetailsButton><span aria-hidden="true">·</span><PdfModelLink id={p.id} className="linkbtn">Ver modelo do PDF</PdfModelLink></span></span>
-                    <span className="pr num">{money(p.priceCents)}</span>
+                    <span><b>{p.name}{p.featured && <Badge tone="violet">Mais completa</Badge>}{off && <Badge>Em breve</Badge>}{p.negotiated && <Badge tone="ok">Preço negociado</Badge>}{p.freeGrant && <Badge tone="ok">1ª grátis</Badge>}</b><p>{p.description}</p>{!!p.features?.length && <p style={{ marginTop: 4 }}>{p.features.slice(0, 4).join(' · ')}</p>}<span className="prod-links"><DetailsButton initial={p.id} className="linkbtn" icon={false}>Ver tudo que vem</DetailsButton><span aria-hidden="true">·</span><PdfModelLink id={p.id} className="linkbtn">Ver modelo do PDF</PdfModelLink></span></span>
+                    <span className="pr num">{p.freeGrant && kind === 'PLATE' ? <><s className="muted" style={{ fontSize: 13 }}>{money(p.priceCents)}</s> Grátis</> : money(p.priceCents)}</span>
                   </label>
                 );
               })}
@@ -217,7 +220,12 @@ export default function NewQuery() {
 {showAccept && (
                       <PurchaseContract body={{ productId: product?.id, ...searchBody, ...(coupon.trim() && quote?.couponCode ? { couponCode: coupon.trim() } : {}), ...(storedReferral() ? { affiliateCode: storedReferral() } : {}) }} value={accept} onChange={setAccept} disabled={!can || !product} />
           )}
-          {quote?.free ? (
+          {freeGrant ? (
+            <>
+              <Button variant="primary" size="lg" block disabled={!can || !acceptOk} onClick={runWallet} icon="search">Consultar grátis</Button>
+              <p className="muted" style={{ fontSize: 13 }}>Uma consulta Cadastral grátis por conta. As próximas seguem o valor da tabela.</p>
+            </>
+          ) : quote?.free ? (
             <Button variant="primary" size="lg" block disabled={!can || !acceptOk} loading={busy === 'pay'} onClick={payDirect} icon="search">Consultar grátis</Button>
           ) : enough ? (
             <>

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.67.6 — Limites da FIPE grátis e Cadastral grátis (uma por conta)
+
+- **FIPE grátis com conta:** 3 consultas por dia e 15 por mês, por conta (antes: 10 por dia, sem teto mensal). Quem esgota o mês vê "O limite renova no primeiro dia do próximo mês". Falha da consulta devolve a cota. Visitante sem conta segue em 3 por dia por IP.
+- **Cadastral grátis, uma por conta, para sempre.** A primeira consulta Cadastral por placa de cada conta sai grátis e sem precisar de saldo; a segunda em diante cobra o preço normal. Só vale no app (a API pública não ganha). Custa R$ 2,15 na fonte por conta nova (R$ 2,26 somando a FIPE grátis).
+  - Se a fonte falhar, nada é cobrado e o direito grátis volta. Se o cliente cancelar a consulta em andamento, o direito não volta (a fonte pode já ter cobrado).
+  - Duas consultas ao mesmo tempo na mesma conta: só uma sai grátis.
+  - A tela de nova consulta mostra "1ª grátis", e o resultado da FIPE por placa convida o cliente a fazer a Cadastral grátis.
+  - O painel de resultados mostra essas consultas como origem de cobrança `FREE_GRANT`.
+- **Migração 092** (`free_query_grants`): guarda quem já usou a Cadastral grátis. Reversível.
+- **Variáveis novas (opcionais):** `FIPE_AUTH_MONTHLY_LIMIT` (padrão 15), `FEATURE_FREE_CADASTRAL` (padrão true; false desliga a Cadastral grátis na hora). `FIPE_AUTH_DAILY_LIMIT` passou do padrão 10 para 3.
+- **Atenção:** se o painel (Sistema) já tiver um limite diário salvo, ele vale mais que o padrão novo. Conta com limite próprio definido pelo painel fica fora do teto mensal.
+- Testes novos: limites diário e mensal, Cadastral grátis (primeira grátis, segunda paga, outra conta, corrida, falha da fonte, chave desligada).
+
 ## 1.67.5 — Ponto duplicado no gravame
 
 - Texto do gravame ativo não sai mais com ponto duplicado quando o nome do banco termina em ponto (ex.: "BANCO S.A..").

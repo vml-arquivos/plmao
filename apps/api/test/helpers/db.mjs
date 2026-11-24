@@ -11,6 +11,8 @@ export function useTestEnv(extra = {}) {
   process.env.DATA_ENCRYPTION_KEY = 'test-data-encryption-key-0123456789abcdef';
   process.env.RATE_LIMIT_ENABLED = 'false';
   process.env.AUDIT_LOG_ENABLED = 'true';
+  // A Cadastral grátis (1 por conta) tem teste próprio; nos demais, o preço da consulta segue o cadastrado.
+  process.env.FEATURE_FREE_CADASTRAL = 'false';
   for (const [k, v] of Object.entries(extra)) process.env[k] = v;
 }
 

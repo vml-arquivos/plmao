@@ -915,7 +915,7 @@ api.get('/me', auth, asyncRoute(async (req, res) => {
   const membership = await loadMembership(user.id).catch(() => null);
   const storeAccess = membership ? { name: membership.store.name, role: membership.role, active: membership.store.active && !membership.store.archivedAt } : null;
   const profileState = await loadProfileState(user.id, { hasStore: Boolean(storeAccess?.active) });
-  res.json({ user, storeAccess, features: resolveAccess(row.access_overrides), profiles: profileState.profiles, activeProfile: profileState.activeProfile, balanceCents: Number(wallet.rows[0]?.balance_cents ?? 0), permissions: permissionsFor(user.role), sandbox: env.DATA_PROVIDER === 'mock', identities: identities.rows.map((identity) => identity.provider), profile: profileDto({ id: user.id, email: user.email, name: user.name, role: user.role, passwordEnabled: Boolean(row.password_enabled) }, row) });
+  res.json({ user, storeAccess, features: resolveAccess(row.access_overrides), profiles: profileState.profiles, activeProfile: profileState.activeProfile, balanceCents: Number(wallet.rows[0]?.balance_cents ?? 0), freeCadastralAvailable: await freeCadastralAvailable(user.id), permissions: permissionsFor(user.role), sandbox: env.DATA_PROVIDER === 'mock', identities: identities.rows.map((identity) => identity.provider), profile: profileDto({ id: user.id, email: user.email, name: user.name, role: user.role, passwordEnabled: Boolean(row.password_enabled) }, row) });
 }));
 
 function fipeUnavailable(): AppError {
@@ -930,14 +930,22 @@ function fipeProviderError(error: unknown): AppError {
   return appError(publicCode, { code: publicCode, http, expose: true });
 }
 
-async function reserveFipeQuota(scopeKey: string, limit: number): Promise<void> {
+async function reserveFipeQuota(scopeKey: string, limit: number, monthlyLimit?: number): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
   await tx(async (client) => {
     const result = await client.query(`INSERT INTO fipe_usage(scope_key,bucket_date,count) VALUES($1,$2,1)
       ON CONFLICT(scope_key,bucket_date) DO UPDATE SET count=fipe_usage.count+1,updated_at=now() RETURNING count`, [scopeKey, today]);
-    if (Number(result.rows[0].count) <= limit) return;
-    await client.query('UPDATE fipe_usage SET count=count-1,updated_at=now() WHERE scope_key=$1 AND bucket_date=$2', [scopeKey, today]);
-    throw appError('FIPE_DAILY_LIMIT', { code: 'FIPE_DAILY_LIMIT', http: 429, expose: true });
+    if (Number(result.rows[0].count) > limit) {
+      await client.query('UPDATE fipe_usage SET count=count-1,updated_at=now() WHERE scope_key=$1 AND bucket_date=$2', [scopeKey, today]);
+      throw appError('FIPE_DAILY_LIMIT', { code: 'FIPE_DAILY_LIMIT', http: 429, expose: true });
+    }
+    if (!monthlyLimit) return;
+    // Teto do mês (dia 1 a fim do mês, UTC): soma o que a conta já usou, contando esta consulta. Falha da consulta devolve a cota do dia e, com ela, a do mês.
+    const month = await client.query(`SELECT COALESCE(SUM(count),0)::int AS used FROM fipe_usage WHERE scope_key=$1 AND bucket_date >= date_trunc('month', $2::date)::date AND bucket_date <= $2::date`, [scopeKey, today]);
+    if (Number(month.rows[0].used) > monthlyLimit) {
+      await client.query('UPDATE fipe_usage SET count=count-1,updated_at=now() WHERE scope_key=$1 AND bucket_date=$2', [scopeKey, today]);
+      throw appError('FIPE_MONTHLY_LIMIT', { code: 'FIPE_MONTHLY_LIMIT', http: 429, expose: true });
+    }
   });
 }
 
@@ -1354,12 +1362,15 @@ api.post('/fipe/quote', optionalAuth, asyncRoute(async (req, res) => {
   const positive = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : fallback);
   let scopeKey = `v2:ip:${hashIp(requestSourceIp(req)) ?? 'unknown'}`;
   let dailyLimit = positive(safeBusiness.fipeGuestDailyLimit, env.FIPE_GUEST_DAILY_LIMIT);
+  let monthlyLimit: number | undefined;
   if (req.user) {
     const own = await pool.query('SELECT fipe_daily_limit FROM users WHERE id=$1', [req.user.id]);
     scopeKey = `v2:user:${req.user.id}`;
     dailyLimit = positive(own.rows[0]?.fipe_daily_limit, positive(safeBusiness.fipeAuthDailyLimit, env.FIPE_AUTH_DAILY_LIMIT));
+    // Teto mensal só vale para o padrão do sistema: a conta com limite próprio (definido pelo painel) fica fora dele.
+    if (own.rows[0]?.fipe_daily_limit === null || own.rows[0]?.fipe_daily_limit === undefined) monthlyLimit = env.FIPE_AUTH_MONTHLY_LIMIT;
   }
-  await reserveFipeQuota(scopeKey, dailyLimit);
+  await reserveFipeQuota(scopeKey, dailyLimit, monthlyLimit);
   let quotaReserved = true;
   let input: { vehicleType: FipeVehicleType; brand: FipeSelectionItem; model: FipeSelectionItem; year: FipeSelectionItem };
   let vehicleDetails: FipeVehicleDetails | undefined;
@@ -1522,7 +1533,8 @@ api.get('/query-products', auth, asyncRoute(async (req, res) => {
       WHERE m.user_id=$1 ORDER BY o.created_at LIMIT 1
     ) orgp ON true
     WHERE p.active=true ORDER BY p.display_order,p.price_cents`, [req.user!.id, env.DATA_PROVIDER !== 'disabled']);
-  res.json(products.rows.map((product) => ({ id: product.id, name: product.name, description: product.description, basePriceCents: Number(product.price_cents ?? 0), priceCents: Number(product.effective_price_cents ?? 0), negotiated: Boolean(product.negotiated), slug: product.slug, features: product.features, isFree: Boolean(product.is_free), commercialStatus: product.commercial_status, featured: Boolean(product.featured) })));
+  const freeCadastral = await freeCadastralAvailable(req.user!.id);
+  res.json(products.rows.map((product) => ({ id: product.id, name: product.name, description: product.description, freeGrant: product.id === 'CADASTRAL' && freeCadastral, basePriceCents: Number(product.price_cents ?? 0), priceCents: Number(product.effective_price_cents ?? 0), negotiated: Boolean(product.negotiated), slug: product.slug, features: product.features, isFree: Boolean(product.is_free), commercialStatus: product.commercial_status, featured: Boolean(product.featured) })));
 }));
 
 api.use(publicContentRouter);
@@ -1581,6 +1593,20 @@ api.get('/fipe/offers', asyncRoute(async (_req, res) => {
 
 type RunQueryInput = { userId: string; plate: string; searchType: SearchType; productId: string; paymentOrderId?: string; idempotencyKey: string | null; reqId: string; source: 'WEB' | 'API' };
 
+/** A Cadastral grátis vale só para o app (não para a API pública), por placa, e com a chave ligada. */
+function freeCadastralEnabledFor(input: Pick<RunQueryInput, 'productId' | 'source' | 'searchType'>): boolean {
+  return env.FEATURE_FREE_CADASTRAL && input.source === 'WEB' && input.searchType === 'PLATE' && String(input.productId).toUpperCase() === 'CADASTRAL';
+}
+
+/** Esta conta ainda pode fazer a Cadastral grátis? (ligada, produto à venda e nenhuma usada antes) */
+async function freeCadastralAvailable(userId: string): Promise<boolean> {
+  if (!env.FEATURE_FREE_CADASTRAL || env.DATA_PROVIDER === 'disabled') return false;
+  const r = await pool.query(`SELECT EXISTS (SELECT 1 FROM query_products p WHERE p.id='CADASTRAL' AND p.active=true AND p.commercial_status='ACTIVE'
+      AND EXISTS (SELECT 1 FROM query_source_rules rule WHERE rule.product_id=p.id AND rule.active=true)) AS sellable,
+    EXISTS (SELECT 1 FROM free_query_grants g WHERE g.user_id=$1 AND g.product_id='CADASTRAL') AS used`, [userId]);
+  return Boolean(r.rows[0]?.sellable) && !r.rows[0]?.used;
+}
+
 /** Executa uma consulta de ponta a ponta (cobrança, provedor, armazenamento, estorno em falha). Usada pelo web e pela API pública. */
 /** Pacotes cujo relatório mostra histórico da FIPE (busca extra além da Credify). */
 /** Consultas que recebem a ficha gratuita (decodificador de chassi, tabela FIPE, financiamento, ficha técnica). Gravame/Leilão seguem enxutos. */
@@ -1597,6 +1623,7 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
   let cost = 0;
   let chargeSource = 'WALLET_MONEY';
   let entitlementId: string | null = null;
+  let freeGrant = false;
 
   if (idempotencyKey) {
     const duplicate = await pool.query(`SELECT q.id,q.plate,q.search_type,q.product_id,q.status,q.credits_cost,q.price_cents,q.charge_source,q.provider,q.created_at,q.completed_at,p.name AS product_name,r.normalized
@@ -1627,7 +1654,14 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
       cost = pricing.priceCents;
       let before = 0;
       let after = 0;
-      if (input.paymentOrderId) {
+      // Cadastral grátis, uma por conta (para sempre): só pelo app, por saldo, e só se a conta ainda não usou. A chave primária impede duas ao mesmo tempo.
+      if (!input.paymentOrderId && cost > 0 && freeCadastralEnabledFor(input)) {
+        const grant = await client.query(`INSERT INTO free_query_grants(user_id,product_id) VALUES($1,'CADASTRAL') ON CONFLICT DO NOTHING RETURNING user_id`, [userId]);
+        if (grant.rowCount) { freeGrant = true; cost = 0; chargeSource = 'FREE_GRANT'; }
+      }
+      if (freeGrant) {
+        // sem cobrança: não mexe na carteira
+      } else if (input.paymentOrderId) {
         const entitlement = await client.query(`SELECT e.id,e.status,e.user_id,e.product_id,e.plate,o.status AS order_status,o.amount_cents,
             EXISTS (SELECT 1 FROM payment_refunds pr WHERE pr.order_id=o.id AND pr.status IN ('REQUESTED','CONFIRMED')) AS refund_pending
           FROM query_payment_entitlements e JOIN payment_orders o ON o.id=e.order_id
@@ -1653,7 +1687,9 @@ async function runVehicleQuery(input: RunQueryInput): Promise<{ status: number; 
       const created = await client.query(`INSERT INTO vehicle_queries(user_id,plate,product_id,status,credits_cost,price_cents,charge_source,provider,idempotency_key,payment_order_id,request_metadata,source,search_type)
         VALUES($1,$2,$3,'PROCESSING',0,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) RETURNING id`, [userId, input.plate, input.productId, cost, chargeSource, provider.name, idempotencyKey, input.paymentOrderId ?? null, JSON.stringify({ requestId: input.reqId, negotiated: pricing.negotiated }), input.source, input.searchType]);
       queryId = created.rows[0].id as string;
-      if (!input.paymentOrderId) {
+      if (freeGrant) {
+        await client.query(`UPDATE free_query_grants SET query_id=$2 WHERE user_id=$1 AND product_id='CADASTRAL'`, [userId, queryId]);
+      } else if (!input.paymentOrderId) {
         await client.query('UPDATE wallets SET balance_cents=$2,updated_at=now() WHERE user_id=$1', [userId, after]);
         await client.query(`INSERT INTO wallet_transactions(user_id,kind,amount,balance_before,balance_after,amount_cents,balance_before_cents,balance_after_cents,query_id,description,metadata)
           VALUES($1,'QUERY',0,0,0,$2,$3,$4,$5,$6,$7::jsonb)`, [userId, -cost, before, after, queryId, `Consulta ${input.plate}`, JSON.stringify({ productId: input.productId, negotiated: pricing.negotiated, requestId: input.reqId })]);
@@ -3506,6 +3542,7 @@ function humanMessage(code: string): string {
     FIPE_PLATE_VEHICLE_NOT_IDENTIFIED: 'Não encontramos a versão FIPE correspondente a esta placa.',
     FIPE_SELECTION_REQUIRED: 'Informe a placa ou selecione o veículo para consultar a FIPE.',
     FIPE_DAILY_LIMIT: 'O limite diário de consultas FIPE foi atingido. Tente novamente amanhã.',
+    FIPE_MONTHLY_LIMIT: 'Você usou as consultas FIPE grátis deste mês. O limite renova no primeiro dia do próximo mês.',
     REPORT_NOT_FOUND: 'O relatório solicitado não foi encontrado ou não está disponível.',
     FIPE_INVALID_REPORT: 'O relatório FIPE não pôde ser validado.',
     PARTNER_CODE_EXISTS: 'Já existe um parceiro ou convite com esse código. Escolha outro.',
