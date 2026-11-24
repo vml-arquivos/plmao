@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../shared/icons';
 import { ErrorState, LinkButton, Skeleton, useAsync } from '../../shared/ui';
 import { money } from '../../shared/format';
@@ -19,6 +19,35 @@ export const packageTarget = (authed: boolean, slug: string) => {
   return authed ? dest : `/criar-conta?next=${encodeURIComponent(dest)}`;
 };
 
+/** FIPE grátis e Cadastral grátis estão ligadas? Só aparece o convite se o sistema realmente entrega. */
+export function useFreeOffers(): { fipe: boolean; cadastral: boolean } {
+  const [state, setState] = useState({ fipe: false, cadastral: false });
+  useEffect(() => { api.get<{ enabled: boolean; freeCadastral?: boolean }>('/fipe/status').then((s) => setState({ fipe: Boolean(s.enabled), cadastral: Boolean(s.enabled) && Boolean(s.freeCadastral) }), () => undefined); }, []);
+  return state;
+}
+
+/** Convite para a FIPE grátis (e a primeira Cadastral grátis), com o que muda depois do cadastro. */
+export function FreeFipeCta() {
+  const { status, me } = useSession();
+  const offers = useFreeOffers();
+  if (!offers.fipe) return null;
+  const authed = status === 'authed';
+  const cadastral = offers.cadastral && (!authed || me?.freeCadastralAvailable !== false);
+  return (
+    <section className="card card-pad free-cta" aria-label="FIPE grátis">
+      <div className="stack-sm">
+        <span className="eyebrow">Grátis</span>
+        <h2 style={{ fontSize: 22 }}>Consulte a FIPE pela placa, de graça</h2>
+        <p className="muted">Valor FIPE, histórico de preço e dados essenciais do veículo. {cadastral ? 'A sua primeira consulta Cadastral também é grátis. ' : ''}{authed ? '' : 'Para ver, baixar e imprimir, crie sua conta grátis.'}</p>
+      </div>
+      <div className="row">
+        <LinkButton to={authed ? '/app/fipe' : '/fipe'} variant="primary" iconRight="arrow-right">Consultar FIPE grátis</LinkButton>
+        {!authed && <LinkButton to="/criar-conta?next=/fipe">Criar conta grátis</LinkButton>}
+      </div>
+    </section>
+  );
+}
+
 const isActive = (p: CatalogProduct) => p.commercialStatus === 'ACTIVE';
 const sellable = (p: CatalogProduct) => !p.isFree;
 
@@ -29,7 +58,7 @@ function CatalogState({ loading, error, reload }: { loading: boolean; error: unk
 }
 
 /* ---------- Cards de produto ---------- */
-function ProductCard({ p, authed, wide = false }: { p: CatalogProduct; features: CatalogFeature[]; authed: boolean; wide?: boolean }) {
+function ProductCard({ p, authed, wide = false, firstFree = false }: { p: CatalogProduct; features: CatalogFeature[]; authed: boolean; wide?: boolean; firstFree?: boolean }) {
   const soon = !isActive(p);
   const all = (p.features ?? []).filter(Boolean);
   const top = all.slice(0, wide ? 4 : 3);
@@ -48,6 +77,7 @@ function ProductCard({ p, authed, wide = false }: { p: CatalogProduct; features:
         {top.map((label) => <li key={label}><Icon name="check" size={16} />{label}</li>)}
       </ul>
       {more > 0 && <span className="pmore">+ {more} {more === 1 ? 'item' : 'itens'} no relatório</span>}
+      {firstFree && !soon && <span className="off">1ª consulta grátis ao criar a conta</span>}
       <div className="pactions">
         {soon ? <span className="btn btn-block" aria-disabled="true">Em breve</span> : <LinkButton to={productTarget(authed, p.id)} variant={p.featured || !wide ? 'primary' : 'default'} block>Consultar agora</LinkButton>}
         <DetailsButton initial={p.id} className="btn btn-block btn-ghost" icon={false}>Ver detalhes</DetailsButton>
@@ -60,13 +90,16 @@ function ProductCard({ p, authed, wide = false }: { p: CatalogProduct; features:
 export function ProductCards({ homeOnly = false }: { homeOnly?: boolean }) {
   const { status } = useSession();
   const { data, error, loading, reload } = useCatalog();
+  const offers = useFreeOffers();
+  const { me } = useSession();
   const st = CatalogState({ loading, error, reload });
   if (st) return st;
   if (!data) return null;
+  const cadastralFree = offers.cadastral && (status !== 'authed' || me?.freeCadastralAvailable === true);
   let list = data.products.filter(sellable).filter((p) => (homeOnly ? p.showOnHome : true));
   if (homeOnly) list = [...list].sort((a, b) => Number(!isActive(a)) - Number(!isActive(b))).slice(0, 4);
   if (!list.length) return <p className="muted">Nenhuma consulta disponível no momento.</p>;
-  return <div className={`prod-grid${homeOnly ? '' : ' wide'}`}>{list.map((p) => <ProductCard key={p.id} p={p} features={data.features} authed={status === 'authed'} wide={!homeOnly} />)}</div>;
+  return <div className={`prod-grid${homeOnly ? '' : ' wide'}`}>{list.map((p) => <ProductCard key={p.id} p={p} features={data.features} authed={status === 'authed'} wide={!homeOnly} firstFree={p.id === 'CADASTRAL' && cadastralFree} />)}</div>;
 }
 
 /* ---------- Matriz de comparação ---------- */

@@ -1,8 +1,9 @@
-import type { FipeProviderResult } from './types.js';
+import type { FipeProviderResult, FipeVehicleDetails } from './types.js';
 
 /**
  * FIPE grátis pela placa: UMA consulta da Credify (código 454, só a FIPE) e nada mais.
- * Este arquivo só lê a resposta dessa consulta. Não mostra chassi, Renavam, proprietário, restrições nem outro dado do cadastro.
+ * Este arquivo só lê a resposta dessa consulta. O resultado da FIPE (parseFipeByPlate) nunca leva chassi nem dado do cadastro.
+ * O chassi que a mesma resposta traz sai à parte (parseFipePlateDetails), só para o decodificador, e quem mostra deve mascarar.
  */
 export type FipePlateError = Error & { code: string; http: number; detail?: string };
 const fail = (code: string, http: number, detail?: string): FipePlateError => Object.assign(new Error(code), { code, http, ...(detail ? { detail } : {}) });
@@ -110,4 +111,26 @@ export function parseFipeByPlate(raw: unknown, plate: string, now = new Date()):
     valueLabel: `R$ ${(valueCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
     cacheKey: `credify:fipe-plate:${plate.toUpperCase()}:${reference}`
   };
+}
+
+
+/**
+ * Dados do veículo que a própria resposta da FIPE (454) traz: placa, chassi, ano do modelo e combustível. Sem nova consulta e sem custo.
+ * O chassi sai inteiro daqui para alimentar o decodificador e precisa ser mascarado antes de aparecer ou ser guardado.
+ * Devolve undefined quando a resposta não traz nada disso. Nunca lança erro: é um complemento da FIPE.
+ */
+export function parseFipePlateDetails(raw: unknown, plate: string, now = new Date()): FipeVehicleDetails | undefined {
+  try {
+    const data = isRec(raw) && isRec(raw.data) ? raw.data : raw;
+    const resposta = isRec(data) && isRec(data.RESPOSTA) ? data.RESPOSTA : data;
+    const record = findRecord(resposta);
+    if (!record) return undefined;
+    const chassis = pick(record, 'CHASSI').replace(/\s/g, '').toUpperCase();
+    const year = modelYear(pick(record, 'ANOMODELOFIPE'), now);
+    const fuel = fuelName(pick(record, 'COMBUSTIVELFIPE'));
+    if (!chassis && !year && !fuel) return undefined;
+    return { plate, ...(chassis ? { chassis } : {}), ...(year ? { modelYear: String(year) } : {}), ...(fuel ? { fuel } : {}) };
+  } catch {
+    return undefined;
+  }
 }

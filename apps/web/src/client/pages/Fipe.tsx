@@ -151,7 +151,7 @@ export default function Fipe({ inApp = false }: { inApp?: boolean }) {
             </div>
           )}
           {status === 'authed' && quote?.plate && me?.freeCadastralAvailable && (
-            <div className="alert" style={{ marginTop: 18 }}><Icon name="info" /><div><b>Sua primeira consulta Cadastral é grátis.</b> Confira marca, modelo, ano, cor e dados de registro deste veículo.{' '}
+            <div className="alert" style={{ marginTop: 18 }}><Icon name="info" /><div><b>Sua primeira consulta Cadastral é grátis.</b> Veja cor, cilindradas, potência, passageiros e dados de registro deste veículo.{' '}
               <LinkButton to={`/app/consultar?placa=${quote.plate}&produto=CADASTRAL`} variant="primary" iconRight="arrow-right" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'fipe-result-free-cadastral', destination: 'cadastral' })}>Fazer a Cadastral grátis</LinkButton></div></div>
           )}
           {status === 'authed' && quote && !inApp && <div style={{ marginTop: 18 }}><LeadCapture tool="FIPE" interest={`FIPE: ${quote.brand.name} ${quote.model.name}`.slice(0, 160)} title="Quer receber este resultado e avisos de preço?" text="Deixe seu contato e a gente envia o resumo da Tabela FIPE e dicas para negociar com segurança." /></div>}

@@ -35,7 +35,7 @@ import { getProvider } from './providers/index.js';
 import { startCredifyTokenKeeper } from './providers/credifyProvider.js';
 import { getFipeProvider, quoteWithFallback, type FipeCatalogProvider } from './providers/fipeProvider.js';
 import { fipePdf, fipePrintHtml, makeFipeQuote, reportSnapshot, type ReportBranding } from './fipeReport.js';
-import { parseFipeByPlate } from './fipePlate.js';
+import { parseFipeByPlate, parseFipePlateDetails } from './fipePlate.js';
 import { getPaymentProvider, getPaymentProviderFor, type PaymentProviderName } from './payments/index.js';
 import { ensureSchema } from './schema.js';
 import { performAdminLookup } from './adminLookup.js';
@@ -1237,7 +1237,7 @@ function fipeByPlateUsesCredify(): boolean {
 }
 
 /** FIPE pela placa, só FIPE: uma consulta da Credify (454). A falha vira um código claro e o motivo real vai para o log e para a saúde da fonte. */
-async function fipeResultFromPlate(plate: string): Promise<FipeProviderResult> {
+async function fipeResultFromPlate(plate: string): Promise<{ result: FipeProviderResult; details?: FipeVehicleDetails }> {
   const startedAt = Date.now();
   let output: { raw: unknown };
   try {
@@ -1251,7 +1251,7 @@ async function fipeResultFromPlate(plate: string): Promise<FipeProviderResult> {
     throw appError('FIPE_PLATE_UNAVAILABLE', { code: 'FIPE_PLATE_UNAVAILABLE', http: 502, expose: true });
   }
   try {
-    return parseFipeByPlate(output.raw, plate);
+    return { result: parseFipeByPlate(output.raw, plate), details: parseFipePlateDetails(output.raw, plate) };
   } catch (error) {
     const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'FIPE_PLATE_DATA_INVALID';
     const detail = error instanceof Error && typeof (error as { detail?: unknown }).detail === 'string' ? String((error as unknown as { detail: string }).detail).slice(0, 500) : undefined;
@@ -1262,7 +1262,7 @@ async function fipeResultFromPlate(plate: string): Promise<FipeProviderResult> {
 }
 
 api.get('/fipe/status', (_req, res) => {
-  res.json({ enabled: env.FEATURE_FREE_FIPE, pdfEnabled: env.FEATURE_FREE_FIPE && env.FEATURE_REPORT_PDF });
+  res.json({ enabled: env.FEATURE_FREE_FIPE, pdfEnabled: env.FEATURE_FREE_FIPE && env.FEATURE_REPORT_PDF, freeCadastral: env.FEATURE_FREE_CADASTRAL && env.DATA_PROVIDER !== 'disabled' });
 });
 
 api.get('/fipe/references', asyncRoute(async (_req, res) => {
@@ -1380,7 +1380,9 @@ api.post('/fipe/quote', optionalAuth, asyncRoute(async (req, res) => {
     if (parsed.data.vehicleType && parsed.data.brand && parsed.data.model && parsed.data.year) {
       input = { vehicleType: parsed.data.vehicleType, brand: parsed.data.brand, model: parsed.data.model, year: parsed.data.year };
     } else if (plate && fipeByPlateUsesCredify()) {
-      plateResult = await fipeResultFromPlate(plate);
+      const found = await fipeResultFromPlate(plate);
+      plateResult = found.result;
+      vehicleDetails = found.details;
       input = { vehicleType: plateResult.vehicleType, brand: plateResult.brand, model: plateResult.model, year: plateResult.year };
     } else if (plate) {
       const resolved = await resolveFipeSelectionFromPlate(plate);
@@ -1406,8 +1408,6 @@ api.post('/fipe/quote', optionalAuth, asyncRoute(async (req, res) => {
     const shownDetails = vehicleDetails ? { ...vehicleDetails, chassis: maskFreeChassis(vehicleDetails.chassis), engine: maskFreeEngine(vehicleDetails.engine) } : undefined;
     const quote = makeFipeQuote(result, plate, shownDetails);
     quote.sheet = await freeVehicleSheet(result, vehicleDetails);
-    // FIPE pela placa (Credify) é só FIPE: não há chassi, então não mostra o decodificador de chassi.
-    if (plateResult && quote.sheet) quote.sheet = { ...quote.sheet, decoder: [] };
     await recordProviderHealth(quote.provider, 'SUCCESS', Date.now() - providerStartedAt);
     await saveFipeDocument(quote, req.user?.id ?? null);
     await recordFunnelEvent(null, req, 'FREE_QUERY_COMPLETED', { provider: quote.provider, documentCode: quote.documentCode, cached: Boolean(cached), plateLookup: Boolean(plate) });
@@ -2920,16 +2920,19 @@ async function adminFipeFreeLookup(req: Request, res: Response, plate: string, p
     const out = await runExclusive(`admin-lookup:${plate}:FIPE_FREE`, async () => {
       const startedAt = Date.now();
       let result: FipeProviderResult;
-      if (fipeByPlateUsesCredify()) result = await fipeResultFromPlate(plate);
+      let details: FipeVehicleDetails | undefined;
+      if (fipeByPlateUsesCredify()) { const found = await fipeResultFromPlate(plate); result = found.result; details = found.details; }
       else {
         const resolved = await resolveFipeSelectionFromPlate(plate);
+        details = resolved.vehicleDetails;
         const cached = resolved.provider === 'parallelum' ? await findCachedFipeResult(resolved) : null;
         result = cached ?? await quoteWithFallback({ vehicleType: resolved.vehicleType, brand: resolved.brand, model: resolved.model, year: resolved.year, provider: resolved.provider });
         if (!cached) await cacheFipeResult(result);
       }
-      const quote = makeFipeQuote(result, plate);
-      quote.sheet = await freeVehicleSheet(result);
-      if (quote.sheet) quote.sheet = { ...quote.sheet, decoder: [] };
+      // Igual à tela do cliente: chassi e motor mascarados no que aparece e fica guardado; o chassi inteiro só alimenta o decodificador.
+      const shown = details ? { ...details, chassis: maskFreeChassis(details.chassis), engine: maskFreeEngine(details.engine) } : undefined;
+      const quote = makeFipeQuote(result, plate, shown);
+      quote.sheet = await freeVehicleSheet(result, details);
       await recordProviderHealth(quote.provider, 'SUCCESS', Date.now() - startedAt);
       return quote;
     });

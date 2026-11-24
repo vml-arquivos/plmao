@@ -7,7 +7,7 @@ import { dateTime, isValidPlate, normalizePlate } from '../../shared/format';
 import { api } from '../api';
 import { BRAND } from '../config';
 import { useSession } from '../session';
-import { CompareMatrix, PackageCards, ProductCards, SmartPicker, useCatalog } from '../components/Catalog';
+import { CompareMatrix, FreeFipeCta, PackageCards, ProductCards, SmartPicker, useCatalog } from '../components/Catalog';
 import Faq from '../components/Faq';
 import SupportChannels from '../components/SupportChannels';
 import { InstallButton, InstallGuide, useInstall, type InstallPlatform } from '../components/PwaBits';
@@ -55,6 +55,7 @@ export function PlansPage() {
     <>
       <section className="page-hero"><div className="container"><span className="eyebrow">Consultas e preços</span><SeoH1 path="/planos" fallback="Pague só pelo que consultar." /><p className="lead">Sem mensalidade obrigatória. Compare o que cada consulta entrega, descubra a combinação mais barata para o seu caso ou recarregue saldo em pacotes.</p></div></section>
       <section className="section" style={{ paddingTop: 12 }}><div className="container stack-lg">
+        <FreeFipeCta />
         <ProductCards />
         <div className="stack"><h2 style={{ fontSize: 26 }}>Compare lado a lado</h2><CompareMatrix /></div>
         <SmartPicker />

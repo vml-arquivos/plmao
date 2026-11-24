@@ -57,6 +57,11 @@ describe('FIPE grátis com teto mensal e Cadastral grátis uma por conta', integ
   const cadastral = (c, plate) => hostRequest(app.base, '/api/queries', { method: 'POST', token: c.token, headers: { 'Idempotency-Key': `cad-${uid('k')}-0001` }, body: { searchType: 'PLATE', searchValue: plate, productId: 'CADASTRAL' } });
   const balance = async (c) => Number((await pool.query('SELECT balance_cents FROM wallets WHERE user_id=$1', [c.id])).rows[0].balance_cents);
 
+  it('o convite público só aparece se o sistema entrega: /fipe/status informa a FIPE e a Cadastral grátis', async () => {
+    const st = await hostRequest(app.base, '/api/fipe/status');
+    assert.equal(st.json.enabled, true); assert.equal(st.json.freeCadastral, true);
+  });
+
   describe('FIPE: teto mensal por conta', () => {
     // A FIPE pela placa usa a precificadora da Credify de mentira; só o status importa aqui.
     it('o mês barra depois do teto, mesmo com o dia livre, e a recusa não gasta cota', async () => {

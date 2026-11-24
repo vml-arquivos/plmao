@@ -6,7 +6,7 @@ import { adminSession, startServer } from './helpers/server.mjs';
 
 useTestEnv();
 const { CredifyVehicleProvider, resetCredifyTokenCache } = await import('../dist/providers/credifyProvider.js');
-const { parseFipeByPlate, fipeMoneyToCents, fipeReference } = await import('../dist/fipePlate.js');
+const { parseFipeByPlate, parseFipePlateDetails, fipeMoneyToCents, fipeReference } = await import('../dist/fipePlate.js');
 
 const jwt = () => `h.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 86400 })).toString('base64url')}.s`;
 const consulta = (id) => ({ CODIGORESPOSTA: '1', DATAHORA: '01/01/2026 10:00:00', LOGON: '1', IDCONSULTA: id });
@@ -81,6 +81,13 @@ describe('leitura da resposta da FIPE (só FIPE, sem dado de cadastro)', () => {
     assert.equal(r.referenceMonth, 'novembro/2026');
     assert.ok(!JSON.stringify(r).includes('9BWZZZ377VT004251'), 'o chassi que a fonte devolve não vai para o resultado');
   });
+  it('o chassi, o ano e o combustível da mesma resposta saem à parte, sem nova consulta; sem nada disso, não há detalhe', () => {
+    const d = parseFipePlateDetails({ placa: 'AAA0000', data: fipeOk() }, 'AAA0000', new Date('2026-11-12T12:00:00Z'));
+    assert.deepEqual(d, { plate: 'AAA0000', chassis: '9BWZZZ377VT004251', modelYear: '2020', fuel: 'Flex' });
+    assert.equal(parseFipePlateDetails({ data: { RESPOSTA: { CODIGO: '1' } } }, 'AAA0000'), undefined);
+    assert.equal(parseFipePlateDetails(null, 'AAA0000'), undefined);
+    assert.deepEqual(parseFipePlateDetails({ data: fipeOk({ CHASSI: ' 9bwzzz377vt004251 ' }) }, 'AAA0000', new Date('2026-11-12')).chassis, '9BWZZZ377VT004251');
+  });
   it('ano com 2 dígitos vira 20xx ou 19xx; moeda sem vírgula não vira milhões', () => {
     assert.equal(parseFipeByPlate({ data: fipeOk({ ANOMODELOFIPE: '16' }) }, 'AAA0000', new Date('2026-11-12')).modelYear, 2016);
     assert.equal(parseFipeByPlate({ data: fipeOk({ ANOMODELOFIPE: '98' }) }, 'AAA0000', new Date('2026-11-12')).modelYear, 1998);
@@ -152,8 +159,16 @@ describe('FIPE grátis no servidor com a Credify: só a consulta de FIPE, em tod
     assert.deepEqual(paid(), ['/precificadorfipe']);
     assert.equal(j.valueCents, 4500000);
     assert.equal(j.fipeCode, '005004-1');
-    assert.equal(j.vehicleDetails, undefined, 'sem chassi, motor, Renavam nem proprietário');
-    assert.ok(!JSON.stringify(j).includes('9BWZZZ377VT004251'));
+    // Com conta, a tela traz os dados essenciais que a própria resposta da FIPE já tem: chassi mascarado e decodificador. Nada de Renavam, proprietário, cor ou motor (isso é da consulta Cadastral).
+    assert.match(j.vehicleDetails.chassis, /^9BW\*+4251$/, 'chassi só com 3 primeiros e 4 últimos');
+    assert.equal(j.vehicleDetails.modelYear, '2020'); assert.equal(j.vehicleDetails.fuel, 'Flex');
+    assert.equal(j.vehicleDetails.color, undefined); assert.equal(j.vehicleDetails.engine, undefined);
+    assert.ok(j.sheet.decoder.length > 0, 'decodificador do chassi preenchido');
+    assert.ok(j.sheet.decoder.some((r) => r.label === 'Fabricante'));
+    assert.ok(!JSON.stringify(j).includes('9BWZZZ377VT004251'), 'o chassi inteiro nunca sai');
+    assert.ok(!/renavam|propriet/i.test(JSON.stringify(j.vehicleDetails)));
+    const saved = await pool.query(`SELECT snapshot FROM report_documents WHERE document_code=$1`, [j.documentCode]);
+    assert.ok(!JSON.stringify(saved.rows[0].snapshot).includes('9BWZZZ377VT004251'), 'o que fica guardado também só tem o chassi mascarado');
   });
 
   it('por placa precisa de conta: sem login, a resposta pede cadastro e a Credify nem é chamada', async () => {
@@ -179,9 +194,12 @@ describe('FIPE grátis no servidor com a Credify: só a consulta de FIPE, em tod
     assert.deepEqual(paid(), ['/precificadorfipe']);
     assert.equal(r.json.productId, 'FIPE_FREE');
     assert.equal(r.json.result.valueCents, 4500000);
+    assert.match(r.json.result.vehicleDetails.chassis, /^9BW\*+4251$/, 'igual à tela do cliente: chassi mascarado');
+    assert.ok(r.json.result.sheet.decoder.length > 0, 'igual à tela do cliente: decodificador preenchido');
+    assert.ok(!JSON.stringify(r.json).includes('9BWZZZ377VT004251'));
     assert.ok(r.json.pdfBase64 && r.json.pdfBase64.length > 100);
     const pdf = Buffer.from(r.json.pdfBase64, 'base64').toString('latin1');
-    const hit = /9BWZZZ377VT004251|RENAVAM|Chassi/i.exec(pdf); assert.equal(hit, null, 'PDF só com FIPE: achou ' + (hit && pdf.slice(Math.max(0, hit.index - 60), hit.index + 60)));
+    const hit = /9BWZZZ377VT004251|RENAVAM/i.exec(pdf); assert.equal(hit, null, 'PDF só com FIPE: achou ' + (hit && pdf.slice(Math.max(0, hit.index - 60), hit.index + 60)));
     const row = await pool.query(`SELECT product_id,charge_source,price_cents FROM vehicle_queries WHERE id=$1`, [r.json.queryId]);
     assert.equal(row.rows[0].product_id, 'FIPE_FREE');
     assert.equal(Number(row.rows[0].price_cents), 0);

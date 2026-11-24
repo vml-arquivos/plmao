@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.67.7 — FIPE grátis com dados essenciais e convite nas páginas públicas
+
+- **FIPE grátis pela placa, com conta, agora traz os dados essenciais**, sem nova consulta e sem custo: chassi mascarado (3 primeiros e 4 últimos), ano do modelo, combustível, decodificador do chassi, tabela FIPE com histórico, financiamento e ficha técnica. Vale para a tela, o PDF e a consulta interna do painel (iguais entre si). O chassi inteiro nunca aparece nem fica guardado.
+- Cor, cilindradas, potência, passageiros e dados de registro continuam só na consulta Cadastral (a primeira de cada conta é grátis) e nas pagas.
+- Ver, baixar e imprimir continuam exigindo conta; por marca, modelo e ano o visitante vê só o valor.
+- **Convite na página de preços:** bloco "Consulte a FIPE pela placa, de graça" e, no card da Cadastral, "1ª consulta grátis ao criar a conta". Só aparece quando a FIPE grátis e a Cadastral grátis estão ligadas. O texto do resultado da FIPE convida a fazer a Cadastral grátis daquela placa.
+- `/fipe/status` informa também se a Cadastral grátis está ligada.
+- Sem migração e sem variáveis novas.
+
 ## 1.67.6 — Limites da FIPE grátis e Cadastral grátis (uma por conta)
 
 - **FIPE grátis com conta:** 3 consultas por dia e 15 por mês, por conta (antes: 10 por dia, sem teto mensal). Quem esgota o mês vê "O limite renova no primeiro dia do próximo mês". Falha da consulta devolve a cota. Visitante sem conta segue em 3 por dia por IP.

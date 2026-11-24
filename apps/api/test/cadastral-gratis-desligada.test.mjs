@@ -25,6 +25,7 @@ describe('Cadastral grátis desligada', integration, () => {
     const email = `${uid('off')}@cliente.local`;
     const r = await hostRequest(app.base, '/api/auth/register', { method: 'POST', body: { name: 'Cliente Off', email, password: 'Senha-Forte-123!', acceptTerms: true, acceptPrivacy: true } });
     const token = r.json.token;
+    assert.equal((await hostRequest(app.base, '/api/fipe/status')).json.freeCadastral, false, 'sem a chave, o site não anuncia a Cadastral grátis');
     assert.equal((await hostRequest(app.base, '/api/me', { token })).json.freeCadastralAvailable, false);
     const q = await hostRequest(app.base, '/api/queries', { method: 'POST', token, headers: { 'Idempotency-Key': `off-${uid('k')}-0001` }, body: { searchType: 'PLATE', searchValue: 'AAA0000', productId: 'CADASTRAL' } });
     assert.equal(q.status, 402, q.text);

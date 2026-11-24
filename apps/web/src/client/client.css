@@ -112,6 +112,10 @@
 /* ---------- Produtos (cards) ---------- */
 .prod-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); align-items: stretch; }
 .pcard { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 24px 22px 22px; border-radius: var(--radius-xl); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-sm); transition: transform .2s, box-shadow .2s, border-color .2s; }
+.free-cta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px 24px; background: var(--ok-soft); border-color: transparent; }
+.free-cta .stack-sm { display: grid; gap: 6px; max-width: 640px; }
+.free-cta h2 { margin: 0; }
+.free-cta p { margin: 0; }
 .pcard:hover { transform: translateY(-3px); box-shadow: var(--shadow); border-color: var(--border-strong); }
 .pcard.featured { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), var(--shadow-lg); background: linear-gradient(180deg, var(--primary-soft), var(--surface) 38%); }
 .pcard.soon { opacity: .8; }
