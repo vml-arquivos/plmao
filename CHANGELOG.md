@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.68.2 — Google Tag Manager
+
+- **Google Tag Manager por variável de ambiente** (`GOOGLE_TAG_MANAGER_ID`, formato `GTM-XXXXXXX`). Vazia por padrão: sem ela, o site continua exatamente como estava (GA4 e Google Ads pelo gtag).
+- Com a variável preenchida, **só o GTM carrega**, e só depois do aceite de cookies (o aviso e o "Preferências de cookies" continuam os mesmos). GA4 e Google Ads passam a ser tags dentro do container; as variáveis `GA_MEASUREMENT_ID`, `GOOGLE_ADS_ID` e `GOOGLE_ADS_PURCHASE_LABEL` deixam de ser usadas pelo app nesse caso.
+- Eventos enviados ao `dataLayer` (sem dados pessoais, caminho sem query nem placa): `page_view`, `plate_search`, `fipe_search`, `fipe_result`, `sign_up`, `view_item`, `begin_checkout`, `cta_click` e `purchase`. A compra leva `transaction_id`, `value` e `currency` (BRL), também no formato `ecommerce`, uma vez por pedido.
+- Consentimento: o GTM entra com o modo de consentimento já em "aceito" (só carrega depois do aceite). Quem recusa não carrega nada.
+- Política de segurança do servidor (CSP): com o GTM ligado, liberados os endereços do Google que as tags de Ads usam (scripts, conexões e quadros). Sem o GTM, a política não muda.
+- Sem migração.
+
 ## 1.68.1 — Card da consulta abre a página da consulta
 
 - No card de cada consulta (home e página de preços), o título, o card inteiro e o botão **Ver consulta** abrem a página pública daquela consulta (`/consulta/...`), sem precisar criar conta. O botão **Consultar agora** continua igual.

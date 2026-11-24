@@ -202,6 +202,8 @@ const envSchema = z.object({
   // ID público do GA4 do site; a variável só serve para trocar. Carrega apenas depois do aceite de cookies.
   GA_MEASUREMENT_ID: z.preprocess((v) => (typeof v === 'string' && /^G-[A-Z0-9]{6,14}$/.test(v.trim()) ? v.trim() : 'G-K2JKXQZDQN'), z.string()),
   GOOGLE_ADS_ID: tagId(/^AW-\d{6,14}$/),
+  // Google Tag Manager (GTM-XXXXXXX). Quando preenchido, só o GTM é carregado (GA4 e Ads passam a ser configurados dentro dele). Vazio = tudo como antes.
+  GOOGLE_TAG_MANAGER_ID: tagId(/^GTM-[A-Z0-9]{4,10}$/),
   GOOGLE_ADS_PURCHASE_LABEL: tagId(/^[A-Za-z0-9_-]{6,40}$/),
   GOOGLE_SITE_VERIFICATION: tagId(/^[A-Za-z0-9_-]{20,100}$/),
   BING_SITE_VERIFICATION: tagId(/^[A-Fa-f0-9]{20,64}$/),

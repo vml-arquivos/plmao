@@ -66,7 +66,7 @@ export const pathFromSeoImageSlug = (slug: string): string | null => SITEMAP_PAT
 const IMAGE_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 export const seoImageUrl = (baseUrl: string, path: string, mime: string, sha: string): string => `${baseUrl.replace(/\/$/, '')}/seo-img/${seoImageSlug(path)}.${IMAGE_EXT[mime] ?? 'jpg'}?v=${sha.slice(0, 10)}`;
 
-export interface GoogleTags { gaId?: string; adsId?: string; adsPurchaseLabel?: string; googleVerification?: string; bingVerification?: string }
+export interface GoogleTags { gtmId?: string; gaId?: string; adsId?: string; adsPurchaseLabel?: string; googleVerification?: string; bingVerification?: string }
 let tags: GoogleTags = {};
 /** Códigos do Google/Bing (variáveis de ambiente). Viram meta tags no HTML; o app só carrega o gtag depois do aceite de cookies. */
 export function setGoogleTags(next: GoogleTags): void { tags = { ...next }; }
@@ -127,6 +127,7 @@ export function renderSeoHtml(template: string, pathname: string, appUrl: string
   const metaTags = [
     tags.googleVerification ? `<meta name="google-site-verification" content="${escapeHtml(tags.googleVerification)}" />` : '',
     tags.bingVerification ? `<meta name="msvalidate.01" content="${escapeHtml(tags.bingVerification)}" />` : '',
+    tags.gtmId ? `<meta name="pnm-gtm" content="${escapeHtml(tags.gtmId)}" />` : '',
     tags.gaId ? `<meta name="pnm-ga" content="${escapeHtml(tags.gaId)}" />` : '',
     tags.adsId ? `<meta name="pnm-ads" content="${escapeHtml(tags.adsId)}" />` : '',
     tags.adsId && tags.adsPurchaseLabel ? `<meta name="pnm-ads-purchase" content="${escapeHtml(tags.adsPurchaseLabel)}" />` : ''

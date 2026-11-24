@@ -10,7 +10,7 @@ const base = 'https://placanamao.com.br';
 test('sem IDs configurados: nenhuma meta de medição é injetada', () => {
   setGoogleTags({});
   const html = renderSeoHtml(tpl, '/', base);
-  assert.doesNotMatch(html, /pnm-ga|pnm-ads|google-site-verification|msvalidate/);
+  assert.doesNotMatch(html, /pnm-gtm|pnm-ga|pnm-ads|google-site-verification|msvalidate/);
 });
 
 test('com IDs: metas de verificação e medição entram no head', () => {
@@ -41,4 +41,12 @@ test('ferramentas ganham WebApplication e BreadcrumbList', () => {
 
 test('página comum não ganha WebApplication', () => {
   assert.doesNotMatch(renderSeoHtml(tpl, '/planos', base), /"@type":"WebApplication"/);
+});
+
+test('com GTM: a meta pnm-gtm entra no head, com aspas escapadas', () => {
+  setGoogleTags({ gtmId: 'GTM-M55PLTMD' });
+  assert.match(renderSeoHtml(tpl, '/', base), /<meta name="pnm-gtm" content="GTM-M55PLTMD"/);
+  setGoogleTags({ gtmId: 'GTM-A"><script>x</script>' });
+  assert.doesNotMatch(renderSeoHtml(tpl, '/', base), /<script>x<\/script>/);
+  setGoogleTags({});
 });

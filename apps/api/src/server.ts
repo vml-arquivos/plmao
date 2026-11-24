@@ -561,8 +561,13 @@ app.use((req, res, next) => {
   res.on('finish', () => log('info', 'request_complete', { requestId: id, method: req.method, path: req.path, status: res.statusCode, durationMs: Math.round(performance.now() - started) }));
   next();
 });
-setGoogleTags({ gaId: env.GA_MEASUREMENT_ID, adsId: env.GOOGLE_ADS_ID, adsPurchaseLabel: env.GOOGLE_ADS_PURCHASE_LABEL, googleVerification: env.GOOGLE_SITE_VERIFICATION, bingVerification: env.BING_SITE_VERIFICATION });
-const googleTagsOn = Boolean(env.GA_MEASUREMENT_ID || env.GOOGLE_ADS_ID);
+setGoogleTags({ gtmId: env.GOOGLE_TAG_MANAGER_ID, gaId: env.GA_MEASUREMENT_ID, adsId: env.GOOGLE_ADS_ID, adsPurchaseLabel: env.GOOGLE_ADS_PURCHASE_LABEL, googleVerification: env.GOOGLE_SITE_VERIFICATION, bingVerification: env.BING_SITE_VERIFICATION });
+const gtmOn = Boolean(env.GOOGLE_TAG_MANAGER_ID);
+const googleTagsOn = Boolean(env.GA_MEASUREMENT_ID || env.GOOGLE_ADS_ID || gtmOn);
+// Com o GTM, as tags do Google Ads (conversão e remarketing) carregam scripts, beacons e frames de outros endereços do Google.
+const GTM_SCRIPT = ['https://www.googleadservices.com', 'https://googleads.g.doubleclick.net', 'https://www.google.com'];
+const GTM_CONNECT = ['https://www.googleadservices.com', 'https://pagead2.googlesyndication.com', 'https://stats.g.doubleclick.net'];
+const GTM_FRAME = ['https://www.googletagmanager.com', 'https://td.doubleclick.net', 'https://bid.g.doubleclick.net'];
 const GOOGLE_SCRIPT = ['https://www.googletagmanager.com'];
 const GOOGLE_CONNECT = ['https://www.google-analytics.com', 'https://*.google-analytics.com', 'https://*.analytics.google.com', 'https://*.googletagmanager.com', 'https://www.google.com', 'https://googleads.g.doubleclick.net', 'https://*.g.doubleclick.net'];
 app.use(helmet({
@@ -573,11 +578,12 @@ app.use(helmet({
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
       formAction: ["'self'"],
-      scriptSrc: ["'self'", ...(googleTagsOn ? GOOGLE_SCRIPT : [])],
+      scriptSrc: ["'self'", ...(googleTagsOn ? GOOGLE_SCRIPT : []), ...(gtmOn ? GTM_SCRIPT : [])],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
       fontSrc: ["'self'", 'data:', 'https:'],
-      connectSrc: ["'self'", env.WEB_ORIGIN, ...(googleTagsOn ? GOOGLE_CONNECT : [])],
+      connectSrc: ["'self'", env.WEB_ORIGIN, ...(googleTagsOn ? GOOGLE_CONNECT : []), ...(gtmOn ? GTM_CONNECT : [])],
+      ...(gtmOn ? { frameSrc: ["'self'", ...GTM_FRAME] } : {}),
       ...(env.NODE_ENV === 'production' ? { upgradeInsecureRequests: [] } : {})
     }
   },
