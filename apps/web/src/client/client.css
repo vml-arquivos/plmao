@@ -1554,3 +1554,12 @@ a.kind-tab { text-decoration: none; box-sizing: border-box; }
   .lp-pains, .lp-steps { grid-template-columns: minmax(0, 1fr); }
   .lp-copy h1 { max-width: none; }
 }
+
+/* Card da consulta inteiro clicável: leva para a página da consulta */
+.pcard .pcard-link { color: inherit; text-decoration: none; }
+.pcard .pcard-link::after { content: ''; position: absolute; inset: 0; border-radius: inherit; z-index: 0; }
+.pcard .pcard-link:focus-visible { outline: none; }
+.pcard .pcard-link:focus-visible::after { outline: 3px solid var(--primary); outline-offset: 2px; }
+.pcard .pactions, .pcard .pbadge { position: relative; z-index: 1; }
+.pcard .pbadge { position: absolute; }
+.pcard:has(.pcard-link) { cursor: pointer; }

@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Icon } from '../../shared/icons';
 import { ErrorState, LinkButton, Skeleton, useAsync } from '../../shared/ui';
 import { money } from '../../shared/format';
 import { api, type Catalog, type CatalogFeature, type CatalogPackage, type CatalogProduct } from '../api';
 import { useSession } from '../session';
 import { DetailsButton, PdfModelLink } from './ConsultaDetails';
+import { LANDINGS } from '../content/landingPages';
+import { trackFunnel } from '../funnel';
 
 export function useCatalog() {
   return useAsync(() => api.get<Catalog>('/catalog'), []);
@@ -63,10 +66,12 @@ function ProductCard({ p, authed, wide = false, firstFree = false }: { p: Catalo
   const all = (p.features ?? []).filter(Boolean);
   const top = all.slice(0, wide ? 4 : 3);
   const more = Math.max(0, all.length - top.length);
+  const page = LANDINGS.find((l) => l.productId === p.id);
+  const openPage = () => trackFunnel('CTA_CLICKED', { placement: 'product_card', target: page?.path ?? '' });
   return (
     <article className={`pcard ${p.featured ? 'featured' : ''} ${soon ? 'soon' : ''}`}>
       {p.badge && <span className="pbadge">{p.badge}</span>}
-      <h3>{p.name}</h3>
+      <h3>{page ? <Link to={page.path} className="pcard-link" onClick={openPage}>{p.name}</Link> : p.name}</h3>
       <p className="tag">{p.tagline || p.description}</p>
       <div className="pprice">
         {p.listPriceCents && p.listPriceCents > p.priceCents ? <span className="was">de {money(p.listPriceCents)}</span> : null}
@@ -80,7 +85,9 @@ function ProductCard({ p, authed, wide = false, firstFree = false }: { p: Catalo
       {firstFree && !soon && <span className="off">1ª consulta grátis ao criar a conta</span>}
       <div className="pactions">
         {soon ? <span className="btn btn-block" aria-disabled="true">Em breve</span> : <LinkButton to={productTarget(authed, p.id)} variant={p.featured || !wide ? 'primary' : 'default'} block>Consultar agora</LinkButton>}
-        <DetailsButton initial={p.id} className="btn btn-block btn-ghost" icon={false}>Ver detalhes</DetailsButton>
+        {page
+          ? <Link to={page.path} className="btn btn-block btn-ghost" onClick={openPage}>Ver consulta</Link>
+          : <DetailsButton initial={p.id} className="btn btn-block btn-ghost" icon={false}>Ver detalhes</DetailsButton>}
         {!soon && <PdfModelLink id={p.id} className="linkbtn center">Ver modelo do PDF</PdfModelLink>}
       </div>
     </article>

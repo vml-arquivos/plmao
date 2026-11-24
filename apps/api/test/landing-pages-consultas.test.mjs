@@ -63,6 +63,16 @@ describe('landing page de cada consulta', () => {
   });
 });
 
+describe('cards das consultas levam à página de cada uma', () => {
+  it('título e botão "Ver consulta" abrem a landing, sem exigir conta', () => {
+    const cat = web('src/client/components/Catalog.tsx');
+    assert.match(cat, /LANDINGS\.find\(\(l\) => l\.productId === p\.id\)/);
+    assert.match(cat, /className="pcard-link"/);
+    assert.match(cat, />Ver consulta</);
+    assert.match(cat, /Consultar agora/, 'o botão de consultar continua no card');
+  });
+});
+
 describe('home: FIPE grátis em destaque, consultas e simulador', () => {
   const home = web('src/client/pages/Landing.tsx');
   const choice = web('src/client/components/PlateChoice.tsx');

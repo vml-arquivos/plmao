@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.68.1 — Card da consulta abre a página da consulta
+
+- No card de cada consulta (home e página de preços), o título, o card inteiro e o botão **Ver consulta** abrem a página pública daquela consulta (`/consulta/...`), sem precisar criar conta. O botão **Consultar agora** continua igual.
+- Consulta sem página própria continua com o botão "Ver detalhes".
+- Sem migração e sem variáveis novas.
+
 ## 1.68.0 — Landing page de cada consulta e home nova
 
 - **Uma landing page para cada consulta**, para mandar campanha direto: `/consulta/cadastral`, `/consulta/gravame`, `/consulta/leilao`, `/consulta/avancada`, `/consulta/completa` e `/consulta/premium`. Cada uma tem texto próprio de venda: o que a pessoa teme, o que recebe, o que a consulta não mostra, como fazer, para quem é, e links para a consulta ao lado.
