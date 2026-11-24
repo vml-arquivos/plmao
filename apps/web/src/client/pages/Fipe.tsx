@@ -70,6 +70,15 @@ export default function Fipe({ inApp = false }: { inApp?: boolean }) {
     if (brand === h.brand.code) { setModel(h.model.code); } else setBrand(h.brand.code);
   };
 
+  // Vindo da home ou de uma landing (?placa=...&go=1): faz a consulta sozinho, sem pedir a placa de novo.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current || params.get('go') !== '1' || mode !== 'plate' || !isValidPlate(plate) || status === 'loading' || !enabled) return;
+    autoRan.current = true;
+    void submit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, enabled]);
+
   async function submit() {
     setErr(''); setQuote(null); setPreview(null);
     if (mode === 'plate' && status !== 'authed') { setGate(true); trackFunnel('FIPE_FORM_SUBMITTED', { hasVehicleDetails: true, loginRequired: true }); return; }
@@ -123,8 +132,8 @@ export default function Fipe({ inApp = false }: { inApp?: boolean }) {
             {gate && mode === 'plate' && status !== 'authed' && (
               <Alert tone="info" title="Crie ou entre na sua conta para consultar pela placa">
                 <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
-                  <LinkButton to={`/criar-conta?next=${encodeURIComponent(`/fipe${isValidPlate(plate) ? `?placa=${plate}` : ''}`)}`} variant="primary" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'fipe-plate-gate', destination: 'register' })}>Criar conta</LinkButton>
-                  <LinkButton to={`/entrar?next=${encodeURIComponent(`/fipe${isValidPlate(plate) ? `?placa=${plate}` : ''}`)}`} onClick={() => trackFunnel('CTA_CLICKED', { placement: 'fipe-plate-gate', destination: 'login' })}>Já tenho conta</LinkButton>
+                  <LinkButton to={`/criar-conta?next=${encodeURIComponent(`/fipe${isValidPlate(plate) ? `?placa=${plate}&go=1` : ''}`)}`} variant="primary" onClick={() => trackFunnel('CTA_CLICKED', { placement: 'fipe-plate-gate', destination: 'register' })}>Criar conta</LinkButton>
+                  <LinkButton to={`/entrar?next=${encodeURIComponent(`/fipe${isValidPlate(plate) ? `?placa=${plate}&go=1` : ''}`)}`} onClick={() => trackFunnel('CTA_CLICKED', { placement: 'fipe-plate-gate', destination: 'login' })}>Já tenho conta</LinkButton>
                 </div>
               </Alert>
             )}
@@ -156,7 +165,7 @@ export default function Fipe({ inApp = false }: { inApp?: boolean }) {
           )}
           {status === 'authed' && quote && !inApp && <div style={{ marginTop: 18 }}><LeadCapture tool="FIPE" interest={`FIPE: ${quote.brand.name} ${quote.model.name}`.slice(0, 160)} title="Quer receber este resultado e avisos de preço?" text="Deixe seu contato e a gente envia o resumo da Tabela FIPE e dicas para negociar com segurança." /></div>}
           {status === 'authed' && quote && (quote.vehicleDetails || quote.sheet) && <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>{quote.vehicleDetails && <FreeIdentity details={quote.vehicleDetails} />}{quote.sheet && <SheetView sheet={quote.sheet} />}</div>}
-          {status === 'authed' && quote?.vehicleDetails?.chassis?.includes('*') && <p className="muted" style={{ fontSize: 14, marginTop: 12 }}>Chassi e motor aparecem completos nas consultas Básica e Completa.</p>}
+          {status === 'authed' && quote?.vehicleDetails?.chassis?.includes('*') && <p className="muted" style={{ fontSize: 14, marginTop: 12 }}>Chassi e motor aparecem completos nas consultas Avançada e Completa.</p>}
           <p className="muted" style={{ fontSize: 13, marginTop: 20 }}>A Tabela FIPE é uma referência de preço médio de mercado e não considera estado de conservação, quilometragem nem situação documental.</p>
         </div>
       </section>

@@ -3236,6 +3236,14 @@ export const placaMigrations: Migration[] = [
     down: async (client) => {
       await client.query('DROP TABLE IF EXISTS free_query_grants');
     }
+  },
+  {
+    id: '093_landing_pages_das_consultas',
+    name: 'Páginas de venda de cada consulta (/consulta/cadastral, gravame, leilao, avancada, completa, premium): textos de SEO no painel',
+    up: async (client) => { await reviewSeoRows(client, 'landing_pages_das_consultas_1_68'); },
+    down: async (client) => {
+      await client.query(`DELETE FROM seo_pages WHERE path = ANY($1::text[])`, [['/consulta/cadastral', '/consulta/gravame', '/consulta/leilao', '/consulta/avancada', '/consulta/completa', '/consulta/premium']]);
+    }
   }
 
 ];

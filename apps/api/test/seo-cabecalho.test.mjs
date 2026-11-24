@@ -20,7 +20,7 @@ describe('cabeçalho de SEO: o que o navegador e o Google recebem', () => {
     assert.match(cfg, /navigateFallbackDenylist:[^\]]*robots\\\.txt/);
     assert.match(cfg, /navigateFallbackDenylist:[^\]]*sitemap\\\.xml/);
   });
-  it('as 30 rotas saem do servidor com uma canonical própria, uma descrição e sem WebApplication fora das ferramentas', () => {
+  it('as 36 rotas saem do servidor com uma canonical própria, uma descrição e sem WebApplication fora das ferramentas', () => {
     const tools = new Set(['/fipe', '/simulador', '/simulador/carro', '/simulador/moto', '/simulador/caminhao', '/simulador/utilitario', '/combustivel', '/comparar']);
     for (const p of SITEMAP_PATHS) {
       const h = renderSeoHtml(tpl, p, 'https://placanamao.com.br', {});

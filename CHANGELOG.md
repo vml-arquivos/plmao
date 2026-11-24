@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.68.0 — Landing page de cada consulta e home nova
+
+- **Uma landing page para cada consulta**, para mandar campanha direto: `/consulta/cadastral`, `/consulta/gravame`, `/consulta/leilao`, `/consulta/avancada`, `/consulta/completa` e `/consulta/premium`. Cada uma tem texto próprio de venda: o que a pessoa teme, o que recebe, o que a consulta não mostra, como fazer, para quem é, e links para a consulta ao lado.
+  - Campo da placa e botão grande no topo, que levam direto para a consulta daquele produto (visitante passa por criar conta e volta para a consulta). Barra fixa no celular.
+  - Preço, selo e "Em breve" vêm do catálogo (painel). Nenhum valor fica escrito no texto.
+  - Na Cadastral aparece "Grátis na primeira consulta" para quem ainda não usou.
+  - Título, descrição, textos e perguntas vêm do painel de SEO (editáveis) e saem no HTML do servidor. Entram no sitemap. Endereço que não existe dá 404.
+  - Aviso fixo em todas: "não informado" não é "nada consta" e o relatório não substitui a vistoria. Na do gravame, diz que o saldo devedor não aparece.
+- **Home refeita para vender:** campo da placa com dois botões. O grande leva à **FIPE grátis + dados do veículo**; o segundo leva às consultas com débitos, multas e gravame. Faixa logo abaixo com três atalhos (FIPE grátis, consultas, simulador), consultas em destaque com link para a página de cada uma, e o simulador de financiamento na página. Tirado "Resultado em segundos" e os "em segundos" dos textos da home.
+- **FIPE por placa abre sozinha** quando o cliente vem da home ou de uma landing (`?placa=...&go=1`), inclusive depois de criar a conta ou entrar. Não pede a placa de novo.
+- Texto do resultado da FIPE: "Avançada e Completa" no lugar de "Básica e Completa" (nome atual da consulta).
+- **Migração 093:** cria no painel de SEO as seis páginas novas (com histórico). Reversível.
+- Testes novos: rotas, SEO e sitemap das seis páginas, textos sem promessa, produto certo em cada uma, botão da home e abertura automática da FIPE.
+- Sem variáveis novas.
+
 ## 1.67.7 — FIPE grátis com dados essenciais e convite nas páginas públicas
 
 - **FIPE grátis pela placa, com conta, agora traz os dados essenciais**, sem nova consulta e sem custo: chassi mascarado (3 primeiros e 4 últimos), ano do modelo, combustível, decodificador do chassi, tabela FIPE com histórico, financiamento e ficha técnica. Vale para a tela, o PDF e a consulta interna do painel (iguais entre si). O chassi inteiro nunca aparece nem fica guardado.

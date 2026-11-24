@@ -1,7 +1,7 @@
 /** Textos padrão da página inicial. O painel só guarda o que for trocado; campo vazio usa estes. */
 export const HOME_DEFAULTS = {
   heroTag: 'Saiba tudo sobre o carro antes de fechar negócio.',
-  heroLead: 'Débitos, multas, restrições e gravame em um só relatório. Sem mensalidade: você paga só a consulta que fizer.',
+  heroLead: 'Veja o valor FIPE e os dados do veículo de graça. Débitos, multas, restrições e gravame em um só relatório, sem mensalidade.',
   consultasTitle: 'Escolha a consulta.',
   consultasSub: 'O valor aparece antes de pagar.',
   showcaseTitle: 'Relatório claro, do jeito que você precisa.',

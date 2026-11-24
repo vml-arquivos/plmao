@@ -8,6 +8,7 @@ import HeadSync from './components/HeadSync';
 import { AppLayout, PublicLayout, RequireAuth, ScrollManager } from './layouts';
 import { useActiveProfile } from './session';
 import { SEO_PAGES } from './content/seoPages';
+import { LANDING_BY_SLUG } from './content/landingPages';
 import { useEffect } from 'react';
 import { captureInvite, captureReferral } from './funnel';
 import { LeadLinkLanding, Unsubscribe } from './pages/LeadLink';
@@ -17,6 +18,7 @@ import { useSession } from './session';
 const SupportChat = lazy(() => import('./pages/Support'));
 const Simulations = lazy(() => import('./pages/Simulations'));
 const Landing = lazy(() => import('./pages/Landing'));
+const ProductLanding = lazy(() => import('./pages/ProductLanding'));
 const Auth = lazy(() => import('./pages/Auth'));
 const SeoPage = lazy(() => import('./pages/SeoPage'));
 const Fipe = lazy(() => import('./pages/Fipe'));
@@ -97,6 +99,13 @@ function Home() {
   return <Landing />;
 }
 
+/** Página de venda de cada consulta (/consulta/cadastral, gravame, leilao, avancada, completa, premium). Outro endereço cai na página 404. */
+function ConsultaLanding() {
+  const { slug } = useParams();
+  if (!slug || !LANDING_BY_SLUG.has(slug)) return <NotFound />;
+  return <ProductLanding slug={slug} />;
+}
+
 function SimulatorKind() {
   const { tipo } = useParams();
   return <><Simulator /><SeoContent path={`/simulador/${tipo ?? ''}`} faqTitle="Perguntas sobre financiamento" /></>;
@@ -118,6 +127,7 @@ export default function App() {
           <Route path="/recuperar-senha" element={<Auth initial="forgot" />} />
           <Route element={<PublicLayout />}>
             <Route path="/consultar" element={<GuestQuery />} />
+            <Route path="/consulta/:slug" element={<ConsultaLanding />} />
             <Route path="/fipe" element={<><Fipe /><SeoContent path="/fipe" faqTitle="Perguntas sobre a Tabela FIPE" /></>} />
             <Route path="/veiculos" element={<GuideHome />} />
             <Route path="/veiculos/mais-economicos" element={<EconomyPage />} />

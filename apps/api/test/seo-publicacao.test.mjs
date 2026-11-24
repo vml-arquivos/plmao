@@ -9,7 +9,7 @@ const { compareHtmlWithPanel, verifyPublished, VERIFY_SCOPE } = await import('..
 const dec = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 const meta = (h, re) => { const m = h.match(re); return m ? dec(m[1]) : null; };
 
-describe('publicação do SEO: painel × HTML entregue pelo servidor, nas 30 rotas', integration, () => {
+describe('publicação do SEO: painel × HTML entregue pelo servidor, nas 36 rotas', integration, () => {
   let server, pool, adm;
   before(async () => { ({ pool } = await loadCore()); server = await startServer(); adm = await adminSession({ server, pool, role: 'ADMIN' }); });
   after(async () => { await adm.call('/api/admin/content/seo/pages/reset', { method: 'POST', body: { path: '/contato' } }); await server.stop(); await pool.end(); });
@@ -17,7 +17,7 @@ describe('publicação do SEO: painel × HTML entregue pelo servidor, nas 30 rot
 
   it('título, descrição, canonical e indexação do HTML conferem com o painel; nada vaza de uma rota para outra', async () => {
     const items = (await adm.call('/api/admin/content/seo/pages')).json.items;
-    assert.equal(SITEMAP_PATHS.length, 30, 'as 30 rotas do sitemap');
+    assert.equal(SITEMAP_PATHS.length, 36, 'as 36 rotas do sitemap');
     const vistos = new Map();
     for (const p of SITEMAP_PATHS) {
       const h = await html(p);

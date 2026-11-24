@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon, type IconName } from '../../shared/icons';
 import { LinkButton, usePageTitle } from '../../shared/ui';
@@ -9,24 +9,27 @@ import { useSession } from '../session';
 import { useHomeConfig } from '../homeConfig';
 import { HOME_DEFAULTS, type HomeConfig } from '../../shared/homeDefaults';
 import { trackFunnel } from '../funnel';
-import PlateSearch from '../components/PlateSearch';
-import { PackageCards, ProductCards, SmartPicker, useCatalog } from '../components/Catalog';
+import PlateChoice from '../components/PlateChoice';
+import { PackageCards, ProductCards, SmartPicker, useCatalog, useFreeOffers } from '../components/Catalog';
+import { LANDINGS } from '../content/landingPages';
 import Faq from '../components/Faq';
 import Testimonials from '../components/Testimonials';
 import { DetailsButton, PdfModelLink } from '../components/ConsultaDetails';
 import { SeoContentAfterFaqs, useSeoH1 } from '../components/SeoContent';
 
+const HomeSimulator = lazy(() => import('../components/HomeTools').then((m) => ({ default: m.HomeSimulator })));
+
 const STEPS = [
   { t: 'Digite a placa', s: 'Placa antiga ou Mercosul.' },
   { t: 'Escolha a consulta', s: 'O preço aparece antes de pagar.' },
-  { t: 'Receba o relatório', s: 'Na tela e em PDF, em segundos.' }
+  { t: 'Receba o relatório', s: 'Na tela e em PDF.' }
 ];
 
 const TOOLS: Array<{ to: string; icon: IconName; title: string; text: string }> = [
   { to: '/fipe', icon: 'trending-up', title: 'Tabela FIPE', text: 'Preço médio por marca, modelo e ano.' },
   { to: '/simulador', icon: 'calculator', title: 'Simulador de financiamento', text: 'Parcela e custo total.' },
   { to: '/veiculos', icon: 'car', title: 'Guia de veículos', text: 'Fichas e modelos em destaque.' },
-  { to: '/comparar', icon: 'bar-chart', title: 'Comparar veículos', text: 'Lado a lado, em segundos.' },
+  { to: '/comparar', icon: 'bar-chart', title: 'Comparar veículos', text: 'Lado a lado, com ficha técnica.' },
   { to: '/blog', icon: 'file-text', title: 'Blog', text: 'Guias para comprar e vender.' }
 ];
 
@@ -118,6 +121,42 @@ function StickyCta({ price }: { price: string | null }) {
   );
 }
 
+/** Três atalhos logo abaixo do topo: FIPE grátis com dados do veículo, consultas e simulador. */
+function HomeHighlights({ price }: { price: string | null }) {
+  const { status } = useSession();
+  const offers = useFreeOffers();
+  const authed = status === 'authed';
+  const click = (target: string) => trackFunnel('CTA_CLICKED', { placement: 'home_highlights', target, landing: '/' });
+  return (
+    <section className="section" style={{ paddingBottom: 0 }} aria-label="Por onde começar">
+      <div className="container">
+        <div className="home-free">
+          {offers.fipe && (
+            <div className="home-free-card hl">
+              <span className="eyebrow">Grátis</span>
+              <h3>FIPE pela placa, com dados do veículo</h3>
+              <p>Valor FIPE, histórico de preço e os dados essenciais do veículo. Crie sua conta grátis para ver, baixar e imprimir.</p>
+              <LinkButton to={authed ? '/app/fipe' : '/fipe'} variant="primary" size="lg" iconRight="arrow-right" onClick={() => click('fipe')}>Consultar FIPE grátis</LinkButton>
+            </div>
+          )}
+          <div className="home-free-card">
+            <span className="wi"><Icon name="shield-check" size={24} /></span>
+            <h3>Consultas de placa</h3>
+            <p>Débitos, multas, restrições, gravame e leilão. {price ? `A partir de ${price}, ` : ''}sem mensalidade.</p>
+            <a className="btn btn-lg" href="#consultas" onClick={() => click('consultas')}>Ver as consultas <Icon name="arrow-right" size={18} /></a>
+          </div>
+          <div className="home-free-card">
+            <span className="wi"><Icon name="calculator" size={24} /></span>
+            <h3>Simulador de financiamento</h3>
+            <p>Veja a parcela, o CET e o custo total antes de ir ao banco. Grátis.</p>
+            <LinkButton to="/simulador" size="lg" iconRight="arrow-right" onClick={() => click('simulador')}>Simular agora</LinkButton>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Landing() {
   usePageTitle('');
   const { status } = useSession();
@@ -136,11 +175,11 @@ export default function Landing() {
             <Announce a={c.announce} />
             <HeroTitle tag={c.heroTag} hold={!ready} />
             <p className="hero-lead" style={ready ? undefined : { visibility: 'hidden' }}>{c.heroLead ?? HOME_DEFAULTS.heroLead}</p>
-            <PlateSearch authed={status === 'authed'} placement="hero" />
+            <PlateChoice authed={status === 'authed'} placement="hero" />
             <div className="trust-row">
               {price && <span className="from"><Icon name="tag" size={16} />A partir de {price}</span>}
               <span><Icon name="shield-check" size={16} />Pagamento seguro</span>
-              <span><Icon name="zap" size={16} />Resultado em segundos</span>
+              <span><Icon name="file-text" size={16} />PDF com código de validação</span>
               <PdfModelLink id="COMPLETE" className="linkbtn light">Ver modelo do PDF</PdfModelLink>
             </div>
           </div>
@@ -150,15 +189,15 @@ export default function Landing() {
           <div className="hero2-visual" aria-hidden="true">
             <div className="hv-card">
               <div className="hv-top"><span className="hv-plate">ABC 1D23</span><div><b>VW Exemplo 1.0</b><small>2020/2021 · Prata · Flex</small></div></div>
-              <div className="hv-verdict"><Icon name="shield-check" size={20} /><div><b>Sem alertas relevantes</b><small>Nada consta nas bases consultadas</small></div></div>
+              <div className="hv-verdict"><Icon name="trending-up" size={20} /><div><b>FIPE grátis</b><small>Valor médio de referência do mês</small></div></div>
               <div className="hv-tiles">
-                <div><small>Débitos</small><b className="ok">Nenhum</b></div>
-                <div><small>Restrições</small><b className="ok">Nada consta</b></div>
-                <div><small>Gravame</small><b className="ok">Nada consta</b></div>
-                <div><small>FIPE</small><b>R$ 32.500</b></div>
+                <div><small>Valor FIPE</small><b>R$ 32.500</b></div>
+                <div><small>Ano</small><b>2020/2021</b></div>
+                <div><small>Combustível</small><b>Flex</b></div>
+                <div><small>Chassi</small><b>9BW••1234</b></div>
               </div>
               <svg className="hv-chart" viewBox="0 0 300 70" preserveAspectRatio="none"><defs><linearGradient id="hvg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#60A5FA" stopOpacity=".35" /><stop offset="1" stopColor="#60A5FA" stopOpacity="0" /></linearGradient></defs><path d="M0 14 C40 18 70 24 110 30 S190 44 230 48 S280 56 300 58 L300 70 L0 70Z" fill="url(#hvg)" /><path d="M0 14 C40 18 70 24 110 30 S190 44 230 48 S280 56 300 58" fill="none" stroke="#7CB9FF" strokeWidth="2" /></svg>
-              <small className="hv-cap">Histórico da FIPE nos últimos 24 meses</small>
+              <small className="hv-cap">Histórico de preço da FIPE nos últimos 24 meses</small>
             </div>
             <div className="hv-float"><Icon name="file-text" size={18} /><div><b>Relatório em PDF</b><small>com código de validação</small></div></div>
             <span className="hv-sample">Exemplo ilustrativo, com dados fictícios</span>
@@ -166,6 +205,8 @@ export default function Landing() {
           )}
         </div>
       </section>
+
+      <HomeHighlights price={price} />
 
       <section className="section" id="consultas">
         <div className="container stack-lg">
@@ -175,12 +216,18 @@ export default function Landing() {
             <DetailsButton className="btn">Comparar consultas</DetailsButton>
             <LinkButton to="/planos" iconRight="arrow-right">Preços e pacotes</LinkButton>
           </div>
+          <nav className="home-lp-links" aria-label="Página de cada consulta">
+            <span>Veja os detalhes de cada consulta:</span>
+            {LANDINGS.map((l) => <Link key={l.slug} to={l.path} onClick={() => trackFunnel('CTA_CLICKED', { placement: 'home_landing_links', target: l.path, landing: '/' })}>{l.short}</Link>)}
+          </nav>
           <details className="picker-toggle">
             <summary><span>Não sabe qual escolher?</span><Icon name="chevron-down" size={18} /></summary>
             <SmartPicker />
           </details>
         </div>
       </section>
+
+      <Suspense fallback={null}><HomeSimulator /></Suspense>
 
       <section className="section alt" id="como-funciona">
         <div className="container showcase">
@@ -247,7 +294,7 @@ export default function Landing() {
             <div>
               <h2>{T('finalTitle')}</h2>
               <p>{T('finalSub')}</p>
-              <PlateSearch authed={status === 'authed'} placement="final" />
+              <PlateChoice authed={status === 'authed'} placement="final" note={false} />
             </div>
           </div>
         </div>

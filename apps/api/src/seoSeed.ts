@@ -333,6 +333,108 @@ const SEO_SEED_BASE: SeoSeed[] = [
       { q: 'Tem pacote para lojistas e empresas?', a: 'Sim. Há pacotes de saldo com bônus e planos personalizados para volume. Fale com a equipe pelo chat.' }
     ]
   },
+  {
+    path: '/consulta/cadastral', h1: 'Consulta cadastral de placa', keyword: 'consulta cadastral',
+    title: 'Consulta cadastral de veículo pela placa | Placa na Mão',
+    description: 'Consulta cadastral pela placa: confira marca, modelo, ano, cor e situação do veículo antes de ver o anúncio. Sem mensalidade.',
+    sections: [
+      { h: 'Para que serve a consulta cadastral', p: 'A consulta cadastral mostra os dados de registro do veículo pela placa. Você confere marca, modelo, ano, cor, combustível e município. Assim, vê se o veículo bate com o anúncio antes de marcar a visita.' },
+      { h: 'O que a consulta cadastral não mostra', p: 'Ela não traz débitos, multas, restrições, gravame, leilão nem sinistro. Para decidir uma compra, use uma consulta mais completa. A Completa reúne tudo isso em um só relatório.' },
+      { h: 'Como fazer a consulta cadastral', p: 'Digite a placa e crie sua conta grátis. Depois, veja o relatório na tela e baixe o PDF com código de validação. A primeira consulta cadastral de cada conta pode ser grátis. O aviso aparece no site.' }
+    ],
+    faq: [
+      { q: 'O que a consulta cadastral mostra?', a: 'Marca, modelo, ano, cor, combustível, categoria, espécie, município, UF e situação do veículo, conforme o que a fonte retorna para a placa.' },
+      { q: 'A consulta cadastral mostra débitos e multas?', a: 'Não. Para débitos, multas, restrições e financiamento, use a consulta Completa ou a Avançada.' },
+      { q: 'Preciso informar o Renavam?', a: 'Não. A consulta é feita só pela placa, no padrão antigo ou Mercosul.' },
+      { q: 'A primeira consulta cadastral é grátis?', a: 'Quando a oferta está ativa, a primeira consulta cadastral de cada conta é grátis. O site mostra o aviso na página de preços e na tela de consulta.' },
+      { q: 'O relatório substitui a vistoria?', a: caution }
+    ]
+  },
+  {
+    path: '/consulta/gravame', h1: 'Consulta de gravame por placa', keyword: 'consulta de gravame',
+    title: 'Consulta de gravame pela placa antes de comprar | Placa na Mão',
+    description: 'Consulta de gravame pela placa: veja se o veículo está financiado, com banco, contrato e data quando a fonte informa. Sem mensalidade.',
+    sections: [
+      { h: 'O que a consulta de gravame mostra', p: 'A consulta de gravame mostra se há registro de financiamento no veículo, o chamado gravame. Quando a fonte informa, aparecem o banco, o contrato e a data de inclusão. Também mostra se há intenção de gravame.' },
+      { h: 'Por que consultar o gravame antes de comprar', p: 'Enquanto o gravame existe, o veículo não pode ser transferido sem a baixa. Descobrir isso antes de pagar evita atraso e dor de cabeça. Peça ao vendedor o comprovante de quitação e a baixa do gravame.' },
+      { h: 'O que a consulta de gravame não informa', p: 'As bases oficiais não informam o saldo devedor nem as parcelas em aberto. Para isso, fale com a instituição financeira. A consulta também não mostra débitos, multas nem leilão. A Completa reúne esses itens.' }
+    ],
+    faq: [
+      { q: 'O que é gravame?', a: 'É o registro de que o veículo foi dado como garantia de um financiamento, a alienação fiduciária. Com o gravame ativo, a transferência depende da baixa.' },
+      { q: 'A consulta de gravame mostra o saldo da dívida?', a: 'Não. As bases oficiais não informam saldo devedor. Confirme o valor e a quitação com a instituição financeira.' },
+      { q: 'Posso comprar um carro com gravame?', a: 'Só com cuidado. O ideal é exigir a baixa antes de pagar, ou a autorização da financeira. Confirme tudo por escrito.' },
+      { q: 'Quanto custa a consulta de gravame?', a: 'O preço aparece nesta página e no pagamento, antes de você pagar. Não há mensalidade.' },
+      { q: 'E se a consulta não for concluída?', a: 'Se a consulta falhar, o valor volta para o seu saldo.' }
+    ]
+  },
+  {
+    path: '/consulta/leilao', h1: 'Consulta de leilão por placa', keyword: 'consulta de leilão',
+    title: 'Consulta de leilão do veículo pela placa | Placa na Mão',
+    description: 'Consulta de leilão pela placa: veja a passagem por leilão, o nível de risco e a aceitação em seguro antes de comprar o veículo.',
+    sections: [
+      { h: 'O que a consulta de leilão mostra', p: 'A consulta mostra se o veículo passou por leilão. Quando a fonte informa, aparecem a data, o leiloeiro, o lote e a condição. O relatório também traz o nível de risco de leilão e a possível desvalorização.' },
+      { h: 'Por que o leilão importa na compra', p: 'Veículo de leilão pode valer menos na revenda e ter mais restrição em seguro. Saber isso antes ajuda a negociar o preço. O relatório mostra a aceitação em seguro e o risco de revenda.' },
+      { h: 'O que mais vem no relatório', p: 'Além do leilão, vêm os dados do veículo, o cadastro da base nacional e as restrições. Não vêm débitos, multas nem gravame detalhado. Para isso, use a Completa ou a Avançada.' }
+    ],
+    faq: [
+      { q: 'A consulta de leilão mostra se o carro foi de leilão?', a: 'Sim, quando há registro na fonte. O relatório mostra data, leiloeiro, lote e condição, se informados.' },
+      { q: 'O que significa nível de risco de leilão?', a: 'É uma leitura do risco do veículo para compra e revenda, com base no registro de leilão. Use como apoio, junto com a vistoria.' },
+      { q: 'Se não aparecer leilão, o carro nunca foi a leilão?', a: 'O relatório mostra o que a fonte retorna. Quando a fonte não responde, aparece não informado, e isso não quer dizer nada consta.' },
+      { q: 'A consulta de leilão mostra débitos?', a: 'Não. Para débitos e multas, use a consulta Completa ou a Avançada.' },
+      { q: 'O relatório substitui a vistoria?', a: caution }
+    ]
+  },
+  {
+    path: '/consulta/avancada', h1: 'Consulta veicular avançada', keyword: 'consulta veicular avançada',
+    title: 'Consulta veicular avançada: gravame e Renajud | Placa na Mão',
+    description: 'Consulta veicular avançada: tudo da Completa, mais gravame detalhado, restrições judiciais (Renajud) e multas por infração.',
+    sections: [
+      { h: 'O que a consulta avançada traz a mais', p: 'A consulta veicular avançada inclui tudo da Completa. Soma o gravame detalhado, com banco, contrato e datas, e as restrições judiciais do Renajud, com tribunal, processo e data. Traz também as multas infração por infração.' },
+      { h: 'Quando escolher a consulta avançada', p: 'Escolha quando o veículo está financiado ou o vendedor fala em bloqueio. Também vale para quem quer ver cada multa, com descrição, vencimento e valor. O detalhe ajuda a negociar e a decidir.' },
+      { h: 'O que a consulta avançada não inclui', p: 'Ela não traz o histórico de proprietários. Esse item faz parte da consulta Premium. O relatório mostra o que as fontes retornam e não substitui a vistoria.' }
+    ],
+    faq: [
+      { q: 'Qual a diferença entre a Avançada e a Completa?', a: 'A Avançada traz tudo da Completa e soma gravame detalhado, restrições judiciais do Renajud e multas por infração.' },
+      { q: 'O que é Renajud?', a: 'É o sistema da Justiça que registra bloqueios judiciais no veículo. Com bloqueio ativo, a transferência pode ser impedida.' },
+      { q: 'A Avançada mostra o histórico de proprietários?', a: 'Não. O histórico de proprietários está na consulta Premium.' },
+      { q: 'Existe mensalidade?', a: 'Não. Você paga só pela consulta que fizer, com o preço visível antes do pagamento.' },
+      { q: 'E se a consulta não for concluída?', a: 'Se a consulta falhar, o valor volta para o seu saldo.' }
+    ]
+  },
+  {
+    path: '/consulta/completa', h1: 'Consulta completa de veículo', keyword: 'consulta completa de veículo',
+    title: 'Consulta completa de veículo pela placa | Placa na Mão',
+    description: 'Consulta completa de veículo pela placa: débitos, multas, restrições, financiamento, sinistro, leilão, recall e FIPE em um relatório.',
+    sections: [
+      { h: 'O que a consulta completa reúne', p: 'A consulta completa de veículo junta em um relatório os débitos, as multas, as restrições e o financiamento. Traz também indício de sinistro, roubo e furto, passagem por leilão, recall e o valor da Tabela FIPE.' },
+      { h: 'Como ler o relatório', p: 'No topo, um resumo em cores mostra o que merece atenção. Abaixo, cada assunto tem sua seção, com a fonte e a data. Quando um dado não vem da fonte, o relatório diz não informado.' },
+      { h: 'Quando precisa de mais detalhe', p: 'Para ver banco e contrato do financiamento, restrição judicial detalhada e multas por infração, use a Avançada. Para ver também o histórico de proprietários, use a Premium.' }
+    ],
+    faq: [
+      { q: 'O que a consulta completa mostra?', a: 'Dados do veículo, débitos, multas, restrições, financiamento, sinistro, roubo e furto, leilão, recall, inspeção e Tabela FIPE, conforme o que a fonte retorna.' },
+      { q: 'A consulta completa serve para comprar usado?', a: 'Sim. Ela reúne as verificações mais comuns antes de fechar negócio. Mesmo assim, faça a vistoria do veículo.' },
+      { q: 'Preciso informar o Renavam?', a: 'Não. A consulta é feita só pela placa, no padrão antigo ou Mercosul.' },
+      { q: 'Existe mensalidade?', a: 'Não. Você paga só pela consulta que fizer, com o preço visível antes do pagamento.' },
+      { q: 'O relatório é uma garantia de negócio seguro?', a: caution }
+    ]
+  },
+  {
+    path: '/consulta/premium', h1: 'Consulta veicular premium', keyword: 'consulta veicular premium',
+    title: 'Consulta veicular premium: histórico de donos | Placa na Mão',
+    description: 'Consulta veicular premium: tudo da Avançada e o histórico de proprietários, para compras de maior valor e revenda com segurança.',
+    sections: [
+      { h: 'O que a consulta premium traz', p: 'A consulta veicular premium é a mais completa. Inclui tudo da Completa, o gravame detalhado, as restrições judiciais do Renajud e as multas por infração. Soma o histórico de proprietários, com quantidade e linha do tempo.' },
+      { h: 'Quando escolher a consulta premium', p: 'Vale para compras de maior valor e para quem revende. Saber por quantas mãos o veículo passou ajuda a avaliar o uso e o preço. Lojistas também usam para padronizar a análise.' },
+      { h: 'O que lembrar ao ler o relatório', p: 'O relatório mostra o que as fontes retornam, com data e fonte em cada item. Dado que a fonte não retornou aparece como não informado. Ele não substitui a vistoria nem a análise dos documentos.' }
+    ],
+    faq: [
+      { q: 'O que a Premium tem a mais que a Avançada?', a: 'O histórico de proprietários, com a quantidade e a linha do tempo, quando a fonte informa.' },
+      { q: 'A Premium mostra o nome dos donos anteriores?', a: 'Não. O relatório mostra a quantidade e a linha do tempo, sem expor dados pessoais.' },
+      { q: 'A Premium serve para lojistas?', a: 'Sim. Lojas usam a consulta para avaliar veículos antes de comprar. Há pacotes de saldo com bônus para quem consulta com frequência.' },
+      { q: 'Existe mensalidade?', a: 'Não. Você paga só pela consulta que fizer, com o preço visível antes do pagamento.' },
+      { q: 'E se a consulta não for concluída?', a: 'Se a consulta falhar, o valor volta para o seu saldo.' }
+    ]
+  },
   // Páginas sem perguntas frequentes próprias: título, descrição, palavra-chave e H1 já definidos.
   { path: '/', h1: 'Consulta de placa online', keyword: 'consulta de placa', title: 'Consulta de placa, FIPE grátis e simulador | Placa na Mão', description: 'Faça a consulta de placa e veja o relatório do veículo: débitos, multas, restrições, gravame e histórico, conforme a fonte. FIPE e simulador grátis, sem mensalidade.', sections: HOME_SECTIONS, faq: [] },
   { path: '/veiculos', h1: 'Guia de veículos', keyword: 'guia de veículos', title: 'Guia de veículos: ficha técnica e opinião de donos | Placa na Mão', description: 'No guia de veículos, veja ficha técnica, consumo oficial, nota e opinião de quem tem o carro, dicas de cuidados e compare lado a lado antes de comprar.', faq: [] },
