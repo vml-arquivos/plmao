@@ -123,3 +123,13 @@ test('portal novo: leilão mostra data, lote, leiloeiro e comitente', async () =
   assert.equal(m.get('VT_LEILAO').state, 'ALERT');
   assert.match(JSON.stringify(m.get('VT_LEILAO_DETALHES').table.rows), /02\/10\/2024.*2915.*DETRAN SP DNUC/);
 });
+
+test('texto do gravame ativo não termina com ponto duplicado quando o banco termina em ponto (S.A.)', () => {
+  const raw = semBdrp();
+  raw.RESPOSTA.VEICULOSBDRP = { DESCRICAORETORNO: 'SUCESSO', RETORNO: { RESTRICAOFINAN: 'ALIENACAO FIDUCIARIA', RESTRICAONOMEAGENTE: 'BANCO EXEMPLO S.A.', NUMEROCONTRATOFINANCEIRA: '1', RESTRICAODATAINCLUSAO: '10/03/2023', CGCFINANCEIRA: '00000000000191' } };
+  raw.RESPOSTA.CODIGO = ['2', '1', '1', '1', '1', '1', '1', '2'];
+  const m = items(buildReportV2({ placa: 'ABC1234', idConsulta: '467', data: raw }));
+  const t = String(m.get('GR_SITUACAO')?.value ?? '');
+  assert.match(t, /BANCO EXEMPLO S\.A\.$/);
+  assert.doesNotMatch(t, /\.\./);
+});

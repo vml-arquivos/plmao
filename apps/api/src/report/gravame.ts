@@ -114,7 +114,7 @@ export function gravameExtras(upper: Rec, raw: unknown, now = new Date()): Map<s
   const activeCount = recs.length ? recs.filter((r) => !cleared(r)).length : 1;
   const clearedCount = recs.length ? recs.length - activeCount : 0;
   if (recs.length && !activeCount) out.set('GR_SITUACAO', info(`Sem gravame ativo. Há ${clearedCount} ${clearedCount === 1 ? 'gravame baixado' : 'gravames baixados'} no histórico do veículo${bank ? ` (${bank})` : ''}.`));
-  else out.set('GR_SITUACAO', info(`Há gravame / alienação fiduciária ativo${bank ? ` — ${bank}` : ''}${clearedCount ? `; mais ${clearedCount} ${clearedCount === 1 ? 'baixado' : 'baixados'} no histórico` : ''}.`));
+  else out.set('GR_SITUACAO', info(`Há gravame / alienação fiduciária ativo${bank ? ` — ${bank}` : ''}${clearedCount ? `; mais ${clearedCount} ${clearedCount === 1 ? 'baixado' : 'baixados'} no histórico` : ''}.`.replace(/\.\.$/, '.')));
 
   const lines: string[] = [];
   const table: string[][] = [];

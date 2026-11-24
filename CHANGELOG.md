@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.67.5 — Ponto duplicado no gravame
+
+- Texto do gravame ativo não sai mais com ponto duplicado quando o nome do banco termina em ponto (ex.: "BANCO S.A..").
+- Sem migração e sem variáveis novas.
+
 ## 1.67.4 — Consulta interna igual à do cliente
 
 - **Gravame ao abrir o relatório.** Ao abrir o relatório de uma Premium ou Gravame com alienação, o sistema buscava o gravame de novo mesmo quando a consulta já trazia banco, contrato e datas. Isso gastava uma consulta a mais e deixava o relatório do cliente diferente do da consulta interna do painel. Agora só busca quando faltar banco, contrato, data ou CNPJ, a mesma regra da consulta nova.
