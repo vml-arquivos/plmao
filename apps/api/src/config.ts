@@ -204,8 +204,8 @@ const envSchema = z.object({
   GOOGLE_ADS_ID: tagId(/^AW-\d{6,14}$/),
   // Google Tag Manager (GTM-XXXXXXX). Quando preenchido, só o GTM é carregado (GA4 e Ads passam a ser configurados dentro dele). Vazio = tudo como antes.
   GOOGLE_TAG_MANAGER_ID: tagId(/^GTM-[A-Z0-9]{4,10}$/),
-  // Pixel do Meta (só o número do Pixel, 8 a 20 dígitos). Vazio = nada muda. Carrega apenas depois do aceite de cookies.
-  META_PIXEL_ID: tagId(/^\d{8,20}$/),
+  // Pixel do Meta (Placa na Mão). A variável só serve para trocar o número. Carrega apenas depois do aceite de cookies.
+  META_PIXEL_ID: z.preprocess((v) => (typeof v === 'string' && /^\d{8,20}$/.test(v.trim()) ? v.trim() : '1516050293674047'), z.string()),
   GOOGLE_ADS_PURCHASE_LABEL: tagId(/^[A-Za-z0-9_-]{6,40}$/),
   GOOGLE_SITE_VERIFICATION: tagId(/^[A-Za-z0-9_-]{20,100}$/),
   BING_SITE_VERIFICATION: tagId(/^[A-Fa-f0-9]{20,64}$/),

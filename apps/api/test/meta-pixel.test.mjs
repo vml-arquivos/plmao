@@ -9,8 +9,8 @@ const web = (f) => readFileSync(new URL(`../../web/${f}`, import.meta.url), 'utf
 const root = (f) => readFileSync(new URL(`../../../${f}`, import.meta.url), 'utf8');
 
 describe('Pixel do Meta', () => {
-  it('a variável só aceita o número do Pixel e vem vazia por padrão', () => {
-    assert.match(api('config.ts'), /META_PIXEL_ID: tagId\(\/\^\\d\{8,20\}\$\/\)/);
+  it('o número do Pixel já vem no código e a variável só aceita números para trocar', () => {
+    assert.match(api('config.ts'), /META_PIXEL_ID: z\.preprocess\(\(v\) => \(typeof v === 'string' && \/\^\\d\{8,20\}\$\/\.test\(v\.trim\(\)\) \? v\.trim\(\) : '1516050293674047'\)/);
     assert.match(root('.env.example'), /^META_PIXEL_ID=$/m);
   });
 

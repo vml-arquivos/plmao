@@ -2,7 +2,7 @@
 
 ## 1.68.3 — Pixel do Meta
 
-- **Pixel do Meta (Facebook e Instagram) por variável de ambiente** (`META_PIXEL_ID`, só o número do Pixel). Vazia por padrão: sem ela, o site continua exatamente como estava.
+- **Pixel do Meta (Facebook e Instagram) instalado no site.** O número do Pixel da Placa na Mão já vem no código; a variável `META_PIXEL_ID` só serve para trocar. Não precisa configurar nada no Coolify.
 - Carrega **só depois do aceite de cookies**, no mesmo aviso do Google. Quem recusa não carrega nada. Se o único código configurado for o do Meta, o aviso de cookies também aparece.
 - Eventos: `PageView` (caminho de cada página), `Search` (placa e FIPE digitadas), `ViewContent` (resultado da FIPE e cotação), `CompleteRegistration` (conta criada), `InitiateCheckout` (começou a pagar) e `Purchase` (compra, com valor em BRL).
 - O código do pedido vai como `eventID` da compra, para a API de Conversões (servidor) poder entrar depois sem contar em dobro.
