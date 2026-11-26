@@ -561,8 +561,12 @@ app.use((req, res, next) => {
   res.on('finish', () => log('info', 'request_complete', { requestId: id, method: req.method, path: req.path, status: res.statusCode, durationMs: Math.round(performance.now() - started) }));
   next();
 });
-setGoogleTags({ gtmId: env.GOOGLE_TAG_MANAGER_ID, gaId: env.GA_MEASUREMENT_ID, adsId: env.GOOGLE_ADS_ID, adsPurchaseLabel: env.GOOGLE_ADS_PURCHASE_LABEL, googleVerification: env.GOOGLE_SITE_VERIFICATION, bingVerification: env.BING_SITE_VERIFICATION });
+setGoogleTags({ metaPixelId: env.META_PIXEL_ID, gtmId: env.GOOGLE_TAG_MANAGER_ID, gaId: env.GA_MEASUREMENT_ID, adsId: env.GOOGLE_ADS_ID, adsPurchaseLabel: env.GOOGLE_ADS_PURCHASE_LABEL, googleVerification: env.GOOGLE_SITE_VERIFICATION, bingVerification: env.BING_SITE_VERIFICATION });
 const gtmOn = Boolean(env.GOOGLE_TAG_MANAGER_ID);
+const metaOn = Boolean(env.META_PIXEL_ID);
+// Pixel do Meta: o script vem de connect.facebook.net e os eventos saem para www.facebook.com (as imagens já são liberadas para https).
+const META_SCRIPT = ['https://connect.facebook.net'];
+const META_CONNECT = ['https://www.facebook.com', 'https://connect.facebook.net'];
 const googleTagsOn = Boolean(env.GA_MEASUREMENT_ID || env.GOOGLE_ADS_ID || gtmOn);
 // Com o GTM, as tags do Google Ads (conversão e remarketing) carregam scripts, beacons e frames de outros endereços do Google.
 const GTM_SCRIPT = ['https://www.googleadservices.com', 'https://googleads.g.doubleclick.net', 'https://www.google.com'];
@@ -578,11 +582,11 @@ app.use(helmet({
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
       formAction: ["'self'"],
-      scriptSrc: ["'self'", ...(googleTagsOn ? GOOGLE_SCRIPT : []), ...(gtmOn ? GTM_SCRIPT : [])],
+      scriptSrc: ["'self'", ...(googleTagsOn ? GOOGLE_SCRIPT : []), ...(gtmOn ? GTM_SCRIPT : []), ...(metaOn ? META_SCRIPT : [])],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
       fontSrc: ["'self'", 'data:', 'https:'],
-      connectSrc: ["'self'", env.WEB_ORIGIN, ...(googleTagsOn ? GOOGLE_CONNECT : []), ...(gtmOn ? GTM_CONNECT : [])],
+      connectSrc: ["'self'", env.WEB_ORIGIN, ...(googleTagsOn ? GOOGLE_CONNECT : []), ...(gtmOn ? GTM_CONNECT : []), ...(metaOn ? META_CONNECT : [])],
       ...(gtmOn ? { frameSrc: ["'self'", ...GTM_FRAME] } : {}),
       ...(env.NODE_ENV === 'production' ? { upgradeInsecureRequests: [] } : {})
     }

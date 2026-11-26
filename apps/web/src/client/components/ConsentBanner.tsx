@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { analyticsConfigured, initAnalytics, pageView, setConsent, storedConsent } from '../analytics';
 
-/** Aviso de cookies (LGPD) e envio das visualizações de página. Só aparece se o Google Analytics/Ads estiver configurado. */
+/** Aviso de cookies (LGPD) e envio das visualizações de página. Só aparece se o Google (Analytics, Ads, GTM) ou o Pixel do Meta estiver configurado. */
 export default function ConsentBanner() {
   const { pathname } = useLocation();
   const [open, setOpen] = useState(false);

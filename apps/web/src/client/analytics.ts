@@ -3,23 +3,53 @@
  * Os IDs vêm do servidor como meta tags (GA_MEASUREMENT_ID, GOOGLE_ADS_ID, GOOGLE_ADS_PURCHASE_LABEL, GOOGLE_TAG_MANAGER_ID).
  * Sem ID configurado, nada é carregado. O script do Google só entra depois que a pessoa aceita os cookies.
  * Com o GTM configurado, só o GTM carrega: GA4 e Ads passam a ser tags dentro dele, e os eventos vão para o dataLayer.
+ * Pixel do Meta (META_PIXEL_ID): carrega direto no site, também só depois do aceite. Só vão nome do evento, valor, moeda e o código do pedido.
+ * Se o Pixel for carregado por aqui, não crie outra tag do Meta dentro do GTM (o evento contaria duas vezes).
  */
 type Gtag = (...args: unknown[]) => void;
-declare global { interface Window { dataLayer?: unknown[]; gtag?: Gtag } }
+type Fbq = (...args: unknown[]) => void;
+declare global { interface Window { dataLayer?: unknown[]; gtag?: Gtag; fbq?: Fbq; _fbq?: Fbq } }
 
 const CONSENT_KEY = 'pnm_cookie_consent';
 export type Consent = 'granted' | 'denied' | null;
 
 const meta = (name: string): string => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content?.trim() ?? '';
-const ids = () => ({ gtm: meta('pnm-gtm'), ga: meta('pnm-ga'), ads: meta('pnm-ads'), adsLabel: meta('pnm-ads-purchase') });
+const ids = () => ({ gtm: meta('pnm-gtm'), ga: meta('pnm-ga'), ads: meta('pnm-ads'), adsLabel: meta('pnm-ads-purchase'), meta: meta('pnm-meta') });
 
-export const analyticsConfigured = (): boolean => { const i = ids(); return Boolean(i.gtm || i.ga || i.ads); };
+export const analyticsConfigured = (): boolean => { const i = ids(); return Boolean(i.gtm || i.ga || i.ads || i.meta); };
 export function storedConsent(): Consent {
   try { const v = localStorage.getItem(CONSENT_KEY); return v === 'granted' || v === 'denied' ? v : null; } catch { return null; }
 }
 
 let loaded = false;
+let metaLoaded = false;
+
+/** Pixel do Meta: sem coleta automática de botões e formulários (podem pegar placa, e-mail ou CPF). Só os eventos enviados por aqui. */
+function loadMeta(): void {
+  const id = ids().meta;
+  if (metaLoaded || !id) return;
+  metaLoaded = true;
+  if (!window.fbq) {
+    const q: unknown[] = [];
+    const f = function fbq(...args: unknown[]) { const self = f as unknown as { callMethod?: (...a: unknown[]) => void }; if (self.callMethod) self.callMethod(...args); else q.push(args); } as unknown as Fbq & { queue: unknown[]; loaded: boolean; version: string; push: Fbq };
+    f.queue = q; f.loaded = true; f.version = '2.0'; f.push = f;
+    window.fbq = f; if (!window._fbq) window._fbq = f;
+    const s = document.createElement('script');
+    s.async = true; s.src = 'https://connect.facebook.net/en_US/fbevents.js';
+    document.head.appendChild(s);
+  }
+  window.fbq('set', 'autoConfig', false, id);
+  window.fbq('init', id);
+}
+
+function metaTrack(name: string, params: Record<string, unknown> = {}, eventId?: string): void {
+  if (!window.fbq || storedConsent() !== 'granted') return;
+  if (eventId) window.fbq('track', name, params, { eventID: eventId });
+  else window.fbq('track', name, params);
+}
+
 function load(): void {
+  loadMeta();
   const { gtm, ga, ads } = ids();
   const first = gtm || ga || ads;
   if (loaded || !first) return;
@@ -47,7 +77,10 @@ function load(): void {
 export function setConsent(value: 'granted' | 'denied'): void {
   try { localStorage.setItem(CONSENT_KEY, value); } catch { /* sem armazenamento: vale só nesta visita */ }
   if (value === 'granted') { load(); pageView(window.location.pathname); }
-  else if (window.gtag) window.gtag('consent', 'update', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', analytics_storage: 'denied' });
+  else {
+    if (window.gtag) window.gtag('consent', 'update', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', analytics_storage: 'denied' });
+    if (window.fbq) window.fbq('consent', 'revoke');
+  }
 }
 
 /** Chamado uma vez ao abrir o app: se já havia aceite, carrega na hora. */
@@ -65,7 +98,9 @@ function emit(name: string, params: Record<string, unknown>): void {
 }
 
 export function pageView(pathname: string): void {
-  if (!window.gtag || storedConsent() !== 'granted') return;
+  if (storedConsent() !== 'granted') return;
+  metaTrack('PageView');
+  if (!window.gtag) return;
   const path = safePath(pathname);
   emit('page_view', { page_path: path, page_location: `${window.location.origin}${path}`, page_title: document.title });
 }
@@ -77,10 +112,13 @@ export function trackEvent(name: string, params: Record<string, string | number 
 
 /** Compra concluída: evento `purchase` do GA4 e, se houver rótulo, a conversão do Google Ads. */
 export function trackPurchase(opts: { id: string; valueCents?: number; item?: string }): void {
-  if (!window.gtag || storedConsent() !== 'granted') return;
+  if (storedConsent() !== 'granted' || (!window.gtag && !window.fbq)) return;
   const key = `pnm_purchase_${opts.id}`;
   try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch { /* segue */ }
   const value = opts.valueCents != null ? Math.round(opts.valueCents) / 100 : undefined;
+  // Meta: a compra só vai com valor. O código do pedido vai como eventID (serve para não contar de novo quando a API de Conversões entrar).
+  if (value != null) metaTrack('Purchase', { value, currency: 'BRL', content_type: 'product', ...(opts.item ? { content_ids: [opts.item] } : {}) }, opts.id);
+  if (!window.gtag) return;
   if (ids().gtm) {
     // GTM: a conversão do Google Ads e o evento do GA4 saem das tags do container, com estes dados do dataLayer.
     const dl = (window.dataLayer = window.dataLayer ?? []);
@@ -98,10 +136,17 @@ const MAP: Record<string, string> = {
   PLATE_CAPTURED: 'plate_search', FIPE_FORM_SUBMITTED: 'fipe_search', FIPE_RESULT_VIEWED: 'fipe_result', ACCOUNT_CREATED: 'sign_up',
   CHECKOUT_QUOTE_VIEWED: 'view_item', CHECKOUT_STARTED: 'begin_checkout', CTA_CLICKED: 'cta_click'
 };
+/** Mesmos eventos no Pixel do Meta (nomes padrão). O clique em botão (cta_click) fica só no Google. */
+const META_MAP: Record<string, string> = {
+  PLATE_CAPTURED: 'Search', FIPE_FORM_SUBMITTED: 'Search', FIPE_RESULT_VIEWED: 'ViewContent', ACCOUNT_CREATED: 'CompleteRegistration',
+  CHECKOUT_QUOTE_VIEWED: 'ViewContent', CHECKOUT_STARTED: 'InitiateCheckout'
+};
 export function mirrorFunnel(event: string, metadata: Record<string, unknown>): void {
-  const name = MAP[event]; if (!name) return;
+  const name = MAP[event]; const metaName = META_MAP[event];
+  if (!name && !metaName) return;
   const params: Record<string, string | number | boolean> = {};
   if (typeof metadata.amountCents === 'number') { params.value = metadata.amountCents / 100; params.currency = 'BRL'; }
   if (typeof metadata.placement === 'string') params.placement = metadata.placement.slice(0, 40);
-  trackEvent(name, params);
+  if (name) trackEvent(name, params);
+  if (metaName) metaTrack(metaName, typeof metadata.amountCents === 'number' ? { value: metadata.amountCents / 100, currency: 'BRL' } : {});
 }

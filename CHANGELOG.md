@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.68.3 — Pixel do Meta
+
+- **Pixel do Meta (Facebook e Instagram) por variável de ambiente** (`META_PIXEL_ID`, só o número do Pixel). Vazia por padrão: sem ela, o site continua exatamente como estava.
+- Carrega **só depois do aceite de cookies**, no mesmo aviso do Google. Quem recusa não carrega nada. Se o único código configurado for o do Meta, o aviso de cookies também aparece.
+- Eventos: `PageView` (caminho de cada página), `Search` (placa e FIPE digitadas), `ViewContent` (resultado da FIPE e cotação), `CompleteRegistration` (conta criada), `InitiateCheckout` (começou a pagar) e `Purchase` (compra, com valor em BRL).
+- O código do pedido vai como `eventID` da compra, para a API de Conversões (servidor) poder entrar depois sem contar em dobro.
+- Privacidade: a coleta automática de botões e formulários do Pixel fica desligada. Só vão nome do evento, valor, moeda e código do pedido. Nunca placa, documento, e-mail nem dados do proprietário. Ao recusar os cookies depois, o Pixel é revogado.
+- Com o GTM ligado, o Pixel entra direto pelo site; não crie outra tag do Meta dentro do GTM, senão o evento conta em dobro.
+- Política de segurança do servidor (CSP): com o Pixel ligado, liberados `connect.facebook.net` (script) e `www.facebook.com` (envio dos eventos). Sem o Pixel, a política não muda.
+- Política de privacidade e texto do aviso agora citam o Pixel do Meta.
+- A compra por saldo (carteira) ainda não envia `Purchase` ao Meta, porque a tela não tem o valor na volta do pagamento. Fica para a etapa da API de Conversões.
+- Sem migração.
+
 ## 1.68.2 — Google Tag Manager
 
 - **Google Tag Manager por variável de ambiente** (`GOOGLE_TAG_MANAGER_ID`, formato `GTM-XXXXXXX`). Vazia por padrão: sem ela, o site continua exatamente como estava (GA4 e Google Ads pelo gtag).
